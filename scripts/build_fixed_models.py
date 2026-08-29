@@ -86,6 +86,18 @@ def tensor_shape(value_info: onnx.ValueInfoProto) -> list[int | str | None]:
 
 def _add_metadata(model_path: Path, *, source: SourceModel, tile_size: int) -> None:
     model = onnx.load(model_path)
+    # The upstream exports contain stale intermediate/output annotations after
+    # their dynamic dimensions are fixed. Clear those annotations and infer
+    # them again from the now-static input; otherwise ONNX's strict checker
+    # compares the correct 2x/4x output against the old input-sized hint.
+    del model.graph.value_info[:]
+    if not model.graph.output:
+        raise ValueError("model has no graph output")
+    output_shape = model.graph.output[0].type.tensor_type.shape
+    del output_shape.dim[:]
+    for value in (1, 3, tile_size * source.scale, tile_size * source.scale):
+        dimension = output_shape.dim.add()
+        dimension.dim_value = value
     values = {
         "CACHE_KEY": f"{source.source_sha256[:32]}t{tile_size}",
         "mobile_sr.family": source.family,
@@ -100,6 +112,7 @@ def _add_metadata(model_path: Path, *, source: SourceModel, tile_size: int) -> N
         item = model.metadata_props.add()
         item.key = key
         item.value = value
+    model = onnx.shape_inference.infer_shapes(model, strict_mode=True)
     onnx.checker.check_model(model, full_check=True)
     onnx.save(model, model_path)
 
@@ -252,4 +265,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
