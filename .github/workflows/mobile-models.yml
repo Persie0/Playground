@@ -1,0 +1,110 @@
+name: Build mobile SR models
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mobile-models-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fixed-production-models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install build dependencies
+        run: python -m pip install --require-hashes=false -r requirements-ci.txt
+
+      - name: Test graph transformation
+        run: pytest -q tests/test_fixed_models.py
+
+      - name: Build fixed-shape FP32 models
+        run: python scripts/build_fixed_models.py --output dist --tile-size 128
+
+      - name: Check mobile execution-provider suitability
+        run: |
+          set -o pipefail
+          for model in dist/*.onnx; do
+            python -m onnxruntime.tools.check_onnx_model_mobile_usability "$model" \
+              | tee "${model%.onnx}.mobile-check.txt"
+          done
+
+      - name: Upload verified models
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-sr-static-t128
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish stable model release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view mobile-models-v1 >/dev/null 2>&1; then
+            gh release create mobile-models-v1 \
+              --target "$GITHUB_SHA" \
+              --title "Mobile SR models v1" \
+              --notes "Static FP32 mobile models. See provenance.json before redistribution."
+          fi
+          gh release upload mobile-models-v1 dist/* --clobber
+
+  span-candidate-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install training dependencies
+        run: python -m pip install --require-hashes=false -r requirements-train.txt
+
+      - name: Test SPAN-S and SPAN-M graphs
+        env:
+          PYTHONPATH: src
+        run: pytest -q tests/test_span.py
+
+      - name: Smoke train SPAN-S
+        env:
+          PYTHONPATH: src
+        run: |
+          python scripts/train_span.py \
+            --output checkpoints/span_s_x2_smoke.pt \
+            --scale 2 --channels 32 --blocks 4 --steps 2 --patch-size 32
+
+      - name: Export static smoke graph
+        env:
+          PYTHONPATH: src
+        run: |
+          python scripts/export_span.py \
+            --checkpoint checkpoints/span_s_x2_smoke.pt \
+            --output dist-candidate/span_s_x2_t128_smoke.onnx \
+            --scale 2 --channels 32 --blocks 4 --tile-size 128 \
+            --allow-smoke-checkpoint
+
+      - name: Upload non-production architecture candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: span-s-candidate-smoke
+          path: dist-candidate/
+          if-no-files-found: error
+          retention-days: 7
+

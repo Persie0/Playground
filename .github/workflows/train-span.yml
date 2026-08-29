@@ -1,0 +1,83 @@
+name: Train SPAN candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      scale:
+        description: Upscale factor
+        required: true
+        default: '2'
+        type: choice
+        options: ['2', '4']
+      steps:
+        description: Training steps
+        required: true
+        default: '100000'
+        type: string
+      dataset_url:
+        description: HTTPS URL to a licensed HR dataset archive
+        required: true
+        type: string
+      teacher_url:
+        description: Optional HTTPS teacher ONNX URL
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --require-hashes=false -r requirements-train.txt
+
+      - name: Download and unpack licensed training data
+        env:
+          DATASET_URL: ${{ inputs.dataset_url }}
+          TEACHER_URL: ${{ inputs.teacher_url }}
+        run: |
+          python - <<'PY'
+          import os, pathlib, shutil, urllib.request
+          url = os.environ['DATASET_URL']
+          if not url.startswith('https://'):
+              raise SystemExit('dataset_url must use HTTPS')
+          pathlib.Path('data').mkdir()
+          urllib.request.urlretrieve(url, 'data/dataset.zip')
+          shutil.unpack_archive('data/dataset.zip', 'data/hr')
+          teacher = os.environ.get('TEACHER_URL', '')
+          if teacher:
+              if not teacher.startswith('https://'):
+                  raise SystemExit('teacher_url must use HTTPS')
+              urllib.request.urlretrieve(teacher, 'data/teacher.onnx')
+          PY
+
+      - name: Train candidate
+        env:
+          PYTHONPATH: src
+        run: |
+          teacher_args=()
+          if [[ -f data/teacher.onnx ]]; then teacher_args=(--teacher data/teacher.onnx); fi
+          python scripts/train_span.py \
+            --dataset data/hr \
+            --output checkpoints/span_s_x${{ inputs.scale }}_candidate.pt \
+            --scale '${{ inputs.scale }}' --channels 32 --blocks 4 \
+            --steps '${{ inputs.steps }}' "${teacher_args[@]}"
+
+      - name: Upload candidate checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: span-s-x${{ inputs.scale }}-candidate
+          path: checkpoints/
+          if-no-files-found: error
+          retention-days: 30
+
