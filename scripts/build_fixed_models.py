@@ -53,7 +53,7 @@ SOURCES = (
         scale=4,
         family="SPAN",
         display_name="Anime 4x Mobile",
-        is_pro=True,
+        is_pro=False,
     ),
 )
 
