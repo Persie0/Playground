@@ -39,7 +39,7 @@ jobs:
           set -o pipefail
           for model in dist/*.onnx; do
             python -m onnxruntime.tools.check_onnx_model_mobile_usability "$model" \
-              | tee "${model%.onnx}.mobile-check.txt"
+              2>&1 | tee "${model%.onnx}.mobile-check.txt"
           done
 
       - name: Upload verified models
@@ -61,7 +61,7 @@ jobs:
               --title "Mobile SR models v1" \
               --notes "Static FP32 mobile models. See provenance.json before redistribution."
           fi
-          gh release upload mobile-models-v1 dist/* --clobber
+          gh release upload mobile-models-v1 dist/*.onnx dist/*.json --clobber
 
   span-candidate-smoke:
     runs-on: ubuntu-latest

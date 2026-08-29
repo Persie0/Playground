@@ -186,8 +186,8 @@ def build_fixed_model(
         "name": f"{source.id}_t{tile_size}_fp32",
         "displayName": source.display_name,
         "description": (
-            f"Static {tile_size}px FP32 {source.family} graph for full NNAPI/Core ML "
-            "delegation with XNNPACK fallback."
+            f"Static {tile_size}px FP32 {source.family} graph with a single NNAPI/Core ML "
+            "accelerator partition and XNNPACK fallback."
         ),
         "filename": output.name,
         "sizeMB": round(output.stat().st_size / 1_000_000, 3),
