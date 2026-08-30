@@ -56,6 +56,114 @@ SOURCES = (
         is_pro=False,
     ),
     SourceModel(
+        id="anime2xhigh",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/anime2xhigh.onnx"
+        ),
+        source_sha256="f6674c7f9129311fbf4cb524136625dc16a1d420e5ed568c88722c31522d4366",
+        scale=2,
+        family="RRDB",
+        display_name="Anime 2x High Static",
+        is_pro=False,
+    ),
+    SourceModel(
+        id="anime2xlow",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/anime2xlow.onnx"
+        ),
+        source_sha256="9c0bd7c64dba41b8cfd9073ae6903356f4eb4ad5a2ff649b31e031e01ede6811",
+        scale=2,
+        family="MoSR",
+        display_name="Anime 2x Low Static",
+        is_pro=False,
+    ),
+    SourceModel(
+        id="anime4xhigh",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/anime4xhigh.onnx"
+        ),
+        source_sha256="73317c6531ecf0bdd05b01ecd3e95fffcd374f8badf3dbc8889c13a870bd715a",
+        scale=4,
+        family="TransformerSR",
+        display_name="Anime 4x High Static",
+        is_pro=True,
+    ),
+    SourceModel(
+        id="art4xhigh",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/art4xhigh.onnx"
+        ),
+        source_sha256="d1eced9f67b00f2e8202ed7e2e8fe7aa8f700368e74046caf4fe2d4c59128bce",
+        scale=4,
+        family="PLKSR",
+        display_name="Art 4x High Static",
+        is_pro=True,
+    ),
+    SourceModel(
+        id="general2xhigh",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/general2xhigh.onnx"
+        ),
+        source_sha256="1ccfc3bcca6487a56aac3991f12816b68f0902d64ad2bd693f4149e6425fb8f8",
+        scale=2,
+        family="PLKSR",
+        display_name="General 2x High Static",
+        is_pro=False,
+    ),
+    SourceModel(
+        id="general4xhigh",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/general4xhigh.onnx"
+        ),
+        source_sha256="21905712a7963b95bc7e6e0b506e2fc6f353742fa7bc3ccdb81c0ad47744cc8b",
+        scale=4,
+        family="RRDB",
+        display_name="General 4x High Static",
+        is_pro=True,
+    ),
+    SourceModel(
+        id="general4xlow",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/general4xlow.onnx"
+        ),
+        source_sha256="f31fde6bd0e3475759aa5677d37b43b4e660d75e3629cd096bbc590feb746808",
+        scale=4,
+        family="MoSR",
+        display_name="General 4x Low Static",
+        is_pro=False,
+    ),
+    SourceModel(
+        id="dncnn",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/dncnn.onnx"
+        ),
+        source_sha256="fa7a85412634b30e078299aafc9a9d4074358f1a5abcd8f17a8355715a258c51",
+        scale=1,
+        family="DnCNN",
+        display_name="DnCNN Static",
+        is_pro=True,
+    ),
+    SourceModel(
+        id="text2xhigh",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/text2xhigh.onnx"
+        ),
+        source_sha256="c35d9932715a659d40f095dfefc0f1c9ee7182d045217a9cf4522ef548c5fbc5",
+        scale=2,
+        family="PLKSR",
+        display_name="Text 2x High Static",
+        is_pro=False,
+    ),
+    SourceModel(
         id="denoise",
         source_url=(
             "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
