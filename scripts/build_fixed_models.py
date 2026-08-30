@@ -55,6 +55,66 @@ SOURCES = (
         display_name="Anime 4x Mobile",
         is_pro=False,
     ),
+    SourceModel(
+        id="denoise",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/denoise.onnx"
+        ),
+        source_sha256="b3c736d1c1830f7c57b07afef43846e1422d048b3478b9cf7d9546c5a895f8d1",
+        scale=1,
+        family="RestorationCNN",
+        display_name="Denoise Mobile",
+        is_pro=False,
+    ),
+    SourceModel(
+        id="lowlight",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/lowlight.onnx"
+        ),
+        source_sha256="35d0b96f3ffd0e2200cc3cd48f848a6fa3fe45600b166ec12a08c6a1a8c5578c",
+        scale=1,
+        family="RestorationCNN",
+        display_name="Low Light Mobile",
+        is_pro=True,
+    ),
+    SourceModel(
+        id="retouche",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/retouche.onnx"
+        ),
+        source_sha256="bb99baccaddf0e4f8189897a63631c4bb643649f4d8cd1969be9a10127c17c5c",
+        scale=1,
+        family="RestorationCNN",
+        display_name="Retouch Mobile",
+        is_pro=False,
+    ),
+    SourceModel(
+        id="text2xlow",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/text2xlow.onnx"
+        ),
+        source_sha256="bf0e8c5595738d907215e5cec013f03894ff304360b48a3aed3a9da19f6a2160",
+        scale=2,
+        family="SRVGG",
+        display_name="Text 2x Mobile",
+        is_pro=False,
+    ),
+    SourceModel(
+        id="text4xlow",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/text4xlow.onnx"
+        ),
+        source_sha256="5ebdc26289893b9b467aeb1dfd3f87a54b1f900f040bd7f4095fc14b97c3b992",
+        scale=4,
+        family="CompactSR",
+        display_name="Text 4x Mobile",
+        is_pro=False,
+    ),
 )
 
 
@@ -186,8 +246,8 @@ def build_fixed_model(
         "name": f"{source.id}_t{tile_size}_fp32",
         "displayName": source.display_name,
         "description": (
-            f"Static {tile_size}px FP32 {source.family} graph with a single NNAPI/Core ML "
-            "accelerator partition and XNNPACK fallback."
+            f"Static {tile_size}px FP32 {source.family} graph optimized for NNAPI/Core ML "
+            "delegation with XNNPACK fallback."
         ),
         "filename": output.name,
         "sizeMB": round(output.stat().st_size / 1_000_000, 3),
