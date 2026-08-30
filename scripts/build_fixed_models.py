@@ -240,6 +240,18 @@ SOURCES = (
 )
 
 
+ACCELERATOR_OPTIMIZED_IDS = frozenset(
+    {
+        "anime4xlow",
+        "general2xlow",
+        "denoise",
+        "lowlight",
+        "retouche",
+        "text2xlow",
+    }
+)
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -368,8 +380,15 @@ def build_fixed_model(
         "name": f"{source.id}_t{tile_size}_fp32",
         "displayName": source.display_name,
         "description": (
-            f"Static {tile_size}px FP32 {source.family} graph optimized for NNAPI/Core ML "
-            "delegation with XNNPACK fallback."
+            (
+                f"Static {tile_size}px FP32 {source.family} graph optimized for "
+                "NNAPI/Core ML delegation with XNNPACK fallback."
+            )
+            if source.id in ACCELERATOR_OPTIMIZED_IDS
+            else (
+                f"Static {tile_size}px FP32 {source.family} quality graph. "
+                "Use XNNPACK/CPU because mobile accelerator partitioning is not recommended."
+            )
         ),
         "filename": output.name,
         "sizeMB": round(output.stat().st_size / 1_000_000, 3),
@@ -380,7 +399,7 @@ def build_fixed_model(
         "scale": source.scale,
         "staticTileSize": tile_size,
         "precision": "fp32",
-        "acceleratorOptimized": True,
+        "acceleratorOptimized": source.id in ACCELERATOR_OPTIMIZED_IDS,
         "sourceUrl": source.source_url,
         "sourceSha256": source.source_sha256,
         "parity": parity,
