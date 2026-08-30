@@ -28,6 +28,7 @@ class SourceModel:
     family: str
     display_name: str
     is_pro: bool
+    tile_size: int | None = None
 
 
 SOURCES = (
@@ -162,6 +163,19 @@ SOURCES = (
         family="PLKSR",
         display_name="Text 2x High Static",
         is_pro=False,
+    ),
+    SourceModel(
+        id="GFPGANv1.4",
+        source_url=(
+            "https://github.com/neuralfulailtd/OnnxModel/releases/download/"
+            "v1.0.0/GFPGANv1.4.onnx"
+        ),
+        source_sha256="cd7311b8d9e13cdb1e208b12363182da58c7bf45e26d1aa67bbeac4751aae92e",
+        scale=1,
+        family="GFPGAN",
+        display_name="Face Restoration Static",
+        is_pro=True,
+        tile_size=512,
     ),
     SourceModel(
         id="denoise",
@@ -406,11 +420,12 @@ def main() -> None:
                 raise ValueError(
                     f"source hash mismatch for {source.id}: {actual_source_hash}"
                 )
-            output = args.output / f"{source.id}_t{args.tile_size}_fp32.onnx"
+            effective_tile_size = source.tile_size or args.tile_size
+            output = args.output / f"{source.id}_t{effective_tile_size}_fp32.onnx"
             entry = build_fixed_model(
                 original,
                 output,
-                tile_size=args.tile_size,
+                tile_size=effective_tile_size,
                 source=source,
             )
             entry["downloadUrl"] = f"{args.release_base_url}/{output.name}"
