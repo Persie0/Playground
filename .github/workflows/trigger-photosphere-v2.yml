@@ -1,0 +1,25 @@
+name: Trigger Photosphere CI v2
+
+on:
+  push:
+    branches: [photosphere-ci-v2]
+    paths:
+      - '.github/workflows/photosphere-private-ci.yml'
+      - '.github/workflows/trigger-photosphere-v2.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch expanded Photosphere workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run photosphere-private-ci.yml \
+            --repo Persie0/Playground \
+            --ref photosphere-ci-v2 \
+            -f ref=audit/code-hardening-3
