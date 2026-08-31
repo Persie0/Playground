@@ -1,0 +1,94 @@
+name: Photosphere XFeat native runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-xfeat-native-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  xfeat-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout private Photosphere
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Photosphere-
+          ref: audit/code-hardening-3
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+      - name: Export official XFeat against OpenCV 4.13
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet torch onnx numpy 'opencv-python-headless==4.13.0.92'
+          rm -f assets/models/xfeat_backbone.onnx assets/models/xfeat_backbone.provenance.json
+          python3 tool/export_xfeat.py --output assets/models/xfeat_backbone.onnx
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          meta = json.loads(Path('assets/models/xfeat_backbone.provenance.json').read_text())
+          smoke = meta['opencvSmokeTest']
+          assert smoke['opencv'].startswith('4.13.'), smoke
+          assert smoke['shapes'] == [[1,64,80,80],[1,65,80,80],[1,1,80,80]], smoke
+          print(smoke)
+          PY
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Add temporary Dart XFeat runtime test
+        run: |
+          cat > test/xfeat_export_runtime_test.dart <<'DART'
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:opencv_dart/opencv.dart' as cv;
+          import 'package:photosphere/src/services/xfeat_matcher.dart';
+
+          void main() {
+            TestWidgetsFlutterBinding.ensureInitialized();
+
+            test('exported XFeat runs through dartcv OpenCV DNN', () async {
+              XFeatFeatureMatcher.resetShared();
+              final matcher = await XFeatFeatureMatcher.shared();
+              expect(matcher, isNotNull);
+
+              const rows = 192;
+              const cols = 256;
+              final pixels = List<int>.generate(
+                rows * cols * 3,
+                (i) => (i * 37 + (i ~/ 97) * 11 + (i ~/ (cols * 3)) * 17) & 0xff,
+                growable: false,
+              );
+              final image = cv.Mat.fromList(
+                rows,
+                cols,
+                cv.MatType.CV_8UC3,
+                pixels,
+              );
+              try {
+                final features = await matcher!.extract(image);
+                try {
+                  expect(features.points.length, greaterThan(24));
+                  expect(features.descriptors.rows, features.points.length);
+                  expect(features.descriptors.cols, 64);
+                } finally {
+                  features.dispose();
+                }
+
+                final matches = await matcher.match(image, image);
+                expect(matches, isNotNull);
+                expect(matches!.length, greaterThanOrEqualTo(18));
+              } finally {
+                image.dispose();
+                XFeatFeatureMatcher.resetShared();
+              }
+            });
+          }
+          DART
+          flutter pub get
+      - name: Run Dart/OpenCV XFeat test
+        run: flutter test test/xfeat_export_runtime_test.dart --reporter expanded
