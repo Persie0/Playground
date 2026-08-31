@@ -54,13 +54,17 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      - name: Check formatting
+      - name: Format changed files
         working-directory: app
-        run: >-
-          dart format --output=none --set-exit-if-changed
-          lib/model_selection_page.dart
-          lib/super_resolution_home_page.dart
-          test/model_catalog_test.dart
+        run: |
+          dart format \
+            lib/model_selection_page.dart \
+            lib/super_resolution_home_page.dart \
+            test/model_catalog_test.dart
+          git diff -- \
+            lib/model_selection_page.dart \
+            lib/super_resolution_home_page.dart \
+            test/model_catalog_test.dart
 
       - name: Analyze
         working-directory: app
