@@ -1,0 +1,53 @@
+name: Photosphere analyzer lint autofix
+
+on:
+  push:
+    branches: [photosphere-ci-v2]
+    paths:
+      - '.github/workflows/photosphere-autofix-lints.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout Photosphere source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Photosphere-
+          ref: audit/code-hardening-3
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          persist-credentials: true
+          path: private-app
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Resolve dependencies and apply analyzer fixes
+        working-directory: private-app
+        run: |
+          flutter pub get
+          dart fix --apply
+          dart format lib test tool
+      - name: Commit and push lint fixes
+        working-directory: private-app
+        shell: bash
+        run: |
+          git config user.name 'photosphere-ci-fix'
+          git config user.email 'actions@users.noreply.github.com'
+          git add lib test tool
+          if ! git diff --cached --quiet; then
+            git commit -m 'Apply analyzer-safe lint fixes'
+            git push origin HEAD:audit/code-hardening-3
+          fi
+      - name: Analyze
+        working-directory: private-app
+        run: flutter analyze
+      - name: Test
+        working-directory: private-app
+        run: flutter test
