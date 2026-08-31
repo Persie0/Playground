@@ -17,10 +17,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: 3dimageapp-private-${{ github.ref }}-${{ inputs.ref || 'main' }}
-  cancel-in-progress: true
-
 env:
   APP_REPOSITORY: Persie0/3dimageapp
   APP_REF: ${{ inputs.ref || 'main' }}
@@ -83,12 +79,12 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
-      - name: Build and lint Android privately
+      - name: Build, test and lint Android privately
         run: bash 3dimageapp/test-android.sh private-app
 
   ios:
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Validate private checkout token
@@ -109,5 +105,5 @@ jobs:
           path: private-app
       - name: Install XcodeGen
         run: brew install xcodegen >/dev/null
-      - name: Build iOS Debug + Release privately
+      - name: Test logic and build iOS privately
         run: bash 3dimageapp/test-ios.sh private-app
