@@ -1,0 +1,276 @@
+name: Photosphere private full CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch/tag/SHA in Persie0/Photosphere-
+        required: true
+        default: audit/code-hardening-3
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-private-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: photosphere-private-${{ github.ref }}-${{ inputs.ref || 'audit/code-hardening-3' }}
+  cancel-in-progress: true
+
+env:
+  APP_REPOSITORY: Persie0/Photosphere-
+  APP_REF: ${{ inputs.ref || 'audit/code-hardening-3' }}
+
+jobs:
+  static-and-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN or GH_TOKEN with Contents: read on Persie0/Photosphere-."
+            exit 2
+          fi
+      - name: Checkout private Photosphere
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-app
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Generate runners and dependencies
+        working-directory: private-app
+        run: |
+          flutter --version
+          flutter create --platforms=android,ios --org com.persie --no-pub .
+          dart run tool/configure_platforms.dart
+          flutter pub get
+      - name: Verify generated native bridges and identifiers
+        working-directory: private-app
+        run: |
+          grep -q 'applicationId = "com.persie.photosphere"' android/app/build.gradle.kts
+          grep -q 'PRODUCT_BUNDLE_IDENTIFIER = com.persie.photosphere;' ios/Runner.xcodeproj/project.pbxproj
+          grep -q 'photosphere/orientation' ios/Runner/AppDelegate.swift
+          grep -q 'photosphere/depth_capture' ios/Runner/AppDelegate.swift
+          grep -q 'configureDepthFormat' ios/Runner/AppDelegate.swift
+          grep -R -q 'class DepthCaptureBridge' android/app/src/main/kotlin
+          grep -R -q 'TYPE_GAME_ROTATION_VECTOR' android/app/src/main/kotlin
+      - name: Formatting, analyzer and unit tests
+        working-directory: private-app
+        run: |
+          dart format --output=none --set-exit-if-changed lib test tool
+          flutter analyze
+          flutter test --reporter expanded
+      - name: Tool syntax checks
+        working-directory: private-app
+        run: |
+          python3 -m py_compile tool/export_xfeat.py tool/benchmark_quality.py
+          bash -n tool/bootstrap.sh tool/verify.sh
+
+  xfeat-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout private Photosphere
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-app
+      - name: Install XFeat exporter dependencies
+        run: python3 -m pip install --disable-pip-version-check --quiet torch onnx numpy opencv-python-headless
+      - name: Export official XFeat and smoke-test OpenCV DNN
+        working-directory: private-app
+        run: |
+          rm -f assets/models/xfeat_backbone.onnx assets/models/xfeat_backbone.json
+          python3 tool/export_xfeat.py --output assets/models/xfeat_backbone.onnx
+          test -s assets/models/xfeat_backbone.onnx
+          test -s assets/models/xfeat_backbone.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          meta = json.loads(Path('assets/models/xfeat_backbone.json').read_text())
+          assert meta['source_commit'] == 'e92685f57f8318b18725c5c8c0bd28c7fe188d9a'
+          assert len(meta['sha256']) == 64
+          smoke = meta.get('opencv_smoke_test')
+          assert smoke != 'not-run', smoke
+          print('XFeat export/OpenCV smoke:', smoke)
+          PY
+
+  android-build-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout private Photosphere
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-app
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Generate Android/iOS runners
+        working-directory: private-app
+        run: |
+          flutter create --platforms=android,ios --org com.persie --no-pub .
+          dart run tool/configure_platforms.dart
+          flutter pub get
+      - name: Build Android debug, release APK and release bundle
+        working-directory: private-app
+        run: |
+          flutter build apk --debug
+          flutter build apk --release
+          flutter build appbundle --release
+      - name: Add temporary device smoke test
+        working-directory: private-app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('pubspec.yaml')
+          s = p.read_text()
+          marker = 'dev_dependencies:\n'
+          assert marker in s
+          s = s.replace(marker, 'dev_dependencies:\n  integration_test:\n    sdk: flutter\n', 1)
+          p.write_text(s)
+          Path('integration_test').mkdir(exist_ok=True)
+          Path('integration_test/app_smoke_test.dart').write_text(r'''import 'package:flutter_test/flutter_test.dart';
+          import 'package:integration_test/integration_test.dart';
+          import 'package:photosphere/main.dart' as app;
+
+          void main() {
+            IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+            testWidgets('Photosphere launches home UI', (tester) async {
+              await app.main();
+              await tester.pumpAndSettle();
+              expect(find.text('Photosphere'), findsOneWidget);
+              expect(find.text('Guided 360° capture'), findsOneWidget);
+              expect(find.text('Import overlapping photos'), findsOneWidget);
+              expect(find.text('Create photosphere'), findsOneWidget);
+            });
+          }
+          ''')
+          PY
+          flutter pub get
+      - name: Android emulator home-screen smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: cd private-app && flutter test integration_test/app_smoke_test.dart -d emulator-5554 --reporter expanded
+
+  ios-build-and-smoke:
+    runs-on: macos-15
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout private Photosphere
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-app
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Generate Android/iOS runners
+        working-directory: private-app
+        run: |
+          flutter create --platforms=android,ios --org com.persie --no-pub .
+          dart run tool/configure_platforms.dart
+          flutter pub get
+      - name: Build iOS debug and release without signing
+        working-directory: private-app
+        run: |
+          flutter build ios --debug --no-codesign
+          flutter build ios --release --no-codesign
+      - name: Add temporary simulator smoke test
+        working-directory: private-app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('pubspec.yaml')
+          s = p.read_text()
+          marker = 'dev_dependencies:\n'
+          assert marker in s
+          s = s.replace(marker, 'dev_dependencies:\n  integration_test:\n    sdk: flutter\n', 1)
+          p.write_text(s)
+          Path('integration_test').mkdir(exist_ok=True)
+          Path('integration_test/app_smoke_test.dart').write_text(r'''import 'package:flutter_test/flutter_test.dart';
+          import 'package:integration_test/integration_test.dart';
+          import 'package:photosphere/main.dart' as app;
+
+          void main() {
+            IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+            testWidgets('Photosphere launches home UI', (tester) async {
+              await app.main();
+              await tester.pumpAndSettle();
+              expect(find.text('Photosphere'), findsOneWidget);
+              expect(find.text('Guided 360° capture'), findsOneWidget);
+              expect(find.text('Import overlapping photos'), findsOneWidget);
+              expect(find.text('Create photosphere'), findsOneWidget);
+            });
+          }
+          ''')
+          PY
+          flutter pub get
+      - name: Boot iOS simulator
+        id: simulator
+        shell: bash
+        run: |
+          UDID=$(python3 - <<'PY'
+          import json, subprocess
+          data = json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','-j']))
+          candidates=[]
+          for runtime, devices in data['devices'].items():
+              if 'iOS' not in runtime:
+                  continue
+              for d in devices:
+                  if d.get('isAvailable') and d.get('name','').startswith('iPhone'):
+                      candidates.append(d)
+          if not candidates:
+              raise SystemExit('No available iPhone simulator')
+          print(candidates[0]['udid'])
+          PY
+          )
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+      - name: iOS simulator home-screen smoke
+        working-directory: private-app
+        run: flutter test integration_test/app_smoke_test.dart -d '${{ steps.simulator.outputs.udid }}' --reporter expanded
