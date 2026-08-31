@@ -19,7 +19,7 @@ permissions:
 
 env:
   APP_REPOSITORY: Persie0/image_enhancer
-  APP_REF: ${{ inputs.ref || '6ab8e98e5bb7e7c8d64565d3ceb6827ae31d8754' }}
+  APP_REF: ${{ inputs.ref || 'c469ce1847ad4e7df5ad724bf0173091ba393feb' }}
 
 jobs:
   verify:
@@ -58,18 +58,24 @@ jobs:
         working-directory: app
         run: |
           dart format \
-            lib/model_selection_page.dart \
             lib/super_resolution_home_page.dart \
-            test/model_catalog_test.dart
+            lib/utils/image_safety.dart \
+            test/image_safety_test.dart \
+            test/selection_mode_test.dart
           git diff -- \
-            lib/model_selection_page.dart \
             lib/super_resolution_home_page.dart \
-            test/model_catalog_test.dart
+            lib/utils/image_safety.dart \
+            test/image_safety_test.dart \
+            test/selection_mode_test.dart
 
       - name: Analyze
         working-directory: app
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: Test model catalog
+      - name: Test changed behavior
         working-directory: app
-        run: flutter test test/model_catalog_test.dart
+        run: >-
+          flutter test
+          test/model_catalog_test.dart
+          test/image_safety_test.dart
+          test/selection_mode_test.dart
