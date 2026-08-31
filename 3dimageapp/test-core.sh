@@ -18,7 +18,16 @@ quiet_run "shared core configure (ASan/UBSan)" \
   -DSCENE3D_BUILD_TESTS=ON -DSCENE3D_ENABLE_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug
 quiet_run "shared core build (ASan/UBSan)" \
   cmake --build "$RUNNER_TEMP/scene3d-sanitize" --parallel
-ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
-UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=0 \
-  quiet_run "shared core tests (ASan/UBSan)" \
-  ctest --test-dir "$RUNNER_TEMP/scene3d-sanitize" --output-on-failure
+
+run_sanitized_test() {
+  local label="$1"
+  local regex="$2"
+  ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+  UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=0 \
+    quiet_run "$label" \
+    ctest --test-dir "$RUNNER_TEMP/scene3d-sanitize" -R "$regex" --output-on-failure
+}
+
+run_sanitized_test "sanitizer reconstruction-core test" '^scene3d_core_test$'
+run_sanitized_test "sanitizer sparse-TSDF test" '^scene3d_sparse_tsdf_test$'
+run_sanitized_test "sanitizer GLB-export test" '^scene3d_glb_export_test$'
