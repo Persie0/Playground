@@ -1,0 +1,170 @@
+name: Photosphere compatibility autofix
+
+on:
+  push:
+    branches: [photosphere-ci-v2]
+    paths:
+      - '.github/workflows/photosphere-autofix.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout Photosphere source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Photosphere-
+          ref: audit/code-hardening-3
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          persist-credentials: true
+          path: private-app
+
+      - name: Apply dartcv4 2.3 compatibility migration
+        working-directory: private-app
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          services = Path('lib/src/services')
+          homography_files = {
+              'advanced_photosphere_engine.dart',
+              'photosphere_engine.dart',
+              'sift_graph_rescue.dart',
+              'local_residual_warp.dart',
+              'motion_registration_masks.dart',
+              'hybrid_local_warp.dart',
+          }
+
+          def add_import(text, import_line):
+              if import_line in text:
+                  return text
+              package_matches = list(re.finditer(r"^import 'package:[^\n]+;\n", text, re.M))
+              if package_matches:
+                  pos = package_matches[-1].end()
+                  return text[:pos] + '\n' + import_line + '\n' + text[pos:]
+              imports = list(re.finditer(r"^import [^\n]+;\n", text, re.M))
+              pos = imports[-1].end() if imports else 0
+              return text[:pos] + import_line + '\n' + text[pos:]
+
+          def wrap_depth_constants_in_mat_calls(text):
+              call_names = (
+                  'cv.Mat.fromList(', 'cv.Mat.from2DList(', 'cv.Mat.from3DList(',
+                  'cv.Mat.zeros(', 'cv.Mat.ones(', 'cv.Mat.eye(',
+                  'cv.Mat.randu(', 'cv.Mat.randn(', 'cv.Mat.fromScalar(',
+              )
+              for marker in call_names:
+                  offset = 0
+                  while True:
+                      start = text.find(marker, offset)
+                      if start < 0:
+                          break
+                      open_pos = start + len(marker) - 1
+                      depth = 0
+                      quote = None
+                      escaped = False
+                      end = None
+                      for i in range(open_pos, len(text)):
+                          ch = text[i]
+                          if quote:
+                              if escaped:
+                                  escaped = False
+                              elif ch == '\\':
+                                  escaped = True
+                              elif ch == quote:
+                                  quote = None
+                              continue
+                          if ch in "'\"":
+                              quote = ch
+                          elif ch == '(':
+                              depth += 1
+                          elif ch == ')':
+                              depth -= 1
+                              if depth == 0:
+                                  end = i + 1
+                                  break
+                      if end is None:
+                          break
+                      segment = text[start:end]
+                      segment = re.sub(
+                          r'(?<!MatType\()cv\.MatType\.(CV_(?:32F|64F))(?!\))',
+                          r'cv.MatType(cv.MatType.\1)',
+                          segment,
+                      )
+                      text = text[:start] + segment + text[end:]
+                      offset = start + len(segment)
+              return text
+
+          changed = []
+          for path in sorted(services.glob('*.dart')):
+              original = path.read_text()
+              text = original
+
+              if 'math.hypot(' in text:
+                  text = text.replace('math.hypot(', '_compatHypot(')
+                  if 'double _compatHypot(num x, num y)' not in text:
+                      text = text.rstrip() + "\n\ndouble _compatHypot(num x, num y) {\n  final dx = x.toDouble();\n  final dy = y.toDouble();\n  return math.sqrt(dx * dx + dy * dy);\n}\n"
+
+              if path.name in homography_files:
+                  text = add_import(text, "import 'cv_compat.dart';")
+                  text = text.replace('cv.findHomographyAsync(', 'findHomographyAsyncCompat(')
+
+              text = re.sub(
+                  r'for \(final point in matches\.(points[AB])\) \(point\.x, point\.y\),',
+                  r'for (final point in matches.\1) cv.Point2f(point.x, point.y),',
+                  text,
+              )
+
+              text = wrap_depth_constants_in_mat_calls(text)
+
+              if path.name == 'sift_graph_rescue.dart':
+                  text = add_import(text, "import '../models/stitch_profile.dart';")
+
+              if text != original:
+                  path.write_text(text)
+                  changed.append(str(path))
+
+          print('Changed files:')
+          print('\n'.join(changed))
+
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Format source
+        working-directory: private-app
+        run: dart format lib test tool
+
+      - name: Commit and push compatibility fixes
+        working-directory: private-app
+        shell: bash
+        run: |
+          git config user.name 'photosphere-ci-fix'
+          git config user.email 'actions@users.noreply.github.com'
+          git add lib test tool
+          if git diff --cached --quiet; then
+            echo 'No source changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Fix dartcv4 2.3 API compatibility'
+          git push origin HEAD:audit/code-hardening-3
+
+      - name: Resolve dependencies
+        working-directory: private-app
+        run: flutter pub get
+
+      - name: Analyze migrated source
+        working-directory: private-app
+        run: flutter analyze
+
+      - name: Run unit tests
+        working-directory: private-app
+        run: flutter test
