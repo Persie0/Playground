@@ -5,8 +5,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/ci-common.sh"
 require_private_tree "$SRC"
 
-quiet_run "iOS production keyframe logic" \
-  bash -lc "xcrun swiftc '$SRC/ios/Scene3D/KeyframeSelector.swift' '$SRC/ios/LogicTests/main.swift' -o '$RUNNER_TEMP/scene3d-ios-logic' && '$RUNNER_TEMP/scene3d-ios-logic'"
+quiet_run "iOS keyframe logic compile" \
+  xcrun swiftc "$SRC/ios/Scene3D/KeyframeSelector.swift" \
+  "$SRC/ios/LogicTests/main.swift" -o "$RUNNER_TEMP/scene3d-ios-logic"
+quiet_run "iOS keyframe behavior" \
+  "$RUNNER_TEMP/scene3d-ios-logic"
 quiet_run "XcodeGen project generation" \
   bash -lc "cd '$SRC/ios' && xcodegen generate"
 quiet_run "iOS Debug simulator build" \
