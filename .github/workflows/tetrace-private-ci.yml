@@ -1,0 +1,65 @@
+name: Tetrace private CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch/tag/SHA in Persie0/tetrace_godot4
+        required: true
+        default: fix/full-audit-20260831
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tetrace-private-ci.yml'
+      - 'tetrace-ci/**'
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/tetrace_godot4
+  APP_REF: ${{ inputs.ref || 'fix/full-audit-20260831' }}
+
+jobs:
+  godot-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN (Contents: read on Persie0/tetrace_godot4)."
+            exit 2
+          fi
+
+      - name: Checkout private Tetrace branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: tetrace
+
+      - name: Set up Godot 4.7.2
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.7.2
+          use-dotnet: false
+          include-templates: false
+
+      - name: Verify Godot install
+        run: godot --version
+
+      - name: Import project and build script class cache
+        working-directory: tetrace
+        run: godot --headless --editor --path . --quit
+
+      - name: Run all gameplay and release regression tests
+        working-directory: tetrace
+        run: godot --headless --path . --script tests/run_all_tests.gd
