@@ -1,0 +1,152 @@
+name: Traffic counting private CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch/tag/SHA in Persie0/traffic-counting-light-main
+        required: true
+        default: agent/intersection-analytics-foundation
+        type: string
+  pull_request:
+    paths:
+      - 'traffic-counting-light/**'
+      - '.github/workflows/traffic-counting-private-ci.yml'
+
+permissions:
+  contents: read
+
+env:
+  PROJECT_REPOSITORY: Persie0/traffic-counting-light-main
+  PROJECT_REF: ${{ inputs.ref || 'agent/intersection-analytics-foundation' }}
+
+jobs:
+  baseline:
+    name: Baseline Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN with Contents: read on Persie0/traffic-counting-light-main."
+            exit 2
+          fi
+      - name: Checkout private project
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PROJECT_REPOSITORY }}
+          ref: ${{ env.PROJECT_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-project
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v6
+      - name: Run private baseline suite
+        run: bash traffic-counting-light/run-baseline.sh private-project
+
+  scientific-contracts:
+    name: Scientific correctness contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN with Contents: read on Persie0/traffic-counting-light-main."
+            exit 2
+          fi
+      - name: Checkout private project
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PROJECT_REPOSITORY }}
+          ref: ${{ env.PROJECT_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-project
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Install analytics packages
+        run: |
+          uv venv .audit-venv --python 3.12
+          source .audit-venv/bin/activate
+          uv pip install --quiet \
+            -e private-project/intersection_analytics \
+            -e private-project/analyzer \
+            pyyaml
+      - name: Run adversarial scientific contracts
+        run: |
+          source .audit-venv/bin/activate
+          python traffic-counting-light/audit_contracts.py
+
+  package-smoke:
+    name: Package and example smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN with Contents: read on Persie0/traffic-counting-light-main."
+            exit 2
+          fi
+      - name: Checkout private project
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PROJECT_REPOSITORY }}
+          ref: ${{ env.PROJECT_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-project
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Build packages and run executable examples
+        run: bash traffic-counting-light/run-smoke.sh private-project
+
+  recorder-install-smoke:
+    name: Full recorder dependency/import smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN with Contents: read on Persie0/traffic-counting-light-main."
+            exit 2
+          fi
+      - name: Checkout private project
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PROJECT_REPOSITORY }}
+          ref: ${{ env.PROJECT_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-project
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Resolve and import the complete recorder environment
+        run: bash traffic-counting-light/run-recorder-install-smoke.sh private-project
