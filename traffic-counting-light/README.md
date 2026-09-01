@@ -13,6 +13,8 @@ dispatched against any branch, tag, or commit SHA.
   unit suites on Python 3.11, 3.12, and 3.13;
 - Python compilation, YAML/TOML parsing, and dashboard JavaScript syntax;
 - wheel builds and the pose/sensor calibration executable examples;
+- complete recorder dependency resolution plus NCNN/OpenCV/BoxMOT import
+  compatibility;
 - adversarial scientific contracts that are intentionally independent of the
   private repository's own tests.
 
@@ -37,4 +39,3 @@ artifacts.
 `PRIVATE_REPO_TOKEN` needs read-only **Contents** access to
 `Persie0/traffic-counting-light-main`. An existing `GH_TOKEN` with the same
 scope is accepted as a fallback.
-
