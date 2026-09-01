@@ -122,3 +122,31 @@ jobs:
       - name: Build packages and run executable examples
         run: bash traffic-counting-light/run-smoke.sh private-project
 
+  recorder-install-smoke:
+    name: Full recorder dependency/import smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN with Contents: read on Persie0/traffic-counting-light-main."
+            exit 2
+          fi
+      - name: Checkout private project
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PROJECT_REPOSITORY }}
+          ref: ${{ env.PROJECT_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-project
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Resolve and import the complete recorder environment
+        run: bash traffic-counting-light/run-recorder-install-smoke.sh private-project
