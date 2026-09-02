@@ -48,16 +48,26 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
+      - name: Setup Gradle used by project
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
       - name: Resolve Flutter dependencies
         working-directory: private-app
         run: flutter pub get
+
+      - name: Configure Android local properties
+        working-directory: private-app
+        run: |
+          printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_SDK_ROOT" > android/local.properties
 
       - name: Create disposable release keystore
         working-directory: private-app
@@ -82,15 +92,15 @@ jobs:
         working-directory: private-app/android
         run: |
           set -o pipefail
-          ./gradlew :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency androidx.work | tee ../../workmanager.txt
-          ./gradlew :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency androidx.room | tee ../../room.txt
-          ./gradlew :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency work-runtime | tee ../../work-runtime.txt
-          ./gradlew :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency room-runtime | tee ../../room-runtime.txt
+          gradle :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency androidx.work | tee ../../workmanager.txt
+          gradle :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency androidx.room | tee ../../room.txt
+          gradle :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency work-runtime | tee ../../work-runtime.txt
+          gradle :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency room-runtime | tee ../../room-runtime.txt
 
       - name: Show likely introducers
         working-directory: private-app/android
         run: |
-          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath > ../../release-runtime.txt
+          gradle :app:dependencies --configuration releaseRuntimeClasspath > ../../release-runtime.txt
           grep -nE 'work-runtime|room-runtime|androidx\.work|androidx\.room|appodeal|sentry|revenuecat|bidmachine|bidon' ../../release-runtime.txt | head -n 400 || true
 
       - name: Upload dependency reports
