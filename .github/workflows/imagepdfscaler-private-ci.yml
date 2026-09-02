@@ -1,0 +1,89 @@
+name: ImagePdfScaler private Flutter CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch/tag/SHA in Persie0/ImagePdfScaler
+        required: true
+        default: feat/print-layout-editor
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/imagepdfscaler-private-ci.yml'
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/ImagePdfScaler
+  APP_REF: ${{ inputs.ref || 'feat/print-layout-editor' }}
+
+jobs:
+  flutter-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN (Contents: read on Persie0/ImagePdfScaler)."
+            exit 2
+          fi
+
+      - name: Checkout private ImagePdfScaler
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-app
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate current Android scaffold
+        run: |
+          rm -rf /tmp/imagepdfscaler-scaffold
+          flutter create /tmp/imagepdfscaler-scaffold \
+            --platforms=android \
+            --org com.persie \
+            --project-name image_pdf_scaler
+          rm -rf private-app/android
+          cp -R /tmp/imagepdfscaler-scaffold/android private-app/android
+
+      - name: Resolve dependencies
+        working-directory: private-app
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: private-app
+        run: flutter analyze
+
+      - name: Test
+        working-directory: private-app
+        run: flutter test
+
+      - name: Build debug APK
+        working-directory: private-app
+        run: flutter build apk --debug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: imagepdfscaler-debug-apk
+          path: private-app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
