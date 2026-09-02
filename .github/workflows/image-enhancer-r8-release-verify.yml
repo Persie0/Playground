@@ -76,6 +76,19 @@ jobs:
           printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_SDK_ROOT" > android/local.properties
           yes | sdkmanager "ndk;29.0.14206865" >/dev/null || true
 
+      - name: Supply omitted Gradle wrapper launcher
+        run: |
+          rm -rf /tmp/image-enhancer-wrapper
+          flutter create /tmp/image-enhancer-wrapper \
+            --platforms=android \
+            --org at.persie0 \
+            --project-name image_enhancer_wrapper_source
+          cp /tmp/image-enhancer-wrapper/android/gradlew private-app/android/gradlew
+          cp /tmp/image-enhancer-wrapper/android/gradlew.bat private-app/android/gradlew.bat
+          cp /tmp/image-enhancer-wrapper/android/gradle/wrapper/gradle-wrapper.jar private-app/android/gradle/wrapper/gradle-wrapper.jar
+          chmod +x private-app/android/gradlew
+          test -f private-app/android/gradle/wrapper/gradle-wrapper.properties
+
       - name: Create disposable release keystore
         working-directory: private-app
         run: |
@@ -99,7 +112,6 @@ jobs:
         working-directory: private-app/android
         run: |
           set -o pipefail
-          chmod +x gradlew
           ./gradlew --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency work-runtime | tee ../../work-runtime.txt
           ./gradlew --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency room-runtime | tee ../../room-runtime.txt
           grep -q 'androidx.work:work-runtime-ktx:2.11.2' ../../work-runtime.txt
@@ -228,5 +240,3 @@ jobs:
             room-runtime.txt
           if-no-files-found: error
           retention-days: 7
-
-# Touch this file to trigger the push verification after initial workflow creation.
