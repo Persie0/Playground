@@ -57,11 +57,6 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
-      - name: Setup project Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.3.1'
-
       - name: Install dependencies and Android components
         working-directory: private-app
         run: |
@@ -69,9 +64,18 @@ jobs:
           printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_SDK_ROOT" > android/local.properties
           yes | sdkmanager "ndk;29.0.14206865" >/dev/null
 
-      - name: Generate missing Gradle launcher
-        working-directory: private-app/android
-        run: gradle wrapper --gradle-version 9.3.1
+      - name: Supply omitted Gradle wrapper launcher
+        run: |
+          rm -rf /tmp/noise-wrapper
+          flutter create /tmp/noise-wrapper \
+            --platforms=android \
+            --org at.persie0 \
+            --project-name noise_wrapper_source
+          cp /tmp/noise-wrapper/android/gradlew private-app/android/gradlew
+          cp /tmp/noise-wrapper/android/gradlew.bat private-app/android/gradlew.bat
+          cp /tmp/noise-wrapper/android/gradle/wrapper/gradle-wrapper.jar private-app/android/gradle/wrapper/gradle-wrapper.jar
+          chmod +x private-app/android/gradlew
+          test -f private-app/android/gradle/wrapper/gradle-wrapper.properties
 
       - name: Create disposable release keystore
         working-directory: private-app
@@ -96,8 +100,8 @@ jobs:
         working-directory: private-app/android
         run: |
           set -o pipefail
-          ./gradlew :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency work-runtime | tee ../../work-runtime-fixed.txt
-          ./gradlew :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency room-runtime | tee ../../room-runtime-fixed.txt
+          ./gradlew --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency work-runtime | tee ../../work-runtime-fixed.txt
+          ./gradlew --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency room-runtime | tee ../../room-runtime-fixed.txt
           grep -q 'androidx.work:work-runtime:2.11.2' ../../work-runtime-fixed.txt
           python3 - <<'PY'
           import re
@@ -146,26 +150,19 @@ jobs:
         working-directory: private-app
         run: |
           python3 - <<'PY'
-          import re, zipfile
+          import zipfile
           from pathlib import Path
-          roots = [Path.home()/'.gradle/caches/modules-2/files-2.1/androidx.room/room-runtime']
-          aars = []
-          for root in roots:
-              if root.exists():
-                  aars.extend(root.rglob('*.aar'))
+          root = Path.home()/'.gradle/caches/modules-2/files-2.1/androidx.room/room-runtime'
+          aars = list(root.rglob('*.aar')) if root.exists() else []
           if not aars:
               raise SystemExit('No room-runtime AAR found in Gradle cache')
-          print('Room AARs:', *map(str, aars), sep='\n- ')
           found = False
           for aar in aars:
               with zipfile.ZipFile(aar) as z:
                   for name in z.namelist():
                       if 'proguard' not in name.lower() and 'consumer' not in name.lower():
                           continue
-                      try:
-                          text = z.read(name).decode('utf-8', 'ignore')
-                      except Exception:
-                          continue
+                      text = z.read(name).decode('utf-8', 'ignore')
                       if 'RoomDatabase' in text and '<init>' in text:
                           print(f'Found Room constructor consumer rule in {aar.name}:{name}')
                           print(text)
