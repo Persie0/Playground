@@ -6,7 +6,7 @@ on:
       ref:
         description: Branch/tag/SHA in Persie0/ImagePdfScaler
         required: true
-        default: feat/print-layout-editor
+        default: main
         type: string
   push:
     branches: [main]
@@ -18,7 +18,7 @@ permissions:
 
 env:
   APP_REPOSITORY: Persie0/ImagePdfScaler
-  APP_REF: ${{ inputs.ref || 'feat/print-layout-editor' }}
+  APP_REF: ${{ inputs.ref || 'main' }}
 
 jobs:
   flutter-android:
@@ -77,13 +77,13 @@ jobs:
         working-directory: private-app
         run: flutter test
 
-      - name: Build debug APK
+      - name: Build release APK
         working-directory: private-app
-        run: flutter build apk --debug
+        run: flutter build apk --release
 
-      - name: Upload debug APK
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: imagepdfscaler-debug-apk
-          path: private-app/build/app/outputs/flutter-apk/app-debug.apk
+          name: imagepdfscaler-release-apk
+          path: private-app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
