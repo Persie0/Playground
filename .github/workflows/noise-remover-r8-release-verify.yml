@@ -18,7 +18,8 @@ permissions:
 
 env:
   APP_REPOSITORY: Persie0/noise_remover
-  APP_REF: ${{ inputs.ref || 'fix/androidx-workmanager-room-r8-crash' }}
+  # Push runs verify the exact final fix commit; manual runs can override it.
+  APP_REF: ${{ inputs.ref || '378362324c51d3ddc74abfa134cbc11708d3b7c4' }}
 
 jobs:
   release-verify:
@@ -102,6 +103,7 @@ jobs:
           set -o pipefail
           ./gradlew --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency work-runtime | tee ../../work-runtime-fixed.txt
           ./gradlew --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency room-runtime | tee ../../room-runtime-fixed.txt
+          grep -q 'androidx.work:work-runtime-ktx:2.11.2' ../../work-runtime-fixed.txt
           grep -q 'androidx.work:work-runtime:2.11.2' ../../work-runtime-fixed.txt
           python3 - <<'PY'
           import re
