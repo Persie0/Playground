@@ -1,0 +1,186 @@
+name: Noise Remover R8 release verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-r8-release-verify.yml'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch/tag/SHA in Persie0/noise_remover
+        required: true
+        default: fix/androidx-workmanager-room-r8-crash
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: ${{ inputs.ref || 'fix/androidx-workmanager-room-r8-crash' }}
+
+jobs:
+  release-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN (Contents: read on Persie0/noise_remover)."
+            exit 2
+          fi
+
+      - name: Checkout private Noise Remover
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Setup project Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Install dependencies and Android components
+        working-directory: private-app
+        run: |
+          flutter pub get
+          printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_SDK_ROOT" > android/local.properties
+          yes | sdkmanager "ndk;29.0.14206865" >/dev/null
+
+      - name: Generate missing Gradle launcher
+        working-directory: private-app/android
+        run: gradle wrapper --gradle-version 9.3.1
+
+      - name: Create disposable release keystore
+        working-directory: private-app
+        run: |
+          keytool -genkeypair -v \
+            -keystore android/app/ci-release.jks \
+            -storepass android \
+            -keypass android \
+            -alias ci \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 3650 \
+            -dname "CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US"
+          printf '%s\n' \
+            'storePassword=android' \
+            'keyPassword=android' \
+            'keyAlias=ci' \
+            'storeFile=ci-release.jks' \
+            > android/key.properties
+
+      - name: Verify fixed WorkManager and Room resolution
+        working-directory: private-app/android
+        run: |
+          set -o pipefail
+          ./gradlew :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency work-runtime | tee ../../work-runtime-fixed.txt
+          ./gradlew :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency room-runtime | tee ../../room-runtime-fixed.txt
+          grep -q 'androidx.work:work-runtime:2.11.2' ../../work-runtime-fixed.txt
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('../../room-runtime-fixed.txt').read_text()
+          versions = re.findall(r'androidx\.room:room-runtime:([0-9]+(?:\.[0-9]+){1,2})', text)
+          if not versions:
+              raise SystemExit('Could not determine resolved room-runtime version')
+          def key(v): return tuple(map(int, v.split('.')))
+          resolved = max(versions, key=key)
+          print('Resolved Room runtime:', resolved)
+          if key(resolved) < (2, 7, 0):
+              raise SystemExit(f'Room {resolved} is vulnerable to the generated-constructor R8 issue')
+          PY
+
+      - name: Run Flutter tests
+        working-directory: private-app
+        run: flutter test
+
+      - name: Configure release build resources
+        working-directory: private-app
+        run: |
+          sed -i \
+            -e '/^org\.gradle\.jvmargs=/d' \
+            -e '/^org\.gradle\.workers\.max=/d' \
+            -e '/^org\.gradle\.parallel=/d' \
+            -e '/^org\.gradle\.daemon=/d' \
+            -e '/^kotlin\.compiler\.execution\.strategy=/d' \
+            android/gradle.properties
+          cat >> android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xms2g -Xmx10g -XX:+UseParallelGC -Dfile.encoding=UTF-8
+          org.gradle.workers.max=1
+          org.gradle.parallel=false
+          org.gradle.daemon=false
+          kotlin.compiler.execution.strategy=in-process
+          EOF
+
+      - name: Build full R8 release APK
+        working-directory: private-app
+        env:
+          CARGO_BUILD_JOBS: '2'
+          GRADLE_OPTS: '-Dorg.gradle.daemon=false -Dorg.gradle.vfs.watch=false'
+        run: flutter build apk --release --obfuscate --split-debug-info=build/debug-info
+
+      - name: Verify Room consumer R8 constructor rule
+        working-directory: private-app
+        run: |
+          python3 - <<'PY'
+          import re, zipfile
+          from pathlib import Path
+          roots = [Path.home()/'.gradle/caches/modules-2/files-2.1/androidx.room/room-runtime']
+          aars = []
+          for root in roots:
+              if root.exists():
+                  aars.extend(root.rglob('*.aar'))
+          if not aars:
+              raise SystemExit('No room-runtime AAR found in Gradle cache')
+          print('Room AARs:', *map(str, aars), sep='\n- ')
+          found = False
+          for aar in aars:
+              with zipfile.ZipFile(aar) as z:
+                  for name in z.namelist():
+                      if 'proguard' not in name.lower() and 'consumer' not in name.lower():
+                          continue
+                      try:
+                          text = z.read(name).decode('utf-8', 'ignore')
+                      except Exception:
+                          continue
+                      if 'RoomDatabase' in text and '<init>' in text:
+                          print(f'Found Room constructor consumer rule in {aar.name}:{name}')
+                          print(text)
+                          found = True
+          if not found:
+              raise SystemExit('Resolved Room runtime does not expose the constructor-preservation consumer rule')
+          PY
+
+      - name: Upload verified release and reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: noise-remover-r8-startup-fix-release
+          path: |
+            private-app/build/app/outputs/flutter-apk/app-release.apk
+            work-runtime-fixed.txt
+            room-runtime-fixed.txt
+          if-no-files-found: error
+          retention-days: 7
