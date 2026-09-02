@@ -1,4 +1,4 @@
-name: Photosphere analyzer lint autofix
+name: Photosphere remaining CI autofix
 
 on:
   push:
@@ -28,26 +28,125 @@ jobs:
         run: |
           git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
-      - name: Resolve dependencies and apply analyzer fixes
+      - name: Patch platform compatibility and generated-test collision
+        working-directory: private-app
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          pubspec = Path('pubspec.yaml')
+          text = pubspec.read_text()
+          old = '  device_info_plus: ^13.0.0'
+          new = '  device_info_plus: 12.3.0'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('Unexpected device_info_plus dependency')
+          pubspec.write_text(text)
+
+          path = Path('tool/configure_platforms.dart')
+          text = path.read_text()
+          start_marker = '    private fun chooseAdvertisedFocalLength('
+          end_marker = '    private fun cameraCapabilities()'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('Could not locate chooseAdvertisedFocalLength generator block')
+          replacement = r'''    private fun chooseAdvertisedFocalLength(
+        focalLengths: FloatArray,
+        physicalSensorMm: Pair<Double, Double>?,
+    ): Map<String, Any?> {
+        if (focalLengths.isEmpty()) {
+            return mapOf(
+                "focalLengthMm" to null,
+                "horizontalFovDeg" to null,
+                "verticalFovDeg" to null,
+            )
+        }
+
+        val sensor = physicalSensorMm
+        if (sensor == null) {
+            var fallback: Double? = null
+            for (focal in focalLengths) {
+                val value = focal.toDouble()
+                if (value <= 0.0) continue
+                if (fallback == null || value < fallback) {
+                    fallback = value
+                }
+            }
+            return mapOf(
+                "focalLengthMm" to fallback,
+                "horizontalFovDeg" to null,
+                "verticalFovDeg" to null,
+            )
+        }
+
+        val sensorWidth = sensor.first
+        val sensorHeight = sensor.second
+        var bestFocalMm: Double? = null
+        var bestHorizontalFovDeg: Double? = null
+        var bestVerticalFovDeg: Double? = null
+        var bestScore = Double.POSITIVE_INFINITY
+
+        for (focal in focalLengths) {
+            val focalMm = focal.toDouble()
+            if (focalMm <= 0.0) continue
+            val horizontalFovDeg =
+                2.0 * atan(sensorWidth / (2.0 * focalMm)) * 180.0 / PI
+            val verticalFovDeg =
+                2.0 * atan(sensorHeight / (2.0 * focalMm)) * 180.0 / PI
+            if (horizontalFovDeg !in 100.0..160.0 || verticalFovDeg !in 70.0..140.0) {
+                continue
+            }
+            val score = abs(horizontalFovDeg - 120.0) + abs(verticalFovDeg - 90.0)
+            if (score < bestScore) {
+                bestScore = score
+                bestFocalMm = focalMm
+                bestHorizontalFovDeg = horizontalFovDeg
+                bestVerticalFovDeg = verticalFovDeg
+            }
+        }
+
+        return mapOf(
+            "focalLengthMm" to bestFocalMm,
+            "horizontalFovDeg" to bestHorizontalFovDeg,
+            "verticalFovDeg" to bestVerticalFovDeg,
+        )
+    }
+
+'''
+          path.write_text(text[:start] + replacement + text[end:])
+
+          widget_test = Path('test/widget_test.dart')
+          widget_test.write_text("""import 'package:flutter_test/flutter_test.dart';
+import 'package:photosphere/main.dart';
+
+void main() {
+  testWidgets('Photosphere app boots', (tester) async {
+    await tester.pumpWidget(const PhotosphereApp());
+    await tester.pump();
+
+    expect(find.text('Photosphere'), findsWidgets);
+  });
+}
+""")
+          PY
+          flutter pub get
+          dart format tool/configure_platforms.dart test/widget_test.dart
+      - name: Analyze and test
         working-directory: private-app
         run: |
-          flutter pub get
-          dart fix --apply
-          dart format lib test tool
-      - name: Commit and push lint fixes
+          flutter analyze
+          flutter test
+      - name: Commit and push fixes
         working-directory: private-app
         shell: bash
         run: |
           git config user.name 'photosphere-ci-fix'
           git config user.email 'actions@users.noreply.github.com'
-          git add lib test tool
+          git add pubspec.yaml pubspec.lock tool/configure_platforms.dart test/widget_test.dart
           if ! git diff --cached --quiet; then
-            git commit -m 'Apply analyzer-safe lint fixes'
+            git commit -m 'Fix remaining platform CI compatibility'
             git push origin HEAD:audit/code-hardening-3
           fi
-      - name: Analyze
-        working-directory: private-app
-        run: flutter analyze
-      - name: Test
-        working-directory: private-app
-        run: flutter test
