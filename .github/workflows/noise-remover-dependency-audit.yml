@@ -1,0 +1,116 @@
+name: Noise Remover Android dependency audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-dependency-audit.yml'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch/tag/SHA in Persie0/noise_remover
+        required: true
+        default: fix/androidx-workmanager-room-r8-crash
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: ${{ inputs.ref || 'fix/androidx-workmanager-room-r8-crash' }}
+
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN (Contents: read on Persie0/noise_remover)."
+            exit 2
+          fi
+
+      - name: Checkout private Noise Remover
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Setup Gradle used by project
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Resolve Flutter dependencies
+        working-directory: private-app
+        run: flutter pub get
+
+      - name: Configure Android local properties
+        working-directory: private-app
+        run: |
+          printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_SDK_ROOT" > android/local.properties
+
+      - name: Create disposable release keystore
+        working-directory: private-app
+        run: |
+          keytool -genkeypair -v \
+            -keystore android/app/ci-release.jks \
+            -storepass android \
+            -keypass android \
+            -alias ci \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 3650 \
+            -dname "CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US"
+          printf '%s\n' \
+            'storePassword=android' \
+            'keyPassword=android' \
+            'keyAlias=ci' \
+            'storeFile=ci-release.jks' \
+            > android/key.properties
+
+      - name: Resolve AndroidX WorkManager and Room dependency graph
+        working-directory: private-app/android
+        run: |
+          set -o pipefail
+          gradle :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency androidx.work | tee ../../workmanager.txt
+          gradle :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency androidx.room | tee ../../room.txt
+          gradle :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency work-runtime | tee ../../work-runtime.txt
+          gradle :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency room-runtime | tee ../../room-runtime.txt
+
+      - name: Show likely introducers
+        working-directory: private-app/android
+        run: |
+          gradle :app:dependencies --configuration releaseRuntimeClasspath > ../../release-runtime.txt
+          grep -nE 'work-runtime|room-runtime|androidx\.work|androidx\.room|appodeal|sentry|revenuecat|bidmachine|bidon' ../../release-runtime.txt | head -n 400 || true
+
+      - name: Upload dependency reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: noise-remover-androidx-dependency-audit
+          path: |
+            workmanager.txt
+            room.txt
+            work-runtime.txt
+            room-runtime.txt
+            release-runtime.txt
+          if-no-files-found: error
