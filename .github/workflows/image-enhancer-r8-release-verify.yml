@@ -1,0 +1,230 @@
+name: Image Enhancer R8 release verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/image-enhancer-r8-release-verify.yml'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch/tag/SHA in Persie0/image_enhancer
+        required: true
+        default: fix/play-r8-optimization
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/image_enhancer
+  APP_REF: ${{ inputs.ref || 'fix/play-r8-optimization' }}
+
+jobs:
+  release-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN (Contents: read on Persie0/image_enhancer)."
+            exit 2
+          fi
+
+      - name: Checkout private Image Enhancer
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Free disk space
+        uses: endersonmenezes/free-disk-space@v2
+        with:
+          remove_android: false
+          remove_dotnet: false
+          remove_haskell: true
+          remove_tool_cache: false
+          remove_swap: false
+          remove_packages_one_command: true
+          remove_folders: '/usr/share/swift'
+          testing: false
+
+      - name: Install dependencies and Android components
+        working-directory: private-app
+        run: |
+          flutter pub get
+          printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_SDK_ROOT" > android/local.properties
+          yes | sdkmanager "ndk;29.0.14206865" >/dev/null || true
+
+      - name: Create disposable release keystore
+        working-directory: private-app
+        run: |
+          keytool -genkeypair -v \
+            -keystore android/app/ci-release.jks \
+            -storepass android \
+            -keypass android \
+            -alias ci \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 3650 \
+            -dname "CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US"
+          printf '%s\n' \
+            'storePassword=android' \
+            'keyPassword=android' \
+            'keyAlias=ci' \
+            'storeFile=ci-release.jks' \
+            > android/key.properties
+
+      - name: Verify WorkManager and Room resolution
+        working-directory: private-app/android
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency work-runtime | tee ../../work-runtime.txt
+          ./gradlew --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency room-runtime | tee ../../room-runtime.txt
+          grep -q 'androidx.work:work-runtime-ktx:2.11.2' ../../work-runtime.txt
+          grep -q 'androidx.work:work-runtime:2.11.2' ../../work-runtime.txt
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('../../room-runtime.txt').read_text()
+          versions = re.findall(r'androidx\.room:room-runtime:([0-9]+(?:\.[0-9]+){1,2})', text)
+          if not versions:
+              raise SystemExit('Could not determine resolved room-runtime version')
+          def key(v): return tuple(map(int, v.split('.')))
+          resolved = max(versions, key=key)
+          print('Resolved Room runtime:', resolved)
+          if key(resolved) < (2, 7, 0):
+              raise SystemExit(f'Room {resolved} is too old for safe R8 full-mode consumer rules')
+          PY
+
+      - name: Run Flutter tests
+        working-directory: private-app
+        run: flutter test
+
+      - name: Configure release build resources
+        working-directory: private-app
+        run: |
+          sed -i \
+            -e '/^org\.gradle\.jvmargs=/d' \
+            -e '/^org\.gradle\.workers\.max=/d' \
+            -e '/^org\.gradle\.parallel=/d' \
+            -e '/^org\.gradle\.daemon=/d' \
+            -e '/^kotlin\.compiler\.execution\.strategy=/d' \
+            android/gradle.properties
+          cat >> android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xms2g -Xmx10g -XX:+UseParallelGC -Dfile.encoding=UTF-8
+          org.gradle.workers.max=1
+          org.gradle.parallel=false
+          org.gradle.daemon=false
+          kotlin.compiler.execution.strategy=in-process
+          EOF
+
+      - name: Build optimized release bundle
+        working-directory: private-app
+        env:
+          GRADLE_OPTS: '-Dorg.gradle.daemon=false -Dorg.gradle.vfs.watch=false'
+        run: flutter build appbundle --release --obfuscate --split-debug-info=build/debug-info
+
+      - name: Verify Google Play R8 metrics
+        working-directory: private-app
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+          import zipfile
+          from pathlib import Path
+
+          aab = Path('build/app/outputs/bundle/release/app-release.aab')
+          metadata_path = 'BUNDLE-METADATA/com.android.tools/r8.json'
+          if not aab.exists():
+              raise SystemExit(f'Missing release bundle: {aab}')
+
+          with zipfile.ZipFile(aab) as bundle:
+              dex_size = sum(i.file_size for i in bundle.infolist() if i.filename.endswith('.dex'))
+              raw = bundle.read(metadata_path)
+
+          data = json.loads(raw)
+          Path('build/r8-metrics.json').write_bytes(raw)
+
+          def find_key(node, wanted):
+              if isinstance(node, dict):
+                  if wanted in node:
+                      return node[wanted]
+                  for value in node.values():
+                      found = find_key(value, wanted)
+                      if found is not None:
+                          return found
+              elif isinstance(node, list):
+                  for value in node:
+                      found = find_key(value, wanted)
+                      if found is not None:
+                          return found
+              return None
+
+          disabled = {
+              'Optimization': find_key(data, 'noOptimizationPercentage'),
+              'Obfuscation': find_key(data, 'noObfuscationPercentage'),
+              'Shrinking': find_key(data, 'noShrinkingPercentage'),
+          }
+          enabled = {
+              'Optimization': find_key(data, 'isOptimizationsEnabled'),
+              'Obfuscation': find_key(data, 'isObfuscationEnabled'),
+              'Shrinking': find_key(data, 'isShrinkingEnabled'),
+          }
+          compatibility_mode = find_key(data, 'isProGuardCompatibilityModeEnabled')
+
+          print(f'Uncompressed DEX size: {dex_size / (1024 * 1024):.2f} MiB')
+          print(f'R8 full mode: {compatibility_mode is False}')
+          failures = []
+          for name in ('Optimization', 'Obfuscation', 'Shrinking'):
+              if enabled[name] is not True:
+                  failures.append(f'{name} is not enabled')
+              if disabled[name] is None:
+                  failures.append(f'{name} score unavailable in r8.json')
+                  continue
+              score = 100.0 - float(disabled[name])
+              print(f'{name}: {score:.2f}% available to R8')
+              if score < 25.0:
+                  failures.append(f'{name} score {score:.2f}% is below Google Play 25% threshold')
+          if compatibility_mode is not False:
+              failures.append('R8 full mode is not confirmed by r8.json')
+          if failures:
+              print('\nR8 verification failed:', file=sys.stderr)
+              for failure in failures:
+                  print(f'- {failure}', file=sys.stderr)
+              raise SystemExit(1)
+          PY
+
+      - name: Upload bundle and R8 reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-enhancer-r8-release
+          path: |
+            private-app/build/app/outputs/bundle/release/app-release.aab
+            private-app/build/app/outputs/mapping/release/
+            private-app/build/r8-metrics.json
+            work-runtime.txt
+            room-runtime.txt
+          if-no-files-found: error
+          retention-days: 7
