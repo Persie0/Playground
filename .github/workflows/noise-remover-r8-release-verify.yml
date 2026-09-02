@@ -58,6 +58,11 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
+      - name: Setup exact project Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
       - name: Install dependencies and Android components
         working-directory: private-app
         run: |
@@ -65,18 +70,15 @@ jobs:
           printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_SDK_ROOT" > android/local.properties
           yes | sdkmanager "ndk;29.0.14206865" >/dev/null
 
-      - name: Supply omitted Gradle wrapper launcher
+      - name: Supply CI gradlew shim for omitted wrapper files
         run: |
-          rm -rf /tmp/noise-wrapper
-          flutter create /tmp/noise-wrapper \
-            --platforms=android \
-            --org at.persie0 \
-            --project-name noise_wrapper_source
-          cp /tmp/noise-wrapper/android/gradlew private-app/android/gradlew
-          cp /tmp/noise-wrapper/android/gradlew.bat private-app/android/gradlew.bat
-          cp /tmp/noise-wrapper/android/gradle/wrapper/gradle-wrapper.jar private-app/android/gradle/wrapper/gradle-wrapper.jar
+          cat > private-app/android/gradlew <<'EOF'
+          #!/usr/bin/env bash
+          set -e
+          exec gradle "$@"
+          EOF
           chmod +x private-app/android/gradlew
-          test -f private-app/android/gradle/wrapper/gradle-wrapper.properties
+          private-app/android/gradlew --version
 
       - name: Create disposable release keystore
         working-directory: private-app
