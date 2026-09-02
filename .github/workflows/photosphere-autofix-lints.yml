@@ -37,36 +37,38 @@ jobs:
 
           path = Path('tool/configure_platforms.dart')
           text = path.read_text()
-          old = '''        val candidates = focalLengths.mapNotNull { focalValue ->
-            val focal = focalValue.toDouble()
-            if (focal <= 0.0) return@mapNotNull null
-            val horizontal = 2.0 * atan(sensor.width.toDouble() / (2.0 * focal)) * 180.0 / PI
-            val vertical = 2.0 * atan(sensor.height.toDouble() / (2.0 * focal)) * 180.0 / PI
-            if (!horizontal.isFinite() || !vertical.isFinite()) null else Pair(horizontal, vertical)
-        }
-        val selected = candidates.minByOrNull { abs(it.first - 72.0) } ?: return null
-        return mapOf("horizontal" to selected.first, "vertical" to selected.second)
-'''
-          new = '''        var selectedHorizontal: Double? = null
-        var selectedVertical: Double? = null
-        var bestScore = Double.POSITIVE_INFINITY
-        for (focalValue in focalLengths) {
-            val focal = focalValue.toDouble()
-            if (focal <= 0.0) continue
-            val horizontal = 2.0 * atan(sensor.width.toDouble() / (2.0 * focal)) * 180.0 / PI
-            val vertical = 2.0 * atan(sensor.height.toDouble() / (2.0 * focal)) * 180.0 / PI
-            if (!horizontal.isFinite() || !vertical.isFinite()) continue
-            val score = abs(horizontal - 72.0)
-            if (score < bestScore) {
-                bestScore = score
-                selectedHorizontal = horizontal
-                selectedVertical = vertical
-            }
-        }
-        val horizontal = selectedHorizontal ?: return null
-        val vertical = selectedVertical ?: return null
-        return mapOf("horizontal" to horizontal, "vertical" to vertical)
-'''
+          old = (
+              '        val candidates = focalLengths.mapNotNull { focalValue ->\n'
+              '            val focal = focalValue.toDouble()\n'
+              '            if (focal <= 0.0) return@mapNotNull null\n'
+              '            val horizontal = 2.0 * atan(sensor.width.toDouble() / (2.0 * focal)) * 180.0 / PI\n'
+              '            val vertical = 2.0 * atan(sensor.height.toDouble() / (2.0 * focal)) * 180.0 / PI\n'
+              '            if (!horizontal.isFinite() || !vertical.isFinite()) null else Pair(horizontal, vertical)\n'
+              '        }\n'
+              '        val selected = candidates.minByOrNull { abs(it.first - 72.0) } ?: return null\n'
+              '        return mapOf("horizontal" to selected.first, "vertical" to selected.second)\n'
+          )
+          new = (
+              '        var selectedHorizontal: Double? = null\n'
+              '        var selectedVertical: Double? = null\n'
+              '        var bestScore = Double.POSITIVE_INFINITY\n'
+              '        for (focalValue in focalLengths) {\n'
+              '            val focal = focalValue.toDouble()\n'
+              '            if (focal <= 0.0) continue\n'
+              '            val horizontal = 2.0 * atan(sensor.width.toDouble() / (2.0 * focal)) * 180.0 / PI\n'
+              '            val vertical = 2.0 * atan(sensor.height.toDouble() / (2.0 * focal)) * 180.0 / PI\n'
+              '            if (!horizontal.isFinite() || !vertical.isFinite()) continue\n'
+              '            val score = abs(horizontal - 72.0)\n'
+              '            if (score < bestScore) {\n'
+              '                bestScore = score\n'
+              '                selectedHorizontal = horizontal\n'
+              '                selectedVertical = vertical\n'
+              '            }\n'
+              '        }\n'
+              '        val horizontal = selectedHorizontal ?: return null\n'
+              '        val vertical = selectedVertical ?: return null\n'
+              '        return mapOf("horizontal" to horizontal, "vertical" to vertical)\n'
+          )
           if old in text:
               text = text.replace(old, new, 1)
           elif new not in text:
