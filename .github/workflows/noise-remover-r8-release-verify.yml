@@ -154,25 +154,30 @@ jobs:
         working-directory: private-app
         run: |
           python3 - <<'PY'
+          import re
           import zipfile
           from pathlib import Path
-          root = Path.home()/'.gradle/caches/modules-2/files-2.1/androidx.room/room-runtime'
-          aars = list(root.rglob('*.aar')) if root.exists() else []
+
+          base = Path.home()/'.gradle/caches/modules-2/files-2.1/androidx.room'
+          roots = [base/'room-runtime', base/'room-runtime-android']
+          aars = [aar for root in roots if root.exists() for aar in root.rglob('*.aar')]
           if not aars:
-              raise SystemExit('No room-runtime AAR found in Gradle cache')
+              raise SystemExit('No Room runtime AAR found in Gradle cache')
+
+          rule = re.compile(r'-keep\s+class\s+\*\s+extends\s+androidx\.room\.RoomDatabase')
           found = False
           for aar in aars:
               with zipfile.ZipFile(aar) as z:
                   for name in z.namelist():
-                      if 'proguard' not in name.lower() and 'consumer' not in name.lower():
+                      lname = name.lower()
+                      if 'proguard' not in lname and 'consumer' not in lname:
                           continue
                       text = z.read(name).decode('utf-8', 'ignore')
-                      if 'RoomDatabase' in text and '<init>' in text:
-                          print(f'Found Room constructor consumer rule in {aar.name}:{name}')
-                          print(text)
+                      if rule.search(text):
+                          print(f'Found RoomDatabase consumer keep rule in {aar}:{name}')
                           found = True
           if not found:
-              raise SystemExit('Resolved Room runtime does not expose the constructor-preservation consumer rule')
+              raise SystemExit('Resolved Room runtime does not publish the RoomDatabase consumer keep rule')
           PY
 
       - name: Upload verified release and reports
