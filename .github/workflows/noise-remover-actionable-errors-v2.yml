@@ -1,0 +1,258 @@
+name: Noise Remover actionable errors v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-actionable-errors-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch-test-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Checkout Noise Remover fix branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: fix/actionable-errors-r8-processing
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Patch user-facing error paths
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          def read(p): return Path(p).read_text()
+          def write(p, s): Path(p).write_text(s)
+          def req(s, old, new, label, count=1):
+              n = s.count(old)
+              if n < count:
+                  raise SystemExit(f'{label}: expected >= {count}, found {n}')
+              return s.replace(old, new, count)
+          def imp(s, anchor, statement):
+              if statement in s: return s
+              if anchor not in s: raise SystemExit(f'import anchor missing: {anchor}')
+              return s.replace(anchor, anchor + '\n' + statement, 1)
+
+          # Expand central classifier with a purchase-specific operation.
+          p = 'lib/utils/user_facing_error.dart'
+          s = read(p)
+          s = req(s, '  modelDownload,\n  purchaseRestore,', '  modelDownload,\n  purchase,\n  purchaseRestore,', 'purchase enum')
+          purchase_case = """    case UserErrorOperation.purchaseRestore:\n      return UserFacingError("""
+          purchase_new = """    case UserErrorOperation.purchase:\n      return UserFacingError(\n        message: _copy(\n          l10n,\n          english:\n              'The purchase could not be completed. Check Google Play/App Store connectivity and payment restrictions, then retry. If you may already have been charged, use Restore Purchases instead of buying again.',\n          localizedFallback: l10n.purchaseRestoreFailedFriendly,\n        ),\n        code: 'NR-PURCHASE',\n      );\n    case UserErrorOperation.purchaseRestore:\n      return UserFacingError("""
+          s = req(s, purchase_case, purchase_new, 'purchase classifier')
+          write(p, s)
+
+          # Home: actionable short processing, long processing, finalization,
+          # picker errors, and persisted recovery reason.
+          p = 'lib/screens/home_screen.dart'
+          s = read(p)
+          s = imp(s, "import 'package:noise_remover/utils/ffmpeg_utils.dart';", "import 'package:noise_remover/utils/user_facing_error.dart';")
+
+          s = req(
+              s,
+              """            content: Text(\n              error is OutOfSpaceException\n                  ? l10n.errorOutOfSpace\n                  : l10n.finalizeResultFailedFriendly,\n            ),""",
+              """            content: Text(\n              userFacingError(\n                error,\n                l10n,\n                operation: UserErrorOperation.finalization,\n              ).display(),\n            ),""",
+              'finalization snackbar',
+          )
+
+          short_catch = """    } catch (e, stack) {\n      debugPrint('EXCEPTION in _processFile: $e\\n$stack');"""
+          short_catch_new = """    } catch (e, stack) {\n      debugPrint('EXCEPTION in _processFile: $e\\n$stack');\n      final userError = userFacingError(\n        e,\n        l10n,\n        operation: currentRecoveryIsFinalizing(recoveryState)\n            ? UserErrorOperation.finalization\n            : UserErrorOperation.processing,\n      );"""
+          s = req(s, short_catch, short_catch_new, 'short catch')
+          start = s.index(short_catch_new)
+          end = s.index('    } finally {', start)
+          block = s[start:end]
+          block = block.replace("'lastError': e.toString(),", "'lastError': userError.display(),")
+          short_switch = """        final errorMessage = switch (e) {\n          OutOfSpaceException() => l10n.errorOutOfSpace,\n          UnsupportedFileException() => l10n.errorUnsupportedFile,\n          NoAudioTrackException() => l10n.errorNoAudioTrack,\n          FileSystemException() => l10n.fileMissingFriendly,\n          _ => currentRecoveryIsFinalizing(recoveryState)\n              ? l10n.finalizeResultFailedFriendly\n              : l10n.processingFailedFriendly,\n        };"""
+          if short_switch not in block: raise SystemExit('short error switch missing')
+          block = block.replace(short_switch, '        final errorMessage = userError.display();', 1)
+          s = s[:start] + block + s[end:]
+
+          long_catch = """    } catch (e, stackTrace) {\n      debugPrint('Long File Job Error: $e');"""
+          long_catch_new = """    } catch (e, stackTrace) {\n      debugPrint('Long File Job Error: $e');\n      final userError = userFacingError(\n        e,\n        l10n,\n        operation: UserErrorOperation.longProcessing,\n        canResume: jobState != null,\n      );"""
+          s = req(s, long_catch, long_catch_new, 'long catch')
+          start = s.index(long_catch_new)
+          end = s.index('    } finally {', start)
+          block = s[start:end]
+          block = block.replace('lastError: e.toString(),', 'lastError: userError.display(),')
+          long_fallback = """        final errorMessage = e is OutOfSpaceException\n            ? l10n.errorOutOfSpace\n            : e is FileSystemException\n                ? l10n.fileMissingFriendly\n                : jobState?.isFinalizationPending == true\n                    ? l10n.finalizeResultFailedFriendly\n                    : l10n.longFilePaused;"""
+          if long_fallback not in block: raise SystemExit('long generic snackbar missing')
+          block = block.replace(long_fallback, '        final errorMessage = userError.display();', 1)
+          s = s[:start] + block + s[end:]
+
+          s = req(
+              s,
+              '          content: Text(l10n.resumeLongFileMessage),',
+              """          content: Text(\n            existingJob.lastError?.trim().isNotEmpty == true\n                ? l10n.resumeLongFileError(existingJob.lastError!)\n                : l10n.resumeLongFileMessage,\n          ),""",
+              'resume reason',
+          )
+          s = req(
+              s,
+              '            content: Text(l10n.pickerFailedFriendly),',
+              """            content: Text(\n              userFacingError(\n                e,\n                l10n,\n                operation: UserErrorOperation.filePicker,\n              ).display(),\n            ),""",
+              'home picker',
+          )
+          write(p, s)
+
+          # Bulk: checkpoint load, gallery/file picker, and per-file errors.
+          p = 'lib/screens/bulk_processing_screen.dart'
+          s = read(p)
+          s = imp(s, "import 'package:noise_remover/utils/ffmpeg_utils.dart';", "import 'package:noise_remover/utils/user_facing_error.dart';")
+          if "AppLocalizations.of(context)!.processingFailedFriendly," not in s:
+              raise SystemExit('bulk processing friendly path missing')
+          s = s.replace(
+              "AppLocalizations.of(context)!.processingFailedFriendly,",
+              "userFacingError(\n              e,\n              AppLocalizations.of(context)!,\n              operation: UserErrorOperation.bulkProcessing,\n            ).display(),",
+          )
+          if "AppLocalizations.of(context)!.pickerFailedFriendly," not in s:
+              raise SystemExit('bulk picker friendly path missing')
+          s = s.replace(
+              "AppLocalizations.of(context)!.pickerFailedFriendly,",
+              "userFacingError(\n            e,\n            AppLocalizations.of(context)!,\n            operation: UserErrorOperation.filePicker,\n          ).display(),",
+          )
+          s = s.replace(
+              'item.errorMessage = e.toString();',
+              "item.errorMessage = userFacingError(\n        e,\n        l10n,\n        operation: UserErrorOperation.bulkProcessing,\n      ).display();",
+          )
+          write(p, s)
+
+          # Recording start: microphone/permission guidance and code.
+          p = 'lib/screens/audio_recording_screen.dart'
+          s = read(p)
+          s = imp(s, "import 'package:flutter/material.dart';", "import 'package:noise_remover/utils/user_facing_error.dart';")
+          rec_old = """            content: Text(\n              AppLocalizations.of(context)!.recordingStartFailedFriendly,\n            ),"""
+          rec_new = """            content: Text(\n              userFacingError(\n                e,\n                AppLocalizations.of(context)!,\n                operation: UserErrorOperation.recordingStart,\n              ).display(),\n            ),"""
+          s = req(s, rec_old, rec_new, 'recording start')
+          write(p, s)
+
+          # Result playback: keep known codec capability messages, classify the rest.
+          p = 'lib/screens/result_screen.dart'
+          s = read(p)
+          s = imp(s, "import 'package:noise_remover/utils/ffmpeg_utils.dart';", "import 'package:noise_remover/utils/user_facing_error.dart';")
+          s = req(
+              s,
+              '    return _l10n.genericFriendlyError;\n  }',
+              """    return userFacingError(\n      error,\n      _l10n,\n      operation: UserErrorOperation.playback,\n    ).display();\n  }""",
+              'result generic error',
+          )
+          write(p, s)
+
+          # Paywall: never leak PlatformException/RevenueCat internals to the UI.
+          p = 'lib/screens/paywall_screen.dart'
+          s = read(p)
+          s = imp(s, "import 'package:flutter/material.dart';", "import 'package:noise_remover/utils/user_facing_error.dart';")
+          s = req(
+              s,
+              '          ).showSnackBar(SnackBar(content: Text(e.toString())));',
+              """          ).showSnackBar(\n            SnackBar(\n              content: Text(\n                userFacingError(\n                  e,\n                  AppLocalizations.of(context)!,\n                  operation: UserErrorOperation.purchase,\n                ).display(),\n              ),\n            ),\n          );""",
+              'paywall raw exception',
+          )
+          write(p, s)
+
+          # Model selector: actionable model download failure.
+          p = 'lib/widgets/model_option_widget.dart'
+          s = read(p)
+          s = imp(s, "import 'package:noise_remover/l10n/gen_l10n/app_localizations.dart';", "import 'package:noise_remover/utils/user_facing_error.dart';")
+          model_old = """              content: Text(\n                AppLocalizations.of(context)!.modelDownloadFailedFriendly,\n              ),"""
+          model_new = """              content: Text(\n                userFacingError(\n                  e,\n                  AppLocalizations.of(context)!,\n                  operation: UserErrorOperation.modelDownload,\n                ).display(),\n              ),"""
+          s = req(s, model_old, model_new, 'model download')
+          write(p, s)
+
+          # Settings: customer-center errors already have an exception object.
+          p = 'lib/screens/settings_screen.dart'
+          s = read(p)
+          s = imp(s, "import 'package:flutter/material.dart';", "import 'package:noise_remover/utils/user_facing_error.dart';")
+          customer_old = 'content: Text(l10n.subscriptionManagementFailedFriendly),'
+          customer_new = """content: Text(\n            userFacingError(\n              error,\n              l10n,\n              operation: UserErrorOperation.subscriptionManagement,\n            ).display(),\n          ),"""
+          s = req(s, customer_old, customer_new, 'subscription management')
+          write(p, s)
+
+          # Storage cleanup: classify filesystem failures instead of generic copy.
+          p = 'lib/screens/storage_settings_page.dart'
+          s = read(p)
+          s = imp(s, "import 'package:flutter/material.dart';", "import 'package:noise_remover/utils/user_facing_error.dart';")
+          clear_old = 'SnackBar(content: Text(l10n.clearAppDataFailedFriendly)),'
+          clear_new = """SnackBar(\n              content: Text(\n                userFacingError(\n                  error,\n                  l10n,\n                  operation: UserErrorOperation.clearAppData,\n                ).display(),\n              ),\n            ),"""
+          s = req(s, clear_old, clear_new, 'clear app data')
+          write(p, s)
+
+          # Upgrade the existing English fallback catalogue too. This improves
+          # every remaining call site even if it does not have a structured error yet.
+          p = 'lib/l10n/app_en.arb'
+          data = json.loads(read(p))
+          updates = {
+              'fileMissingFriendly': 'The selected file is no longer available at its saved location. Choose the original file again and retry. Error code: NR-FILE',
+              'pickerFailedFriendly': "Couldn't open that file. It may have been moved, deleted, left in cloud-only storage, or use an unsupported format. Download it locally or choose another file. Error code: NR-PICKER",
+              'processingFailedFriendly': 'Noise removal stopped before a valid result was created. Retry once; if it repeats, switch to the Fast model or use a standard MP3/WAV/M4A/MP4/WebM source. Error code: NR-PROCESS',
+              'finalizeResultFailedFriendly': 'Noise removal finished, but saving the final result failed. Make sure enough storage is free, then resume the saved job instead of processing from the beginning. Error code: NR-FINALIZE',
+              'modelDownloadFailedFriendly': 'The AI model download did not complete. Check the connection and free storage, then retry. Fast mode can still be used without this download. Error code: NR-MODEL',
+              'mixProcessingFailedFriendly': 'The processed/original mix could not be created. Retry once; if it repeats, save the cleaned result without mixing. Error code: NR-MIX',
+              'consentFormLoadFailedFriendly': 'Privacy options could not be loaded. Check your connection and retry. This does not affect on-device audio processing. Error code: NR-PRIVACY',
+              'recordingStartFailedFriendly': 'Recording could not start. Allow microphone permission and make sure another app is not using the microphone, then retry. Error code: NR-REC-START',
+              'recordingSaveFailedFriendly': 'The recording could not be saved. Check free storage and keep the app open until saving finishes. Error code: NR-REC-SAVE',
+              'purchaseRestoreFailedFriendly': 'Purchases could not be restored. Make sure you are signed into the same Google Play/App Store account used for purchase and check your connection, then retry. Error code: NR-PURCHASE',
+              'subscriptionManagementFailedFriendly': 'Subscription management could not be opened. Check that Google Play/App Store is available and try again. Error code: NR-SUBSCRIPTION',
+              'clearAppDataFailedFriendly': 'App data could not be fully cleared. Close active processing/result screens, make sure no file is in use, and try again. Error code: NR-CLEAR-DATA',
+              'genericFriendlyError': 'This operation could not be completed. Retry once. If it happens again, use Report a Problem in Settings and include what you were doing. Error code: NR-GENERIC',
+              'longFilePaused': 'Long-file processing stopped unexpectedly. Completed chunks are saved. Open Long Files and tap Resume; if it fails again, switch to the Fast model. Error code: NR-LONG',
+          }
+          missing = [k for k in updates if k not in data]
+          if missing: raise SystemExit(f'English l10n keys missing: {missing}')
+          data.update(updates)
+          write(p, json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+
+          # Ensure the raw exception UI we explicitly targeted is gone.
+          if 'Text(e.toString())' in read('lib/screens/paywall_screen.dart'):
+              raise SystemExit('raw paywall exception remains')
+          PY
+
+      - name: Generate localization and test
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter gen-l10n
+          dart format \
+            lib/utils/user_facing_error.dart \
+            lib/screens/home_screen.dart \
+            lib/screens/bulk_processing_screen.dart \
+            lib/screens/audio_recording_screen.dart \
+            lib/screens/result_screen.dart \
+            lib/screens/paywall_screen.dart \
+            lib/screens/settings_screen.dart \
+            lib/screens/storage_settings_page.dart \
+            lib/widgets/model_option_widget.dart \
+            test/user_facing_error_test.dart
+          flutter analyze --no-fatal-infos
+          flutter test
+
+      - name: Commit and push tested patch
+        working-directory: app
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add android/app/proguard-rules.pro lib test
+          git commit -m 'Make app errors actionable and fix R8 processing bridges'
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/Persie0/noise_remover.git"
+          git push origin HEAD:fix/actionable-errors-r8-processing
