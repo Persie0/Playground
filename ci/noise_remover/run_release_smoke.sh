@@ -3,7 +3,9 @@ set -euo pipefail
 
 cd app
 
-flutter build apk --release --target lib/r8_native_processing_smoke_main.dart
+# The smoke device is x86_64. Building only its ABI exercises the same
+# release/R8/JNI code path without compiling unused ARM artifacts.
+flutter build apk --release --target-platform android-x64 --target lib/r8_native_processing_smoke_main.dart
 
 APK="build/app/outputs/flutter-apk/app-release.apk"
 test -f "$APK"
