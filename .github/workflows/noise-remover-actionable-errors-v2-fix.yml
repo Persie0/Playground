@@ -40,6 +40,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import os
+          import re
 
           workflow = Path('.github/workflows/noise-remover-actionable-errors-v2.yml').read_text()
           marker = "          python3 - <<'PY'\n"
@@ -51,13 +52,24 @@ jobs:
           exec(compile(script, 'actionable_error_patch.py', 'exec'), {})
 
           # The lost-data branch has response.exception rather than a catch-local e.
+          # Restrict the correction to recoverLostPickerData() so the normal catch(e)
+          # later in the same function remains correctly mapped from `e`.
           p = Path('lib/screens/bulk_processing_screen.dart')
           s = p.read_text()
-          wrong = """userFacingError(\n              e,\n              AppLocalizations.of(context)!,\n              operation: UserErrorOperation.filePicker,\n            ).display(),"""
-          right = """userFacingError(\n              response.exception!,\n              AppLocalizations.of(context)!,\n              operation: UserErrorOperation.filePicker,\n            ).display(),"""
-          if wrong not in s:
-              raise SystemExit('expected lost-data picker replacement not found')
-          s = s.replace(wrong, right, 1)
+          func_start = s.index('Future<bool> recoverLostPickerData()')
+          func_end = s.index('bool _setSelectedFiles(', func_start)
+          block = s[func_start:func_end]
+          pattern = re.compile(
+              r'userFacingError\(\s*e,\s*AppLocalizations\.of\(context\)!,\s*operation:\s*UserErrorOperation\.filePicker,\s*\)\.display\(\)'
+          )
+          block, n = pattern.subn(
+              'userFacingError(\n              response.exception!,\n              AppLocalizations.of(context)!,\n              operation: UserErrorOperation.filePicker,\n            ).display()',
+              block,
+              count=1,
+          )
+          if n != 1:
+              raise SystemExit(f'expected exactly one lost-data picker replacement, found {n}')
+          s = s[:func_start] + block + s[func_end:]
           p.write_text(s)
 
           # PlatformException is not const in the current Flutter SDK.
