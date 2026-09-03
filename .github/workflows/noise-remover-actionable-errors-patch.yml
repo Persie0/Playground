@@ -40,7 +40,6 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           def read(p): return Path(p).read_text()
           def write(p, s): Path(p).write_text(s)
@@ -54,7 +53,7 @@ jobs:
                   raise SystemExit(f'{label}: expected >= {count}, found {n}')
               return s.replace(old, new, count)
 
-          # Home: short + long processing and resume diagnostics.
+          # Home: short + long processing, finalization, picker and resume diagnostics.
           p = 'lib/screens/home_screen.dart'
           s = read(p)
           s = add_import(s, "import 'package:noise_remover/utils/ffmpeg_utils.dart';", "import 'package:noise_remover/utils/user_facing_error.dart';")
@@ -64,19 +63,23 @@ jobs:
               """            content: Text(\n              userFacingError(\n                error,\n                l10n,\n                operation: UserErrorOperation.finalization,\n              ).display(),\n            ),""",
               'short finalization message',
           )
-          # Short-file generic switch -> classified error with stable report code.
-          short_pattern = re.compile(r"final errorMessage = switch \(error\) \{\n\s*OutOfSpaceException\(\) => l10n\.errorOutOfSpace,\n\s*FileSystemException\(\) => l10n\.fileMissingFriendly,\n\s*_ => currentRecoveryIsFinalizing\(recoveryState\)\n\s*\? l10n\.finalizeResultFailedFriendly\n\s*: l10n\.processingFailedFriendly,\n\s*\};")
-          s, n = short_pattern.subn(
-              """final errorMessage = userFacingError(\n          error,\n          l10n,\n          operation: currentRecoveryIsFinalizing(recoveryState)\n              ? UserErrorOperation.finalization\n              : UserErrorOperation.processing,\n        ).display();""",
-              s,
-              count=1,
-          )
-          if n != 1: raise SystemExit(f'short processing classifier: {n}')
+          short_old = """        final errorMessage = switch (e) {\n          OutOfSpaceException() => l10n.errorOutOfSpace,\n          UnsupportedFileException() => l10n.errorUnsupportedFile,\n          NoAudioTrackException() => l10n.errorNoAudioTrack,\n          FileSystemException() => l10n.fileMissingFriendly,\n          _ => currentRecoveryIsFinalizing(recoveryState)\n              ? l10n.finalizeResultFailedFriendly\n              : l10n.processingFailedFriendly,\n        };"""
+          short_new = """        final errorMessage = userFacingError(\n          e,\n          l10n,\n          operation: currentRecoveryIsFinalizing(recoveryState)\n              ? UserErrorOperation.finalization\n              : UserErrorOperation.processing,\n        ).display();"""
+          s = replace_required(s, short_old, short_new, 'short processing classifier')
+
+          # Store a safe/actionable checkpoint message instead of exposing raw exceptions.
+          catch_anchor = """    } catch (e, stack) {\n      debugPrint('EXCEPTION in _processFile: $e\\n$stack');"""
+          catch_new = """    } catch (e, stack) {\n      debugPrint('EXCEPTION in _processFile: $e\\n$stack');\n      final userError = userFacingError(\n        e,\n        l10n,\n        operation: currentRecoveryIsFinalizing(recoveryState)\n            ? UserErrorOperation.finalization\n            : UserErrorOperation.processing,\n      );"""
+          s = replace_required(s, catch_anchor, catch_new, 'short processing user error')
+          short_start = s.index(catch_new)
+          short_end = s.index('    } finally {', short_start)
+          short_block = s[short_start:short_end].replace("'lastError': e.toString(),", "'lastError': userError.display(),")
+          short_block = short_block.replace(short_new, "        final errorMessage = userError.display();", 1)
+          s = s[:short_start] + short_block + s[short_end:]
 
           long_anchor = """    } catch (e, stackTrace) {\n      debugPrint('Long File Job Error: $e');"""
           long_new = """    } catch (e, stackTrace) {\n      debugPrint('Long File Job Error: $e');\n      final userError = userFacingError(\n        e,\n        l10n,\n        operation: UserErrorOperation.longProcessing,\n        canResume: jobState != null,\n      );"""
           s = replace_required(s, long_anchor, long_new, 'long processing error classifier')
-          # Only alter stored long-job error strings in this catch block.
           start = s.index(long_new)
           end = s.index('    } finally {', start)
           block = s[start:end]
@@ -88,21 +91,29 @@ jobs:
           resume_old = '          content: Text(l10n.resumeLongFileMessage),'
           resume_new = """          content: Text(\n            existingJob.lastError?.trim().isNotEmpty == true\n                ? l10n.resumeLongFileError(existingJob.lastError!)\n                : l10n.resumeLongFileMessage,\n          ),"""
           s = replace_required(s, resume_old, resume_new, 'resume last error')
+
+          # File picker errors should explain moved/cloud-only/unsupported sources.
+          picker_old = '            content: Text(l10n.pickerFailedFriendly),'
+          picker_new = """            content: Text(\n              userFacingError(\n                e,\n                l10n,\n                operation: UserErrorOperation.filePicker,\n              ).display(),\n            ),"""
+          s = replace_required(s, picker_old, picker_new, 'home file picker', count=1)
           write(p, s)
 
           # Bulk: classify checkpoint, picker and processing errors.
           p = 'lib/screens/bulk_processing_screen.dart'
           s = read(p)
           s = add_import(s, "import 'package:noise_remover/utils/ffmpeg_utils.dart';", "import 'package:noise_remover/utils/user_facing_error.dart';")
+          n_before = s.count("AppLocalizations.of(context)!.processingFailedFriendly,")
           s = s.replace(
               "AppLocalizations.of(context)!.processingFailedFriendly,",
               "userFacingError(\n              e,\n              AppLocalizations.of(context)!,\n              operation: UserErrorOperation.bulkProcessing,\n            ).display(),",
           )
+          if n_before < 1: raise SystemExit('bulk processing fallback not found')
+          n_picker = s.count("AppLocalizations.of(context)!.pickerFailedFriendly,")
           s = s.replace(
               "AppLocalizations.of(context)!.pickerFailedFriendly,",
               "userFacingError(\n            e,\n            AppLocalizations.of(context)!,\n            operation: UserErrorOperation.filePicker,\n          ).display(),",
           )
-          # Any per-item raw exception shown later should become safe/actionable.
+          if n_picker < 1: raise SystemExit('bulk picker fallback not found')
           s = s.replace(
               'item.errorMessage = e.toString();',
               "item.errorMessage = userFacingError(\n        e,\n        l10n,\n        operation: UserErrorOperation.bulkProcessing,\n      ).display();",
@@ -113,14 +124,14 @@ jobs:
           p = 'lib/screens/audio_recording_screen.dart'
           s = read(p)
           s = add_import(s, "import 'package:flutter/material.dart';", "import 'package:noise_remover/utils/user_facing_error.dart';")
+          start_old = "Text(AppLocalizations.of(context)!.recordingStartFailedFriendly)"
+          if start_old not in s: raise SystemExit('recording start fallback not found')
           s = s.replace(
-              "Text(AppLocalizations.of(context)!.recordingStartFailedFriendly)",
+              start_old,
               "Text(\n              userFacingError(\n                e,\n                AppLocalizations.of(context)!,\n                operation: UserErrorOperation.recordingStart,\n              ).display(),\n            )",
           )
-          s = s.replace(
-              'Text(l10n.recordingSaveFailedFriendly)',
-              "Text(\n              userFacingError(\n                e,\n                l10n,\n                operation: UserErrorOperation.recordingSave,\n              ).display(),\n            )",
-          )
+          # Existing save handlers do not all use the same local variable; leave their
+          # already-specific localized save guidance intact rather than risk bad wiring.
           write(p, s)
 
           # Result/player: keep codec-specific messages, classify everything else.
@@ -139,30 +150,31 @@ jobs:
           p = 'lib/screens/settings_screen.dart'
           s = read(p)
           s = add_import(s, "import 'package:flutter/material.dart';", "import 'package:noise_remover/utils/user_facing_error.dart';")
+          sub_old = 'content: Text(l10n.subscriptionManagementFailedFriendly),'
+          if sub_old not in s: raise SystemExit('subscription fallback not found')
           s = s.replace(
-              'content: Text(l10n.subscriptionManagementFailedFriendly),',
+              sub_old,
               """content: Text(\n            userFacingError(\n              error,\n              l10n,\n              operation: UserErrorOperation.subscriptionManagement,\n            ).display(),\n          ),""",
           )
-          s = s.replace(
-              'content: Text(l10n.consentFormLoadFailedFriendly),',
-              """content: Text(\n            userFacingError(\n              error,\n              l10n,\n              operation: UserErrorOperation.privacyOptions,\n            ).display(),\n          ),""",
-          )
+          # consent form can be handled in a different widget/service; wire only when
+          # this screen has a catch-local `error` variable.
           write(p, s)
 
           # Storage settings clear-data failure.
           p = 'lib/screens/storage_settings_page.dart'
           s = read(p)
           s = add_import(s, "import 'package:flutter/material.dart';", "import 'package:noise_remover/utils/user_facing_error.dart';")
+          clear_old = 'content: Text(l10n.clearAppDataFailedFriendly),'
+          if clear_old not in s: raise SystemExit('clear app data fallback not found')
           s = s.replace(
-              'content: Text(l10n.clearAppDataFailedFriendly),',
+              clear_old,
               """content: Text(\n                userFacingError(\n                  error,\n                  l10n,\n                  operation: UserErrorOperation.clearAppData,\n                ).display(),\n              ),""",
           )
           write(p, s)
 
-          # Sanity: no raw long-file fallback should remain.
           home = read('lib/screens/home_screen.dart')
-          if "Long File Job Error" not in home or 'UserErrorOperation.longProcessing' not in home:
-              raise SystemExit('long processing wiring missing after patch')
+          for required in ('UserErrorOperation.longProcessing', 'UserErrorOperation.processing', 'userError.display()'):
+              if required not in home: raise SystemExit(f'missing final home wiring: {required}')
           PY
 
           dart format \
