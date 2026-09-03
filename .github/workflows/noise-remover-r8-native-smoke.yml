@@ -52,7 +52,7 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Prepare release integration test
+      - name: Prepare release smoke app
         run: |
           printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_SDK_ROOT" > app/android/local.properties
           yes | sdkmanager "ndk;29.0.14206865" >/dev/null || true
@@ -60,10 +60,8 @@ jobs:
           chmod +x app/android/gradlew
           keytool -genkeypair -v -keystore app/android/app/ci-release.jks -storepass android -keypass android -alias ci -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US"
           printf '%s\n' 'storePassword=android' 'keyPassword=android' 'keyAlias=ci' 'storeFile=ci-release.jks' > app/android/key.properties
-          python3 -c "from pathlib import Path; p=Path('app/pubspec.yaml'); s=p.read_text(); marker='dev_dependencies:\\n'; assert marker in s; p.write_text(s if 'integration_test:' in s else s.replace(marker, 'dev_dependencies:\\n  integration_test:\\n    sdk: flutter\\n', 1))"
-          mkdir -p app/integration_test app/test_driver
-          cp ci/noise_remover/r8_native_processing_smoke_test.dart app/integration_test/r8_native_processing_smoke_test.dart
-          cp ci/noise_remover/integration_test_driver.dart app/test_driver/integration_test.dart
+          cp ci/noise_remover/r8_native_processing_smoke_test.dart app/lib/r8_native_processing_smoke_main.dart
+          chmod +x ci/noise_remover/run_release_smoke.sh
           cd app
           flutter pub get
 
@@ -81,4 +79,4 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
-          script: cd app && flutter drive --driver=test_driver/integration_test.dart --target=integration_test/r8_native_processing_smoke_test.dart -d emulator-5554 --release
+          script: bash ci/noise_remover/run_release_smoke.sh
