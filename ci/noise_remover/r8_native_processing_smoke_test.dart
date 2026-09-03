@@ -5,9 +5,8 @@ import 'dart:typed_data';
 import 'package:dpdfnet_flutter/dpdfnet_flutter.dart';
 import 'package:ffmpeg_kit_flutter_new_audio/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_audio/return_code.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_nnnoiseless/flutter_nnnoiseless.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:integration_test/integration_test.dart';
 import 'package:noise_remover/utils/ffmpeg_utils.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -47,66 +46,70 @@ Uint8List makeWav({int seconds = 3, int sampleRate = 48000}) {
   return out.buffer.asUint8List();
 }
 
-void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+Future<void> _runSmoke() async {
+  final dir = await getTemporaryDirectory();
 
-  testWidgets('R8 release keeps FFmpeg and RNNoise native bridges', (tester) async {
-    final dir = await getTemporaryDirectory();
-    final input = File('${dir.path}/r8_smoke_input.wav');
-    final rnnoise = File('${dir.path}/r8_smoke_rnnoise.wav');
-    final ffmpeg = File('${dir.path}/r8_smoke_ffmpeg.wav');
-    await input.writeAsBytes(makeWav(), flush: true);
-    expect(await input.length(), greaterThan(100000));
+  print('R8_SMOKE_STAGE:FFPROBE');
+  final input = File('${dir.path}/r8_smoke_input.wav');
+  final rnnoise = File('${dir.path}/r8_smoke_rnnoise.wav');
+  final ffmpeg = File('${dir.path}/r8_smoke_ffmpeg.wav');
+  await input.writeAsBytes(makeWav(), flush: true);
+  if (await input.length() <= 100000) {
+    throw StateError('Generated WAV is unexpectedly small');
+  }
 
-    final probe = await FFprobeKit.getMediaInformation(input.path);
-    expect(
-      probe.getMediaInformation(),
-      isNotNull,
-      reason: 'FFprobe Java/JNI bridge failed under R8 release',
-    );
+  final probe = await FFprobeKit.getMediaInformation(input.path);
+  if (probe.getMediaInformation() == null) {
+    throw StateError('FFprobe Java/JNI bridge returned no media information');
+  }
 
-    await ensureFlutterNnnoiselessInitialized();
-    await Noiseless.instance.denoiseFile(
-      inputPathStr: input.path,
-      outputPathStr: rnnoise.path,
-      onProgress: (_) {},
-    );
-    expect(await rnnoise.exists(), isTrue);
-    expect(
-      await rnnoise.length(),
-      greaterThan(44),
-      reason: 'RNNoise Rust bridge produced no output under R8',
-    );
+  print('R8_SMOKE_STAGE:RNNOISE');
+  await ensureFlutterNnnoiselessInitialized();
+  await Noiseless.instance.denoiseFile(
+    inputPathStr: input.path,
+    outputPathStr: rnnoise.path,
+    onProgress: (_) {},
+  );
+  if (!await rnnoise.exists() || await rnnoise.length() <= 44) {
+    throw StateError('RNNoise Rust bridge produced no output');
+  }
 
-    final session = await executeFFmpegAsync(
-      '-y -i "${rnnoise.path}" -ac 1 -ar 48000 -c:a pcm_s16le "${ffmpeg.path}"',
-    );
-    final rc = await session.getReturnCode();
-    expect(
-      ReturnCode.isSuccess(rc),
-      isTrue,
-      reason: 'FFmpeg callback/JNI bridge failed under R8 release',
-    );
-    expect(await ffmpeg.length(), greaterThan(44));
-  }, timeout: const Timeout(Duration(minutes: 5)));
+  print('R8_SMOKE_STAGE:FFMPEG');
+  final session = await executeFFmpegAsync(
+    '-y -i "${rnnoise.path}" -ac 1 -ar 48000 -c:a pcm_s16le "${ffmpeg.path}"',
+  );
+  final rc = await session.getReturnCode();
+  if (!ReturnCode.isSuccess(rc) || !await ffmpeg.exists() || await ffmpeg.length() <= 44) {
+    throw StateError('FFmpeg callback/JNI bridge failed');
+  }
 
-  testWidgets('R8 release keeps DPDFNet/ONNX processing bridge', (tester) async {
-    final dir = await getTemporaryDirectory();
-    final input = File('${dir.path}/r8_dpdf_input.wav');
-    final output = File('${dir.path}/r8_dpdf_output.wav');
-    await input.writeAsBytes(makeWav(seconds: 2), flush: true);
+  print('R8_SMOKE_STAGE:DPDFNET');
+  final dpdfInput = File('${dir.path}/r8_dpdf_input.wav');
+  final dpdfOutput = File('${dir.path}/r8_dpdf_output.wav');
+  await dpdfInput.writeAsBytes(makeWav(seconds: 2), flush: true);
+  await DPDFNetEngine.processFileInIsolate(
+    DPDFNetModel.dpdfnet2_48khzHr.packageAssetPath(),
+    dpdfInput.path,
+    dpdfOutput.path,
+    useHardwareAcceleration: false,
+  );
+  if (!await dpdfOutput.exists() || await dpdfOutput.length() <= 44) {
+    throw StateError('DPDFNet Rust/ONNX bridge produced no output');
+  }
+}
 
-    await DPDFNetEngine.processFileInIsolate(
-      DPDFNetModel.dpdfnet2_48khzHr.packageAssetPath(),
-      input.path,
-      output.path,
-      useHardwareAcceleration: false,
-    );
-    expect(await output.exists(), isTrue);
-    expect(
-      await output.length(),
-      greaterThan(44),
-      reason: 'DPDFNet Rust/ONNX bridge produced no output under R8',
-    );
-  }, timeout: const Timeout(Duration(minutes: 8)));
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const Directionality(
+    textDirection: TextDirection.ltr,
+    child: Center(child: Text('Noise Remover release smoke test')),
+  ));
+
+  try {
+    await _runSmoke();
+    print('R8_SMOKE_PASS');
+  } catch (error, stackTrace) {
+    print('R8_SMOKE_FAIL:$error');
+    print(stackTrace);
+  }
 }
