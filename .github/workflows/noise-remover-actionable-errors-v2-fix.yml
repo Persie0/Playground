@@ -1,0 +1,101 @@
+name: Noise Remover actionable errors v2 fixed
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-actionable-errors-v2-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch-test-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Checkout Noise Remover fix branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: fix/actionable-errors-r8-processing
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Apply v2 patch with analyzer fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          workflow = Path('.github/workflows/noise-remover-actionable-errors-v2.yml').read_text()
+          marker = "          python3 - <<'PY'\n"
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY\n", start)
+          lines = workflow[start:end].splitlines()
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines)
+          os.chdir('app')
+          exec(compile(script, 'actionable_error_patch.py', 'exec'), {})
+
+          # The lost-data branch has response.exception rather than a catch-local e.
+          p = Path('lib/screens/bulk_processing_screen.dart')
+          s = p.read_text()
+          wrong = """userFacingError(\n              e,\n              AppLocalizations.of(context)!,\n              operation: UserErrorOperation.filePicker,\n            ).display(),"""
+          right = """userFacingError(\n              response.exception!,\n              AppLocalizations.of(context)!,\n              operation: UserErrorOperation.filePicker,\n            ).display(),"""
+          if wrong not in s:
+              raise SystemExit('expected lost-data picker replacement not found')
+          s = s.replace(wrong, right, 1)
+          p.write_text(s)
+
+          # PlatformException is not const in the current Flutter SDK.
+          p = Path('test/user_facing_error_test.dart')
+          s = p.read_text().replace(
+              "const PlatformException(code: 'permission_denied')",
+              "PlatformException(code: 'permission_denied')",
+          )
+          p.write_text(s)
+          PY
+
+      - name: Generate localization and test
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter gen-l10n
+          dart format \
+            lib/utils/user_facing_error.dart \
+            lib/screens/home_screen.dart \
+            lib/screens/bulk_processing_screen.dart \
+            lib/screens/audio_recording_screen.dart \
+            lib/screens/result_screen.dart \
+            lib/screens/paywall_screen.dart \
+            lib/screens/settings_screen.dart \
+            lib/screens/storage_settings_page.dart \
+            lib/widgets/model_option_widget.dart \
+            test/user_facing_error_test.dart
+          flutter analyze --no-fatal-infos
+          flutter test
+
+      - name: Commit and push tested patch
+        working-directory: app
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add android/app/proguard-rules.pro lib test
+          git commit -m 'Make app errors actionable and fix R8 processing bridges'
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/Persie0/noise_remover.git"
+          git push origin HEAD:fix/actionable-errors-r8-processing
