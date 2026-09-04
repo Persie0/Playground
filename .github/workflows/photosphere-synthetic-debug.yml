@@ -22,8 +22,15 @@ env:
 
 jobs:
   synthetic-debug:
+    name: synthetic-${{ matrix.mode }}
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [fast, robust, parallax, motionSafe]
+    env:
+      MODE: ${{ matrix.mode }}
     steps:
       - uses: actions/checkout@v4
       - name: Checkout private Photosphere
@@ -47,6 +54,7 @@ jobs:
         run: |
           python3 -m pip install --disable-pip-version-check --quiet pillow numpy
           python3 - <<'PY'
+          import json, os
           from pathlib import Path
           import numpy as np
           from PIL import Image, ImageDraw
@@ -60,29 +68,23 @@ jobs:
               draw.line((x, 0, x, 799), fill=(255, 255 - (x % 200), x % 255), width=3)
           for y in range(40, 760, 80):
               draw.line((0, y, 1599, y), fill=(y % 255, 255, 255 - (y % 200)), width=3)
-          for i in range(60):
-              x = int(rng.integers(20, 1550))
-              y = int(rng.integers(20, 750))
-              r = int(rng.integers(8, 35))
+          for _ in range(60):
+              x = int(rng.integers(20, 1550)); y = int(rng.integers(20, 750)); r = int(rng.integers(8, 35))
               color = tuple(int(v) for v in rng.integers(0, 256, size=3))
               draw.ellipse((x-r, y-r, x+r, y+r), outline=color, width=4)
+          images = []
           for i, x in enumerate((0, 300, 600, 900)):
-              image.crop((x, 0, x + 700, 800)).save(out / f'frame_{i}.jpg', quality=96, subsampling=0)
-          (out / 'manifest.json').write_text('''{
-            "outputDir": "benchmark/synthetic-out",
-            "cases": [{
-              "name": "synthetic_overlap",
-              "category": "ci",
-              "device": "github-linux",
-              "images": [
-                "benchmark/synthetic/frame_0.jpg",
-                "benchmark/synthetic/frame_1.jpg",
-                "benchmark/synthetic/frame_2.jpg",
-                "benchmark/synthetic/frame_3.jpg"
-              ],
-              "modes": ["fast", "robust", "parallax", "motionSafe"]
-            }]
-          }''')
+              p = out / f'frame_{i}.jpg'
+              image.crop((x, 0, x + 700, 800)).save(p, quality=96, subsampling=0)
+              images.append(str(p))
+          manifest = {
+              'outputDir': f'benchmark/synthetic-out-{os.environ["MODE"]}',
+              'cases': [{
+                  'name': 'synthetic_overlap', 'category': 'ci', 'device': 'github-linux',
+                  'images': images, 'modes': [os.environ['MODE']],
+              }],
+          }
+          (out / 'manifest.json').write_text(json.dumps(manifest, indent=2))
           PY
       - name: Run benchmark and capture diagnostics
         id: benchmark
@@ -91,47 +93,39 @@ jobs:
         run: |
           set +e
           set -o pipefail
-          dart run tool/benchmark.dart --manifest benchmark/synthetic/manifest.json --out benchmark/synthetic-results.json 2>&1 | tee benchmark/synthetic.log
+          dart run tool/benchmark.dart --manifest benchmark/synthetic/manifest.json --out "benchmark/synthetic-results-$MODE.json" 2>&1 | tee "benchmark/synthetic-$MODE.log"
           status=${PIPESTATUS[0]}
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
-          {
-            echo '## Synthetic benchmark diagnostics'
-            echo "Exit code: $status"
-            echo '```text'
-            tail -n 250 benchmark/synthetic.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ -f "benchmark/synthetic-results-$MODE.json" ]]; then
+            cat "benchmark/synthetic-results-$MODE.json" >> "$GITHUB_STEP_SUMMARY"
+          fi
           exit 0
-      - name: Upload synthetic diagnostics
+      - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: photosphere-synthetic-diagnostics
+          name: photosphere-synthetic-${{ matrix.mode }}
           path: |
-            private-app/benchmark/synthetic.log
-            private-app/benchmark/synthetic-results.json
-            private-app/benchmark/synthetic-out/**
+            private-app/benchmark/synthetic-${{ matrix.mode }}.log
+            private-app/benchmark/synthetic-results-${{ matrix.mode }}.json
+            private-app/benchmark/synthetic-out-${{ matrix.mode }}/**
           if-no-files-found: warn
           retention-days: 7
-      - name: Fail if benchmark failed
-        if: steps.benchmark.outputs.exit_code != '0'
-        run: |
-          echo "Benchmark exited with ${{ steps.benchmark.outputs.exit_code }}"
-          exit 1
-      - name: Validate results
+      - name: Validate result
         working-directory: private-app
         run: |
+          test '${{ steps.benchmark.outputs.exit_code }}' = '0'
           python3 - <<'PY'
-          import json
+          import json, os
           from pathlib import Path
-          data = json.loads(Path('benchmark/synthetic-results.json').read_text())
+          mode = os.environ['MODE']
+          data = json.loads(Path(f'benchmark/synthetic-results-{mode}.json').read_text())
           records = data['records']
-          assert len(records) == 4, records
-          failed = [r for r in records if not r.get('success')]
-          assert not failed, failed
-          for r in records:
-              assert r['width'] == 2 * r['height'], r
-              assert r['usedFrameCount'] >= 3, r
-              assert r['memory']['peakRssMiB'] > 0, r
-          print('Synthetic engine records:', [(r['requestedMode'], r['actualMode'], r['elapsedMs']) for r in records])
+          assert len(records) == 1, records
+          r = records[0]
+          assert r.get('success'), r
+          assert r['width'] == 2 * r['height'], r
+          assert r['usedFrameCount'] >= 3, r
+          assert r['memory']['peakRssMiB'] > 0, r
+          print(json.dumps(r, indent=2))
           PY
