@@ -6,7 +6,7 @@ on:
       ref:
         description: Branch/tag/SHA in Persie0/ImagePdfScaler
         required: true
-        default: main
+        default: fix/preview-pipeline-projects-audit
         type: string
   push:
     branches: [main]
@@ -18,7 +18,7 @@ permissions:
 
 env:
   APP_REPOSITORY: Persie0/ImagePdfScaler
-  APP_REF: ${{ inputs.ref || 'main' }}
+  APP_REF: ${{ inputs.ref || 'fix/preview-pipeline-projects-audit' }}
 
 jobs:
   flutter-android:
@@ -69,11 +69,11 @@ jobs:
         working-directory: private-app
         run: flutter pub get
 
-      - name: Analyze merged layout and crop/rotation toolset
+      - name: Analyze audited editor and image pipeline
         working-directory: private-app
         run: flutter analyze
 
-      - name: Test layout, snapping, packing and editor
+      - name: Test preview, rotation, cloning, layout and editor
         working-directory: private-app
         run: flutter test
 
@@ -81,9 +81,9 @@ jobs:
         working-directory: private-app
         run: flutter build apk --release
 
-      - name: Upload release APK
+      - name: Upload audit release APK
         uses: actions/upload-artifact@v4
         with:
-          name: imagepdfscaler-full-layout-release-apk
+          name: imagepdfscaler-preview-audit-release-apk
           path: private-app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
