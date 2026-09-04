@@ -1,0 +1,56 @@
+name: Noise Remover Appodeal consent CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-appodeal-consent-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Checkout Noise Remover branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: fix/appodeal-consent-retry-sentry
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Generate localization
+        working-directory: app
+        run: flutter gen-l10n
+
+      - name: Check formatting
+        working-directory: app
+        run: dart format --output=none --set-exit-if-changed lib/main.dart lib/services/ad_service.dart
+
+      - name: Analyze
+        working-directory: app
+        run: flutter analyze --no-fatal-infos
+
+      - name: Test
+        working-directory: app
+        run: flutter test
