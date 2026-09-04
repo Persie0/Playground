@@ -197,8 +197,8 @@ new = """      bool shouldIgnore = e is TimeoutException;
       }
 """
 count = s.count(old)
-if count < 2:
-    raise SystemExit(f"expected at least 2 paywall ignore blocks, found {count}")
+if count < 1:
+    raise SystemExit(f"expected at least 1 paywall ignore block, found {count}")
 s = s.replace(old, new)
 old = """      Sentry.captureException(e, stackTrace: stackTrace);
     } catch (e, stackTrace) {
@@ -283,17 +283,19 @@ new = '''    final initializationCompleter = Completer<void>();
       appKey: _appKey,
       adTypes: [AppodealAdType.Interstitial],
       onInitializationFinished: (errors) {
-        for (final error in errors ?? const []) {
-          final errorStr = error.toString();
-          final errorType = error.runtimeType.toString();
-          String? description;
-          try {
-            description = (error as dynamic).description?.toString();
-          } catch (_) {}
-          final diagnostic =
-              'type=$errorType description=$description raw=$errorStr';
-          initializationDiagnostics.add(diagnostic);
-          debugPrint('Appodeal initialization diagnostic: $diagnostic');
+        if (errors != null) {
+          for (final error in errors) {
+            final errorStr = error.toString();
+            final errorType = error.runtimeType.toString();
+            String? description;
+            try {
+              description = (error as dynamic).description?.toString();
+            } catch (_) {}
+            final diagnostic =
+                'type=$errorType description=$description raw=$errorStr';
+            initializationDiagnostics.add(diagnostic);
+            debugPrint('Appodeal initialization diagnostic: $diagnostic');
+          }
         }
         if (!initializationCompleter.isCompleted) {
           initializationCompleter.complete();
