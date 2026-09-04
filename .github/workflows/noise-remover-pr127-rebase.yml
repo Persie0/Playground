@@ -1,0 +1,245 @@
+name: Noise Remover PR127 rebase
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-pr127-rebase.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Checkout current Noise Remover master
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: master
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+          fetch-depth: 0
+      - name: Apply current Sentry fixes
+        working-directory: app
+        run: |
+          git fetch origin agent/fix-current-sentry-aug10
+          OLD=origin/agent/fix-current-sentry-aug10
+          BASE=$(git merge-base origin/master "$OLD")
+          git diff --binary "$BASE" "$OLD" -- lib/services/settings_service.dart lib/utils/ffmpeg_utils.dart > /tmp/pr127.patch
+          git checkout -B agent/fix-current-sentry-aug10 origin/master
+          git apply --index /tmp/pr127.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('lib/screens/audio_recording_screen.dart')
+          s = p.read_text()
+
+          def once(old, new, label):
+              global s
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {n}')
+              s = s.replace(old, new, 1)
+
+          once(
+              '  static const int _rawWriteHighWaterBytes = 2 * 1024 * 1024;\n\n',
+              '  static const int _rawWriteHighWaterBytes = 2 * 1024 * 1024;\n\n'
+              '  // Avoid record 7.x automatic Android Bluetooth SCO management.\n'
+              '  // That native receiver path caused NOISEREMOVE-59.\n'
+              '  static const AndroidRecordConfig _androidRecordConfig =\n'
+              '      AndroidRecordConfig(manageBluetooth: false);\n\n',
+              'android config',
+          )
+          once(
+              '  bool _isRecording = false;\n  bool _isRequestingPermission = false;\n  bool _isCleanWhileRecording = false;\n',
+              '  bool _isRecording = false;\n  bool _isRequestingPermission = false;\n  bool _isCleanWhileRecording = false;\n'
+              '  bool _isDisposed = false;\n  bool _isCancelling = false;\n  bool _recorderStarted = false;\n'
+              '  Future<void>? _startRecordingFuture;\n',
+              'state fields',
+          )
+          helpers = (
+              '  Future<void> _cleanupResources() async {\n'
+              '    await _recordStreamSub?.cancel();\n'
+              '    _recordStreamSub = null;\n'
+              '  }\n\n'
+              '  Future<void> _disposeRecorderResources() async {\n'
+              '    await _cleanupResources();\n'
+              '    _processingIsolate?.kill(priority: Isolate.immediate);\n'
+              '    _processingIsolate = null;\n'
+              '    try { await Noiseless.instance.resetRealtime(); } catch (_) {}\n'
+              '    try { await _finishRawSink(); } catch (_) {}\n'
+              '    _isolateReceivePort?.close();\n'
+              '    _isolateReceivePort = null;\n'
+              '    _isolateSendPort = null;\n'
+              '    await _recorder.dispose();\n'
+              '  }\n\n'
+              '  Future<void> _beginRecording() {\n'
+              '    if (_isDisposed) return Future<void>.value();\n'
+              '    final existing = _startRecordingFuture;\n'
+              '    if (existing != null) return existing;\n'
+              '    late Future<void> operation;\n'
+              '    operation = _startRecording().whenComplete(() {\n'
+              '      if (identical(_startRecordingFuture, operation)) {\n'
+              '        _startRecordingFuture = null;\n'
+              '      }\n'
+              '    });\n'
+              '    _startRecordingFuture = operation;\n'
+              '    return operation;\n'
+              '  }\n\n'
+              '  Future<String?> _stopRecorderIfStarted() async {\n'
+              '    if (!_recorderStarted) return null;\n'
+              '    _recorderStarted = false;\n'
+              '    return _recorder.stop();\n'
+              '  }\n\n'
+          )
+          once(
+              '  Future<void> _cleanupResources() async {\n    await _recordStreamSub?.cancel();\n    _recordStreamSub = null;\n  }\n\n',
+              helpers,
+              'helpers',
+          )
+          once(
+              '  @override\n  void dispose() {\n    _timer?.cancel();\n    _waveformTimer?.cancel();\n    unawaited(_cleanupResources());\n    _processingIsolate?.kill(priority: Isolate.immediate);\n    unawaited(Noiseless.instance.resetRealtime());\n    unawaited(_finishRawSink().catchError((Object _) {}));\n    _isolateReceivePort?.close();\n    _recorder.dispose();\n    super.dispose();\n  }\n',
+              '  @override\n  void dispose() {\n    _isDisposed = true;\n    _timer?.cancel();\n    _waveformTimer?.cancel();\n    final starting = _startRecordingFuture;\n    if (starting == null) {\n      unawaited(_disposeRecorderResources());\n    } else {\n      unawaited(starting.whenComplete(_disposeRecorderResources));\n    }\n    super.dispose();\n  }\n',
+              'dispose',
+          )
+          once(
+              '  Future<void> _startRecording() async {\n    try {\n      final dir = await getTemporaryDirectory();\n',
+              '  Future<void> _startRecording() async {\n    if (_isDisposed) return;\n    try {\n      final dir = await getTemporaryDirectory();\n      if (_isDisposed || !mounted) return;\n',
+              'start guard',
+          )
+          once(
+              '            if (message is SendPort) {\n              handshakeCompleter.complete(message);\n',
+              '            if (message is SendPort) {\n              if (!handshakeCompleter.isCompleted) {\n                handshakeCompleter.complete(message);\n              }\n',
+              'handshake guard',
+          )
+          once(
+              '          _isolateSendPort = await handshakeCompleter.future.timeout(\n            const Duration(seconds: 10),\n          );\n\n          final stream = await _recorder.startStream(',
+              '          _isolateSendPort = await handshakeCompleter.future.timeout(\n            const Duration(seconds: 10),\n          );\n          if (_isDisposed || !mounted) return;\n\n          final stream = await _recorder.startStream(',
+              'post-handshake guard',
+          )
+
+          s, config_count = re.subn(
+              r'(?m)^(\s*)numChannels: 1,\n',
+              r'\1numChannels: 1,\n\1androidConfig: _androidRecordConfig,\n',
+              s,
+          )
+          if config_count != 3:
+              raise SystemExit(f'expected 3 recorder configs, patched {config_count}')
+
+          once(
+              '          );\n\n          // Forward every PCM chunk to the isolate',
+              '          );\n          _recorderStarted = true;\n\n          // Forward every PCM chunk to the isolate',
+              'stream flag',
+          )
+          once(
+              '          _isCleanWhileRecording = false;\n\n          // Fallback: plain WAV recording\n',
+              '          _isCleanWhileRecording = false;\n          if (_isDisposed || !mounted) return;\n\n          // Fallback: plain WAV recording\n',
+              'fallback guard',
+          )
+          once(
+              '            path: filePath,\n          );',
+              '            path: filePath,\n          );\n          _recorderStarted = true;',
+              'fallback flag',
+          )
+          once(
+              '          path: filePath,\n        );',
+              '          path: filePath,\n        );\n        _recorderStarted = true;',
+              'plain flag',
+          )
+          once(
+              '      if (!mounted) return;\n      setState(() => _isRecording = true);',
+              '      if (_isDisposed || !mounted) return;\n      setState(() => _isRecording = true);',
+              'mounted after start',
+          )
+          once(
+              '  Future<void> _togglePause() async {\n    if (_isPaused) {',
+              '  Future<void> _togglePause() async {\n    if (!_recorderStarted) return;\n    if (_isPaused) {',
+              'pause guard',
+          )
+          s = s.replace('await _recorder.stop();', 'await _stopRecorderIfStarted();')
+          s = s.replace('outPath = await _recorder.stop();', 'outPath = await _stopRecorderIfStarted();')
+
+          start = s.index('  Future<void> _cancelRecording() async {')
+          end = s.index('  Future<void> _deleteTempFiles() async {', start)
+          cancel = (
+              '  Future<void> _cancelRecording() async {\n'
+              '    if (_isCancelling) return;\n'
+              '    _isCancelling = true;\n'
+              '    try {\n'
+              '      _timer?.cancel();\n'
+              '      _waveformTimer?.cancel();\n'
+              '      final starting = _startRecordingFuture;\n'
+              '      if (starting != null) await starting;\n'
+              '      if (_isDisposed) return;\n'
+              '      if (_isCleanWhileRecording) {\n'
+              '        await _stopRecorderIfStarted();\n'
+              '        await _recordStreamSub?.cancel();\n'
+              '        _recordStreamSub = null;\n'
+              '        await _finishRawSink();\n'
+              '        if (_isolateSendPort != null) {\n'
+              '          final responsePort = ReceivePort();\n'
+              '          try {\n'
+              "            _isolateSendPort!.send({'cmd': 'close', 'replyPort': responsePort.sendPort});\n"
+              '            await responsePort.first.timeout(const Duration(seconds: 5));\n'
+              '          } catch (_) {\n'
+              '            // Cancellation discards output.\n'
+              '          } finally {\n'
+              '            responsePort.close();\n'
+              '          }\n'
+              '        }\n'
+              '        _processingIsolate?.kill(priority: Isolate.immediate);\n'
+              '        _processingIsolate = null;\n'
+              '        _isolateReceivePort?.close();\n'
+              '        _isolateReceivePort = null;\n'
+              '        _isolateSendPort = null;\n'
+              '        await Noiseless.instance.resetRealtime();\n'
+              '        await _deleteTempFiles();\n'
+              '      } else {\n'
+              '        await _stopRecorderIfStarted();\n'
+              '      }\n'
+              '      if (mounted) Navigator.pop(context);\n'
+              '    } finally {\n'
+              '      _isCancelling = false;\n'
+              '    }\n'
+              '  }\n\n'
+          )
+          s = s[:start] + cancel + s[end:]
+          once(
+              '                              if (_isRequestingPermission) return;\n',
+              '                              if (_isRequestingPermission ||\n                                  _startRecordingFuture != null) {\n                                return;\n                              }\n',
+              'UI start guard',
+          )
+          s = s.replace('await _startRecording();', 'await _beginRecording();')
+          p.write_text(s)
+          PY
+
+          flutter pub get
+          flutter gen-l10n
+          dart format lib/screens/audio_recording_screen.dart lib/services/settings_service.dart lib/utils/ffmpeg_utils.dart
+          flutter analyze --no-fatal-infos
+          flutter test
+      - name: Commit and update PR branch
+        working-directory: app
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add lib/screens/audio_recording_screen.dart lib/services/settings_service.dart lib/utils/ffmpeg_utils.dart
+          git commit -m 'Rebase valid Sentry crash fixes onto current master'
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/Persie0/noise_remover.git"
+          git push --force-with-lease origin HEAD:agent/fix-current-sentry-aug10
