@@ -1,0 +1,133 @@
+name: Photosphere synthetic debug
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch/tag/SHA in Persie0/Photosphere-
+        required: true
+        default: audit/code-hardening-3
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/Photosphere-
+  APP_REF: ${{ inputs.ref || 'audit/code-hardening-3' }}
+
+jobs:
+  synthetic-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout private Photosphere
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-app
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Resolve dependencies
+        working-directory: private-app
+        run: flutter pub get
+      - name: Generate deterministic overlapping test photos
+        working-directory: private-app
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet pillow numpy
+          python3 - <<'PY'
+          from pathlib import Path
+          import numpy as np
+          from PIL import Image, ImageDraw
+          out = Path('benchmark/synthetic')
+          out.mkdir(parents=True, exist_ok=True)
+          rng = np.random.default_rng(20260831)
+          base = rng.integers(0, 256, size=(800, 1600, 3), dtype=np.uint8)
+          image = Image.fromarray(base, 'RGB')
+          draw = ImageDraw.Draw(image)
+          for x in range(40, 1560, 80):
+              draw.line((x, 0, x, 799), fill=(255, 255 - (x % 200), x % 255), width=3)
+          for y in range(40, 760, 80):
+              draw.line((0, y, 1599, y), fill=(y % 255, 255, 255 - (y % 200)), width=3)
+          for i in range(60):
+              x = int(rng.integers(20, 1550))
+              y = int(rng.integers(20, 750))
+              r = int(rng.integers(8, 35))
+              color = tuple(int(v) for v in rng.integers(0, 256, size=3))
+              draw.ellipse((x-r, y-r, x+r, y+r), outline=color, width=4)
+          for i, x in enumerate((0, 300, 600, 900)):
+              image.crop((x, 0, x + 700, 800)).save(out / f'frame_{i}.jpg', quality=96, subsampling=0)
+          (out / 'manifest.json').write_text('''{
+            "outputDir": "benchmark/synthetic-out",
+            "cases": [{
+              "name": "synthetic_overlap",
+              "category": "ci",
+              "device": "github-linux",
+              "images": [
+                "benchmark/synthetic/frame_0.jpg",
+                "benchmark/synthetic/frame_1.jpg",
+                "benchmark/synthetic/frame_2.jpg",
+                "benchmark/synthetic/frame_3.jpg"
+              ],
+              "modes": ["fast", "robust", "parallax", "motionSafe"]
+            }]
+          }''')
+          PY
+      - name: Run benchmark and capture diagnostics
+        id: benchmark
+        working-directory: private-app
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          dart run tool/benchmark.dart --manifest benchmark/synthetic/manifest.json --out benchmark/synthetic-results.json 2>&1 | tee benchmark/synthetic.log
+          status=${PIPESTATUS[0]}
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          {
+            echo '## Synthetic benchmark diagnostics'
+            echo "Exit code: $status"
+            echo '```text'
+            tail -n 250 benchmark/synthetic.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - name: Upload synthetic diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-synthetic-diagnostics
+          path: |
+            private-app/benchmark/synthetic.log
+            private-app/benchmark/synthetic-results.json
+            private-app/benchmark/synthetic-out/**
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Fail if benchmark failed
+        if: steps.benchmark.outputs.exit_code != '0'
+        run: |
+          echo "Benchmark exited with ${{ steps.benchmark.outputs.exit_code }}"
+          exit 1
+      - name: Validate results
+        working-directory: private-app
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('benchmark/synthetic-results.json').read_text())
+          records = data['records']
+          assert len(records) == 4, records
+          failed = [r for r in records if not r.get('success')]
+          assert not failed, failed
+          for r in records:
+              assert r['width'] == 2 * r['height'], r
+              assert r['usedFrameCount'] >= 3, r
+              assert r['memory']['peakRssMiB'] > 0, r
+          print('Synthetic engine records:', [(r['requestedMode'], r['actualMode'], r['elapsedMs']) for r in records])
+          PY
