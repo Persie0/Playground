@@ -1,0 +1,544 @@
+name: Image Enhancer Sentry export fixes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/image-enhancer-sentry-export-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/image_enhancer
+  TARGET_BRANCH: fix/sentry-export-2026-09-04
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Checkout private Image Enhancer
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Apply Sentry root-cause fixes
+        working-directory: app
+        run: |
+          git checkout -B "$TARGET_BRANCH"
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def read(path):
+              return Path(path).read_text()
+
+          def write(path, value):
+              Path(path).write_text(value)
+
+          def replace_required(value, old, new, label, count=1):
+              found = value.count(old)
+              if found < count:
+                  raise SystemExit(f'{label}: expected at least {count}, found {found}')
+              return value.replace(old, new, count)
+
+          # 1) image_picker / permission request reentrancy.
+          write('lib/utils/permission_helper.dart', '''import 'dart:async';
+          import 'package:flutter/services.dart';
+
+          class PermissionHelper {
+            static bool _isBusyPlatformException(Object error) {
+              if (error is! PlatformException) return false;
+              final details =
+                  '${error.message ?? ''} ${error.details ?? ''}'.toLowerCase();
+              return error.code == 'already_active' ||
+                  (error.code == 'PermissionHandler.PermissionManager' &&
+                      details.contains('already running')) ||
+                  details.contains('image picker is already active') ||
+                  details.contains('request for permissions is already running');
+            }
+
+            /// Retries a task when a platform picker/permission request is already active.
+            static Future<T> runWithRetry<T>(
+              Future<T> Function() task, {
+              int maxRetries = 3,
+              Duration baseDelay = const Duration(milliseconds: 500),
+            }) async {
+              var retries = 0;
+              while (true) {
+                try {
+                  return await task();
+                } catch (error) {
+                  if (!_isBusyPlatformException(error) || retries >= maxRetries) {
+                    rethrow;
+                  }
+                  final delay = baseDelay * (1 << retries);
+                  retries++;
+                  if (delay > Duration.zero) await Future<void>.delayed(delay);
+                }
+              }
+            }
+          }
+          ''')
+
+          # 2) Securely classify TLS trust-chain failures instead of treating them as app crashes.
+          p = 'lib/utils/model_download.dart'
+          s = read(p)
+          s = replace_required(
+              s,
+              '''      } catch (error) {
+                  if (error is DioException && CancelToken.isCancel(error)) rethrow;
+                  final shouldRetry = error is _RestartDownloadException ||''',
+              '''      } catch (error) {
+                  if (error is DioException && CancelToken.isCancel(error)) rethrow;
+                  if (_isCertificateFailure(error)) {
+                    _emit(onEvent, 'certificate_error', {'attempt': attempt});
+                    throw const ModelDownloadCertificateException();
+                  }
+                  final shouldRetry = error is _RestartDownloadException ||''',
+              'download certificate catch',
+          )
+          s = replace_required(
+              s,
+              '''  static bool _isTransient(Object error) {''',
+              '''  static bool _isCertificateFailure(Object error) {
+                if (error is HandshakeException) return true;
+                if (error is! DioException) return false;
+                if (error.type == DioExceptionType.badCertificate) return true;
+                final details =
+                    '${error.message ?? ''} ${error.error ?? ''}'.toLowerCase();
+                return details.contains('certificate_verify_failed') ||
+                    details.contains('unable to get local issuer certificate') ||
+                    details.contains('handshakeexception');
+              }
+
+              static bool _isTransient(Object error) {''',
+              'download certificate classifier',
+          )
+          s = replace_required(
+              s,
+              '''class ModelValidationException implements Exception {''',
+              '''class ModelDownloadCertificateException implements Exception {
+                const ModelDownloadCertificateException();
+
+                String get message =>
+                    'The secure connection to the model server could not be verified. '
+                    'Check your device date/time, VPN or filtering app, then try again.';
+
+                @override
+                String toString() => message;
+              }
+
+              class ModelValidationException implements Exception {''',
+              'download certificate exception',
+          )
+          write(p, s)
+
+          # 3) Downloader UI: certificate failures are actionable network/trust errors, not Sentry crashes.
+          for p in ('lib/super_resolution_home_page.dart', 'lib/model_selection_page.dart'):
+              s = read(p)
+              s = replace_required(
+                  s,
+                  '''      bool isNetworkError = false;
+                      bool isClientClosed = false;''',
+                  '''      bool isNetworkError = false;
+                      bool isClientClosed = false;
+                      final isCertificateError = e is ModelDownloadCertificateException;''',
+                  f'{p} certificate flag',
+              )
+              s = replace_required(
+                  s,
+                  '''      final shouldReport = kReleaseMode && !isInternetIssue && !isClientClosed;''',
+                  '''      final shouldReport = kReleaseMode &&
+                          !isInternetIssue &&
+                          !isClientClosed &&
+                          !isCertificateError;''',
+                  f'{p} certificate sentry filter',
+              )
+              s = replace_required(
+                  s,
+                  '''      String userFriendlyError = e.toString();
+                      if (isInternetIssue) {''',
+                  '''      String userFriendlyError = e.toString();
+                      if (isCertificateError) {
+                        userFriendlyError = e.message;
+                      } else if (isInternetIssue) {''',
+                  f'{p} certificate message',
+              )
+              write(p, s)
+
+          # 4) User-size guard is an expected validation result, not a crash.
+          p = 'lib/super_resolution_home_page.dart'
+          s = read(p)
+          s = replace_required(
+              s,
+              '''      if (kReleaseMode && e is! UnsupportedFileException) {
+                    Sentry.captureException(e, stackTrace: stackTrace);
+                  }''',
+              '''      if (kReleaseMode &&
+                      e is! UnsupportedFileException &&
+                      e is! ImageTooLargeException) {
+                    Sentry.captureException(e, stackTrace: stackTrace);
+                  }''',
+              'upscale size sentry filter',
+          )
+          s = replace_required(
+              s,
+              '''        if (e is UnsupportedFileException) {
+                      _showError(l10n.unsupportedFileError);
+                    } else {
+                      _showError(l10n.failedToUpscaleImage(e.toString()));
+                    }''',
+              '''        if (e is UnsupportedFileException) {
+                      _showError(l10n.unsupportedFileError);
+                    } else if (e is ImageTooLargeException) {
+                      _showError(e.message);
+                    } else {
+                      _showError(l10n.failedToUpscaleImage(e.toString()));
+                    }''',
+              'upscale size friendly message',
+          )
+          write(p, s)
+
+          # Also stop validation-only size errors if another code path captures them.
+          p = 'lib/main.dart'
+          s = read(p)
+          s = replace_required(
+              s,
+              '''          if (throwable is UnsupportedFileException) {
+                        return null;
+                      }''',
+              '''          if (throwable is UnsupportedFileException ||
+                          throwable is ImageTooLargeException) {
+                        return null;
+                      }''',
+              'global validation sentry filter',
+          )
+          write(p, s)
+
+          # 5) RevenueCat availability/billing-state errors should stay user-facing and out of Sentry.
+          p = 'lib/store/store.dart'
+          s = read(p)
+          s = replace_required(
+              s,
+              '''  @override
+                void initState() {''',
+              '''  bool _isExpectedStoreAvailabilityFailure(Object error) {
+                final code = _purchaseErrorCode(error);
+                if (code == PurchasesErrorCode.purchaseNotAllowedError ||
+                    code == PurchasesErrorCode.operationAlreadyInProgressError ||
+                    code == PurchasesErrorCode.paymentPendingError) {
+                  return true;
+                }
+                if (code != PurchasesErrorCode.storeProblemError ||
+                    error is! PlatformException) {
+                  return false;
+                }
+                final details =
+                    '${error.message ?? ''} ${error.details ?? ''}'.toLowerCase();
+                return details.contains('billing unavailable') ||
+                    details.contains('billing_unavailable') ||
+                    details.contains('google play error: invalid value');
+              }
+
+              @override
+              void initState() {''',
+              'store expected availability helper',
+          )
+          s = replace_required(
+              s,
+              '''      final isInternetIssue = _isNetworkFailure(e);
+                  final shouldReport = kReleaseMode && !isInternetIssue;''',
+              '''      final isInternetIssue = _isNetworkFailure(e);
+                  final expectedStoreFailure = _isExpectedStoreAvailabilityFailure(e);
+                  final shouldReport =
+                      kReleaseMode && !isInternetIssue && !expectedStoreFailure;''',
+              'store fetch sentry filter',
+              count=1,
+          )
+          s = replace_required(
+              s,
+              '''          final message = isInternetIssue
+                      ? l10n.downloadError_noInternet
+                      : '${l10n.storeError}: $e';''',
+              '''          final message = isInternetIssue
+                      ? l10n.downloadError_noInternet
+                      : expectedStoreFailure
+                          ? l10n.storeError
+                          : '${l10n.storeError}: $e';''',
+              'store fetch message',
+          )
+          # Purchase block is the next occurrence of the same two-line filter.
+          s = replace_required(
+              s,
+              '''        final isInternetIssue = _isNetworkFailure(e);
+                    final shouldReport = kReleaseMode && !isInternetIssue;''',
+              '''        final isInternetIssue = _isNetworkFailure(e);
+                    final expectedStoreFailure = _isExpectedStoreAvailabilityFailure(e);
+                    final shouldReport =
+                        kReleaseMode && !isInternetIssue && !expectedStoreFailure;''',
+              'store purchase sentry filter',
+          )
+          s = replace_required(
+              s,
+              '''            final errorText = isInternetIssue
+                        ? l10n.downloadError_noInternet
+                        : l10n.purchaseFailedWithError(e.toString());''',
+              '''            final errorText = isInternetIssue
+                        ? l10n.downloadError_noInternet
+                        : expectedStoreFailure
+                            ? l10n.storeError
+                            : l10n.purchaseFailedWithError(e.toString());''',
+              'store purchase message',
+          )
+          # Restore path as well for consistency.
+          s = replace_required(
+              s,
+              '''      final isInternetIssue = _isNetworkFailure(e);
+                  final shouldReport = kReleaseMode && !isInternetIssue;''',
+              '''      final isInternetIssue = _isNetworkFailure(e);
+                  final expectedStoreFailure = _isExpectedStoreAvailabilityFailure(e);
+                  final shouldReport =
+                      kReleaseMode && !isInternetIssue && !expectedStoreFailure;''',
+              'store restore sentry filter',
+              count=1,
+          )
+          s = replace_required(
+              s,
+              '''          final errorText = isInternetIssue
+                      ? l10n.downloadError_noInternet
+                      : l10n.failedToRestorePurchases(e.toString());''',
+              '''          final errorText = isInternetIssue
+                      ? l10n.downloadError_noInternet
+                      : expectedStoreFailure
+                          ? l10n.storeError
+                          : l10n.failedToRestorePurchases(e.toString());''',
+              'store restore message',
+          )
+          write(p, s)
+
+          # 6) ONNX lifecycle + shape stability.
+          p = 'flutter_super_resolution/lib/flutter_super_resolution.dart'
+          s = read(p)
+          s = replace_required(
+              s,
+              '''  final _inferenceLock = _AsyncLock();
+
+                /// Maximum tile size enforced at runtime to prevent OOM crashes.''',
+              '''  final _inferenceLock = _AsyncLock();
+                int _activeUpscales = 0;
+                Completer<void>? _idleCompleter;
+
+                Future<void> _waitForIdle() async {
+                  if (_activeUpscales == 0) return;
+                  _idleCompleter ??= Completer<void>();
+                  await _idleCompleter!.future;
+                }
+
+                void _beginUpscale() {
+                  _activeUpscales++;
+                }
+
+                void _endUpscale() {
+                  _activeUpscales--;
+                  if (_activeUpscales == 0) {
+                    final completer = _idleCompleter;
+                    _idleCompleter = null;
+                    if (completer != null && !completer.isCompleted) {
+                      completer.complete();
+                    }
+                  }
+                }
+
+                /// Maximum tile size enforced at runtime to prevent OOM crashes.''',
+              'onnx active upscale lifecycle',
+          )
+          s = replace_required(
+              s,
+              '''  }) async {
+                  try {
+                    final ort = OnnxRuntime();''',
+              '''  }) async {
+                  await _waitForIdle();
+                  try {
+                    final ort = OnnxRuntime();''',
+              'onnx initializer waits',
+              count=2,
+          )
+          s = replace_required(
+              s,
+              '''    try {
+                  if (!useTiling ||
+                      (sourceImage.width <= effectiveTileSize &&
+                          sourceImage.height <= effectiveTileSize)) {
+                    return await _processFullImage(
+                      sourceImage,
+                      scale,
+                      onProgress,
+                      onDiagnostics,
+                    );
+                  } else {
+                    return await _processByTiles(
+                        sourceImage, scale, onProgress, effectiveTileSize, onDiagnostics);
+                  }
+                } catch (e) {
+                  throw Exception('Error processing image: $e');
+                }''',
+              '''    _beginUpscale();
+                try {
+                  // Normal app processing always uses the fixed, padded tile input shape.
+                  // Even a one-tile image must stay on this path; switching small images
+                  // to their raw dimensions can make native provider buffers reusable with
+                  // an incompatible tensor shape on the next image.
+                  if (!useTiling) {
+                    return await _processFullImage(
+                      sourceImage,
+                      scale,
+                      onProgress,
+                      onDiagnostics,
+                    );
+                  }
+                  return await _processByTiles(
+                    sourceImage,
+                    scale,
+                    onProgress,
+                    effectiveTileSize,
+                    onDiagnostics,
+                  );
+                } catch (e) {
+                  throw Exception('Error processing image: $e');
+                } finally {
+                  _endUpscale();
+                }''',
+              'onnx fixed-shape processing path',
+          )
+          s = replace_required(
+              s,
+              '''  Future<void> dispose() async {
+                  final session = _session;''',
+              '''  Future<void> dispose() async {
+                  await _waitForIdle();
+                  final session = _session;''',
+              'onnx dispose waits for active upscale',
+          )
+          write(p, s)
+
+          # 7) Regression coverage for image-picker reentrancy.
+          write('test/permission_helper_test.dart', '''import 'package:flutter/services.dart';
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:image_enhancer/utils/permission_helper.dart';
+
+          void main() {
+            test('retries image_picker already_active errors', () async {
+              var calls = 0;
+              final result = await PermissionHelper.runWithRetry<int>(
+                () async {
+                  calls++;
+                  if (calls < 3) {
+                    throw PlatformException(
+                      code: 'already_active',
+                      message: 'Image picker is already active',
+                    );
+                  }
+                  return 42;
+                },
+                baseDelay: Duration.zero,
+              );
+
+              expect(result, 42);
+              expect(calls, 3);
+            });
+
+            test('still retries legacy permission-manager busy errors', () async {
+              var calls = 0;
+              final result = await PermissionHelper.runWithRetry<int>(
+                () async {
+                  calls++;
+                  if (calls == 1) {
+                    throw PlatformException(
+                      code: 'PermissionHandler.PermissionManager',
+                      message: 'A request for permissions is already running',
+                    );
+                  }
+                  return 7;
+                },
+                baseDelay: Duration.zero,
+              );
+
+              expect(result, 7);
+              expect(calls, 2);
+            });
+
+            test('does not retry unrelated platform errors', () async {
+              var calls = 0;
+              await expectLater(
+                PermissionHelper.runWithRetry<void>(
+                  () async {
+                    calls++;
+                    throw PlatformException(code: 'other');
+                  },
+                  baseDelay: Duration.zero,
+                ),
+                throwsA(isA<PlatformException>()),
+              );
+              expect(calls, 1);
+            });
+          }
+          ''')
+          PY
+
+          dart format \
+            lib/main.dart \
+            lib/model_selection_page.dart \
+            lib/store/store.dart \
+            lib/super_resolution_home_page.dart \
+            lib/utils/model_download.dart \
+            lib/utils/permission_helper.dart \
+            test/permission_helper_test.dart \
+            flutter_super_resolution/lib/flutter_super_resolution.dart
+
+      - name: Analyze and test app
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos
+          flutter test
+
+      - name: Test super-resolution package
+        working-directory: app/flutter_super_resolution
+        run: |
+          flutter pub get
+          flutter test
+
+      - name: Commit and push verified fixes
+        working-directory: app
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add lib test flutter_super_resolution/lib flutter_super_resolution/test
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Fix Sentry export root causes'
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/Persie0/image_enhancer.git"
+          git push --force-with-lease origin HEAD:"$TARGET_BRANCH"
