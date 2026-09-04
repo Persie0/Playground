@@ -86,14 +86,37 @@ jobs:
           }
           (out / 'manifest.json').write_text(json.dumps(manifest, indent=2))
           PY
-      - name: Run benchmark and capture diagnostics
+      - name: Run benchmark in Flutter runtime and capture diagnostics
         id: benchmark
         working-directory: private-app
         shell: bash
         run: |
+          cat > test/synthetic_benchmark_ci_test.dart <<'DART'
+          import 'dart:io';
+
+          import 'package:flutter_test/flutter_test.dart';
+          import '../tool/benchmark.dart' as benchmark;
+
+          void main() {
+            TestWidgetsFlutterBinding.ensureInitialized();
+            test('real AdvancedPhotosphereEngine synthetic benchmark', () async {
+              final mode = Platform.environment['MODE'];
+              if (mode == null || mode.isEmpty) {
+                fail('MODE is not set');
+              }
+              await benchmark.main([
+                '--manifest',
+                'benchmark/synthetic/manifest.json',
+                '--out',
+                'benchmark/synthetic-results-$mode.json',
+              ]);
+              expect(exitCode, 0);
+            }, timeout: const Timeout(Duration(minutes: 30)));
+          }
+          DART
           set +e
           set -o pipefail
-          dart run tool/benchmark.dart --manifest benchmark/synthetic/manifest.json --out "benchmark/synthetic-results-$MODE.json" 2>&1 | tee "benchmark/synthetic-$MODE.log"
+          flutter test test/synthetic_benchmark_ci_test.dart --reporter expanded 2>&1 | tee "benchmark/synthetic-$MODE.log"
           status=${PIPESTATUS[0]}
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
           if [[ -f "benchmark/synthetic-results-$MODE.json" ]]; then
