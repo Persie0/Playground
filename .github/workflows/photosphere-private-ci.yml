@@ -9,7 +9,7 @@ on:
         default: audit/code-hardening-3
         type: string
   push:
-    branches: [main]
+    branches: [main, photosphere-ci-v2]
     paths:
       - '.github/workflows/photosphere-private-ci.yml'
 
@@ -162,7 +162,9 @@ jobs:
       - name: Run real AdvancedPhotosphereEngine benchmark
         working-directory: private-app
         run: |
-          dart run tool/benchmark.dart --manifest benchmark/synthetic/manifest.json --out benchmark/synthetic-results.json
+          PHOTOSPHERE_BENCHMARK_MANIFEST=benchmark/synthetic/manifest.json \
+          PHOTOSPHERE_BENCHMARK_OUTPUT=benchmark/synthetic-results.json \
+            flutter test test/benchmark_harness_test.dart --reporter expanded
           python3 - <<'PY'
           import json
           from pathlib import Path
