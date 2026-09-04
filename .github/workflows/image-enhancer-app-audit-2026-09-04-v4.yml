@@ -46,6 +46,15 @@ jobs:
           set -euo pipefail
           python3 ../.github/scripts/image_enhancer_app_audit_followup_2026_09_04.py
           rm lib/services/eu_privacy_service.dart
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('android/app/build.gradle.kts')
+          text = path.read_text()
+          old = '    compileSdk = 36\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one compileSdk 36 declaration, found {text.count(old)}')
+          path.write_text(text.replace(old, '    compileSdk = 37\n', 1))
+          PY
           flutter pub get
           dart format \
             lib/main.dart \
@@ -62,6 +71,9 @@ jobs:
           assert 'EuPrivacyService' not in haystack
           assert 'ip_country_lookup' not in haystack
           assert not Path('lib/services/eu_privacy_service.dart').exists()
+          gradle = Path('android/app/build.gradle.kts').read_text()
+          assert 'compileSdk = 37' in gradle
+          assert 'targetSdk = 36' in gradle
           PY
           git diff --check
 
