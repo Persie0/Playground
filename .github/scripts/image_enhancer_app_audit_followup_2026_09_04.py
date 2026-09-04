@@ -116,14 +116,102 @@ new = """      final isPro = SubscriptionService.instance.isPro;
 s = one(s, old, new, "surface missing entitlement after purchase")
 save(p, s)
 
-# The geo lookup is no longer used after separating EULA acceptance from ad
-# consent. Remove the dependency; the service file is deleted by the workflow.
+# Current image_gallery_saver_plus uses scoped MediaStore on Android 10+, but
+# Android 9 and older still require WRITE_EXTERNAL_STORAGE plus a runtime grant.
+# Request it only on those legacy OS versions; do not retain broad legacy
+# external-storage mode on Android 10+.
+p = "lib/super_resolution_home_page.dart"
+s = load(p)
+s = one(
+    s,
+    "import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';\n",
+    """import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
+""",
+    "gallery permission imports",
+)
+s = one(
+    s,
+    "  bool _isSaving = false;",
+    """  bool _isSaving = false;
+  int? _androidSdkInt;""",
+    "cache Android SDK level",
+)
+insert_before = "  Future<void> _saveBatchToGallery() async {"
+helper = """  Future<void> _requestLegacyGalleryWritePermission() async {
+    if (!Platform.isAndroid) return;
+    final sdkInt = _androidSdkInt ??=
+        (await DeviceInfoPlugin().androidInfo).version.sdkInt;
+    if (sdkInt >= 29) return;
+    await PermissionHelper.runWithRetry(
+      () => Permission.storage.request(),
+    );
+  }
+
+"""
+if s.count(insert_before) != 1:
+    raise SystemExit("gallery save insertion anchor missing")
+s = s.replace(insert_before, helper + insert_before, 1)
+s = one(
+    s,
+    """    var savedCount = 0;
+    try {
+      for (final entry in _upscaledImagePaths.entries) {""",
+    """    var savedCount = 0;
+    try {
+      await _requestLegacyGalleryWritePermission();
+      for (final entry in _upscaledImagePaths.entries) {""",
+    "legacy permission before batch save",
+)
+s = one(
+    s,
+    """    try {
+      final preparedPath = await _ensurePreparedResultFile();""",
+    """    try {
+      await _requestLegacyGalleryWritePermission();
+      final preparedPath = await _ensurePreparedResultFile();""",
+    "legacy permission before single save",
+)
+save(p, s)
+
+# Remove the geo lookup, add only the Android legacy-save helpers, and allow pub
+# to resolve the lockfile to the versions supported by the current Flutter SDK.
 p = "pubspec.yaml"
 s = load(p)
 s = one(
     s,
-    "  ip_country_lookup: ^1.0.4\n",
+    "  image_gallery_saver_plus: ^5.1.1\n",
+    """  image_gallery_saver_plus: ^5.1.1
+  permission_handler: ^13.0.1
+  device_info_plus: ^13.2.0
+""",
+    "gallery permission dependencies",
+)
+s = one(
+    s,
+    "  ip_country_lookup: ^1.0.3\n",
     "",
     "remove unused IP country dependency",
+)
+save(p, s)
+
+p = "android/app/src/main/AndroidManifest.xml"
+s = load(p)
+s = one(
+    s,
+    "    <uses-permission android:name=\"com.android.vending.BILLING\" />\n",
+    """    <uses-permission android:name=\"com.android.vending.BILLING\" />
+    <uses-permission
+        android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"
+        android:maxSdkVersion=\"28\" />
+""",
+    "legacy gallery write permission",
+)
+s = one(
+    s,
+    "        android:requestLegacyExternalStorage=\"true\"\n",
+    "",
+    "remove legacy storage mode",
 )
 save(p, s)
