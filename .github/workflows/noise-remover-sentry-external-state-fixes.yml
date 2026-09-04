@@ -1,0 +1,399 @@
+name: Noise Remover remaining Sentry fixes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-sentry-external-state-fixes.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Checkout Noise Remover master
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: master
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+          fetch-depth: 0
+      - name: Patch expected external states
+        working-directory: app
+        run: |
+          git checkout -B fix/sentry-expected-external-states origin/master
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              s = p.read_text()
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {n}')
+              p.write_text(s.replace(old, new, 1))
+
+          # RevenueCat: pending/already-owned transactions and transient store
+          # timeouts are state transitions, not application exceptions.
+          path = 'lib/services/subscription_service.dart'
+          p = Path(path)
+          s = p.read_text()
+          old = '''        } catch (error, stackTrace) {
+          // The store state is unresolved. Keep the still-valid local cache and
+          // retry on a later launch/resume instead of incorrectly removing Pro.
+          debugPrint('Could not reconcile cached Google Play purchase: $error');
+          if (error is! PlatformException || !shouldIgnoreError(error)) {
+            Sentry.captureException(error, stackTrace: stackTrace);
+          }
+          return;
+        }
+'''
+          new = '''        } catch (error, stackTrace) {
+          // The store state is unresolved. Keep the still-valid local cache and
+          // retry on a later launch/resume instead of incorrectly removing Pro.
+          debugPrint('Could not reconcile cached Google Play purchase: $error');
+          if (error is! TimeoutException &&
+              (error is! PlatformException || !shouldIgnoreError(error))) {
+            Sentry.captureException(error, stackTrace: stackTrace);
+          }
+          return;
+        }
+'''
+          if s.count(old) != 1:
+              raise SystemExit('reconcile catch not found')
+          s = s.replace(old, new, 1)
+
+          old = '''      await _updateProStatus(customerInfo);
+    } on PlatformException catch (e, stackTrace) {
+      debugPrint('Error getting customer info: $e');
+      if (!shouldIgnoreError(e)) {
+        Sentry.captureException(e, stackTrace: stackTrace);
+      }
+      if (_isTransientNetworkError(e)) rethrow;
+    }
+'''
+          new = '''      await _updateProStatus(customerInfo);
+    } on TimeoutException catch (e) {
+      // Startup uses a persisted entitlement snapshot. A slow store/network
+      // refresh is retryable and should not be reported as an app crash.
+      debugPrint('RevenueCat customer-info refresh timed out: $e');
+    } on PlatformException catch (e, stackTrace) {
+      debugPrint('Error getting customer info: $e');
+      if (!shouldIgnoreError(e)) {
+        Sentry.captureException(e, stackTrace: stackTrace);
+      }
+      if (_isTransientNetworkError(e)) rethrow;
+    }
+'''
+          if s.count(old) != 1:
+              raise SystemExit('customer-info catch not found')
+          s = s.replace(old, new, 1)
+
+          old = '''  bool shouldIgnoreError(PlatformException e) {
+    // Code 1 is User Cancelled, Code 10 is common for network errors in RevenueCat
+    final codeStr = e.code.toString();
+    final message = e.message?.toLowerCase() ?? '';
+
+    final isNetworkError = _isTransientNetworkError(e);
+
+    final isUserCancelled =
+        codeStr == '1' ||
+        message.contains('purchase was cancelled') ||
+        message.contains('purchase_cancelled') ||
+        message.contains('user cancelled') ||
+        (e.details is Map &&
+            (e.details['userCancelled'] == true ||
+                e.details['readableErrorCode'] == 'PURCHASE_CANCELLED'));
+
+    final isBillingUnavailable = isPurchaseNotAllowedError(e);
+
+    return isNetworkError || isUserCancelled || isBillingUnavailable;
+  }
+'''
+          new = '''  bool shouldIgnoreError(PlatformException e) {
+    // Expected store/user states must not inflate crash reporting.
+    final codeStr = e.code.toString();
+    final message = e.message?.toLowerCase() ?? '';
+    final details = e.details;
+
+    PurchasesErrorCode? revenueCatCode;
+    try {
+      revenueCatCode = PurchasesErrorHelper.getErrorCode(e);
+    } catch (_) {
+      // Fall back to the cross-version string/details checks below.
+    }
+
+    final isNetworkError = _isTransientNetworkError(e);
+
+    final isUserCancelled =
+        codeStr == '1' ||
+        message.contains('purchase was cancelled') ||
+        message.contains('purchase_cancelled') ||
+        message.contains('user cancelled') ||
+        (details is Map &&
+            (details['userCancelled'] == true ||
+                details['readableErrorCode'] == 'PURCHASE_CANCELLED'));
+
+    final isPaymentPending =
+        revenueCatCode == PurchasesErrorCode.paymentPendingError ||
+        message.contains('payment is pending') ||
+        message.contains('payment pending') ||
+        (details is Map &&
+            (details['readableErrorCode'] == 'PaymentPendingError' ||
+                details['readable_error_code'] == 'PaymentPendingError'));
+
+    final isAlreadyPurchased =
+        revenueCatCode == PurchasesErrorCode.productAlreadyPurchasedError ||
+        message.contains('already purchased') ||
+        message.contains('already own') ||
+        message.contains('item_already_owned') ||
+        (details is Map &&
+            (details['readableErrorCode'] == 'ProductAlreadyPurchasedError' ||
+                details['readable_error_code'] ==
+                    'ProductAlreadyPurchasedError'));
+
+    final isBillingUnavailable = isPurchaseNotAllowedError(e);
+
+    return isNetworkError ||
+        isUserCancelled ||
+        isPaymentPending ||
+        isAlreadyPurchased ||
+        isBillingUnavailable;
+  }
+'''
+          if s.count(old) != 1:
+              raise SystemExit('shouldIgnoreError not found')
+          s = s.replace(old, new, 1)
+
+          old = '''    } catch (e, stackTrace) {
+      debugPrint('Error showing customer center: $e');
+      if (e is! PlatformException || !shouldIgnoreError(e)) {
+        Sentry.captureException(e, stackTrace: stackTrace);
+      }
+      rethrow;
+    }
+'''
+          new = '''    } catch (e, stackTrace) {
+      debugPrint('Error showing customer center: $e');
+      if (e is! TimeoutException &&
+          (e is! PlatformException || !shouldIgnoreError(e))) {
+        Sentry.captureException(e, stackTrace: stackTrace);
+      }
+      rethrow;
+    }
+'''
+          if s.count(old) != 1:
+              raise SystemExit('customer center catch not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          # Paywall: preserve retry/pending UI, but don't report expected timeout
+          # or pending-store states as crashes.
+          path = 'lib/screens/paywall_screen.dart'
+          p = Path(path)
+          s = p.read_text()
+          old = '''      bool shouldIgnore = false;
+      bool isRestricted = false;
+      if (e is PlatformException) {
+        shouldIgnore = SubscriptionService.instance.shouldIgnoreError(e);
+        isRestricted = SubscriptionService.instance.isPurchaseNotAllowedError(
+          e,
+        );
+      }
+
+      if (!shouldIgnore) {
+        Sentry.captureException(e, stackTrace: stackTrace);
+      }
+'''
+          new = '''      bool shouldIgnore = e is TimeoutException;
+      bool isRestricted = false;
+      if (e is PlatformException) {
+        shouldIgnore = SubscriptionService.instance.shouldIgnoreError(e);
+        isRestricted = SubscriptionService.instance.isPurchaseNotAllowedError(
+          e,
+        );
+      }
+
+      if (!shouldIgnore) {
+        Sentry.captureException(e, stackTrace: stackTrace);
+      }
+'''
+          if s.count(old) < 2:
+              raise SystemExit(f'expected at least 2 paywall ignore blocks, found {s.count(old)}')
+          s = s.replace(old, new)
+          old = '''      Sentry.captureException(e, stackTrace: stackTrace);
+    } catch (e, stackTrace) {
+      debugPrint('Error purchasing: $e');
+'''
+          new = '''      // Timeout is already represented to the user as a pending store state.
+    } catch (e, stackTrace) {
+      debugPrint('Error purchasing: $e');
+'''
+          if s.count(old) != 1:
+              raise SystemExit('purchase timeout Sentry capture not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          # Appodeal: the initialization callback may contain per-network errors
+          # even when the requested ad type successfully initializes. Verify the
+          # actual SDK state before deciding startup failed, and don't report an
+          # optional interstitial timeout as an app exception.
+          path = 'lib/services/ad_service.dart'
+          p = Path(path)
+          s = p.read_text()
+          old = '''    final initializationCompleter = Completer<void>();
+    Appodeal.initialize(
+      appKey: _appKey,
+      adTypes: [AppodealAdType.Interstitial],
+      onInitializationFinished: (errors) {
+        if (errors == null || errors.isEmpty) {
+          _isInitialized = true;
+          debugPrint("Appodeal initialized successfully");
+          if (!initializationCompleter.isCompleted) {
+            initializationCompleter.complete();
+          }
+          return;
+        }
+
+        for (final error in errors) {
+          final errorStr = error.toString();
+          final errorType = error.runtimeType.toString();
+
+          String? description;
+          try {
+            description = (error as dynamic).description?.toString();
+          } catch (_) {}
+
+          debugPrint(
+            "Appodeal Initialization Error:"
+            "\\nType: $errorType"
+            "\\nDescription: $description"
+            "\\nRaw: $errorStr",
+          );
+
+          // Suppress Sentry capture for configuration/internal initialization errors
+          final descriptionLower = description?.toLowerCase() ?? '';
+          final errorStrLower = errorStr.toLowerCase();
+          final shouldIgnore =
+              errorType == 'cWa' ||
+              descriptionLower.contains('sdkconfigurationerror') ||
+              descriptionLower.contains('internalerror') ||
+              errorStrLower.contains('sdkconfigurationerror');
+
+          if (kReleaseMode && !shouldIgnore) {
+            unawaited(
+              Sentry.captureMessage(
+                "Appodeal Init Error | type=$errorType | description=$description | raw=$errorStr",
+                level: SentryLevel.warning,
+              ),
+            );
+          }
+        }
+        if (!initializationCompleter.isCompleted) {
+          initializationCompleter.completeError(
+            StateError('Appodeal initialization reported errors'),
+          );
+        }
+      },
+    );
+    await initializationCompleter.future.timeout(const Duration(seconds: 15));
+'''
+          new = '''    final initializationCompleter = Completer<void>();
+    final initializationDiagnostics = <String>[];
+    Appodeal.initialize(
+      appKey: _appKey,
+      adTypes: [AppodealAdType.Interstitial],
+      onInitializationFinished: (errors) {
+        for (final error in errors ?? const []) {
+          final errorStr = error.toString();
+          final errorType = error.runtimeType.toString();
+          String? description;
+          try {
+            description = (error as dynamic).description?.toString();
+          } catch (_) {}
+          final diagnostic =
+              'type=$errorType description=$description raw=$errorStr';
+          initializationDiagnostics.add(diagnostic);
+          debugPrint('Appodeal initialization diagnostic: $diagnostic');
+        }
+        if (!initializationCompleter.isCompleted) {
+          initializationCompleter.complete();
+        }
+      },
+    );
+    await initializationCompleter.future.timeout(const Duration(seconds: 15));
+
+    final interstitialInitialized = await Appodeal.isInitialized(
+      AppodealAdType.Interstitial,
+    ).timeout(const Duration(seconds: 5));
+    if (!interstitialInitialized) {
+      final details = initializationDiagnostics.take(3).join(' | ');
+      throw StateError(
+        details.isEmpty
+            ? 'Appodeal interstitial did not initialize after SDK callback'
+            : 'Appodeal interstitial did not initialize: $details',
+      );
+    }
+    _isInitialized = true;
+    debugPrint('Appodeal initialized successfully');
+'''
+          if s.count(old) != 1:
+              raise SystemExit('Appodeal initialization callback block not found')
+          s = s.replace(old, new, 1)
+          old = '''    } catch (error, stackTrace) {
+      debugPrint('Optional interstitial failed: $error');
+      if (kReleaseMode) {
+        unawaited(Sentry.captureException(error, stackTrace: stackTrace));
+      }
+    }
+'''
+          new = '''    } on TimeoutException catch (error) {
+      // Ads are optional; a slow SDK/network must not become an app error.
+      debugPrint('Optional interstitial timed out: $error');
+    } catch (error, stackTrace) {
+      debugPrint('Optional interstitial failed: $error');
+      if (kReleaseMode) {
+        unawaited(
+          Sentry.captureMessage(
+            'Optional Appodeal interstitial failed: ${error.runtimeType}: $error',
+            level: SentryLevel.warning,
+          ),
+        );
+      }
+    }
+'''
+          if s.count(old) != 1:
+              raise SystemExit('optional interstitial catch not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          flutter pub get
+          flutter gen-l10n
+          dart format lib/services/subscription_service.dart lib/screens/paywall_screen.dart lib/services/ad_service.dart
+          flutter analyze --no-fatal-infos
+          flutter test
+      - name: Commit and push fix branch
+        working-directory: app
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add lib/services/subscription_service.dart lib/screens/paywall_screen.dart lib/services/ad_service.dart
+          git commit -m 'Handle expected store and ad states without Sentry noise'
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/Persie0/noise_remover.git"
+          git push --force-with-lease origin HEAD:fix/sentry-expected-external-states
