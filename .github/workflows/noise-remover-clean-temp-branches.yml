@@ -1,0 +1,32 @@
+name: Clean Noise Remover temporary branches
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-clean-temp-branches.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete temporary rebase branches
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git init cleanup
+          cd cleanup
+          git remote add origin "https://x-access-token:${TOKEN}@github.com/Persie0/noise_remover.git"
+          for branch in \
+            tmp/rebase-pr127-current-master \
+            tmp/rebase-pr127-current-master2 \
+            tmp/rebase-pr127-current-master3 \
+            tmp/rebase-pr127-current-master4 \
+            tmp/rebase-pr127-current-master5 \
+            tmp/rebase-pr127-current-master6; do
+            git push origin --delete "$branch" || true
+          done
