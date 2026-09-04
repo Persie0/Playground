@@ -1,0 +1,118 @@
+name: Noise Remover rebase open PRs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-rebase-open-prs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rebase-pr141:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Checkout Noise Remover master
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: master
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+          fetch-depth: 0
+      - name: Rebase PR 141 changes onto master
+        working-directory: app
+        run: |
+          git fetch origin design/material3-accessibility-refresh
+          OLD=origin/design/material3-accessibility-refresh
+          BASE=$(git merge-base origin/master "$OLD")
+          git diff --binary "$BASE" "$OLD" -- \
+            lib/theme.dart \
+            lib/screens/home_screen.dart \
+            lib/screens/result_screen.dart > /tmp/pr141.patch
+          git checkout -B design/material3-accessibility-refresh origin/master
+          git apply --3way --index /tmp/pr141.patch
+          flutter pub get
+          flutter gen-l10n
+          dart format lib/theme.dart lib/screens/home_screen.dart lib/screens/result_screen.dart
+          flutter analyze --no-fatal-infos
+          flutter test
+      - name: Commit and update PR 141 branch
+        working-directory: app
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add lib/theme.dart lib/screens/home_screen.dart lib/screens/result_screen.dart
+          git commit -m 'Rebase Material 3 accessibility refresh onto current master'
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/Persie0/noise_remover.git"
+          git push --force-with-lease origin HEAD:design/material3-accessibility-refresh
+
+  rebase-pr127:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Checkout Noise Remover master
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: master
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+          fetch-depth: 0
+      - name: Rebase still-valid PR 127 fixes onto master
+        working-directory: app
+        run: |
+          git fetch origin agent/fix-current-sentry-aug10
+          OLD=origin/agent/fix-current-sentry-aug10
+          BASE=$(git merge-base origin/master "$OLD")
+          git diff --binary "$BASE" "$OLD" -- \
+            lib/screens/audio_recording_screen.dart \
+            lib/services/settings_service.dart \
+            lib/utils/ffmpeg_utils.dart > /tmp/pr127.patch
+          git checkout -B agent/fix-current-sentry-aug10 origin/master
+          git apply --3way --index /tmp/pr127.patch
+          flutter pub get
+          flutter gen-l10n
+          dart format \
+            lib/screens/audio_recording_screen.dart \
+            lib/services/settings_service.dart \
+            lib/utils/ffmpeg_utils.dart
+          flutter analyze --no-fatal-infos
+          flutter test
+      - name: Commit and update PR 127 branch
+        working-directory: app
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add \
+            lib/screens/audio_recording_screen.dart \
+            lib/services/settings_service.dart \
+            lib/utils/ffmpeg_utils.dart
+          git commit -m 'Rebase valid Sentry crash fixes onto current master'
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/Persie0/noise_remover.git"
+          git push --force-with-lease origin HEAD:agent/fix-current-sentry-aug10
