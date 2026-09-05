@@ -1,0 +1,744 @@
+name: ImagePdfScaler rotation audit v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/imagepdfscaler-rotation-audit-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rotation-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Checkout audit branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/ImagePdfScaler
+          ref: audit/performance-rotation
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Apply metadata rotation and audit fixes
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # -------------------- layout model --------------------
+          p = Path('lib/models/layout_models.dart')
+          s = p.read_text()
+          marker = '  double get centerYMm => yMm + heightMm / 2;\n'
+          addition = '''  double get centerYMm => yMm + heightMm / 2;
+
+            int get normalizedQuarterTurns =>
+                ((rotationQuarterTurns % 4) + 4) % 4;
+            bool get rotationSwapsAxes => normalizedQuarterTurns.isOdd;
+
+            /// Physical dimensions occupied by the unrotated source pixels before
+            /// the editor/PDF applies the deferred quarter-turn transform.
+            double get sourceWidthMm => rotationSwapsAxes ? heightMm : widthMm;
+            double get sourceHeightMm => rotationSwapsAxes ? widthMm : heightMm;
+          '''
+          if 'int get normalizedQuarterTurns' not in s:
+              if marker not in s:
+                  raise SystemExit('model center marker not found')
+              s = s.replace(marker, addition, 1)
+          helper = '''PlacedImage? rotatePlacedImage90({
+            required PlacedImage item,
+            required PaperPreset paper,
+          }) {
+            final width = item.heightMm;
+            final height = item.widthMm;
+            if (!width.isFinite || !height.isFinite || width <= 0 || height <= 0) {
+              return null;
+            }
+            if (width > paper.widthMm + 0.0001 ||
+                height > paper.heightMm + 0.0001) {
+              return null;
+            }
+            final maxX = math.max(0.0, paper.widthMm - width);
+            final maxY = math.max(0.0, paper.heightMm - height);
+            return item.copyWith(
+              widthMm: width,
+              heightMm: height,
+              xMm: item.xMm.clamp(0.0, maxX).toDouble(),
+              yMm: item.yMm.clamp(0.0, maxY).toDouble(),
+              rotationQuarterTurns: (item.normalizedQuarterTurns + 1) % 4,
+            );
+          }
+
+          '''
+          if 'PlacedImage? rotatePlacedImage90' not in s:
+              idx = s.find('class SnapGuide {')
+              if idx < 0:
+                  raise SystemExit('SnapGuide marker not found')
+              s = s[:idx] + helper + s[idx:]
+          p.write_text(s)
+
+          # -------------------- paper preview --------------------
+          p = Path('lib/widgets/paper_canvas.dart')
+          s = p.read_text()
+          old = '''            child: Image.memory(
+              item.previewBytes,
+              fit: BoxFit.fill,
+              filterQuality: FilterQuality.medium,
+              gaplessPlayback: true,
+              errorBuilder: (context, error, stackTrace) => DecoratedBox(
+                decoration: BoxDecoration(color: Theme.of(context).colorScheme.errorContainer),
+                child: Center(
+                  child: Icon(
+                    Icons.broken_image_outlined,
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                ),
+              ),
+            ),'''
+          new = '''            child: RotatedBox(
+              quarterTurns: item.normalizedQuarterTurns,
+              child: Image.memory(
+                item.previewBytes,
+                fit: BoxFit.fill,
+                filterQuality: FilterQuality.medium,
+                gaplessPlayback: true,
+                errorBuilder: (context, error, stackTrace) => DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                  ),
+                  child: Center(
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+              ),
+            ),'''
+          if 'quarterTurns: item.normalizedQuarterTurns' not in s:
+              if old not in s:
+                  raise SystemExit('paper image block not found')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          # -------------------- editor --------------------
+          p = Path('lib/screens/editor_page.dart')
+          s = p.read_text()
+          materialize = '''  Future<PlacedImage?> _materializeRotationForEditing(
+            PlacedImage item,
+          ) async {
+            final turns = item.normalizedQuarterTurns;
+            if (turns == 0) return item;
+            if (_processingImage) return null;
+
+            setState(() => _processingImage = true);
+            try {
+              final result = await ImageProcessingService.materializeQuarterTurns(
+                fullBytes: item.bytes,
+                quarterTurns: turns,
+              );
+              if (!mounted) return null;
+              if (result == null) {
+                _showSnack('Could not prepare this rotated image for editing.');
+                return null;
+              }
+              final index = _images.indexWhere((entry) => entry.id == item.id);
+              if (index < 0) return null;
+              final current = _images[index];
+              final updated = current.copyWith(
+                bytes: result.fullBytes,
+                previewBytes: result.previewBytes,
+                rotationQuarterTurns: 0,
+              );
+              setState(() => _images[index] = updated);
+              return updated;
+            } catch (error) {
+              if (mounted) {
+                _showSnack('Could not prepare rotated image: $error');
+              }
+              return null;
+            } finally {
+              if (mounted) setState(() => _processingImage = false);
+            }
+          }
+
+          '''
+          if '_materializeRotationForEditing' not in s:
+              marker = '  Future<void> _cropImage(String id) async {'
+              if marker not in s:
+                  raise SystemExit('crop marker not found')
+              s = s.replace(marker, materialize + marker, 1)
+
+          # The crop editor is destructive, so materialize deferred orientation
+          # once immediately before entering it.
+          crop_start = s.find('  Future<void> _cropImage(String id) async {')
+          rotate_start = s.find('  Future<void> _rotateSelected()', crop_start)
+          if crop_start < 0 or rotate_start < 0:
+              raise SystemExit('crop/rotate boundaries not found')
+          crop = s[crop_start:rotate_start]
+          crop = crop.replace('    final item = _images[index];', '    var item = _images[index];', 1)
+          nav = '    final edited = await Navigator.of(context).push<EditedImageResult>('
+          if 'item.normalizedQuarterTurns != 0' not in crop:
+              if nav not in crop:
+                  raise SystemExit('crop navigation marker not found')
+              crop = crop.replace(
+                  nav,
+                  '''    if (item.normalizedQuarterTurns != 0) {
+                      final materialized = await _materializeRotationForEditing(item);
+                      if (materialized == null || !mounted) return;
+                      item = materialized;
+                    }
+
+                ''' + nav,
+                  1,
+              )
+          s = s[:crop_start] + crop + s[rotate_start:]
+
+          pattern = re.compile(
+              r'  Future<void> _rotateSelected\(\) async \{.*?\n  \}\n\n  void _duplicateSelected\(\) \{',
+              re.S,
+          )
+          replacement = '''  void _rotateSelected() {
+            final item = _primarySelectedImage;
+            if (item == null || _selectedIds.length != 1) return;
+            final rotated = rotatePlacedImage90(item: item, paper: _paper);
+            if (rotated == null) {
+              _showSnack('A 90° rotation would not fit on the current paper.');
+              return;
+            }
+            final index = _images.indexWhere((entry) => entry.id == item.id);
+            if (index < 0) return;
+            setState(() {
+              _images[index] = rotated;
+              _snapGuides = const [];
+            });
+            if (_settings.hapticsEnabled) HapticFeedback.selectionClick();
+          }
+
+          void _duplicateSelected() {'''
+          if 'void _rotateSelected() {' not in s:
+              s, n = pattern.subn(replacement, s, count=1)
+              if n != 1:
+                  raise SystemExit(f'rotate block replacement count={n}')
+
+          old_print = '''  Future<void> _printPdf() async {
+            final bytes = await _buildPdf();
+            if (bytes == null) return;
+            await Printing.layoutPdf(
+              name: 'image-layout-${_safeFileName(_paper.name)}.pdf',
+              onLayout: (_) async => bytes,
+            );
+          }
+
+          Future<void> _sharePdf() async {
+            final bytes = await _buildPdf();
+            if (bytes == null) return;
+            await Printing.sharePdf(
+              bytes: bytes,
+              filename: 'image-layout-${_safeFileName(_paper.name)}.pdf',
+            );
+          }'''
+          new_print = '''  Future<void> _printPdf() async {
+            try {
+              final bytes = await _buildPdf();
+              if (bytes == null) return;
+              await Printing.layoutPdf(
+                name: 'image-layout-${_safeFileName(_paper.name)}.pdf',
+                onLayout: (_) async => bytes,
+              );
+            } catch (error) {
+              if (mounted) _showSnack('Could not open the print dialog: $error');
+            }
+          }
+
+          Future<void> _sharePdf() async {
+            try {
+              final bytes = await _buildPdf();
+              if (bytes == null) return;
+              await Printing.sharePdf(
+                bytes: bytes,
+                filename: 'image-layout-${_safeFileName(_paper.name)}.pdf',
+              );
+            } catch (error) {
+              if (mounted) _showSnack('Could not share the PDF: $error');
+            }
+          }'''
+          if "Could not open the print dialog" not in s:
+              if old_print not in s:
+                  raise SystemExit('print/share block not found')
+              s = s.replace(old_print, new_print, 1)
+          p.write_text(s)
+          PY
+
+          cat > lib/services/pdf_export_service.dart <<'DART'
+          import 'dart:math' as math;
+          import 'dart:typed_data';
+
+          import 'package:pdf/pdf.dart';
+          import 'package:pdf/widgets.dart' as pw;
+
+          import '../models/layout_models.dart';
+          import 'image_processing_service.dart';
+
+          class PdfExportService {
+            static Future<Uint8List> build({
+              required PaperPreset paper,
+              required List<PlacedImage> images,
+              PdfImageQuality imageQuality = PdfImageQuality.original,
+            }) async {
+              final document = pw.Document();
+              final pageFormat = PdfPageFormat(
+                paper.widthMm * PdfPageFormat.mm,
+                paper.heightMm * PdfPageFormat.mm,
+                marginAll: 0,
+              );
+
+              // Copies normally share a Uint8List. Prepare each distinct source +
+              // print size once instead of repeatedly decoding/downsampling it.
+              final memoryImages = <String, pw.MemoryImage>{};
+              final imageKeys = <String, String>{};
+              for (final item in images) {
+                final key = '${identityHashCode(item.bytes)}:'
+                    '${item.sourceWidthMm.toStringAsFixed(4)}:'
+                    '${item.sourceHeightMm.toStringAsFixed(4)}:'
+                    '${imageQuality.name}';
+                imageKeys[item.id] = key;
+                if (memoryImages.containsKey(key)) continue;
+                final bytes = await ImageProcessingService.bytesForPdf(
+                  fullBytes: item.bytes,
+                  widthMm: item.sourceWidthMm,
+                  heightMm: item.sourceHeightMm,
+                  quality: imageQuality,
+                );
+                memoryImages[key] = pw.MemoryImage(bytes);
+              }
+
+              document.addPage(
+                pw.Page(
+                  pageFormat: pageFormat,
+                  margin: pw.EdgeInsets.zero,
+                  build: (_) => pw.SizedBox(
+                    width: pageFormat.width,
+                    height: pageFormat.height,
+                    child: pw.Stack(
+                      children: [
+                        for (final item in images)
+                          pw.Positioned(
+                            left: item.xMm * PdfPageFormat.mm,
+                            top: item.yMm * PdfPageFormat.mm,
+                            child: _renderPlacedImage(
+                              item,
+                              memoryImages[imageKeys[item.id]!]!,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+
+              return document.save();
+            }
+
+            static pw.Widget _renderPlacedImage(
+              PlacedImage item,
+              pw.MemoryImage image,
+            ) {
+              final source = pw.SizedBox(
+                width: item.sourceWidthMm * PdfPageFormat.mm,
+                height: item.sourceHeightMm * PdfPageFormat.mm,
+                child: pw.Image(image, fit: pw.BoxFit.fill),
+              );
+              final turns = item.normalizedQuarterTurns;
+              if (turns == 0) return source;
+              return pw.Transform.rotateBox(
+                angle: -turns * math.pi / 2,
+                unconstrained: true,
+                child: source,
+              );
+            }
+          }
+          DART
+
+          cat > test/rotation_metadata_test.dart <<'DART'
+          import 'dart:typed_data';
+
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:image_pdf_scaler/models/layout_models.dart';
+
+          void main() {
+            test('90 degree home rotation is metadata-only and swaps geometry', () {
+              final full = Uint8List.fromList([1, 2, 3, 4]);
+              final preview = Uint8List.fromList([5, 6, 7]);
+              final item = PlacedImage(
+                id: 'a',
+                bytes: full,
+                previewBytes: preview,
+                xMm: 190,
+                yMm: 280,
+                widthMm: 40,
+                heightMm: 20,
+              );
+              final rotated = rotatePlacedImage90(
+                item: item,
+                paper: PaperPreset.a4,
+              );
+              expect(rotated, isNotNull);
+              expect(identical(rotated!.bytes, full), isTrue);
+              expect(identical(rotated.previewBytes, preview), isTrue);
+              expect(rotated.widthMm, 20);
+              expect(rotated.heightMm, 40);
+              expect(rotated.xMm, 190);
+              expect(rotated.yMm, 257);
+              expect(rotated.normalizedQuarterTurns, 1);
+              expect(rotated.sourceWidthMm, 40);
+              expect(rotated.sourceHeightMm, 20);
+            });
+
+            test('four metadata turns restore original dimensions and orientation', () {
+              var item = PlacedImage(
+                id: 'a',
+                bytes: Uint8List(1),
+                xMm: 5,
+                yMm: 6,
+                widthMm: 40,
+                heightMm: 20,
+              );
+              for (var i = 0; i < 4; i++) {
+                item = rotatePlacedImage90(item: item, paper: PaperPreset.a4)!;
+              }
+              expect(item.widthMm, 40);
+              expect(item.heightMm, 20);
+              expect(item.normalizedQuarterTurns, 0);
+            });
+          }
+          DART
+
+          cat > test/paper_canvas_rotation_test.dart <<'DART'
+          import 'dart:typed_data';
+
+          import 'package:flutter/material.dart';
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:image/image.dart' as img;
+          import 'package:image_pdf_scaler/models/layout_models.dart';
+          import 'package:image_pdf_scaler/widgets/paper_canvas.dart';
+
+          void main() {
+            testWidgets('paper canvas applies stored quarter turns to preview', (tester) async {
+              final preview = Uint8List.fromList(
+                img.encodePng(
+                  img.Image(width: 4, height: 2)
+                    ..clear(img.ColorRgb8(20, 40, 60)),
+                ),
+              );
+              final item = PlacedImage(
+                id: 'r',
+                bytes: preview,
+                previewBytes: preview,
+                xMm: 10,
+                yMm: 10,
+                widthMm: 20,
+                heightMm: 40,
+                rotationQuarterTurns: 1,
+              );
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: Scaffold(
+                    body: SizedBox(
+                      width: 500,
+                      height: 700,
+                      child: PaperCanvas(
+                        paper: PaperPreset.a4,
+                        images: [item],
+                        selectedIds: const {},
+                        primarySelectedId: null,
+                        settings: const LayoutSettings(),
+                        snapGuides: const [],
+                        onSelect: (_) {},
+                        onMove: (_, __, ___) {},
+                        onMoveEnd: (_) {},
+                        onResize: (_, __, ___, ____) {},
+                        onLongPress: (_) {},
+                        onTapEmpty: () {},
+                      ),
+                    ),
+                  ),
+                ),
+              );
+              final rotatedBox = tester.widget<RotatedBox>(
+                find.descendant(
+                  of: find.byKey(const ValueKey<String>('image-r')),
+                  matching: find.byType(RotatedBox),
+                ),
+              );
+              expect(rotatedBox.quarterTurns, 1);
+            });
+          }
+          DART
+
+          cat > test/dialog_lifecycle_audit_test.dart <<'DART'
+          import 'dart:typed_data';
+
+          import 'package:flutter/material.dart';
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:image_pdf_scaler/models/layout_models.dart';
+          import 'package:image_pdf_scaler/widgets/exact_size_dialog.dart';
+          import 'package:image_pdf_scaler/widgets/layout_settings_dialog.dart';
+          import 'package:image_pdf_scaler/widgets/project_dialogs.dart';
+
+          void main() {
+            testWidgets('exact-size dialog closes cleanly with focused field', (tester) async {
+              final item = PlacedImage(
+                id: 'a',
+                bytes: Uint8List(1),
+                xMm: 0,
+                yMm: 0,
+                widthMm: 40,
+                heightMm: 20,
+              );
+              ExactSize? result;
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: Builder(
+                    builder: (context) => TextButton(
+                      onPressed: () async {
+                        result = await showExactSizeDialog(context, item);
+                      },
+                      child: const Text('Open exact'),
+                    ),
+                  ),
+                ),
+              );
+              await tester.tap(find.text('Open exact'));
+              await tester.pumpAndSettle();
+              await tester.enterText(find.byType(TextField), '55');
+              await tester.tap(find.text('Apply'));
+              await tester.pumpAndSettle();
+              expect(result?.value, 55);
+              expect(tester.takeException(), isNull);
+            });
+
+            testWidgets('save project closes cleanly with focused field', (tester) async {
+              SaveProjectRequest? result;
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: Builder(
+                    builder: (context) => TextButton(
+                      onPressed: () async {
+                        result = await showSaveProjectDialog(context);
+                      },
+                      child: const Text('Open save'),
+                    ),
+                  ),
+                ),
+              );
+              await tester.tap(find.text('Open save'));
+              await tester.pumpAndSettle();
+              await tester.enterText(find.byType(TextField), 'Audit project');
+              await tester.tap(find.text('Save'));
+              await tester.pumpAndSettle();
+              expect(result?.name, 'Audit project');
+              expect(tester.takeException(), isNull);
+            });
+
+            testWidgets('layout settings closes cleanly after apply', (tester) async {
+              LayoutSettings? result;
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: Builder(
+                    builder: (context) => TextButton(
+                      onPressed: () async {
+                        result = await showLayoutSettingsDialog(
+                          context,
+                          current: const LayoutSettings(),
+                          paper: PaperPreset.a4,
+                        );
+                      },
+                      child: const Text('Open settings'),
+                    ),
+                  ),
+                ),
+              );
+              await tester.tap(find.text('Open settings'));
+              await tester.pumpAndSettle();
+              await tester.tap(find.text('Apply'));
+              await tester.pumpAndSettle();
+              expect(result, isNotNull);
+              expect(tester.takeException(), isNull);
+            });
+          }
+          DART
+
+          cat > test/pdf_rotation_test.dart <<'DART'
+          import 'dart:typed_data';
+
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:image/image.dart' as img;
+          import 'package:image_pdf_scaler/models/layout_models.dart';
+          import 'package:image_pdf_scaler/services/pdf_export_service.dart';
+
+          void main() {
+            test('PDF export accepts deferred quarter turns without raster rotation', () async {
+              final source = img.Image(width: 40, height: 20)
+                ..clear(img.ColorRgb8(180, 40, 20));
+              final bytes = Uint8List.fromList(img.encodePng(source));
+              final item = PlacedImage(
+                id: 'rotated',
+                bytes: bytes,
+                previewBytes: bytes,
+                xMm: 10,
+                yMm: 10,
+                widthMm: 20,
+                heightMm: 40,
+                rotationQuarterTurns: 1,
+              );
+              final pdf = await PdfExportService.build(
+                paper: PaperPreset.a4,
+                images: [item],
+                imageQuality: PdfImageQuality.original,
+              );
+              expect(pdf.length, greaterThan(500));
+              expect(item.normalizedQuarterTurns, 1);
+              expect(identical(item.bytes, bytes), isTrue);
+            });
+          }
+          DART
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('test/image_processing_test.dart')
+          s = p.read_text()
+          marker = "  test('original PDF quality returns full-resolution bytes unchanged', () async {"
+          if 'deferred quarter turns materialize' not in s:
+              extra = '''  test('opaque editor preview uses compact JPEG without changing full dimensions', () async {
+                final source = img.Image(width: 1800, height: 900)
+                  ..clear(img.ColorRgb8(30, 80, 140));
+                final prepared = await ImageProcessingService.prepareImport(
+                  Uint8List.fromList(img.encodePng(source)),
+                );
+                expect(prepared, isNotNull);
+                expect(prepared!.previewBytes[0], 0xFF);
+                expect(prepared.previewBytes[1], 0xD8);
+                final full = img.decodeImage(prepared.fullBytes)!;
+                expect(full.width, 1800);
+                expect(full.height, 900);
+              });
+
+              test('deferred quarter turns materialize in one full-resolution pass', () async {
+                final source = img.Image(width: 120, height: 60)
+                  ..clear(img.ColorRgb8(100, 120, 140));
+                final bytes = Uint8List.fromList(img.encodePng(source));
+                final result = await ImageProcessingService.materializeQuarterTurns(
+                  fullBytes: bytes,
+                  quarterTurns: 1,
+                );
+                expect(result, isNotNull);
+                expect(result!.pixelWidth, 60);
+                expect(result.pixelHeight, 120);
+              });
+
+            '''
+              if marker not in s:
+                  raise SystemExit('image-processing test marker not found')
+              s = s.replace(marker, extra + marker, 1)
+              p.write_text(s)
+          PY
+
+          cat > AUDIT_2026-09.md <<'MD'
+          # ImagePdfScaler audit — September 2026
+
+          ## Fixed in this audit
+
+          - **Home-screen 90° rotation:** previously decoded, rotated, PNG-encoded the full-resolution image and regenerated its preview on every tap. It is now a metadata/layout operation: swap the millimetre rectangle and increment a quarter-turn. The canvas rotates the preview at render time and PDF export applies a PDF transform. Repeated quarter-turns no longer resample or recompress the source pixels.
+          - **Crop/fine-rotation interoperability:** deferred quarter turns are materialized once, off the UI isolate, only when entering the destructive crop/fine-rotation editor.
+          - **Preview load:** editor previews remain capped at 1024 px and opaque previews now use JPEG quality 82; alpha images remain PNG. Original-quality PDF pixels are unchanged.
+          - **Dialog lifecycle:** Exact size, Layout settings, and Save project now own their TextEditingControllers for the full dialog route lifetime, preventing the same focus/route teardown race that previously affected Fit copies.
+          - **Project rotation compatibility:** project format v3 gives rotationQuarterTurns real transform semantics. v1/v2 loads ignore the old informational field because those versions had already physically rotated their pixels.
+          - **Save As safety:** a same-name Save As no longer silently overwrites another project.
+          - **Project path hardening:** project IDs are validated before being used in file paths.
+          - **Print/share errors:** plugin failures are caught and surfaced in-app.
+          - **iOS gallery permission:** platform bootstrap adds NSPhotoLibraryUsageDescription when generating iOS.
+          - **PDF duplicate work:** identical source buffers at the same physical print size are prepared only once per export.
+
+          ## Architecture verified
+
+          - Paper/image geometry remains millimetre-based end-to-end.
+          - PDF paper size remains exact with zero PDF margin.
+          - Full-resolution source bytes stay separate from editor previews.
+          - Snap/margins/gap, multi-select alignment/distribution, auto-pack, calibration, and named projects remain independent of raster processing.
+
+          ## Remaining medium-priority opportunities
+
+          1. **Project storage:** image assets are still base64 inside JSON. A manifest plus binary asset files would remove base64 overhead and lower save/load peak memory.
+          2. **Heavy sheets while dragging:** each drag tick still updates EditorPage state. A dedicated canvas state/notifier would reduce rebuild scope for many-image layouts.
+          3. **Auto packing:** the shelf packer is simple and can reject arrangements that MaxRects/Skyline could fit.
+          4. **Compressed PDF export:** distinct source images are downsampled sequentially. Bounded parallel preparation (for example two workers) could reduce latency without an unbounded memory spike.
+          5. **Production signing:** generated release APKs are test artifacts; Play Store production signing still needs the production keystore/CI secrets.
+          MD
+
+          dart format lib test
+          git diff --check
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Strict analyze
+        working-directory: app
+        run: flutter analyze
+
+      - name: Full test suite
+        working-directory: app
+        run: flutter test
+
+      - name: Generate Android scaffold
+        shell: bash
+        run: |
+          rm -rf /tmp/imagepdfscaler-scaffold
+          flutter create /tmp/imagepdfscaler-scaffold \
+            --platforms=android \
+            --org com.persie \
+            --project-name image_pdf_scaler
+          rm -rf app/android
+          cp -R /tmp/imagepdfscaler-scaffold/android app/android
+
+      - name: Build release APK
+        working-directory: app
+        run: flutter build apk --release
+
+      - name: Commit and push green audit
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add lib test tool pubspec.yaml AUDIT_2026-09.md
+          git commit -m 'Make 90 degree rotation instant and complete audit' || true
+          git push origin HEAD:audit/performance-rotation
+
+      - name: Upload audited release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: imagepdfscaler-audited-release-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
