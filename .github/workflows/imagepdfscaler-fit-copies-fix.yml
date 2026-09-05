@@ -205,6 +205,18 @@ jobs:
           text, n = pattern.subn(replacement, text, count=1)
           if n != 1:
               raise SystemExit(f'expected to replace one _createCopies block, replaced {n}')
+
+          resize_old = '''    if (index < 0 || _images[index].sizeLocked || _selectedIds.length > 1)
+              return;'''
+          if resize_old not in text:
+              resize_old = '''    if (index < 0 || _images[index].sizeLocked || _selectedIds.length > 1)
+      return;'''
+          resize_new = '''    if (index < 0 || _images[index].sizeLocked || _selectedIds.length > 1) {
+      return;
+    }'''
+          if resize_old not in text:
+              raise SystemExit('resize guard anchor not found')
+          text = text.replace(resize_old, resize_new, 1)
           editor.write_text(text)
 
           crop = Path('lib/screens/crop_editor_page.dart')
@@ -319,9 +331,9 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      - name: Analyze
+      - name: Strict analyze
         working-directory: app
-        run: flutter analyze --no-fatal-infos
+        run: flutter analyze
 
       - name: Test
         working-directory: app
@@ -336,7 +348,7 @@ jobs:
           git config user.email '76871553+Persie0@users.noreply.github.com'
           git add lib test README.md pubspec.yaml
           git commit -m 'Fix fit copies lifecycle and safer rotation preview'
-          git push --force-with-lease origin HEAD:fix/fit-copies-dialog-rotation-preview
+          git push --force origin HEAD:fix/fit-copies-dialog-rotation-preview
 
       - name: Generate current Android scaffold
         shell: bash
