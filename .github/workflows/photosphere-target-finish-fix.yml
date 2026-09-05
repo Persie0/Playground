@@ -1,0 +1,97 @@
+name: Photosphere final target edge fix
+
+on:
+  push:
+    branches: [photosphere-ci-v2]
+    paths:
+      - '.github/workflows/photosphere-target-finish-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fix-test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout Photosphere source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Photosphere-
+          ref: audit/code-hardening-3
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          persist-credentials: true
+          path: private-app
+
+      - name: Fix final-target hysteresis edge case
+        working-directory: private-app
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('lib/src/screens/capture_screen.dart')
+          text = path.read_text()
+          old = '''    final current = _target;
+              if (current == null ||
+                  _completed.contains(current.id) ||
+                  nearest == null ||
+                  nearest.id == current.id) {
+                return nearest ?? current;
+              }
+          '''
+          new = '''    final current = _target;
+              if (nearest == null) return null;
+              if (current == null ||
+                  _completed.contains(current.id) ||
+                  nearest.id == current.id) {
+                return nearest;
+              }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one target block, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+
+      - name: Install Flutter stable
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Format, analyze, and test
+        working-directory: private-app
+        run: |
+          flutter pub get
+          dart format lib/src/screens/capture_screen.dart
+          flutter analyze
+          flutter test test/capture_plan_test.dart test/native_orientation_test.dart --reporter expanded
+
+      - name: Commit and push edge fix
+        working-directory: private-app
+        run: |
+          git config user.name 'photosphere-ci-fix'
+          git config user.email 'actions@users.noreply.github.com'
+          git add lib/src/screens/capture_screen.dart
+          if ! git diff --cached --quiet; then
+            git commit -m 'Fix final capture target hysteresis'
+            git push origin HEAD:audit/code-hardening-3
+          fi
+          git rev-parse HEAD
+
+      - name: Generate Android runner and build debug APK
+        working-directory: private-app
+        run: |
+          flutter create --platforms=android,ios --org com.persie --no-pub .
+          dart run tool/configure_platforms.dart
+          flutter pub get
+          flutter build apk --debug
+          test -s build/app/outputs/flutter-apk/app-debug.apk
+          sha256sum build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Upload final fixed debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-target-stability-final-debug-apk
+          path: private-app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
