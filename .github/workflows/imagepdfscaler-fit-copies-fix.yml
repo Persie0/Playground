@@ -1,0 +1,351 @@
+name: ImagePdfScaler fit-copies lifecycle fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/imagepdfscaler-fit-copies-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch-test-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Checkout ImagePdfScaler
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/ImagePdfScaler
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create fix branch and patch
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -b fix/fit-copies-dialog-rotation-preview
+
+          cat > lib/widgets/fit_copies_dialog.dart <<'DART'
+          import 'package:flutter/material.dart';
+
+          Future<int?> showFitCopiesDialog(
+            BuildContext context, {
+            int initialCount = 6,
+            int maxCount = 500,
+          }) {
+            return showDialog<int>(
+              context: context,
+              builder: (_) => _FitCopiesDialog(
+                initialCount: initialCount,
+                maxCount: maxCount,
+              ),
+            );
+          }
+
+          class _FitCopiesDialog extends StatefulWidget {
+            const _FitCopiesDialog({
+              required this.initialCount,
+              required this.maxCount,
+            });
+
+            final int initialCount;
+            final int maxCount;
+
+            @override
+            State<_FitCopiesDialog> createState() => _FitCopiesDialogState();
+          }
+
+          class _FitCopiesDialogState extends State<_FitCopiesDialog> {
+            late final TextEditingController _controller;
+            String? _error;
+
+            @override
+            void initState() {
+              super.initState();
+              _controller = TextEditingController(text: widget.initialCount.toString());
+            }
+
+            @override
+            void dispose() {
+              _controller.dispose();
+              super.dispose();
+            }
+
+            void _submit() {
+              final value = int.tryParse(_controller.text.trim());
+              if (value == null || value < 1 || value > widget.maxCount) {
+                setState(() => _error = 'Enter a number from 1 to ${widget.maxCount}.');
+                return;
+              }
+              FocusManager.instance.primaryFocus?.unfocus();
+              Navigator.of(context).pop(value);
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              return AlertDialog(
+                title: const Text('Fit copies on sheet'),
+                content: TextField(
+                  controller: _controller,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _submit(),
+                  decoration: InputDecoration(
+                    labelText: 'Total copies of selected image',
+                    border: const OutlineInputBorder(),
+                    errorText: _error,
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      FocusManager.instance.primaryFocus?.unfocus();
+                      Navigator.of(context).pop();
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(onPressed: _submit, child: const Text('Create')),
+                ],
+              );
+            }
+          }
+          DART
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          editor = Path('lib/screens/editor_page.dart')
+          text = editor.read_text()
+          anchor = "import '../widgets/exact_size_dialog.dart';\n"
+          imp = "import '../widgets/fit_copies_dialog.dart';\n"
+          if imp not in text:
+              if anchor not in text:
+                  raise SystemExit('editor import anchor not found')
+              text = text.replace(anchor, anchor + imp, 1)
+
+          pattern = re.compile(
+              r"  Future<void> _createCopies\(\) async \{.*?\n  \}\n\n  void _deleteSelected\(\) \{",
+              re.S,
+          )
+          replacement = '''  Future<void> _createCopies() async {
+            final item = _primarySelectedImage;
+            if (item == null || _selectedIds.length != 1) return;
+
+            // The dialog owns its TextEditingController for the complete route
+            // lifetime. Disposing a controller immediately after showDialog
+            // returns can race Flutter's route/focus teardown and trigger the
+            // framework `_dependents.isEmpty` assertion seen on Fit copies.
+            final count = await showFitCopiesDialog(context);
+            if (count == null || !mounted) return;
+
+            final candidates = List<PlacedImage>.from(_images);
+            for (var i = 1; i < count; i++) {
+              candidates.add(
+                PlacedImage(
+                  id: _newId(),
+                  bytes: item.bytes,
+                  previewBytes: item.previewBytes,
+                  xMm: item.xMm,
+                  yMm: item.yMm,
+                  widthMm: item.widthMm,
+                  heightMm: item.heightMm,
+                  sizeLocked: item.sizeLocked,
+                  rotationQuarterTurns: item.rotationQuarterTurns,
+                ),
+              );
+            }
+            final packed = packImagesOnPaper(
+              images: candidates,
+              paper: _paper,
+              settings: _settings,
+            );
+            if (packed == null) {
+              _showSnack('Those images do not all fit inside the current margins and gap.');
+              return;
+            }
+
+            setState(() {
+              _images
+                ..clear()
+                ..addAll([
+                  for (final candidate in candidates)
+                    candidate.copyWith(
+                      xMm: packed[candidate.id]!.xMm,
+                      yMm: packed[candidate.id]!.yMm,
+                    ),
+                ]);
+              _selectedIds
+                ..clear()
+                ..add(item.id);
+              _primarySelectedId = item.id;
+              _snapGuides = const [];
+            });
+          }
+
+          void _deleteSelected() {'''
+          text, n = pattern.subn(replacement, text, count=1)
+          if n != 1:
+              raise SystemExit(f'expected to replace one _createCopies block, replaced {n}')
+          editor.write_text(text)
+
+          crop = Path('lib/screens/crop_editor_page.dart')
+          text = crop.read_text()
+          old = 'RotationCanvasMode _canvasMode = RotationCanvasMode.expand;'
+          new = 'RotationCanvasMode _canvasMode = RotationCanvasMode.keepRatio;'
+          if old not in text:
+              raise SystemExit('rotation default anchor not found')
+          crop.write_text(text.replace(old, new, 1))
+
+          service = Path('lib/services/image_processing_service.dart')
+          text = service.read_text()
+          old = 'static const int editorPreviewMaxDimension = 1400;'
+          new = 'static const int editorPreviewMaxDimension = 1024;'
+          if old not in text:
+              raise SystemExit('preview dimension anchor not found')
+          service.write_text(text.replace(old, new, 1))
+
+          readme = Path('README.md')
+          text = readme.read_text().replace('<=1400 px', '<=1024 px').replace('≤1400 px', '≤1024 px')
+          readme.write_text(text)
+
+          pubspec = Path('pubspec.yaml')
+          text = pubspec.read_text()
+          text = re.sub(r'^version:\s*0\.3\.0\+3\s*$', 'version: 0.3.1+4', text, flags=re.M)
+          pubspec.write_text(text)
+          PY
+
+          cat > test/fit_copies_dialog_test.dart <<'DART'
+          import 'package:flutter/material.dart';
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:image_pdf_scaler/widgets/fit_copies_dialog.dart';
+
+          void main() {
+            testWidgets('fit copies dialog closes cleanly after create and cancel', (tester) async {
+              int? result;
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: Scaffold(
+                    body: Builder(
+                      builder: (context) => FilledButton(
+                        onPressed: () async {
+                          result = await showFitCopiesDialog(context);
+                        },
+                        child: const Text('Open'),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+
+              await tester.tap(find.text('Open'));
+              await tester.pumpAndSettle();
+              await tester.enterText(find.byType(TextField), '12');
+              await tester.tap(find.text('Create'));
+              await tester.pumpAndSettle();
+              expect(result, 12);
+              expect(tester.takeException(), isNull);
+
+              await tester.tap(find.text('Open'));
+              await tester.pumpAndSettle();
+              await tester.tap(find.text('Cancel'));
+              await tester.pumpAndSettle();
+              expect(tester.takeException(), isNull);
+            });
+          }
+          DART
+
+          cat > test/crop_editor_defaults_test.dart <<'DART'
+          import 'dart:typed_data';
+
+          import 'package:flutter/material.dart';
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:image/image.dart' as img;
+          import 'package:image_pdf_scaler/screens/crop_editor_page.dart';
+          import 'package:image_pdf_scaler/services/image_processing_service.dart';
+
+          void main() {
+            testWidgets('rotation defaults to keep ratio without stretching', (tester) async {
+              await tester.binding.setSurfaceSize(const Size(900, 1000));
+              addTearDown(() => tester.binding.setSurfaceSize(null));
+
+              final source = img.Image(width: 400, height: 200)
+                ..clear(img.ColorRgb8(20, 40, 60));
+              final bytes = Uint8List.fromList(img.encodePng(source));
+
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: CropEditorPage(fullBytes: bytes, previewBytes: bytes),
+                ),
+              );
+              await tester.tap(find.text('Rotate'));
+              await tester.pumpAndSettle();
+
+              final control = tester.widget<SegmentedButton<RotationCanvasMode>>(
+                find.byType(SegmentedButton<RotationCanvasMode>),
+              );
+              expect(control.selected, {RotationCanvasMode.keepRatio});
+            });
+          }
+          DART
+
+          dart format \
+            lib/screens/editor_page.dart \
+            lib/screens/crop_editor_page.dart \
+            lib/services/image_processing_service.dart \
+            lib/widgets/fit_copies_dialog.dart \
+            test/fit_copies_dialog_test.dart \
+            test/crop_editor_defaults_test.dart
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: app
+        run: flutter analyze
+
+      - name: Test
+        working-directory: app
+        run: flutter test
+
+      - name: Build debug APK
+        working-directory: app
+        run: flutter build apk --debug
+
+      - name: Commit and push fix branch
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add lib test README.md pubspec.yaml
+          git commit -m 'Fix fit copies lifecycle and safer rotation preview'
+          git push origin HEAD:fix/fit-copies-dialog-rotation-preview
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: imagepdfscaler-fit-copies-fix-debug-apk
+          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
