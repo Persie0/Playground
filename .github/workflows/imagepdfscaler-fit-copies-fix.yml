@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git checkout -b fix/fit-copies-dialog-rotation-preview
+          git checkout -B fix/fit-copies-dialog-rotation-preview
 
           cat > lib/widgets/fit_copies_dialog.dart <<'DART'
           import 'package:flutter/material.dart';
@@ -151,10 +151,9 @@ jobs:
             final item = _primarySelectedImage;
             if (item == null || _selectedIds.length != 1) return;
 
-            // The dialog owns its TextEditingController for the complete route
-            // lifetime. Disposing a controller immediately after showDialog
-            // returns can race Flutter's route/focus teardown and trigger the
-            // framework `_dependents.isEmpty` assertion seen on Fit copies.
+            // Keep the input controller alive for the entire dialog route.
+            // Disposing it immediately after showDialog returns can race focus /
+            // inherited-widget teardown and trigger `_dependents.isEmpty`.
             final count = await showFitCopiesDialog(context);
             if (count == null || !mounted) return;
 
@@ -328,11 +327,7 @@ jobs:
         working-directory: app
         run: flutter test
 
-      - name: Build debug APK
-        working-directory: app
-        run: flutter build apk --debug
-
-      - name: Commit and push fix branch
+      - name: Commit and push tested fix branch
         working-directory: app
         shell: bash
         run: |
@@ -341,7 +336,22 @@ jobs:
           git config user.email '76871553+Persie0@users.noreply.github.com'
           git add lib test README.md pubspec.yaml
           git commit -m 'Fix fit copies lifecycle and safer rotation preview'
-          git push origin HEAD:fix/fit-copies-dialog-rotation-preview
+          git push --force-with-lease origin HEAD:fix/fit-copies-dialog-rotation-preview
+
+      - name: Generate current Android scaffold
+        shell: bash
+        run: |
+          rm -rf /tmp/imagepdfscaler-scaffold
+          flutter create /tmp/imagepdfscaler-scaffold \
+            --platforms=android \
+            --org com.persie \
+            --project-name image_pdf_scaler
+          rm -rf app/android
+          cp -R /tmp/imagepdfscaler-scaffold/android app/android
+
+      - name: Build debug APK
+        working-directory: app
+        run: flutter build apk --debug
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
