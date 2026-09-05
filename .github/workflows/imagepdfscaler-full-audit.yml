@@ -1,0 +1,1644 @@
+name: ImagePdfScaler full audit and rotation performance
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/imagepdfscaler-full-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-fix-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Checkout audit branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/ImagePdfScaler
+          ref: audit/performance-rotation
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Apply audited fixes
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f'{label}: anchor not found in {path}')
+              p.write_text(s.replace(old, new, 1))
+
+          # -----------------------------------------------------------------
+          # Model: make quarter-turn rotation a layout transform, not a raster
+          # rewrite. Keep source print dimensions available for PDF rendering.
+          # -----------------------------------------------------------------
+          replace_once(
+              'lib/models/layout_models.dart',
+              '''  double get rightMm => xMm + widthMm;
+          double get bottomMm => yMm + heightMm;
+          double get centerXMm => xMm + widthMm / 2;
+          double get centerYMm => yMm + heightMm / 2;
+          ''',
+              '''  double get rightMm => xMm + widthMm;
+          double get bottomMm => yMm + heightMm;
+          double get centerXMm => xMm + widthMm / 2;
+          double get centerYMm => yMm + heightMm / 2;
+
+          int get normalizedQuarterTurns =>
+              ((rotationQuarterTurns % 4) + 4) % 4;
+          bool get rotationSwapsAxes => normalizedQuarterTurns.isOdd;
+
+          /// Physical dimensions the unrotated source pixels occupy before the
+          /// quarter-turn transform is applied by the editor/PDF renderer.
+          double get sourceWidthMm => rotationSwapsAxes ? heightMm : widthMm;
+          double get sourceHeightMm => rotationSwapsAxes ? widthMm : heightMm;
+          ''',
+              'placed-image rotation getters',
+          )
+
+          replace_once(
+              'lib/models/layout_models.dart',
+              '''}
+
+          class SnapGuide {''',
+              '''}
+
+          PlacedImage? rotatePlacedImage90({
+            required PlacedImage item,
+            required PaperPreset paper,
+          }) {
+            final width = item.heightMm;
+            final height = item.widthMm;
+            if (!width.isFinite || !height.isFinite || width <= 0 || height <= 0) {
+              return null;
+            }
+            if (width > paper.widthMm + 0.0001 ||
+                height > paper.heightMm + 0.0001) {
+              return null;
+            }
+            final maxX = math.max(0.0, paper.widthMm - width);
+            final maxY = math.max(0.0, paper.heightMm - height);
+            return item.copyWith(
+              widthMm: width,
+              heightMm: height,
+              xMm: item.xMm.clamp(0.0, maxX).toDouble(),
+              yMm: item.yMm.clamp(0.0, maxY).toDouble(),
+              rotationQuarterTurns: (item.normalizedQuarterTurns + 1) % 4,
+            );
+          }
+
+          class SnapGuide {''',
+              'metadata rotate helper',
+          )
+
+          # -----------------------------------------------------------------
+          # Canvas: render the low-res preview through RotatedBox. No decoding
+          # or encoding occurs when the home-screen 90-degree button is tapped.
+          # -----------------------------------------------------------------
+          replace_once(
+              'lib/widgets/paper_canvas.dart',
+              '''            child: Image.memory(
+                        item.previewBytes,
+                        fit: BoxFit.fill,
+                        filterQuality: FilterQuality.medium,
+                        gaplessPlayback: true,
+                        errorBuilder: (context, error, stackTrace) => DecoratedBox(
+                          decoration: BoxDecoration(color: Theme.of(context).colorScheme.errorContainer),
+                          child: Center(
+                            child: Icon(
+                              Icons.broken_image_outlined,
+                              color: Theme.of(context).colorScheme.onErrorContainer,
+                            ),
+                          ),
+                        ),
+                      ),''',
+              '''            child: RotatedBox(
+                        quarterTurns: item.normalizedQuarterTurns,
+                        child: Image.memory(
+                          item.previewBytes,
+                          fit: BoxFit.fill,
+                          filterQuality: FilterQuality.medium,
+                          gaplessPlayback: true,
+                          errorBuilder: (context, error, stackTrace) => DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.errorContainer,
+                            ),
+                            child: Center(
+                              child: Icon(
+                                Icons.broken_image_outlined,
+                                color: Theme.of(context).colorScheme.onErrorContainer,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),''',
+              'paper canvas rotated preview',
+          )
+
+          # -----------------------------------------------------------------
+          # Image processing: avoid an unnecessary full-frame copy on import,
+          # use compact JPEG previews for opaque images, and materialize pending
+          # quarter turns only when a destructive crop/fine-rotate edit needs it.
+          # -----------------------------------------------------------------
+          replace_once(
+              'lib/services/image_processing_service.dart',
+              '''  static Future<EditedImageResult?> rotate90(Uint8List fullBytes) async {
+              final result = await compute(_rotate90, fullBytes);
+              if (result == null) return null;
+              return EditedImageResult(
+                fullBytes: result['fullBytes']! as Uint8List,
+                previewBytes: result['previewBytes']! as Uint8List,
+                pixelWidth: result['width']! as int,
+                pixelHeight: result['height']! as int,
+              );
+            }
+          ''',
+              '''  static Future<EditedImageResult?> materializeQuarterTurns({
+              required Uint8List fullBytes,
+              required int quarterTurns,
+            }) async {
+              final result = await compute(_materializeQuarterTurns, <String, Object>{
+                'bytes': fullBytes,
+                'quarterTurns': quarterTurns,
+              });
+              if (result == null) return null;
+              return EditedImageResult(
+                fullBytes: result['fullBytes']! as Uint8List,
+                previewBytes: result['previewBytes']! as Uint8List,
+                pixelWidth: result['width']! as int,
+                pixelHeight: result['height']! as int,
+              );
+            }
+          ''',
+              'materialize quarter-turn API',
+          )
+
+          replace_once(
+              'lib/services/image_processing_service.dart',
+              '''  final oriented = img.bakeOrientation(decoded);
+            final fullBytes = Uint8List.fromList(img.encodePng(oriented));''',
+              '''  final orientation = decoded.exif.imageIfd.hasOrientation
+                ? decoded.exif.imageIfd.orientation
+                : null;
+            // bakeOrientation clones the whole decoded pixel buffer even when the
+            // image is already upright. Avoid that extra full-resolution copy.
+            final oriented = orientation != null && orientation != 1
+                ? img.bakeOrientation(decoded)
+                : decoded;
+            final fullBytes = Uint8List.fromList(img.encodePng(oriented));''',
+              'import orientation fast path',
+          )
+
+          pattern = re.compile(
+              r"Map<String, Object>\? _rotate90\(Uint8List fullBytes\) \{.*?\n\}\n\nUint8List\? _compressForPdf",
+              re.S,
+          )
+          service = Path('lib/services/image_processing_service.dart')
+          s = service.read_text()
+          replacement = '''Map<String, Object>? _materializeQuarterTurns(Map<String, Object> args) {
+            final fullBytes = args['bytes']! as Uint8List;
+            final decoded = img.decodeImage(fullBytes);
+            if (decoded == null || decoded.width <= 0 || decoded.height <= 0) {
+              return null;
+            }
+            final rawTurns = args['quarterTurns']! as int;
+            final turns = ((rawTurns % 4) + 4) % 4;
+            final angle = switch (turns) {
+              1 => 90.0,
+              2 => 180.0,
+              3 => -90.0,
+              _ => 0.0,
+            };
+            final output = turns == 0
+                ? decoded
+                : img.copyRotate(decoded, angle: angle);
+            return <String, Object>{
+              'fullBytes': Uint8List.fromList(img.encodePng(output)),
+              'previewBytes': _encodePreview(output),
+              'width': output.width,
+              'height': output.height,
+            };
+          }
+
+          Uint8List? _compressForPdf'''
+          s, n = pattern.subn(replacement, s, count=1)
+          if n != 1:
+              raise SystemExit('materialize worker: rotate90 block not found')
+          service.write_text(s)
+
+          replace_once(
+              'lib/services/image_processing_service.dart',
+              '''  return Uint8List.fromList(img.encodePng(preview));
+            }''',
+              '''  if (!preview.hasAlpha) {
+              // Editor-only preview: lossy compression is intentional and keeps
+              // photos much smaller while full-resolution PDF pixels are untouched.
+              return Uint8List.fromList(img.encodeJpg(preview, quality: 82));
+            }
+            return Uint8List.fromList(img.encodePng(preview));
+          }''',
+              'compact opaque preview encoding',
+          )
+
+          # -----------------------------------------------------------------
+          # Editor: 90-degree home rotation becomes a synchronous geometry-only
+          # operation. Pending transforms are rasterized only when entering the
+          # destructive crop/fine-rotation editor.
+          # -----------------------------------------------------------------
+          editor = Path('lib/screens/editor_page.dart')
+          s = editor.read_text()
+
+          crop_anchor = '''  Future<void> _cropImage(String id) async {'''
+          materialize_method = '''  Future<PlacedImage?> _materializeRotationForEditing(
+            PlacedImage item,
+          ) async {
+            final turns = item.normalizedQuarterTurns;
+            if (turns == 0) return item;
+            if (_processingImage) return null;
+
+            setState(() => _processingImage = true);
+            try {
+              final result = await ImageProcessingService.materializeQuarterTurns(
+                fullBytes: item.bytes,
+                quarterTurns: turns,
+              );
+              if (!mounted) return null;
+              if (result == null) {
+                _showSnack('Could not prepare this rotated image for editing.');
+                return null;
+              }
+              final index = _images.indexWhere((entry) => entry.id == item.id);
+              if (index < 0) return null;
+              final current = _images[index];
+              final updated = current.copyWith(
+                bytes: result.fullBytes,
+                previewBytes: result.previewBytes,
+                rotationQuarterTurns: 0,
+              );
+              setState(() => _images[index] = updated);
+              return updated;
+            } catch (error) {
+              if (mounted) {
+                _showSnack('Could not prepare rotated image: $error');
+              }
+              return null;
+            } finally {
+              if (mounted) setState(() => _processingImage = false);
+            }
+          }
+
+          '''
+          if crop_anchor not in s:
+              raise SystemExit('crop method anchor not found')
+          s = s.replace(crop_anchor, materialize_method + crop_anchor, 1)
+
+          old = '''    final index = _images.indexWhere((item) => item.id == id);
+              if (index < 0) return;
+              final item = _images[index];
+              if (!_selectedIds.contains(id)) {'''
+          new = '''    final index = _images.indexWhere((item) => item.id == id);
+              if (index < 0) return;
+              var item = _images[index];
+              if (!_selectedIds.contains(id)) {'''
+          if old not in s:
+              raise SystemExit('crop item mutability anchor not found')
+          s = s.replace(old, new, 1)
+
+          nav_anchor = '''    final edited = await Navigator.of(context).push<EditedImageResult>('''
+          insert = '''    if (item.normalizedQuarterTurns != 0) {
+              final materialized = await _materializeRotationForEditing(item);
+              if (materialized == null || !mounted) return;
+              item = materialized;
+            }
+
+          '''
+          if nav_anchor not in s:
+              raise SystemExit('crop navigation anchor not found')
+          s = s.replace(nav_anchor, insert + nav_anchor, 1)
+
+          pattern = re.compile(
+              r"  Future<void> _rotateSelected\(\) async \{.*?\n  \}\n\n  void _duplicateSelected\(\) \{",
+              re.S,
+          )
+          replacement = '''  void _rotateSelected() {
+            final item = _primarySelectedImage;
+            if (item == null || _selectedIds.length != 1) return;
+            final rotated = rotatePlacedImage90(item: item, paper: _paper);
+            if (rotated == null) {
+              _showSnack('A 90° rotation would not fit on the current paper.');
+              return;
+            }
+            final index = _images.indexWhere((entry) => entry.id == item.id);
+            if (index < 0) return;
+            setState(() {
+              _images[index] = rotated;
+              _snapGuides = const [];
+            });
+            if (_settings.hapticsEnabled) HapticFeedback.selectionClick();
+          }
+
+          void _duplicateSelected() {'''
+          s, n = pattern.subn(replacement, s, count=1)
+          if n != 1:
+              raise SystemExit(f'rotateSelected block replacement count={n}')
+
+          # Print/share should not surface plugin exceptions as uncaught futures.
+          s = s.replace(
+              '''  Future<void> _printPdf() async {
+              final bytes = await _buildPdf();
+              if (bytes == null) return;
+              await Printing.layoutPdf(
+                name: 'image-layout-${_safeFileName(_paper.name)}.pdf',
+                onLayout: (_) async => bytes,
+              );
+            }
+
+            Future<void> _sharePdf() async {
+              final bytes = await _buildPdf();
+              if (bytes == null) return;
+              await Printing.sharePdf(
+                bytes: bytes,
+                filename: 'image-layout-${_safeFileName(_paper.name)}.pdf',
+              );
+            }''',
+              '''  Future<void> _printPdf() async {
+              try {
+                final bytes = await _buildPdf();
+                if (bytes == null) return;
+                await Printing.layoutPdf(
+                  name: 'image-layout-${_safeFileName(_paper.name)}.pdf',
+                  onLayout: (_) async => bytes,
+                );
+              } catch (error) {
+                if (mounted) _showSnack('Could not open the print dialog: $error');
+              }
+            }
+
+            Future<void> _sharePdf() async {
+              try {
+                final bytes = await _buildPdf();
+                if (bytes == null) return;
+                await Printing.sharePdf(
+                  bytes: bytes,
+                  filename: 'image-layout-${_safeFileName(_paper.name)}.pdf',
+                );
+              } catch (error) {
+                if (mounted) _showSnack('Could not share the PDF: $error');
+              }
+            }''',
+              1,
+          )
+          editor.write_text(s)
+
+          # -----------------------------------------------------------------
+          # Project storage: v3 gives rotationQuarterTurns actual transform
+          # semantics. v2 stored already-raster-rotated bytes, so ignore its
+          # informational quarter-turn field to avoid double-rotating old saves.
+          # Also make Save As non-destructive and harden project IDs.
+          # -----------------------------------------------------------------
+          storage = Path('lib/services/project_storage_service.dart')
+          s = storage.read_text()
+          s = s.replace(
+              "  static const _projectsDirectoryName = 'image_pdf_scaler_projects';",
+              "  static const _projectsDirectoryName = 'image_pdf_scaler_projects';\n  static const _currentProjectVersion = 3;",
+              1,
+          )
+          s = s.replace(
+              '''  static Future<File> _projectFile(String id) async {
+              final directory = await _projectsDirectory();
+              return File('${directory.path}/$id.json');
+            }''',
+              '''  static Future<File> _projectFile(String id) async {
+              if (!_isValidProjectId(id)) {
+                throw ArgumentError.value(id, 'id', 'Invalid project id');
+              }
+              final directory = await _projectsDirectory();
+              return File('${directory.path}/$id.json');
+            }''',
+              1,
+          )
+          s = s.replace(
+              '''    for (final summary in summaries) {
+                if (summary.id.isEmpty) continue;
+                if (await (await _projectFile(summary.id)).exists()) existing.add(summary);
+              }''',
+              '''    for (final summary in summaries) {
+                if (!_isValidProjectId(summary.id)) continue;
+                if (await (await _projectFile(summary.id)).exists()) {
+                  existing.add(summary);
+                }
+              }''',
+              1,
+          )
+          s = s.replace(
+              '''    var id = existingId;
+              if (id == null || !summaries.any((item) => item.id == id)) {
+                final sameName = summaries.where(
+                  (item) => item.name.toLowerCase() == cleanName.toLowerCase(),
+                );
+                id = sameName.isEmpty ? _newProjectId() : sameName.first.id;
+              }''',
+              '''    var id = existingId;
+              if (id == null ||
+                  !_isValidProjectId(id) ||
+                  !summaries.any((item) => item.id == id)) {
+                // Save As must never silently overwrite another same-name project.
+                id = _newProjectId();
+              }''',
+              1,
+          )
+          s = s.replace("      'version': 2,", "      'version': _currentProjectVersion,", 1)
+          s = s.replace(
+              '''    final settingsJson = decoded['settings'];
+              final imagesJson = decoded['images'];''',
+              '''    final projectVersion = (decoded['version'] as num?)?.toInt() ?? 1;
+              final settingsJson = decoded['settings'];
+              final imagesJson = decoded['images'];''',
+              1,
+          )
+          s = s.replace(
+              '''          rotationQuarterTurns: (raw['rotationQuarterTurns'] as num?)?.toInt() ?? 0,''',
+              '''          rotationQuarterTurns: projectVersion >= 3
+                  ? _normalizeQuarterTurns(
+                      (raw['rotationQuarterTurns'] as num?)?.toInt() ?? 0,
+                    )
+                  : 0,''',
+              1,
+          )
+          s = s.replace(
+              '''  static Future<SavedLayoutProject?> loadNamed(String id) async {
+              final summaries = await listProjects();''',
+              '''  static Future<SavedLayoutProject?> loadNamed(String id) async {
+              if (!_isValidProjectId(id)) return null;
+              final summaries = await listProjects();''',
+              1,
+          )
+          s = s.replace(
+              '''  static Future<void> deleteNamed(String id) async {
+              final file = await _projectFile(id);''',
+              '''  static Future<void> deleteNamed(String id) async {
+              if (!_isValidProjectId(id)) return;
+              final file = await _projectFile(id);''',
+              1,
+          )
+          s = s.replace(
+              "  static String _newProjectId() => 'p${DateTime.now().microsecondsSinceEpoch}';\n}",
+              '''  static bool _isValidProjectId(String id) =>
+              RegExp(r'^[A-Za-z0-9_-]{1,96}$').hasMatch(id);
+
+            static int _normalizeQuarterTurns(int value) => ((value % 4) + 4) % 4;
+
+            static String _newProjectId() =>
+                'p${DateTime.now().microsecondsSinceEpoch}';
+          }''',
+              1,
+          )
+          storage.write_text(s)
+
+          # Version bump.
+          pubspec = Path('pubspec.yaml')
+          s = pubspec.read_text()
+          s, n = re.subn(r'^version:\s*0\.3\.1\+4\s*$', 'version: 0.3.2+5', s, flags=re.M)
+          if n != 1:
+              raise SystemExit('pubspec version anchor not found')
+          pubspec.write_text(s)
+          PY
+
+          cat > lib/services/pdf_export_service.dart <<'DART'
+          import 'dart:math' as math;
+          import 'dart:typed_data';
+
+          import 'package:pdf/pdf.dart';
+          import 'package:pdf/widgets.dart' as pw;
+
+          import '../models/layout_models.dart';
+          import 'image_processing_service.dart';
+
+          class PdfExportService {
+            static Future<Uint8List> build({
+              required PaperPreset paper,
+              required List<PlacedImage> images,
+              PdfImageQuality imageQuality = PdfImageQuality.original,
+            }) async {
+              final document = pw.Document();
+              final pageFormat = PdfPageFormat(
+                paper.widthMm * PdfPageFormat.mm,
+                paper.heightMm * PdfPageFormat.mm,
+                marginAll: 0,
+              );
+
+              // Duplicate layout items intentionally share their source bytes.
+              // Cache prepared PDF pixels by source identity + source-orientation
+              // print size so copies do not repeatedly decode/downsample.
+              final preparedBytes = <String, Uint8List>{};
+              final memoryImages = <String, pw.MemoryImage>{};
+              final imageKeys = <String, String>{};
+              for (final item in images) {
+                final sourceWidthMm = item.sourceWidthMm;
+                final sourceHeightMm = item.sourceHeightMm;
+                final key = '${identityHashCode(item.bytes)}:'
+                    '${sourceWidthMm.toStringAsFixed(4)}:'
+                    '${sourceHeightMm.toStringAsFixed(4)}:'
+                    '${imageQuality.name}';
+                imageKeys[item.id] = key;
+                if (preparedBytes.containsKey(key)) continue;
+                final bytes = await ImageProcessingService.bytesForPdf(
+                  fullBytes: item.bytes,
+                  widthMm: sourceWidthMm,
+                  heightMm: sourceHeightMm,
+                  quality: imageQuality,
+                );
+                preparedBytes[key] = bytes;
+                memoryImages[key] = pw.MemoryImage(bytes);
+              }
+
+              document.addPage(
+                pw.Page(
+                  pageFormat: pageFormat,
+                  margin: pw.EdgeInsets.zero,
+                  build: (_) => pw.SizedBox(
+                    width: pageFormat.width,
+                    height: pageFormat.height,
+                    child: pw.Stack(
+                      children: [
+                        for (final item in images)
+                          pw.Positioned(
+                            left: item.xMm * PdfPageFormat.mm,
+                            top: item.yMm * PdfPageFormat.mm,
+                            child: _renderPlacedImage(
+                              item,
+                              memoryImages[imageKeys[item.id]!]!,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+
+              return document.save();
+            }
+
+            static pw.Widget _renderPlacedImage(
+              PlacedImage item,
+              pw.MemoryImage image,
+            ) {
+              final source = pw.SizedBox(
+                width: item.sourceWidthMm * PdfPageFormat.mm,
+                height: item.sourceHeightMm * PdfPageFormat.mm,
+                child: pw.Image(image, fit: pw.BoxFit.fill),
+              );
+              final turns = item.normalizedQuarterTurns;
+              if (turns == 0) return source;
+
+              // PDF's transform uses the mathematical Y-up rotation direction;
+              // negate the angle to match Flutter RotatedBox clockwise turns.
+              return pw.Transform.rotateBox(
+                angle: -turns * math.pi / 2,
+                unconstrained: true,
+                child: source,
+              );
+            }
+          }
+          DART
+
+          cat > lib/widgets/exact_size_dialog.dart <<'DART'
+          import 'package:flutter/material.dart';
+
+          import '../models/layout_models.dart';
+
+          enum SizeDriver { width, height }
+
+          typedef ExactSize = ({double value, SizeDriver driver});
+
+          Future<ExactSize?> showExactSizeDialog(
+            BuildContext context,
+            PlacedImage item,
+          ) {
+            return showDialog<ExactSize>(
+              context: context,
+              builder: (_) => _ExactSizeDialog(item: item),
+            );
+          }
+
+          class _ExactSizeDialog extends StatefulWidget {
+            const _ExactSizeDialog({required this.item});
+
+            final PlacedImage item;
+
+            @override
+            State<_ExactSizeDialog> createState() => _ExactSizeDialogState();
+          }
+
+          class _ExactSizeDialogState extends State<_ExactSizeDialog> {
+            late final TextEditingController _controller;
+            SizeDriver _driver = SizeDriver.width;
+            String? _error;
+
+            @override
+            void initState() {
+              super.initState();
+              _controller = TextEditingController(
+                text: widget.item.widthMm.toStringAsFixed(1),
+              );
+            }
+
+            @override
+            void dispose() {
+              _controller.dispose();
+              super.dispose();
+            }
+
+            void _cancel() {
+              FocusManager.instance.primaryFocus?.unfocus();
+              Navigator.of(context).pop();
+            }
+
+            void _submit() {
+              final value = double.tryParse(
+                _controller.text.trim().replaceAll(',', '.'),
+              );
+              if (value == null || !value.isFinite || value <= 0) {
+                setState(() => _error = 'Enter a positive finite size.');
+                return;
+              }
+              FocusManager.instance.primaryFocus?.unfocus();
+              Navigator.of(context).pop((value: value, driver: _driver));
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              return AlertDialog(
+                title: const Text('Exact printed size'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SegmentedButton<SizeDriver>(
+                      segments: const [
+                        ButtonSegment(
+                          value: SizeDriver.width,
+                          label: Text('Width'),
+                        ),
+                        ButtonSegment(
+                          value: SizeDriver.height,
+                          label: Text('Height'),
+                        ),
+                      ],
+                      selected: {_driver},
+                      onSelectionChanged: (selection) {
+                        setState(() {
+                          _driver = selection.first;
+                          _error = null;
+                          _controller.text = (_driver == SizeDriver.width
+                                  ? widget.item.widthMm
+                                  : widget.item.heightMm)
+                              .toStringAsFixed(1);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _controller,
+                      autofocus: true,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _submit(),
+                      decoration: InputDecoration(
+                        labelText: _driver == SizeDriver.width ? 'Width' : 'Height',
+                        suffixText: 'mm',
+                        border: const OutlineInputBorder(),
+                        errorText: _error,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Aspect ratio stays locked. The other dimension is calculated automatically.',
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(onPressed: _cancel, child: const Text('Cancel')),
+                  FilledButton(onPressed: _submit, child: const Text('Apply')),
+                ],
+              );
+            }
+          }
+          DART
+
+          cat > lib/widgets/project_dialogs.dart <<'DART'
+          import 'package:flutter/material.dart';
+
+          import '../services/project_storage_service.dart';
+
+          class SaveProjectRequest {
+            const SaveProjectRequest({required this.name});
+
+            final String name;
+          }
+
+          Future<SaveProjectRequest?> showSaveProjectDialog(
+            BuildContext context, {
+            String? currentName,
+          }) {
+            return showDialog<SaveProjectRequest>(
+              context: context,
+              builder: (_) => _SaveProjectDialog(currentName: currentName),
+            );
+          }
+
+          class _SaveProjectDialog extends StatefulWidget {
+            const _SaveProjectDialog({required this.currentName});
+
+            final String? currentName;
+
+            @override
+            State<_SaveProjectDialog> createState() => _SaveProjectDialogState();
+          }
+
+          class _SaveProjectDialogState extends State<_SaveProjectDialog> {
+            late final TextEditingController _controller;
+            String? _error;
+
+            @override
+            void initState() {
+              super.initState();
+              _controller = TextEditingController(text: widget.currentName ?? '');
+            }
+
+            @override
+            void dispose() {
+              _controller.dispose();
+              super.dispose();
+            }
+
+            void _cancel() {
+              FocusManager.instance.primaryFocus?.unfocus();
+              Navigator.of(context).pop();
+            }
+
+            void _submit() {
+              final name = _controller.text.trim();
+              if (name.isEmpty) {
+                setState(() => _error = 'Enter a project name.');
+                return;
+              }
+              FocusManager.instance.primaryFocus?.unfocus();
+              Navigator.of(context).pop(SaveProjectRequest(name: name));
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              return AlertDialog(
+                title: Text(
+                  widget.currentName == null ? 'Save project' : 'Save project as',
+                ),
+                content: TextField(
+                  controller: _controller,
+                  autofocus: true,
+                  maxLength: 80,
+                  textInputAction: TextInputAction.done,
+                  decoration: InputDecoration(
+                    labelText: 'Project name',
+                    border: const OutlineInputBorder(),
+                    errorText: _error,
+                  ),
+                  onSubmitted: (_) => _submit(),
+                ),
+                actions: [
+                  TextButton(onPressed: _cancel, child: const Text('Cancel')),
+                  FilledButton(onPressed: _submit, child: const Text('Save')),
+                ],
+              );
+            }
+          }
+
+          Future<String?> showLoadProjectDialog(
+            BuildContext context, {
+            required List<SavedProjectSummary> projects,
+            required Future<void> Function(String id) onDelete,
+          }) async {
+            if (projects.isEmpty) return null;
+            final mutableProjects = List<SavedProjectSummary>.from(projects);
+            return showDialog<String>(
+              context: context,
+              builder: (dialogContext) => StatefulBuilder(
+                builder: (context, setState) => AlertDialog(
+                  title: const Text('Load project'),
+                  contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                  content: SizedBox(
+                    width: 460,
+                    child: mutableProjects.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Text('No saved projects.'),
+                          )
+                        : ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: mutableProjects.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final project = mutableProjects[index];
+                              return ListTile(
+                                title: Text(
+                                  project.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(_formatModified(project.modifiedAt)),
+                                onTap: () => Navigator.pop(
+                                  dialogContext,
+                                  project.id,
+                                ),
+                                trailing: IconButton(
+                                  tooltip: 'Delete project',
+                                  icon: const Icon(Icons.delete_outline),
+                                  onPressed: () async {
+                                    final confirmed = await showDialog<bool>(
+                                      context: context,
+                                      builder: (confirmContext) => AlertDialog(
+                                        title: const Text('Delete project?'),
+                                        content: Text(
+                                          'Delete “${project.name}” from app data?',
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(
+                                              confirmContext,
+                                              false,
+                                            ),
+                                            child: const Text('Cancel'),
+                                          ),
+                                          FilledButton(
+                                            onPressed: () => Navigator.pop(
+                                              confirmContext,
+                                              true,
+                                            ),
+                                            child: const Text('Delete'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (confirmed != true || !context.mounted) {
+                                      return;
+                                    }
+                                    try {
+                                      await onDelete(project.id);
+                                    } catch (error) {
+                                      if (!context.mounted) return;
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Could not delete project: $error',
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    if (!context.mounted) return;
+                                    setState(
+                                      () => mutableProjects.removeWhere(
+                                        (item) => item.id == project.id,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          String _formatModified(DateTime value) {
+            String two(int number) => number.toString().padLeft(2, '0');
+            return 'Modified ${value.year}-${two(value.month)}-${two(value.day)} '
+                '${two(value.hour)}:${two(value.minute)}';
+          }
+          DART
+
+          cat > lib/widgets/layout_settings_dialog.dart <<'DART'
+          import 'package:flutter/material.dart';
+
+          import '../models/layout_models.dart';
+
+          Future<LayoutSettings?> showLayoutSettingsDialog(
+            BuildContext context, {
+            required LayoutSettings current,
+            required PaperPreset paper,
+          }) {
+            return showDialog<LayoutSettings>(
+              context: context,
+              builder: (_) => _LayoutSettingsDialog(
+                current: current,
+                paper: paper,
+              ),
+            );
+          }
+
+          class _LayoutSettingsDialog extends StatefulWidget {
+            const _LayoutSettingsDialog({required this.current, required this.paper});
+
+            final LayoutSettings current;
+            final PaperPreset paper;
+
+            @override
+            State<_LayoutSettingsDialog> createState() =>
+                _LayoutSettingsDialogState();
+          }
+
+          class _LayoutSettingsDialogState extends State<_LayoutSettingsDialog> {
+            late final TextEditingController _left;
+            late final TextEditingController _top;
+            late final TextEditingController _right;
+            late final TextEditingController _bottom;
+            late final TextEditingController _gap;
+            late final TextEditingController _tolerance;
+            late bool _snapEnabled;
+            late bool _hapticsEnabled;
+            late bool _showMargins;
+            late PdfImageQuality _pdfImageQuality;
+            String? _error;
+
+            @override
+            void initState() {
+              super.initState();
+              final current = widget.current;
+              _left = TextEditingController(
+                text: current.marginLeftMm.toStringAsFixed(1),
+              );
+              _top = TextEditingController(
+                text: current.marginTopMm.toStringAsFixed(1),
+              );
+              _right = TextEditingController(
+                text: current.marginRightMm.toStringAsFixed(1),
+              );
+              _bottom = TextEditingController(
+                text: current.marginBottomMm.toStringAsFixed(1),
+              );
+              _gap = TextEditingController(text: current.gapMm.toStringAsFixed(1));
+              _tolerance = TextEditingController(
+                text: current.snapToleranceMm.toStringAsFixed(1),
+              );
+              _snapEnabled = current.snapEnabled;
+              _hapticsEnabled = current.hapticsEnabled;
+              _showMargins = current.showMargins;
+              _pdfImageQuality = current.pdfImageQuality;
+            }
+
+            @override
+            void dispose() {
+              _left.dispose();
+              _top.dispose();
+              _right.dispose();
+              _bottom.dispose();
+              _gap.dispose();
+              _tolerance.dispose();
+              super.dispose();
+            }
+
+            double? _valueOf(TextEditingController controller) => double.tryParse(
+                  controller.text.trim().replaceAll(',', '.'),
+                );
+
+            void _cancel() {
+              FocusManager.instance.primaryFocus?.unfocus();
+              Navigator.of(context).pop();
+            }
+
+            void _submit() {
+              final l = _valueOf(_left);
+              final t = _valueOf(_top);
+              final r = _valueOf(_right);
+              final b = _valueOf(_bottom);
+              final g = _valueOf(_gap);
+              final tolerance = _valueOf(_tolerance);
+              if ([l, t, r, b, g, tolerance].any(
+                (value) =>
+                    value == null || !value.isFinite || value < 0,
+              )) {
+                setState(() => _error = 'Enter non-negative finite numbers.');
+                return;
+              }
+              if (l! + r! >= widget.paper.widthMm ||
+                  t! + b! >= widget.paper.heightMm) {
+                setState(
+                  () => _error = 'Margins must leave some usable paper area.',
+                );
+                return;
+              }
+              if (tolerance! > 20) {
+                setState(() => _error = 'Snap tolerance should be 20 mm or less.');
+                return;
+              }
+              FocusManager.instance.primaryFocus?.unfocus();
+              Navigator.of(context).pop(
+                LayoutSettings(
+                  marginLeftMm: l,
+                  marginTopMm: t,
+                  marginRightMm: r,
+                  marginBottomMm: b,
+                  gapMm: g!,
+                  snapToleranceMm: tolerance,
+                  snapEnabled: _snapEnabled,
+                  hapticsEnabled: _hapticsEnabled,
+                  showMargins: _showMargins,
+                  pdfImageQuality: _pdfImageQuality,
+                ),
+              );
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              return AlertDialog(
+                title: const Text('Layout settings'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Safe / printable margins',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(child: _MmField(controller: _left, label: 'Left')),
+                          const SizedBox(width: 8),
+                          Expanded(child: _MmField(controller: _right, label: 'Right')),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(child: _MmField(controller: _top, label: 'Top')),
+                          const SizedBox(width: 8),
+                          Expanded(child: _MmField(controller: _bottom, label: 'Bottom')),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      _MmField(
+                        controller: _gap,
+                        label: 'Gap between snapped / packed images',
+                      ),
+                      const SizedBox(height: 8),
+                      _MmField(controller: _tolerance, label: 'Snap tolerance'),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          for (final preset in const [0.0, 2.0, 5.0, 10.0])
+                            ActionChip(
+                              label: Text('${preset.toStringAsFixed(0)} mm gap'),
+                              onPressed: () => setState(
+                                () => _gap.text = preset.toStringAsFixed(1),
+                              ),
+                            ),
+                        ],
+                      ),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Magnetic snapping'),
+                        value: _snapEnabled,
+                        onChanged: (value) =>
+                            setState(() => _snapEnabled = value),
+                      ),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Haptic feedback on snap'),
+                        value: _hapticsEnabled,
+                        onChanged: _snapEnabled
+                            ? (value) => setState(() => _hapticsEnabled = value)
+                            : null,
+                      ),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Show margin box'),
+                        value: _showMargins,
+                        onChanged: (value) =>
+                            setState(() => _showMargins = value),
+                      ),
+                      const Divider(height: 28),
+                      Text(
+                        'PDF image quality',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<PdfImageQuality>(
+                        initialValue: _pdfImageQuality,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          for (final quality in PdfImageQuality.values)
+                            DropdownMenuItem(
+                              value: quality,
+                              child: Text(quality.label),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _pdfImageQuality = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _pdfImageQuality.description,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      if (_error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            _error!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(onPressed: _cancel, child: const Text('Cancel')),
+                  FilledButton(onPressed: _submit, child: const Text('Apply')),
+                ],
+              );
+            }
+          }
+
+          class _MmField extends StatelessWidget {
+            const _MmField({required this.controller, required this.label});
+
+            final TextEditingController controller;
+            final String label;
+
+            @override
+            Widget build(BuildContext context) {
+              return TextField(
+                controller: controller,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: label,
+                  suffixText: 'mm',
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              );
+            }
+          }
+          DART
+
+          # Add iOS photo-library permission whenever the platform bootstrap
+          # regenerates iOS. This was missing from the generated scaffold.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('tool/bootstrap_platforms.sh')
+          s = p.read_text()
+          anchor = '''  cp -R "$TMP_DIR/scaffold/$platform" "$platform"
+          done'''
+          replacement = '''  cp -R "$TMP_DIR/scaffold/$platform" "$platform"
+            if [[ "$platform" == "ios" ]]; then
+              python3 - "$platform/Runner/Info.plist" <<'PLISTPY'
+          import plistlib
+          import sys
+          from pathlib import Path
+          path = Path(sys.argv[1])
+          with path.open('rb') as fh:
+              data = plistlib.load(fh)
+          data['NSPhotoLibraryUsageDescription'] = (
+              'Choose images to place on printable paper layouts.'
+          )
+          with path.open('wb') as fh:
+              plistlib.dump(data, fh)
+          PLISTPY
+            fi
+          done'''
+          if anchor not in s:
+              raise SystemExit('bootstrap loop anchor not found')
+          p.write_text(s.replace(anchor, replacement, 1))
+          PY
+
+          cat > test/rotation_metadata_test.dart <<'DART'
+          import 'dart:typed_data';
+
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:image_pdf_scaler/models/layout_models.dart';
+
+          void main() {
+            test('90-degree home rotation is metadata-only and swaps geometry', () {
+              final full = Uint8List.fromList([1, 2, 3, 4]);
+              final preview = Uint8List.fromList([5, 6, 7]);
+              final item = PlacedImage(
+                id: 'a',
+                bytes: full,
+                previewBytes: preview,
+                xMm: 190,
+                yMm: 280,
+                widthMm: 40,
+                heightMm: 20,
+              );
+
+              final rotated = rotatePlacedImage90(
+                item: item,
+                paper: PaperPreset.a4,
+              );
+
+              expect(rotated, isNotNull);
+              expect(identical(rotated!.bytes, full), isTrue);
+              expect(identical(rotated.previewBytes, preview), isTrue);
+              expect(rotated.widthMm, 20);
+              expect(rotated.heightMm, 40);
+              expect(rotated.xMm, 190);
+              expect(rotated.yMm, 257);
+              expect(rotated.normalizedQuarterTurns, 1);
+              expect(rotated.sourceWidthMm, 40);
+              expect(rotated.sourceHeightMm, 20);
+            });
+
+            test('four metadata turns return to original orientation', () {
+              var item = PlacedImage(
+                id: 'a',
+                bytes: Uint8List(1),
+                xMm: 5,
+                yMm: 6,
+                widthMm: 40,
+                heightMm: 20,
+              );
+              for (var i = 0; i < 4; i++) {
+                item = rotatePlacedImage90(
+                  item: item,
+                  paper: PaperPreset.a4,
+                )!;
+              }
+              expect(item.widthMm, 40);
+              expect(item.heightMm, 20);
+              expect(item.normalizedQuarterTurns, 0);
+            });
+          }
+          DART
+
+          cat > test/paper_canvas_rotation_test.dart <<'DART'
+          import 'dart:typed_data';
+
+          import 'package:flutter/material.dart';
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:image/image.dart' as img;
+          import 'package:image_pdf_scaler/models/layout_models.dart';
+          import 'package:image_pdf_scaler/widgets/paper_canvas.dart';
+
+          void main() {
+            testWidgets('paper canvas applies stored quarter turns to preview', (
+              tester,
+            ) async {
+              final preview = Uint8List.fromList(
+                img.encodePng(
+                  img.Image(width: 4, height: 2)
+                    ..clear(img.ColorRgb8(20, 40, 60)),
+                ),
+              );
+              final item = PlacedImage(
+                id: 'r',
+                bytes: preview,
+                previewBytes: preview,
+                xMm: 10,
+                yMm: 10,
+                widthMm: 20,
+                heightMm: 40,
+                rotationQuarterTurns: 1,
+              );
+
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: Scaffold(
+                    body: SizedBox(
+                      width: 500,
+                      height: 700,
+                      child: PaperCanvas(
+                        paper: PaperPreset.a4,
+                        images: [item],
+                        selectedIds: const {},
+                        primarySelectedId: null,
+                        settings: const LayoutSettings(),
+                        snapGuides: const [],
+                        onSelect: (_) {},
+                        onMove: (_, __, ___) {},
+                        onMoveEnd: (_) {},
+                        onResize: (_, __, ___, ____) {},
+                        onLongPress: (_) {},
+                        onTapEmpty: () {},
+                      ),
+                    ),
+                  ),
+                ),
+              );
+
+              final rotatedBox = tester.widget<RotatedBox>(
+                find.descendant(
+                  of: find.byKey(const ValueKey<String>('image-r')),
+                  matching: find.byType(RotatedBox),
+                ),
+              );
+              expect(rotatedBox.quarterTurns, 1);
+            });
+          }
+          DART
+
+          cat > test/dialog_lifecycle_audit_test.dart <<'DART'
+          import 'dart:typed_data';
+
+          import 'package:flutter/material.dart';
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:image_pdf_scaler/models/layout_models.dart';
+          import 'package:image_pdf_scaler/widgets/exact_size_dialog.dart';
+          import 'package:image_pdf_scaler/widgets/layout_settings_dialog.dart';
+          import 'package:image_pdf_scaler/widgets/project_dialogs.dart';
+
+          void main() {
+            testWidgets('exact-size dialog owns controller through route teardown', (
+              tester,
+            ) async {
+              final item = PlacedImage(
+                id: 'a',
+                bytes: Uint8List(1),
+                xMm: 0,
+                yMm: 0,
+                widthMm: 40,
+                heightMm: 20,
+              );
+              ExactSize? result;
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: Builder(
+                    builder: (context) => TextButton(
+                      onPressed: () async {
+                        result = await showExactSizeDialog(context, item);
+                      },
+                      child: const Text('Open'),
+                    ),
+                  ),
+                ),
+              );
+              await tester.tap(find.text('Open'));
+              await tester.pumpAndSettle();
+              await tester.enterText(find.byType(TextField), '55');
+              await tester.tap(find.text('Apply'));
+              await tester.pumpAndSettle();
+              expect(result?.value, 55);
+              expect(tester.takeException(), isNull);
+            });
+
+            testWidgets('save-project dialog closes cleanly with keyboard focus', (
+              tester,
+            ) async {
+              SaveProjectRequest? result;
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: Builder(
+                    builder: (context) => TextButton(
+                      onPressed: () async {
+                        result = await showSaveProjectDialog(context);
+                      },
+                      child: const Text('Open'),
+                    ),
+                  ),
+                ),
+              );
+              await tester.tap(find.text('Open'));
+              await tester.pumpAndSettle();
+              await tester.enterText(find.byType(TextField), 'Audit project');
+              await tester.tap(find.text('Save'));
+              await tester.pumpAndSettle();
+              expect(result?.name, 'Audit project');
+              expect(tester.takeException(), isNull);
+            });
+
+            testWidgets('layout-settings dialog closes cleanly after apply', (
+              tester,
+            ) async {
+              LayoutSettings? result;
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: Builder(
+                    builder: (context) => TextButton(
+                      onPressed: () async {
+                        result = await showLayoutSettingsDialog(
+                          context,
+                          current: const LayoutSettings(),
+                          paper: PaperPreset.a4,
+                        );
+                      },
+                      child: const Text('Open'),
+                    ),
+                  ),
+                ),
+              );
+              await tester.tap(find.text('Open'));
+              await tester.pumpAndSettle();
+              await tester.tap(find.text('Apply'));
+              await tester.pumpAndSettle();
+              expect(result, isNotNull);
+              expect(tester.takeException(), isNull);
+            });
+          }
+          DART
+
+          cat > test/pdf_rotation_test.dart <<'DART'
+          import 'dart:typed_data';
+
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:image/image.dart' as img;
+          import 'package:image_pdf_scaler/models/layout_models.dart';
+          import 'package:image_pdf_scaler/services/pdf_export_service.dart';
+
+          void main() {
+            test('PDF export supports metadata quarter turns without raster rotate', () async {
+              final source = img.Image(width: 40, height: 20)
+                ..clear(img.ColorRgb8(180, 40, 20));
+              final bytes = Uint8List.fromList(img.encodePng(source));
+              final item = PlacedImage(
+                id: 'rotated',
+                bytes: bytes,
+                previewBytes: bytes,
+                xMm: 10,
+                yMm: 10,
+                widthMm: 20,
+                heightMm: 40,
+                rotationQuarterTurns: 1,
+              );
+
+              final pdf = await PdfExportService.build(
+                paper: PaperPreset.a4,
+                images: [item],
+                imageQuality: PdfImageQuality.original,
+              );
+
+              expect(pdf.length, greaterThan(500));
+              expect(item.normalizedQuarterTurns, 1);
+              expect(identical(item.bytes, bytes), isTrue);
+            });
+          }
+          DART
+
+          # Extend image-processing tests for the new deferred materialization
+          # path and for compact editor previews.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('test/image_processing_test.dart')
+          s = p.read_text()
+          anchor = '''  test('original PDF quality returns full-resolution bytes unchanged', () async {'''
+          tests = '''  test('opaque editor preview is compact JPEG while full pixels stay PNG', () async {
+            final source = img.Image(width: 1800, height: 900)
+              ..clear(img.ColorRgb8(30, 80, 140));
+            final prepared = await ImageProcessingService.prepareImport(
+              Uint8List.fromList(img.encodePng(source)),
+            );
+            expect(prepared, isNotNull);
+            expect(prepared!.previewBytes[0], 0xFF);
+            expect(prepared.previewBytes[1], 0xD8);
+            final full = img.decodeImage(prepared.fullBytes)!;
+            expect(full.width, 1800);
+            expect(full.height, 900);
+          });
+
+          test('deferred quarter turns materialize in one full-resolution pass', () async {
+            final source = img.Image(width: 120, height: 60)
+              ..clear(img.ColorRgb8(100, 120, 140));
+            final bytes = Uint8List.fromList(img.encodePng(source));
+            final result = await ImageProcessingService.materializeQuarterTurns(
+              fullBytes: bytes,
+              quarterTurns: 1,
+            );
+            expect(result, isNotNull);
+            expect(result!.pixelWidth, 60);
+            expect(result.pixelHeight, 120);
+          });
+
+          '''
+          if anchor not in s:
+              raise SystemExit('image processing test anchor not found')
+          p.write_text(s.replace(anchor, tests + anchor, 1))
+          PY
+
+          cat > AUDIT_2026-09.md <<'MD'
+          # ImagePdfScaler audit — September 2026
+
+          ## Fixed in this audit
+
+          - **90° editor rotation was doing full-resolution decode → rotate → PNG encode on every tap.** It is now an O(1) layout/metadata operation. The preview uses `RotatedBox` and PDF output uses a PDF transform, so quarter turns do not resample or recompress the source image.
+          - **Quarter-turn project compatibility.** Project format v2 stored bytes that were already physically rotated while also recording `rotationQuarterTurns`. Format v3 gives that field real transform semantics; v1/v2 loads intentionally ignore the old informational field to prevent double rotation.
+          - **Crop/fine-rotate interop.** A pending metadata quarter turn is materialized only when entering the destructive crop/fine-rotation editor, in one background-isolate pass.
+          - **Dialog lifecycle race.** Exact size, layout settings, and save-project dialogs had the same controller ownership pattern that previously crashed Fit copies. Controllers now live in the dialog State for the full route/focus teardown lifecycle.
+          - **Preview size/CPU.** Opaque editor previews are now JPEG quality 82 (still max 1024 px); full-resolution PDF bytes are unchanged. Import also avoids an unnecessary full-frame clone when EXIF orientation is already upright.
+          - **Save As safety.** Saving under a name that belongs to another project now creates a new project rather than silently overwriting the other project.
+          - **Project ID hardening.** IDs are validated before they are used as file paths.
+          - **Printing/share errors.** Plugin errors are surfaced as app messages instead of uncaught async exceptions.
+          - **iOS gallery permission.** Platform bootstrap now adds `NSPhotoLibraryUsageDescription` when iOS is generated.
+
+          ## Verified architecture
+
+          - Layout coordinates remain in millimetres end-to-end.
+          - PDF page size remains exact physical paper size with zero PDF margins.
+          - Full-resolution pixels are retained separately from editor previews.
+          - Duplicates share source byte buffers and PDF preparation is cached by source identity + print size.
+          - Snap geometry, safe margins, exact gap, multi-select alignment/distribution, auto-pack, calibration sheet, and named projects remain isolated from raster image operations.
+
+          ## Remaining medium-priority opportunities
+
+          1. **Project storage format:** images are still base64-embedded in JSON. A manifest + binary asset files would remove ~33% base64 overhead and reduce peak memory during save/load.
+          2. **Drag rebuild scope:** every drag tick still rebuilds `EditorPage`; moving canvas state into a notifier/state object would matter for very image-heavy sheets.
+          3. **Packing quality:** the current shelf packer is intentionally simple and can reject some layouts that a MaxRects/Skyline bin packer could fit.
+          4. **Compressed PDF throughput:** distinct source images are downsampled sequentially. Bounded parallel preparation (e.g. two workers) could improve export latency without an unbounded memory spike.
+          5. **Production signing:** generated Android release builds are suitable for testing, but Play Store production signing still requires the real keystore/CI secrets.
+          MD
+
+          dart format lib test
+          git diff --check
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Strict analyze
+        working-directory: app
+        run: flutter analyze
+
+      - name: Full test suite
+        working-directory: app
+        run: flutter test
+
+      - name: Dependency audit
+        working-directory: app
+        run: flutter pub outdated || true
+
+      - name: Generate current Android scaffold
+        shell: bash
+        run: |
+          rm -rf /tmp/imagepdfscaler-scaffold
+          flutter create /tmp/imagepdfscaler-scaffold \
+            --platforms=android \
+            --org com.persie \
+            --project-name image_pdf_scaler
+          rm -rf app/android
+          cp -R /tmp/imagepdfscaler-scaffold/android app/android
+
+      - name: Build release APK
+        working-directory: app
+        run: flutter build apk --release
+
+      - name: Commit and push audited branch
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add lib test tool pubspec.yaml AUDIT_2026-09.md
+          git commit -m 'Audit app and make 90 degree rotation instant'
+          git push origin HEAD:audit/performance-rotation
+
+      - name: Upload audited release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: imagepdfscaler-audited-release-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
