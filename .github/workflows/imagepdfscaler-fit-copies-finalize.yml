@@ -1,0 +1,103 @@
+name: ImagePdfScaler fit-copies finalize
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/imagepdfscaler-fit-copies-finalize.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Checkout tested fix branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/ImagePdfScaler
+          ref: fix/fit-copies-dialog-rotation-preview
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Clean remaining analyzer info
+        working-directory: app
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('lib/screens/editor_page.dart')
+          s = p.read_text()
+          old = '''    if (index < 0 || _images[index].sizeLocked || _selectedIds.length > 1)
+              return;'''
+          if old not in s:
+              old = '''    if (index < 0 || _images[index].sizeLocked || _selectedIds.length > 1)
+      return;'''
+          new = '''    if (index < 0 || _images[index].sizeLocked || _selectedIds.length > 1) {
+      return;
+    }'''
+          if old not in s:
+              raise SystemExit('Expected resize guard not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          dart format lib/screens/editor_page.dart
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Strict analyze
+        working-directory: app
+        run: flutter analyze
+
+      - name: Test
+        working-directory: app
+        run: flutter test
+
+      - name: Commit and push finalized branch
+        working-directory: app
+        shell: bash
+        run: |
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add lib/screens/editor_page.dart
+          git commit -m 'Clean resize guard after fit copies fix'
+          git push origin HEAD:fix/fit-copies-dialog-rotation-preview
+
+      - name: Generate current Android scaffold
+        shell: bash
+        run: |
+          rm -rf /tmp/imagepdfscaler-scaffold
+          flutter create /tmp/imagepdfscaler-scaffold \
+            --platforms=android \
+            --org com.persie \
+            --project-name image_pdf_scaler
+          rm -rf app/android
+          cp -R /tmp/imagepdfscaler-scaffold/android app/android
+
+      - name: Build debug APK
+        working-directory: app
+        run: flutter build apk --debug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: imagepdfscaler-fit-copies-final-debug-apk
+          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
