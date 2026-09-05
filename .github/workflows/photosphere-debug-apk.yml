@@ -1,0 +1,55 @@
+name: Photosphere debug APK
+
+on:
+  push:
+    branches: [photosphere-ci-v2]
+    paths:
+      - '.github/workflows/photosphere-debug-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/Photosphere-
+  APP_REF: audit/code-hardening-3
+
+jobs:
+  build-debug-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout private Photosphere
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-app
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Generate Android runner and build debug APK
+        working-directory: private-app
+        run: |
+          flutter create --platforms=android,ios --org com.persie --no-pub .
+          dart run tool/configure_platforms.dart
+          flutter pub get
+          flutter build apk --debug
+          test -s build/app/outputs/flutter-apk/app-debug.apk
+          sha256sum build/app/outputs/flutter-apk/app-debug.apk
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-debug-apk
+          path: private-app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
