@@ -1,0 +1,405 @@
+name: Photosphere ground target stability fix
+
+on:
+  push:
+    branches: [photosphere-ci-v2]
+    paths:
+      - '.github/workflows/photosphere-ground-target-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fix-test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout Photosphere source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Photosphere-
+          ref: audit/code-hardening-3
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          persist-credentials: true
+          path: private-app
+
+      - name: Fix pole guidance, pose stability, and target chatter
+        working-directory: private-app
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              return text.replace(old, new, 1)
+
+          plan_path = Path('lib/src/models/capture_plan.dart')
+          plan = plan_path.read_text()
+          old = '''  static double angularErrorDeg({
+            required double yawDeg,
+            required double pitchDeg,
+            required CaptureTarget target,
+          }) {
+            final dyaw = _shortestYawDelta(yawDeg, target.yawDeg);
+            final dpitch = pitchDeg - target.pitchDeg;
+            final pitchScale = math
+                .cos(target.pitchDeg * math.pi / 180)
+                .abs()
+                .clamp(0.18, 1.0);
+            return math.sqrt(dyaw * dyaw * pitchScale * pitchScale + dpitch * dpitch);
+          }
+'''
+          new = '''  static double angularErrorDeg({
+            required double yawDeg,
+            required double pitchDeg,
+            required CaptureTarget target,
+          }) {
+            // Great-circle distance is the physically correct optical-axis error.
+            // It also removes the yaw singularity at zenith/nadir: when the camera
+            // points vertically, every azimuth describes the same direction.
+            final currentPitch = pitchDeg * math.pi / 180;
+            final targetPitch = target.pitchDeg * math.pi / 180;
+            final yawDelta =
+                _shortestYawDelta(yawDeg, target.yawDeg) * math.pi / 180;
+            final cosine = (
+              math.sin(currentPitch) * math.sin(targetPitch) +
+              math.cos(currentPitch) * math.cos(targetPitch) * math.cos(yawDelta)
+            ).clamp(-1.0, 1.0).toDouble();
+            return math.acos(cosine) * 180 / math.pi;
+          }
+
+          /// Horizontal screen guidance in local tangent-angle degrees.
+          ///
+          /// The pole targets intentionally have no horizontal component because
+          /// yaw is undefined there. For ordinary rings, shrinking azimuth by the
+          /// local latitude scale prevents exaggerated sideways target motion.
+          static double guidanceYawDeltaDeg({
+            required double yawDeg,
+            required double pitchDeg,
+            required CaptureTarget target,
+          }) {
+            if (target.isPole) return 0;
+            final yawDelta = _shortestYawDelta(target.yawDeg, yawDeg);
+            final meanPitch = (pitchDeg + target.pitchDeg) * 0.5 * math.pi / 180;
+            return yawDelta * math.cos(meanPitch).abs();
+          }
+'''
+          plan = replace_once(plan, old, new, 'capture-plan angular error')
+          plan_path.write_text(plan)
+
+          tracker_path = Path('lib/src/services/motion_pose_tracker.dart')
+          tracker = tracker_path.read_text()
+          tracker = replace_once(
+              tracker,
+              '''  double _nativeAngularSpeed = double.infinity;\n  double? _lastNativeRawYaw;''',
+              '''  double _nativeAngularSpeed = double.infinity;\n  double? _filteredNativeYawDeg;\n  double? _filteredNativePitchDeg;\n  double? _lastNativeRawYaw;''',
+              'filtered native fields',
+          )
+          tracker = replace_once(
+              tracker,
+              '''    _nativeAngularSpeed = double.infinity;\n    _lastNativeRawYaw = null;\n    _lastNativeRawPitch = null;\n    _lastNativeAt = null;''',
+              '''    _nativeAngularSpeed = double.infinity;\n    _filteredNativeYawDeg = null;\n    _filteredNativePitchDeg = null;\n    _lastNativeRawYaw = null;\n    _lastNativeRawPitch = null;\n    _lastNativeAt = null;''',
+              'reset native filters',
+          )
+          old_native = '''  void _onNativeOrientation(NativeOrientationSample e) {
+            if (_disposed) return;
+            if (_alignNativeOnNext) {
+              _nativeYawOffset = _nativeAlignmentTargetYaw - e.yawDeg;
+              _nativePitchOffset = _nativeAlignmentTargetPitch - e.pitchDeg;
+              _alignNativeOnNext = false;
+              _nativeAngularSpeed = double.infinity;
+            } else {
+              final previousYaw = _lastNativeRawYaw;
+              final previousPitch = _lastNativeRawPitch;
+              final previousAt = _lastNativeAt;
+              if (previousYaw != null && previousPitch != null && previousAt != null) {
+                final dt = (e.timestamp - previousAt).inMicroseconds / 1000000.0;
+                if (dt > 0 && dt < 0.25) {
+                  final dyaw = _shortestDegreesDelta(previousYaw, e.yawDeg);
+                  final dpitch = e.pitchDeg - previousPitch;
+                  final speed = _compatHypot(dyaw, dpitch) * math.pi / 180 / dt;
+                  _nativeAngularSpeed = _nativeAngularSpeed.isFinite
+                      ? _nativeAngularSpeed * 0.55 + speed * 0.45
+                      : speed;
+                }
+              }
+            }
+
+            _lastNativeRawYaw = e.yawDeg;
+            _lastNativeRawPitch = e.pitchDeg;
+            _lastNativeAt = e.timestamp;
+            _nativeYawDeg = _normalizeDegrees(e.yawDeg + _nativeYawOffset);
+            _nativePitchDeg = (e.pitchDeg + _nativePitchOffset)
+                .clamp(-90.0, 90.0)
+                .toDouble();
+            _nativeActive = true;
+            _publish();
+          }
+'''
+          new_native = '''  void _onNativeOrientation(NativeOrientationSample e) {
+            if (_disposed) return;
+            final previousYaw = _lastNativeRawYaw;
+            final previousPitch = _lastNativeRawPitch;
+            final previousAt = _lastNativeAt;
+            final aligning = _alignNativeOnNext;
+
+            if (aligning) {
+              _nativeYawOffset = _nativeAlignmentTargetYaw - e.yawDeg;
+              _nativePitchOffset = _nativeAlignmentTargetPitch - e.pitchDeg;
+              _alignNativeOnNext = false;
+              _nativeAngularSpeed = double.infinity;
+            } else if (previousYaw != null &&
+                previousPitch != null &&
+                previousAt != null) {
+              final dt = (e.timestamp - previousAt).inMicroseconds / 1000000.0;
+              if (dt > 0 && dt < 0.25) {
+                // Measure optical-axis travel on the unit sphere. A raw yaw delta
+                // is meaningless near +/-90° pitch and used to report huge motion
+                // while a stationary phone was aimed at the ground/sky.
+                final displacementDeg = _sphericalAngleDeg(
+                  previousYaw,
+                  previousPitch,
+                  e.yawDeg,
+                  e.pitchDeg,
+                );
+                final speed = displacementDeg * math.pi / 180 / dt;
+                _nativeAngularSpeed = _nativeAngularSpeed.isFinite
+                    ? _nativeAngularSpeed * 0.55 + speed * 0.45
+                    : speed;
+              }
+            }
+
+            final alignedYaw = _normalizeDegrees(e.yawDeg + _nativeYawOffset);
+            final alignedPitch = (e.pitchDeg + _nativePitchOffset)
+                .clamp(-90.0, 90.0)
+                .toDouble();
+
+            if (aligning ||
+                _filteredNativeYawDeg == null ||
+                _filteredNativePitchDeg == null) {
+              _filteredNativeYawDeg = alignedYaw;
+              _filteredNativePitchDeg = alignedPitch;
+            } else {
+              final dt = previousAt == null
+                  ? 0.02
+                  : ((e.timestamp - previousAt).inMicroseconds / 1000000.0)
+                        .clamp(0.005, 0.10)
+                        .toDouble();
+              final motion = _angularSpeed.isFinite
+                  ? _angularSpeed
+                  : _nativeAngularSpeed;
+              final timeConstant = !motion.isFinite || motion > 0.50
+                  ? 0.045
+                  : motion > 0.12
+                  ? 0.09
+                  : 0.18;
+              final alpha = 1 - math.exp(-dt / timeConstant);
+              final observability = math
+                  .cos(alignedPitch * math.pi / 180)
+                  .abs()
+                  .clamp(0.0, 1.0)
+                  .toDouble();
+              // Fade yaw updates toward the poles, where optical-axis azimuth is
+              // mathematically underdetermined. Pitch remains fully responsive.
+              final yawAlpha = (alpha * (0.12 + 0.88 * observability * observability))
+                  .clamp(0.015, 1.0)
+                  .toDouble();
+              _filteredNativeYawDeg = _normalizeDegrees(
+                _filteredNativeYawDeg! +
+                    _shortestDegreesDelta(_filteredNativeYawDeg!, alignedYaw) *
+                        yawAlpha,
+              );
+              _filteredNativePitchDeg =
+                  _filteredNativePitchDeg! +
+                  (alignedPitch - _filteredNativePitchDeg!) * alpha;
+            }
+
+            _lastNativeRawYaw = e.yawDeg;
+            _lastNativeRawPitch = e.pitchDeg;
+            _lastNativeAt = e.timestamp;
+            _nativeYawDeg = _filteredNativeYawDeg!;
+            _nativePitchDeg = _filteredNativePitchDeg!;
+            _nativeActive = true;
+            _publish();
+          }
+'''
+          tracker = replace_once(tracker, old_native, new_native, 'native orientation handler')
+          tracker = replace_once(
+              tracker,
+              '''      angularSpeedRad: _nativeActive ? _nativeAngularSpeed : _angularSpeed,''',
+              '''      angularSpeedRad: _angularSpeed.isFinite\n          ? _angularSpeed\n          : (_nativeActive ? _nativeAngularSpeed : double.infinity),''',
+              'stable angular-speed source',
+          )
+          tracker = replace_once(
+              tracker,
+              '''  static double _shortestDegreesDelta(double from, double to) {''',
+              '''  static double _sphericalAngleDeg(\n    double yawA,\n    double pitchA,\n    double yawB,\n    double pitchB,\n  ) {\n    final a = pitchA * math.pi / 180;\n    final b = pitchB * math.pi / 180;\n    final yaw = _shortestDegreesDelta(yawA, yawB) * math.pi / 180;\n    final cosine = (\n      math.sin(a) * math.sin(b) +\n      math.cos(a) * math.cos(b) * math.cos(yaw)\n    ).clamp(-1.0, 1.0).toDouble();\n    return math.acos(cosine) * 180 / math.pi;\n  }\n\n  static double _shortestDegreesDelta(double from, double to) {''',
+              'spherical speed helper',
+          )
+          tracker_path.write_text(tracker)
+
+          screen_path = Path('lib/src/screens/capture_screen.dart')
+          screen = screen_path.read_text()
+          screen = replace_once(
+              screen,
+              '''    final target = _plan.nearestIncomplete(\n      yawDeg: sample.yawDeg,\n      pitchDeg: sample.pitchDeg,\n      completed: _completed,\n    );''',
+              '''    final target = _selectTarget(sample);''',
+              'target hysteresis selection',
+          )
+          screen = replace_once(
+              screen,
+              '''                      yawErrorDeg: target == null\n                          ? 0\n                          : _yawDelta(_sample.yawDeg, target.yawDeg),''',
+              '''                      yawErrorDeg: target == null\n                          ? 0\n                          : CapturePlan.guidanceYawDeltaDeg(\n                              yawDeg: _sample.yawDeg,\n                              pitchDeg: _sample.pitchDeg,\n                              target: target,\n                            ),''',
+              'screen tangent guidance',
+          )
+          old_tail = '''  static double _yawDelta(double current, double target) {
+            var delta = target - current;
+            while (delta > 180) {
+              delta -= 360;
+            }
+            while (delta < -180) {
+              delta += 360;
+            }
+            return delta;
+          }
+'''
+          new_tail = '''  CaptureTarget? _selectTarget(PoseSample sample) {
+            final nearest = _plan.nearestIncomplete(
+              yawDeg: sample.yawDeg,
+              pitchDeg: sample.pitchDeg,
+              completed: _completed,
+            );
+            final current = _target;
+            if (current == null ||
+                _completed.contains(current.id) ||
+                nearest == null ||
+                nearest.id == current.id) {
+              return nearest ?? current;
+            }
+
+            final currentError = CapturePlan.angularErrorDeg(
+              yawDeg: sample.yawDeg,
+              pitchDeg: sample.pitchDeg,
+              target: current,
+            );
+            final nearestError = CapturePlan.angularErrorDeg(
+              yawDeg: sample.yawDeg,
+              pitchDeg: sample.pitchDeg,
+              target: nearest,
+            );
+            final holdRadius = current.isPole ? 28.0 : 18.0;
+            final requiredImprovement = current.isPole ? 8.0 : 5.0;
+            if (currentError <= holdRadius ||
+                nearestError + requiredImprovement >= currentError) {
+              return current;
+            }
+
+            // Switching only after a clear improvement prevents the reticle from
+            // bouncing between adjacent grid points while the user is holding still.
+            _stableSince = null;
+            return nearest;
+          }
+'''
+          screen = replace_once(screen, old_tail, new_tail, 'target hysteresis helper')
+          screen_path.write_text(screen)
+
+          test_path = Path('test/capture_plan_test.dart')
+          tests = test_path.read_text()
+          marker = "\n}\n"
+          idx = tests.rfind(marker)
+          if idx < 0:
+              raise SystemExit('capture plan test closing brace not found')
+          addition = r'''
+
+  test('pole guidance is invariant to the yaw singularity', () {
+    const exactNadir = CaptureTarget(id: 100, yawDeg: 0, pitchDeg: -90);
+    for (final yaw in [0.0, 45.0, 90.0, 180.0, 315.0]) {
+      expect(
+        CapturePlan.angularErrorDeg(
+          yawDeg: yaw,
+          pitchDeg: -90,
+          target: exactNadir,
+        ),
+        closeTo(0, 0.0001),
+      );
+      expect(
+        CapturePlan.guidanceYawDeltaDeg(
+          yawDeg: yaw,
+          pitchDeg: -90,
+          target: exactNadir,
+        ),
+        0,
+      );
+    }
+  });
+
+  test('near-nadir plan target stays capturable across a 180 degree yaw jump', () {
+    const target = CaptureTarget(id: 101, yawDeg: 0, pitchDeg: -88);
+    final error = CapturePlan.angularErrorDeg(
+      yawDeg: 180,
+      pitchDeg: -88,
+      target: target,
+    );
+    expect(error, lessThan(5.5));
+    expect(
+      CapturePlan.guidanceYawDeltaDeg(
+        yawDeg: 180,
+        pitchDeg: -88,
+        target: target,
+      ),
+      0,
+    );
+  });
+'''
+          if 'pole guidance is invariant to the yaw singularity' not in tests:
+              tests = tests[:idx] + addition + tests[idx:]
+          test_path.write_text(tests)
+
+      - name: Install Flutter stable
+        shell: bash
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Format, analyze, and test guidance fix
+        working-directory: private-app
+        run: |
+          flutter pub get
+          dart format lib/src/models/capture_plan.dart lib/src/services/motion_pose_tracker.dart lib/src/screens/capture_screen.dart test/capture_plan_test.dart
+          flutter analyze
+          flutter test test/capture_plan_test.dart test/native_orientation_test.dart --reporter expanded
+
+      - name: Commit and push fix
+        working-directory: private-app
+        shell: bash
+        run: |
+          git config user.name 'photosphere-ci-fix'
+          git config user.email 'actions@users.noreply.github.com'
+          git add lib/src/models/capture_plan.dart lib/src/services/motion_pose_tracker.dart lib/src/screens/capture_screen.dart test/capture_plan_test.dart
+          if ! git diff --cached --quiet; then
+            git commit -m 'Stabilize ground and pole capture guidance'
+            git push origin HEAD:audit/code-hardening-3
+          fi
+          git rev-parse HEAD
+
+      - name: Generate Android runner and build debug APK
+        working-directory: private-app
+        run: |
+          flutter create --platforms=android,ios --org com.persie --no-pub .
+          dart run tool/configure_platforms.dart
+          flutter pub get
+          flutter build apk --debug
+          test -s build/app/outputs/flutter-apk/app-debug.apk
+          sha256sum build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Upload fixed debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-ground-target-fixed-debug-apk
+          path: private-app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
