@@ -38,10 +38,11 @@ public class OpenTflite5StemRuntimeTest {
         Context context = ApplicationProvider.getApplicationContext();
         MappedByteBuffer model = mapAsset(context, "5stems.tflite");
         Log.e(TAG, "modelBytes=" + model.capacity());
-        Assert.assertTrue("5stems.tflite unexpectedly small", model.capacity() > 1_000_000);
+        Assert.assertEquals("unexpected 5stems.tflite size", 196_639_392, model.capacity());
 
         Interpreter.Options options = new Interpreter.Options();
         options.setNumThreads(Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors())));
+        options.setUseXNNPACK(true);
 
         try (Interpreter interpreter = new Interpreter(model, options)) {
             Assert.assertEquals("Spleeter must expose one waveform input", 1, interpreter.getInputTensorCount());
@@ -50,6 +51,7 @@ public class OpenTflite5StemRuntimeTest {
             Tensor inputTensor = interpreter.getInputTensor(0);
             Log.e(TAG, "input name=" + inputTensor.name() + " type=" + inputTensor.dataType()
                     + " shape=" + java.util.Arrays.toString(inputTensor.shape()));
+            Assert.assertEquals("waveform", inputTensor.name());
             Assert.assertEquals(DataType.FLOAT32, inputTensor.dataType());
 
             for (int i = 0; i < interpreter.getOutputTensorCount(); i++) {
@@ -59,9 +61,8 @@ public class OpenTflite5StemRuntimeTest {
                 Assert.assertEquals(DataType.FLOAT32, t.dataType());
             }
 
-            // Keep the runtime smoke test short enough for hosted ARM CI while
-            // still long enough to exercise the Spleeter STFT/U-Net pipeline.
-            final int frames = 44100 * 2;
+            // Exactly mirror Stem's production Android chunk shape.
+            final int frames = 44100 * 8;
             final int channels = 2;
             interpreter.resizeInput(0, new int[]{frames, channels}, false);
             interpreter.allocateTensors();
@@ -91,7 +92,7 @@ public class OpenTflite5StemRuntimeTest {
             long startNs = System.nanoTime();
             interpreter.runForMultipleInputsOutputs(new Object[]{input}, outputs);
             long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
-            Log.e(TAG, "invokeMs=" + elapsedMs);
+            Log.e(TAG, "invokeMs=" + elapsedMs + " frames=" + frames);
 
             boolean anyDistinctStem = false;
             double firstEnergy = -1.0;
