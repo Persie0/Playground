@@ -12,8 +12,8 @@ permissions:
   contents: read
 
 jobs:
-  open-tflite-arm64:
-    runs-on: macos-15
+  open-tflite-runtime:
+    runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -23,10 +23,19 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - name: Download open 5-stem model and build payload
         run: |
           set -euxo pipefail
           mkdir -p stem-spleeter-audit/app/libs stem-spleeter-audit/app/src/main/assets .tools .model
+          # AAR is needed only so the shared audit test source compiles; this test
+          # never loads its ARM-only native library.
           curl -fL --retry 3 -o stem-spleeter-audit/app/libs/ttvspleeter.aar \
             https://raw.githubusercontent.com/FaceOnLive/Spleeter-Android-iOS/main/Android/app/libs/ttvspleeter.aar
           curl -fL --retry 3 -o .model/5stems.tar.gz \
@@ -36,20 +45,20 @@ jobs:
           MODEL="$(find .model -type f -name '5stems.tflite' -print -quit)"
           test -n "$MODEL"
           cp "$MODEL" stem-spleeter-audit/app/src/main/assets/5stems.tflite
-          echo "model=$MODEL bytes=$(stat -f%z "$MODEL")"
+          echo "model=$MODEL bytes=$(stat -c%s "$MODEL")"
           curl -fL --retry 3 -o .tools/gradle.zip \
             https://services.gradle.org/distributions/gradle-8.9-bin.zip
           unzip -q .tools/gradle.zip -d .tools
 
-      - name: Execute open 5-stem model on ARM64 Android
+      - name: Execute open 5-stem model on hardware-accelerated Android
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 31
           target: google_apis
-          arch: arm64-v8a
+          arch: x86_64
           profile: pixel_4
           cores: 4
-          ram-size: 6144M
+          ram-size: 4096M
           heap-size: 1536M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
@@ -69,7 +78,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stem-open-spleeter-arm64-runtime
+          name: stem-open-spleeter-runtime
           path: |
             open-spleeter-runtime-log.txt
             .model/contents.txt
