@@ -52,13 +52,9 @@ jobs:
           set -euxo pipefail
           mkdir -p /tmp/spleeter/aar
           unzip -q /tmp/spleeter/vendor/ttvspleeter.aar -d /tmp/spleeter/aar
-          echo '=== AAR files ==='
           find /tmp/spleeter/aar -maxdepth 4 -type f -printf '%P %s bytes\n' | sort | tee /tmp/spleeter/aar-files.txt
-          echo '=== SpleeterSDK public API ==='
           javap -classpath /tmp/spleeter/aar/classes.jar -public com.ttv.spleeter.SpleeterSDK | tee /tmp/spleeter/spleeter-api.txt
-          echo '=== SpleeterSDK constants + bytecode ==='
           javap -classpath /tmp/spleeter/aar/classes.jar -c -p -constants com.ttv.spleeter.SpleeterSDK | tee /tmp/spleeter/spleeter-bytecode.txt
-          echo '=== Native libraries ==='
           find /tmp/spleeter/aar -type f -name '*.so' -print | sort | tee /tmp/spleeter/native-libs.txt
           : > /tmp/spleeter/elf.txt
           : > /tmp/spleeter/native-strings.txt
@@ -134,15 +130,65 @@ jobs:
             echo 'Vendor AAR has no x86/x86_64 native library; Linux KVM emulator cannot execute this binary directly.'
           fi
 
-  probe-macos-arm-runner:
+  arm64-runtime-smoke:
     runs-on: macos-15
-    timeout-minutes: 5
+    timeout-minutes: 35
     steps:
-      - name: Report host architecture and Android emulator availability
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Prepare exact vendor runtime payload
         run: |
           set -euxo pipefail
-          uname -a
-          uname -m
-          sysctl -n machdep.cpu.brand_string || true
-          command -v emulator || true
-          ls "$ANDROID_HOME/emulator/emulator" 2>/dev/null || true
+          mkdir -p stem-spleeter-audit/app/libs stem-spleeter-audit/app/src/main/assets .tools
+          curl -fL --retry 3 -o stem-spleeter-audit/app/libs/ttvspleeter.aar \
+            https://raw.githubusercontent.com/FaceOnLive/Spleeter-Android-iOS/main/Android/app/libs/ttvspleeter.aar
+          for n in 1 2 3 4; do
+            curl -fL --retry 3 -o "stem-spleeter-audit/app/src/main/assets/data${n}.bin" \
+              "https://raw.githubusercontent.com/FaceOnLive/Spleeter-Android-iOS/main/Android/app/src/main/assets/data${n}.bin"
+          done
+          curl -fL --retry 3 -o stem-spleeter-audit/app/src/main/assets/vendor_input.wav \
+            https://raw.githubusercontent.com/FaceOnLive/Spleeter-Android-iOS/main/iOS/SpleeterDemo/assets/_input.wav
+          curl -fL --retry 3 -o .tools/gradle.zip \
+            https://services.gradle.org/distributions/gradle-8.9-bin.zip
+          unzip -q .tools/gradle.zip -d .tools
+          test "$(stat -f%z stem-spleeter-audit/app/libs/ttvspleeter.aar)" = 1013761
+          test "$(stat -f%z stem-spleeter-audit/app/src/main/assets/vendor_input.wav)" = 1919532
+
+      - name: Execute untouched Spleeter AAR on ARM64 Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31
+          target: google_apis
+          arch: arm64-v8a
+          profile: pixel_4
+          cores: 4
+          ram-size: 4096M
+          heap-size: 1024M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: |
+            set +e
+            cd stem-spleeter-audit
+            ../.tools/gradle-8.9/bin/gradle :app:connectedDebugAndroidTest --stacktrace --info
+            rc=$?
+            cd ..
+            adb logcat -d -v threadtime | grep -E 'SpleeterAudit|ttvspleeter|spleeter' > spleeter-runtime-log.txt || true
+            cat spleeter-runtime-log.txt || true
+            exit $rc
+
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stem-spleeter-arm64-runtime
+          path: |
+            spleeter-runtime-log.txt
+            stem-spleeter-audit/app/build/reports/androidTests/connected/
+            stem-spleeter-audit/app/build/outputs/androidTest-results/connected/
+          if-no-files-found: warn
+          retention-days: 14
