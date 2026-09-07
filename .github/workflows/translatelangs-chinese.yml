@@ -1,10 +1,10 @@
-name: translateLangs Chinese Translation
+name: Continue translateLangs Languages
 
 on:
   workflow_dispatch:
     inputs:
       branch:
-        description: Branch in Persie0/translateLangs to translate and update
+        description: Branch in Persie0/translateLangs to continue translating
         required: true
         default: main
         type: string
@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: translatelangs-chinese-${{ inputs.branch || 'main' }}
+  group: translatelangs-languages-${{ inputs.branch || 'main' }}
   cancel-in-progress: false
 
 env:
@@ -21,7 +21,7 @@ env:
   TRANSLATE_BRANCH: ${{ inputs.branch || 'main' }}
 
 jobs:
-  translate-chinese:
+  continue-translations:
     runs-on: ubuntu-latest
     timeout-minutes: 390
 
@@ -63,24 +63,29 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Run Chinese translation
+      - name: Continue all translations in languages/
         working-directory: translateLangs
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: python translate_notes.py --lang chinese
+        run: python translate_notes.py --lang all
 
-      - name: Commit and push all remaining changes
+      - name: Commit and push all remaining translation changes
         if: always()
-        working-directory: translateLangs
         shell: bash
         run: |
-          git add -A
-
-          if git diff --cached --quiet; then
-            echo "No remaining changes to commit."
+          if [[ ! -d translateLangs/.git ]]; then
+            echo "translateLangs checkout is unavailable; nothing to commit."
             exit 0
           fi
 
-          git commit -m "chore: auto-translate chinese vocabulary [skip ci]"
+          cd translateLangs
+          git add -A languages/
+
+          if git diff --cached --quiet; then
+            echo "No remaining translation changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore: continue vocabulary translations [skip ci]"
           git pull --rebase origin "${TRANSLATE_BRANCH}"
           git push origin "HEAD:${TRANSLATE_BRANCH}"
