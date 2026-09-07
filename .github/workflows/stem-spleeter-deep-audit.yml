@@ -47,23 +47,28 @@ jobs:
           test "$(stat -c%s /tmp/spleeter/vendor/data4.bin)" = 49559652
           sha256sum /tmp/spleeter/vendor/* | tee /tmp/spleeter/vendor.sha256
 
-      - name: Inspect AAR contents and SDK API
+      - name: Inspect AAR contents, constants, bytecode and native strings
         run: |
           set -euxo pipefail
           mkdir -p /tmp/spleeter/aar
           unzip -q /tmp/spleeter/vendor/ttvspleeter.aar -d /tmp/spleeter/aar
           echo '=== AAR files ==='
           find /tmp/spleeter/aar -maxdepth 4 -type f -printf '%P %s bytes\n' | sort | tee /tmp/spleeter/aar-files.txt
-          echo '=== SpleeterSDK API ==='
+          echo '=== SpleeterSDK public API ==='
           javap -classpath /tmp/spleeter/aar/classes.jar -public com.ttv.spleeter.SpleeterSDK | tee /tmp/spleeter/spleeter-api.txt
+          echo '=== SpleeterSDK constants + bytecode ==='
+          javap -classpath /tmp/spleeter/aar/classes.jar -c -p -constants com.ttv.spleeter.SpleeterSDK | tee /tmp/spleeter/spleeter-bytecode.txt
           echo '=== Native libraries ==='
           find /tmp/spleeter/aar -type f -name '*.so' -print | sort | tee /tmp/spleeter/native-libs.txt
-          if command -v readelf >/dev/null; then
-            while IFS= read -r so; do
-              echo "--- $so"
-              readelf -h "$so" | grep -E 'Class:|Machine:' || true
-            done < /tmp/spleeter/native-libs.txt | tee /tmp/spleeter/elf.txt
-          fi
+          : > /tmp/spleeter/elf.txt
+          : > /tmp/spleeter/native-strings.txt
+          while IFS= read -r so; do
+            echo "--- $so" | tee -a /tmp/spleeter/elf.txt /tmp/spleeter/native-strings.txt
+            readelf -h "$so" | grep -E 'Class:|Machine:' | tee -a /tmp/spleeter/elf.txt || true
+            readelf -d "$so" | grep NEEDED | tee -a /tmp/spleeter/elf.txt || true
+            strings -a "$so" | grep -Eai 'data[1-4]\.bin|asset|wav|wave|sample|44100|sdk_|init|proc|error|license|activ|stem|model' \
+              | sort -u | head -n 500 | tee -a /tmp/spleeter/native-strings.txt || true
+          done < /tmp/spleeter/native-libs.txt
 
       - name: Detect emulator-compatible ABI
         id: abi
@@ -110,8 +115,10 @@ jobs:
           path: |
             /tmp/spleeter/aar-files.txt
             /tmp/spleeter/spleeter-api.txt
+            /tmp/spleeter/spleeter-bytecode.txt
             /tmp/spleeter/native-libs.txt
             /tmp/spleeter/elf.txt
+            /tmp/spleeter/native-strings.txt
             /tmp/spleeter/vendor.sha256
           retention-days: 14
 
@@ -119,10 +126,23 @@ jobs:
     needs: inspect-vendor-sdk
     runs-on: ubuntu-latest
     steps:
-      - name: Report runtime-test capability
+      - name: Report Linux runtime-test capability
         run: |
           echo "x86_64=${{ needs.inspect-vendor-sdk.outputs.has_x86_64 }}"
           echo "x86=${{ needs.inspect-vendor-sdk.outputs.has_x86 }}"
           if [[ '${{ needs.inspect-vendor-sdk.outputs.has_x86_64 }}' != 'true' && '${{ needs.inspect-vendor-sdk.outputs.has_x86 }}' != 'true' ]]; then
-            echo 'Vendor AAR has no x86/x86_64 native library; GitHub-hosted KVM emulator cannot execute this binary directly.'
+            echo 'Vendor AAR has no x86/x86_64 native library; Linux KVM emulator cannot execute this binary directly.'
           fi
+
+  probe-macos-arm-runner:
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - name: Report host architecture and Android emulator availability
+        run: |
+          set -euxo pipefail
+          uname -a
+          uname -m
+          sysctl -n machdep.cpu.brand_string || true
+          command -v emulator || true
+          ls "$ANDROID_HOME/emulator/emulator" 2>/dev/null || true
