@@ -1,0 +1,74 @@
+name: Stem vendor Spleeter ARM init probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/stem-vendor-spleeter-arm-init.yml'
+      - 'stem-spleeter-audit/**'
+
+permissions:
+  contents: read
+
+jobs:
+  vendor-init-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Prepare exact vendor AAR and models
+        run: |
+          set -euxo pipefail
+          mkdir -p stem-spleeter-audit/app/libs stem-spleeter-audit/app/src/main/assets .tools
+          curl -fL --retry 3 -o stem-spleeter-audit/app/libs/ttvspleeter.aar \
+            https://raw.githubusercontent.com/FaceOnLive/Spleeter-Android-iOS/main/Android/app/libs/ttvspleeter.aar
+          for n in 1 2 3 4; do
+            curl -fL --retry 3 -o "stem-spleeter-audit/app/src/main/assets/data${n}.bin" \
+              "https://raw.githubusercontent.com/FaceOnLive/Spleeter-Android-iOS/main/Android/app/src/main/assets/data${n}.bin"
+          done
+          curl -fL --retry 3 -o .tools/gradle.zip https://services.gradle.org/distributions/gradle-8.9-bin.zip
+          unzip -q .tools/gradle.zip -d .tools
+
+      - name: Execute create() on software-emulated ARM64 Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 28
+          target: default
+          arch: arm64-v8a
+          profile: pixel_2
+          cores: 2
+          ram-size: 3072M
+          heap-size: 768M
+          disable-linux-hw-accel: true
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          emulator-boot-timeout: 900
+          script: |
+            set +e
+            cd stem-spleeter-audit
+            ../.tools/gradle-8.9/bin/gradle :app:connectedDebugAndroidTest \
+              -Pandroid.testInstrumentationRunnerArguments.class=com.persie.spleeteraudit.SpleeterInitOnlyTest \
+              --stacktrace --info
+            rc=$?
+            cd ..
+            adb logcat -d -v threadtime | grep -E 'SpleeterInitAudit|ttvspleeter|spleeter' > vendor-init-runtime-log.txt || true
+            cat vendor-init-runtime-log.txt || true
+            exit $rc
+
+      - name: Upload init evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stem-vendor-spleeter-arm-init
+          path: |
+            vendor-init-runtime-log.txt
+            stem-spleeter-audit/app/build/reports/androidTests/connected/
+            stem-spleeter-audit/app/build/outputs/androidTest-results/connected/
+          if-no-files-found: warn
+          retention-days: 14
