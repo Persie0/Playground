@@ -62,17 +62,8 @@ jobs:
           heap-size: 1536M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
-          script: |
-            set +e
-            cd stem-spleeter-audit
-            ../.tools/gradle-8.9/bin/gradle :app:connectedDebugAndroidTest \
-              -Pandroid.testInstrumentationRunnerArguments.class=com.persie.spleeteraudit.OpenTflite5StemRuntimeTest \
-              --stacktrace --info
-            rc=$?
-            cd ..
-            adb logcat -d -v threadtime | grep -E 'OpenSpleeterAudit|tflite|tensorflow' > open-spleeter-runtime-log.txt || true
-            cat open-spleeter-runtime-log.txt || true
-            exit $rc
+          script: >-
+            set +e; cd "$GITHUB_WORKSPACE/stem-spleeter-audit"; "$GITHUB_WORKSPACE/.tools/gradle-8.9/bin/gradle" :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.persie.spleeteraudit.OpenTflite5StemRuntimeTest --stacktrace --info; rc=$?; cd "$GITHUB_WORKSPACE"; adb logcat -d -v threadtime | grep -E 'OpenSpleeterAudit|tflite|tensorflow' > open-spleeter-runtime-log.txt || true; cat open-spleeter-runtime-log.txt || true; exit $rc
 
       - name: Upload runtime evidence
         if: always()
