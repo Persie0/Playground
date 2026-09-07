@@ -1,0 +1,128 @@
+name: Stem Spleeter deep audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/stem-spleeter-deep-audit.yml'
+      - 'stem-spleeter-audit/**'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-vendor-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      has_x86_64: ${{ steps.abi.outputs.has_x86_64 }}
+      has_x86: ${{ steps.abi.outputs.has_x86 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download exact vendor SDK and models
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/spleeter/vendor
+          curl -fL --retry 3 -o /tmp/spleeter/vendor/ttvspleeter.aar \
+            https://raw.githubusercontent.com/FaceOnLive/Spleeter-Android-iOS/main/Android/app/libs/ttvspleeter.aar
+          for n in 1 2 3 4; do
+            curl -fL --retry 3 -o "/tmp/spleeter/vendor/data${n}.bin" \
+              "https://raw.githubusercontent.com/FaceOnLive/Spleeter-Android-iOS/main/Android/app/src/main/assets/data${n}.bin"
+          done
+
+      - name: Verify immutable vendor sizes
+        run: |
+          set -euxo pipefail
+          test "$(stat -c%s /tmp/spleeter/vendor/ttvspleeter.aar)" = 1013761
+          test "$(stat -c%s /tmp/spleeter/vendor/data1.bin)" = 47185920
+          test "$(stat -c%s /tmp/spleeter/vendor/data2.bin)" = 57671680
+          test "$(stat -c%s /tmp/spleeter/vendor/data3.bin)" = 47185920
+          test "$(stat -c%s /tmp/spleeter/vendor/data4.bin)" = 49559652
+          sha256sum /tmp/spleeter/vendor/* | tee /tmp/spleeter/vendor.sha256
+
+      - name: Inspect AAR contents and SDK API
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/spleeter/aar
+          unzip -q /tmp/spleeter/vendor/ttvspleeter.aar -d /tmp/spleeter/aar
+          echo '=== AAR files ==='
+          find /tmp/spleeter/aar -maxdepth 4 -type f -printf '%P %s bytes\n' | sort | tee /tmp/spleeter/aar-files.txt
+          echo '=== SpleeterSDK API ==='
+          javap -classpath /tmp/spleeter/aar/classes.jar -public com.ttv.spleeter.SpleeterSDK | tee /tmp/spleeter/spleeter-api.txt
+          echo '=== Native libraries ==='
+          find /tmp/spleeter/aar -type f -name '*.so' -print | sort | tee /tmp/spleeter/native-libs.txt
+          if command -v readelf >/dev/null; then
+            while IFS= read -r so; do
+              echo "--- $so"
+              readelf -h "$so" | grep -E 'Class:|Machine:' || true
+            done < /tmp/spleeter/native-libs.txt | tee /tmp/spleeter/elf.txt
+          fi
+
+      - name: Detect emulator-compatible ABI
+        id: abi
+        run: |
+          if find /tmp/spleeter/aar -type f -path '*/x86_64/*.so' | grep -q .; then
+            echo 'has_x86_64=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'has_x86_64=false' >> "$GITHUB_OUTPUT"
+          fi
+          if find /tmp/spleeter/aar -type f -path '*/x86/*.so' | grep -q .; then
+            echo 'has_x86=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'has_x86=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate and validate Spleeter PCM fixtures
+        run: |
+          python3 - <<'PY'
+          import math, struct, wave, pathlib
+          root = pathlib.Path('/tmp/spleeter')
+          for seconds in (1, 5, 12):
+              path = root / f'sine-{seconds}s-44100-stereo-s16.wav'
+              with wave.open(str(path), 'wb') as w:
+                  w.setnchannels(2)
+                  w.setsampwidth(2)
+                  w.setframerate(44100)
+                  frames = bytearray()
+                  for i in range(44100 * seconds):
+                      v = int(0.2 * 32767 * math.sin(2 * math.pi * 440 * i / 44100))
+                      frames += struct.pack('<hh', v, v)
+                  w.writeframes(frames)
+              with wave.open(str(path), 'rb') as r:
+                  assert r.getnchannels() == 2
+                  assert r.getsampwidth() == 2
+                  assert r.getframerate() == 44100
+                  assert r.getnframes() == 44100 * seconds
+              print(path, path.stat().st_size)
+          PY
+
+      - name: Upload binary audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stem-spleeter-binary-audit
+          path: |
+            /tmp/spleeter/aar-files.txt
+            /tmp/spleeter/spleeter-api.txt
+            /tmp/spleeter/native-libs.txt
+            /tmp/spleeter/elf.txt
+            /tmp/spleeter/vendor.sha256
+          retention-days: 14
+
+  emulator-capability:
+    needs: inspect-vendor-sdk
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report runtime-test capability
+        run: |
+          echo "x86_64=${{ needs.inspect-vendor-sdk.outputs.has_x86_64 }}"
+          echo "x86=${{ needs.inspect-vendor-sdk.outputs.has_x86 }}"
+          if [[ '${{ needs.inspect-vendor-sdk.outputs.has_x86_64 }}' != 'true' && '${{ needs.inspect-vendor-sdk.outputs.has_x86 }}' != 'true' ]]; then
+            echo 'Vendor AAR has no x86/x86_64 native library; GitHub-hosted KVM emulator cannot execute this binary directly.'
+          fi
