@@ -1,0 +1,84 @@
+name: translateLangs Chinese Translation
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch/tag/SHA in Persie0/translateLangs
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: translatelangs-chinese-${{ inputs.ref || 'main' }}
+  cancel-in-progress: false
+
+env:
+  TRANSLATE_REPOSITORY: Persie0/translateLangs
+  TRANSLATE_REF: ${{ inputs.ref || 'main' }}
+
+jobs:
+  translate-chinese:
+    runs-on: ubuntu-latest
+    timeout-minutes: 390
+
+    steps:
+      - name: Validate private repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN or GH_TOKEN with Contents: write access to Persie0/translateLangs."
+            exit 2
+          fi
+
+      - name: Checkout translateLangs
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TRANSLATE_REPOSITORY }}
+          ref: ${{ env.TRANSLATE_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: translateLangs
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: translateLangs/translate_notes.py
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install openai google-genai
+
+      - name: Configure Git
+        working-directory: translateLangs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Run Chinese translation
+        working-directory: translateLangs
+        run: python translate_notes.py --lang chinese
+
+      - name: Commit and push all remaining changes
+        if: always()
+        working-directory: translateLangs
+        shell: bash
+        run: |
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No remaining changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore: auto-translate chinese vocabulary [skip ci]"
+          git pull --rebase origin "${TRANSLATE_REF}"
+          git push origin "HEAD:${TRANSLATE_REF}"
