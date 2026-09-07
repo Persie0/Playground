@@ -3,8 +3,8 @@ name: translateLangs Chinese Translation
 on:
   workflow_dispatch:
     inputs:
-      ref:
-        description: Branch/tag/SHA in Persie0/translateLangs
+      branch:
+        description: Branch in Persie0/translateLangs to translate and update
         required: true
         default: main
         type: string
@@ -13,12 +13,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: translatelangs-chinese-${{ inputs.ref || 'main' }}
+  group: translatelangs-chinese-${{ inputs.branch || 'main' }}
   cancel-in-progress: false
 
 env:
   TRANSLATE_REPOSITORY: Persie0/translateLangs
-  TRANSLATE_REF: ${{ inputs.ref || 'main' }}
+  TRANSLATE_BRANCH: ${{ inputs.branch || 'main' }}
 
 jobs:
   translate-chinese:
@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ env.TRANSLATE_REPOSITORY }}
-          ref: ${{ env.TRANSLATE_REF }}
+          ref: ${{ env.TRANSLATE_BRANCH }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: true
           fetch-depth: 0
@@ -65,6 +65,8 @@ jobs:
 
       - name: Run Chinese translation
         working-directory: translateLangs
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: python translate_notes.py --lang chinese
 
       - name: Commit and push all remaining changes
@@ -80,5 +82,5 @@ jobs:
           fi
 
           git commit -m "chore: auto-translate chinese vocabulary [skip ci]"
-          git pull --rebase origin "${TRANSLATE_REF}"
-          git push origin "HEAD:${TRANSLATE_REF}"
+          git pull --rebase origin "${TRANSLATE_BRANCH}"
+          git push origin "HEAD:${TRANSLATE_BRANCH}"
