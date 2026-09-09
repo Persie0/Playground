@@ -10,7 +10,7 @@ on:
       ref:
         description: Branch/tag/SHA in Persie0/noise_remover
         required: true
-        default: fix/androidx-workmanager-room-r8-crash
+        default: optimize/agp94-r8-analyzer
         type: string
 
 permissions:
@@ -18,13 +18,12 @@ permissions:
 
 env:
   APP_REPOSITORY: Persie0/noise_remover
-  # Push runs verify the exact final fix commit; manual runs can override it.
-  APP_REF: ${{ inputs.ref || '378362324c51d3ddc74abfa134cbc11708d3b7c4' }}
+  APP_REF: ${{ inputs.ref || 'optimize/agp94-r8-analyzer' }}
 
 jobs:
   release-verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
 
@@ -58,19 +57,20 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
-      - name: Setup exact project Gradle
+      - name: Setup AGP 9.4 compatible Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.3.1'
+          gradle-version: '9.6.0'
 
       - name: Install dependencies and Android components
         working-directory: private-app
         run: |
+          flutter --version
           flutter pub get
           printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_SDK_ROOT" > android/local.properties
           yes | sdkmanager "ndk;29.0.14206865" >/dev/null
 
-      - name: Supply CI gradlew shim for omitted wrapper files
+      - name: Supply CI gradlew shim
         run: |
           cat > private-app/android/gradlew <<'EOF'
           #!/usr/bin/env bash
@@ -99,26 +99,78 @@ jobs:
             'storeFile=ci-release.jks' \
             > android/key.properties
 
-      - name: Verify fixed WorkManager and Room resolution
+      - name: Verify Android toolchain and release dependency graph
         working-directory: private-app/android
         run: |
           set -o pipefail
-          ./gradlew --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency work-runtime | tee ../../work-runtime-fixed.txt
-          ./gradlew --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency room-runtime | tee ../../room-runtime-fixed.txt
-          grep -q 'androidx.work:work-runtime-ktx:2.11.2' ../../work-runtime-fixed.txt
-          grep -q 'androidx.work:work-runtime:2.11.2' ../../work-runtime-fixed.txt
+          ./gradlew --no-daemon :app:dependencies --configuration releaseRuntimeClasspath | tee ../../release-dependencies.txt
+          ./gradlew --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency work-runtime | tee ../../work-runtime.txt
+          ./gradlew --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency room-runtime | tee ../../room-runtime.txt
+
+      - name: Run standalone R8 Configuration Analyzer
+        working-directory: private-app/android
+        run: |
+          ./gradlew --no-daemon :app:analyzeReleaseR8Config --stacktrace
+          REPORT="app/build/reports/r8/r8-config-analyzer-release.html"
+          test -s "$REPORT"
+          cp "$REPORT" ../../r8-config-analyzer-release.html
+
+      - name: Summarize R8 analyzer report
+        working-directory: private-app
+        run: |
           python3 - <<'PY'
-          import re
+          import html, re
           from pathlib import Path
-          text = Path('../../room-runtime-fixed.txt').read_text()
-          versions = re.findall(r'androidx\.room:room-runtime:([0-9]+(?:\.[0-9]+){1,2})', text)
-          if not versions:
-              raise SystemExit('Could not determine resolved room-runtime version')
-          def key(v): return tuple(map(int, v.split('.')))
-          resolved = max(versions, key=key)
-          print('Resolved Room runtime:', resolved)
-          if key(resolved) < (2, 7, 0):
-              raise SystemExit(f'Room {resolved} is vulnerable to the generated-constructor R8 issue')
+          p = Path('../r8-config-analyzer-release.html')
+          text = p.read_text(errors='ignore')
+          text = re.sub(r'<script\b[^>]*>.*?</script>', ' ', text, flags=re.S|re.I)
+          text = re.sub(r'<style\b[^>]*>.*?</style>', ' ', text, flags=re.S|re.I)
+          text = re.sub(r'<[^>]+>', '\n', text)
+          text = html.unescape(text)
+          lines = [' '.join(x.split()) for x in text.splitlines()]
+          lines = [x for x in lines if x]
+          keywords = ('score', 'keep', 'optimization', 'obfuscation', 'shrinking', 'prevent', 'rule')
+          selected = []
+          for line in lines:
+              if any(k in line.lower() for k in keywords):
+                  selected.append(line)
+          print('\n'.join(selected[:500]))
+          Path('../r8-analyzer-summary.txt').write_text('\n'.join(selected))
+          PY
+
+      - name: Scan dependency consumer rules for broad keeps
+        working-directory: private-app
+        run: |
+          python3 - <<'PY'
+          import re, zipfile
+          from pathlib import Path
+          cache = Path.home()/'.gradle/caches/modules-2/files-2.1'
+          out = []
+          broad = re.compile(r'^\s*-keep(?:,[^ ]+)?\s+(?:class|interface|enum)\s+([^\s{]+)')
+          for aar in cache.rglob('*.aar'):
+              try:
+                  with zipfile.ZipFile(aar) as z:
+                      for name in z.namelist():
+                          low = name.lower()
+                          if not any(k in low for k in ('proguard', 'consumer-rules', 'consumer_rules')):
+                              continue
+                          try:
+                              text = z.read(name).decode('utf-8', 'ignore')
+                          except Exception:
+                              continue
+                          for line in text.splitlines():
+                              m = broad.match(line)
+                              if not m:
+                                  continue
+                              target = m.group(1)
+                              if '**' in target or target in ('*', '**'):
+                                  out.append((str(aar), name, line.strip()))
+              except zipfile.BadZipFile:
+                  pass
+          out.sort(key=lambda x: (x[0], x[1], x[2]))
+          report = '\n'.join(' | '.join(x) for x in out)
+          print(report[:60000])
+          Path('../broad-consumer-keeps.txt').write_text(report)
           PY
 
       - name: Run Flutter tests
@@ -143,50 +195,41 @@ jobs:
           kotlin.compiler.execution.strategy=in-process
           EOF
 
-      - name: Build full R8 release APK
+      - name: Build optimized release bundle
         working-directory: private-app
         env:
           CARGO_BUILD_JOBS: '2'
           GRADLE_OPTS: '-Dorg.gradle.daemon=false -Dorg.gradle.vfs.watch=false'
-        run: flutter build apk --release --obfuscate --split-debug-info=build/debug-info
+        run: flutter build appbundle --release --obfuscate --split-debug-info=build/debug-info
 
-      - name: Verify Room consumer R8 constructor rule
+      - name: Extract exact R8 metadata
         working-directory: private-app
         run: |
           python3 - <<'PY'
-          import re
-          import zipfile
+          import json, zipfile
           from pathlib import Path
-
-          base = Path.home()/'.gradle/caches/modules-2/files-2.1/androidx.room'
-          roots = [base/'room-runtime', base/'room-runtime-android']
-          aars = [aar for root in roots if root.exists() for aar in root.rglob('*.aar')]
-          if not aars:
-              raise SystemExit('No Room runtime AAR found in Gradle cache')
-
-          rule = re.compile(r'-keep\s+class\s+\*\s+extends\s+androidx\.room\.RoomDatabase')
-          found = False
-          for aar in aars:
-              with zipfile.ZipFile(aar) as z:
-                  for name in z.namelist():
-                      lname = name.lower()
-                      if 'proguard' not in lname and 'consumer' not in lname:
-                          continue
-                      text = z.read(name).decode('utf-8', 'ignore')
-                      if rule.search(text):
-                          print(f'Found RoomDatabase consumer keep rule in {aar}:{name}')
-                          found = True
-          if not found:
-              raise SystemExit('Resolved Room runtime does not publish the RoomDatabase consumer keep rule')
+          aab = Path('build/app/outputs/bundle/release/app-release.aab')
+          with zipfile.ZipFile(aab) as z:
+              raw = z.read('BUNDLE-METADATA/com.android.tools/r8.json')
+          data = json.loads(raw)
+          Path('../r8-metrics.json').write_text(json.dumps(data, indent=2, sort_keys=True))
+          print(json.dumps(data, indent=2, sort_keys=True))
           PY
 
-      - name: Upload verified release and reports
+      - name: Upload R8 audit artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: noise-remover-r8-startup-fix-release
+          name: noise-remover-agp94-r8-audit
           path: |
-            private-app/build/app/outputs/flutter-apk/app-release.apk
-            work-runtime-fixed.txt
-            room-runtime-fixed.txt
-          if-no-files-found: error
+            private-app/build/app/outputs/bundle/release/app-release.aab
+            private-app/build/app/outputs/mapping/release/
+            release-dependencies.txt
+            work-runtime.txt
+            room-runtime.txt
+            r8-config-analyzer-release.html
+            r8-analyzer-summary.txt
+            broad-consumer-keeps.txt
+            r8-metrics.json
+          if-no-files-found: ignore
           retention-days: 7
