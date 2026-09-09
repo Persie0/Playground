@@ -1,0 +1,144 @@
+name: Noise Remover all supported formats E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Noise Remover branch, tag, or SHA to validate
+        required: true
+        default: master
+        type: string
+  schedule:
+    - cron: '17 3 * * 0'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-all-formats-e2e.yml'
+      - 'ci/noise_remover/all_formats_processing_check_main.dart'
+      - 'ci/noise_remover/generate_all_format_corpus.sh'
+      - 'ci/noise_remover/run_all_formats_processing_check.sh'
+
+permissions:
+  contents: read
+
+env:
+  APP_REF: ${{ inputs.ref || 'master' }}
+
+jobs:
+  android-release-all-formats:
+    name: Android release · real files · every advertised format
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout Playground harness
+        uses: actions/checkout@v5
+
+      - name: Checkout Noise Remover
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Install host FFmpeg fixture tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+
+      - name: Generate real corpus from advertised formats
+        run: |
+          chmod +x ci/noise_remover/generate_all_format_corpus.sh
+          ci/noise_remover/generate_all_format_corpus.sh app
+
+      - name: Inject all-format release harness
+        run: |
+          cp ci/noise_remover/all_formats_processing_check_main.dart \
+            app/lib/all_formats_processing_check_main.dart
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('app/pubspec.yaml')
+          text = path.read_text()
+          asset = '    - assets/ci_formats/\n'
+          if asset not in text:
+              marker = '  assets:\n'
+              if marker not in text:
+                  raise SystemExit('pubspec flutter assets section not found')
+              text = text.replace(marker, marker + asset, 1)
+          path.write_text(text)
+          PY
+
+      - name: Prepare signed R8 release build
+        run: |
+          printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_SDK_ROOT" > app/android/local.properties
+          yes | sdkmanager "ndk;29.0.14206865" >/dev/null || true
+          printf '#!/usr/bin/env bash\nset -e\nexec gradle "$@"\n' > app/android/gradlew
+          chmod +x app/android/gradlew
+          keytool -genkeypair -v \
+            -keystore app/android/app/ci-release.jks \
+            -storepass android -keypass android -alias ci \
+            -keyalg RSA -keysize 2048 -validity 3650 \
+            -dname 'CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US'
+          printf '%s\n' \
+            'storePassword=android' \
+            'keyPassword=android' \
+            'keyAlias=ci' \
+            'storeFile=ci-release.jks' > app/android/key.properties
+          cd app
+          flutter pub get
+          dart format lib/all_formats_processing_check_main.dart
+          flutter analyze lib/all_formats_processing_check_main.dart --no-fatal-infos
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | \
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
+      - name: Process and validate every real input format
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
+          script: |
+            chmod +x ci/noise_remover/run_all_formats_processing_check.sh
+            ci/noise_remover/run_all_formats_processing_check.sh
+
+      - name: Upload format-check diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noise-remover-all-formats-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            noise-remover-all-formats-log.txt
+            app/assets/ci_formats/manifest.json
