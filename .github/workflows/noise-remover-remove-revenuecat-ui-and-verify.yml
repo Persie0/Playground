@@ -50,6 +50,8 @@ jobs:
           channel: stable
           cache: true
 
+      - uses: dtolnay/rust-toolchain@1.89.0
+
       - uses: android-actions/setup-android@v3
 
       - name: Setup AGP 9.4 compatible Gradle
@@ -63,80 +65,72 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
-
           p = Path('lib/services/subscription_service.dart')
           text = p.read_text()
           text = text.replace("import 'package:purchases_ui_flutter/purchases_ui_flutter.dart';\n", '')
           if "import 'package:url_launcher/url_launcher.dart';" not in text:
-              text = text.replace(
-                  "import 'package:shared_preferences/shared_preferences.dart';\n",
-                  "import 'package:shared_preferences/shared_preferences.dart';\nimport 'package:url_launcher/url_launcher.dart';\n",
-              )
-
-          replacement = r'''  /// Opens the platform subscription-management page without RevenueCat UI.
-  /// Prefer RevenueCat's management URL because it points at the correct
-  /// store/account for the current customer. Fall back to the platform's
-  /// subscription page when RevenueCat does not provide one.
-  Future<void> showCustomerCenter() async {
-    try {
-      await ensureRevenueCatConfigured();
-      final customerInfo = await Purchases.getCustomerInfo().timeout(
-        const Duration(seconds: 20),
-      );
-      final managementUrl = customerInfo.managementURL?.trim();
-
-      final Uri uri;
-      if (managementUrl != null && managementUrl.isNotEmpty) {
-        uri = Uri.parse(managementUrl);
-      } else if (Platform.isAndroid) {
-        uri = Uri.parse('https://play.google.com/store/account/subscriptions');
-      } else if (Platform.isIOS) {
-        uri = Uri.parse('https://apps.apple.com/account/subscriptions');
-      } else {
-        throw UnsupportedError(
-          'Subscription management is not available on this platform.',
-        );
-      }
-
-      final launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      ).timeout(const Duration(seconds: 15));
-      if (!launched) {
-        throw StateError('Could not open subscription management.');
-      }
-    } catch (e, stackTrace) {
-      debugPrint('Error showing subscription management: $e');
-      if (e is! TimeoutException &&
-          (e is! PlatformException || !shouldIgnoreError(e))) {
-        Sentry.captureException(e, stackTrace: stackTrace);
-      }
-      rethrow;
-    }
-  }
-
-'''
-          pattern = re.compile(
-              r"  /// Show the Customer Center \(Manage Subscription\)\n"
-              r"  Future<void> showCustomerCenter\(\) async \{.*?\n  \}\n\n"
-              r"(?=  /// Restore purchases)",
-              re.S,
-          )
+              text = text.replace("import 'package:shared_preferences/shared_preferences.dart';\n", "import 'package:shared_preferences/shared_preferences.dart';\nimport 'package:url_launcher/url_launcher.dart';\n")
+          new_lines = [
+              "  /// Opens the platform subscription-management page without RevenueCat UI.",
+              "  /// Prefer RevenueCat's management URL for the current store/customer,",
+              "  /// falling back to the platform subscription page when unavailable.",
+              "  Future<void> showCustomerCenter() async {",
+              "    try {",
+              "      await ensureRevenueCatConfigured();",
+              "      final customerInfo = await Purchases.getCustomerInfo().timeout(",
+              "        const Duration(seconds: 20),",
+              "      );",
+              "      final managementUrl = customerInfo.managementURL?.trim();",
+              "",
+              "      final Uri uri;",
+              "      if (managementUrl != null && managementUrl.isNotEmpty) {",
+              "        uri = Uri.parse(managementUrl);",
+              "      } else if (Platform.isAndroid) {",
+              "        uri = Uri.parse('https://play.google.com/store/account/subscriptions');",
+              "      } else if (Platform.isIOS) {",
+              "        uri = Uri.parse('https://apps.apple.com/account/subscriptions');",
+              "      } else {",
+              "        throw UnsupportedError(",
+              "          'Subscription management is not available on this platform.',",
+              "        );",
+              "      }",
+              "",
+              "      final launched = await launchUrl(",
+              "        uri,",
+              "        mode: LaunchMode.externalApplication,",
+              "      ).timeout(const Duration(seconds: 15));",
+              "      if (!launched) {",
+              "        throw StateError('Could not open subscription management.');",
+              "      }",
+              "    } catch (e, stackTrace) {",
+              "      debugPrint('Error showing subscription management: $e');",
+              "      if (e is! TimeoutException &&",
+              "          (e is! PlatformException || !shouldIgnoreError(e))) {",
+              "        Sentry.captureException(e, stackTrace: stackTrace);",
+              "      }",
+              "      rethrow;",
+              "    }",
+              "  }",
+              "",
+          ]
+          replacement = "\n".join(new_lines) + "\n"
+          pattern = re.compile(r"  /// Show the Customer Center \(Manage Subscription\)\n  Future<void> showCustomerCenter\(\) async \{.*?\n  \}\n\n(?=  /// Restore purchases)", re.S)
           text, count = pattern.subn(replacement, text, count=1)
-          if count != 1:
-              raise SystemExit(f'Expected to replace one showCustomerCenter implementation, replaced {count}')
+          if count == 0 and 'Opens the platform subscription-management page without RevenueCat UI.' not in text:
+              raise SystemExit('showCustomerCenter implementation not found')
           p.write_text(text)
           PY
-
           flutter pub remove purchases_ui_flutter
           dart format lib/services/subscription_service.dart
-          ! grep -R "purchases_ui_flutter\|RevenueCatUI" -n lib pubspec.yaml pubspec.lock
+          if grep -R -E "purchases_ui_flutter|RevenueCatUI" -n lib pubspec.yaml pubspec.lock; then
+            echo "::error::RevenueCat UI references remain"
+            exit 1
+          fi
 
       - name: Commit RevenueCat UI removal to app branch
         working-directory: private-app
         run: |
           set -euxo pipefail
-          git status --short
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add lib/services/subscription_service.dart pubspec.yaml pubspec.lock
@@ -148,7 +142,7 @@ jobs:
           fi
           echo "APP_COMMIT=$(git rev-parse HEAD)" | tee ../app-commit.txt >> "$GITHUB_ENV"
 
-      - name: Install dependencies and Android components
+      - name: Install Android components
         working-directory: private-app
         run: |
           flutter --version
@@ -169,21 +163,8 @@ jobs:
       - name: Create disposable release keystore
         working-directory: private-app
         run: |
-          keytool -genkeypair -v \
-            -keystore android/app/ci-release.jks \
-            -storepass android \
-            -keypass android \
-            -alias ci \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 3650 \
-            -dname "CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US"
-          printf '%s\n' \
-            'storePassword=android' \
-            'keyPassword=android' \
-            'keyAlias=ci' \
-            'storeFile=ci-release.jks' \
-            > android/key.properties
+          keytool -genkeypair -v -keystore android/app/ci-release.jks -storepass android -keypass android -alias ci -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US"
+          printf '%s\n' 'storePassword=android' 'keyPassword=android' 'keyAlias=ci' 'storeFile=ci-release.jks' > android/key.properties
 
       - name: Rust tests
         working-directory: private-app/rust
@@ -201,10 +182,10 @@ jobs:
         working-directory: private-app
         run: |
           touch .env
-          grep -q '^SKIP_TESTERS:' .env && sed -i 's/^SKIP_TESTERS:.*/SKIP_TESTERS:true/' .env || echo 'SKIP_TESTERS:true' >> .env
+          if grep -q '^SKIP_TESTERS:' .env; then sed -i 's/^SKIP_TESTERS:.*/SKIP_TESTERS:true/' .env; else echo 'SKIP_TESTERS:true' >> .env; fi
           flutter test
 
-      - name: Verify release dependency no longer includes RevenueCat UI
+      - name: Verify RevenueCat UI absent from release graph
         working-directory: private-app/android
         run: |
           set -o pipefail
@@ -228,18 +209,15 @@ jobs:
           python3 - <<'PY'
           import html, re, zipfile
           from pathlib import Path
-
           report = Path('../r8-config-analyzer-release-after.html')
           text = report.read_text(errors='ignore')
           plain = re.sub(r'<script\b[^>]*>.*?</script>', ' ', text, flags=re.S|re.I)
           plain = re.sub(r'<style\b[^>]*>.*?</style>', ' ', plain, flags=re.S|re.I)
           plain = html.unescape(re.sub(r'<[^>]+>', '\n', plain))
           lines = [' '.join(x.split()) for x in plain.splitlines() if x.strip()]
-          selected = [x for x in lines if any(k in x.lower() for k in (
-              'score', 'keep', 'optimization', 'obfuscation', 'shrinking', 'prevent', 'rule', 'revenuecat'))]
+          selected = [x for x in lines if any(k in x.lower() for k in ('score', 'keep', 'optimization', 'obfuscation', 'shrinking', 'prevent', 'rule', 'revenuecat'))]
           Path('../r8-analyzer-summary-after.txt').write_text('\n'.join(selected))
           print('\n'.join(selected[:600]))
-
           cache = Path.home()/'.gradle/caches/modules-2/files-2.1'
           hits = []
           for aar in cache.rglob('*.aar'):
@@ -256,20 +234,14 @@ jobs:
                   pass
           hits = sorted(set(hits))
           Path('../revenuecat-consumer-keeps-after.txt').write_text('\n'.join(hits))
-          print('\nRevenueCat consumer keep rules after UI removal:')
+          print('RevenueCat consumer keep rules after UI removal:')
           print('\n'.join(hits) if hits else '(none found)')
           PY
 
       - name: Configure release build resources
         working-directory: private-app
         run: |
-          sed -i \
-            -e '/^org\.gradle\.jvmargs=/d' \
-            -e '/^org\.gradle\.workers\.max=/d' \
-            -e '/^org\.gradle\.parallel=/d' \
-            -e '/^org\.gradle\.daemon=/d' \
-            -e '/^kotlin\.compiler\.execution\.strategy=/d' \
-            android/gradle.properties
+          sed -i -e '/^org\.gradle\.jvmargs=/d' -e '/^org\.gradle\.workers\.max=/d' -e '/^org\.gradle\.parallel=/d' -e '/^org\.gradle\.daemon=/d' -e '/^kotlin\.compiler\.execution\.strategy=/d' android/gradle.properties
           cat >> android/gradle.properties <<'EOF'
           org.gradle.jvmargs=-Xms2g -Xmx10g -XX:+UseParallelGC -Dfile.encoding=UTF-8
           org.gradle.workers.max=1
@@ -285,31 +257,17 @@ jobs:
           GRADLE_OPTS: '-Dorg.gradle.daemon=false -Dorg.gradle.vfs.watch=false'
         run: flutter build appbundle --release --obfuscate --split-debug-info=build/debug-info
 
-      - name: Extract exact R8 metadata and retained RevenueCat classes
+      - name: Extract exact R8 metadata
         working-directory: private-app
         run: |
           python3 - <<'PY'
-          import json, re, zipfile
+          import json, zipfile
           from pathlib import Path
-
           aab = Path('build/app/outputs/bundle/release/app-release.aab')
           with zipfile.ZipFile(aab) as z:
-              raw = z.read('BUNDLE-METADATA/com.android.tools/r8.json')
-          data = json.loads(raw)
+              data = json.loads(z.read('BUNDLE-METADATA/com.android.tools/r8.json'))
           Path('../r8-metrics-after.json').write_text(json.dumps(data, indent=2, sort_keys=True))
-          print('R8 metadata after RevenueCat UI removal:')
           print(json.dumps(data, indent=2, sort_keys=True))
-
-          seeds_candidates = list(Path('build').rglob('seeds.txt')) + list(Path('build').rglob('usage.txt'))
-          out = []
-          for p in seeds_candidates:
-              try:
-                  matches = [line for line in p.read_text(errors='ignore').splitlines() if 'com.revenuecat.' in line]
-              except OSError:
-                  continue
-              out.append(f'{p}: {len(matches)} RevenueCat lines')
-          Path('../revenuecat-retained-after.txt').write_text('\n'.join(out))
-          print('\n'.join(out) if out else 'No seeds/usage report found for RevenueCat count')
           PY
 
       - name: Upload verification artifacts
@@ -323,7 +281,6 @@ jobs:
             r8-config-analyzer-release-after.html
             r8-analyzer-summary-after.txt
             revenuecat-consumer-keeps-after.txt
-            revenuecat-retained-after.txt
             r8-metrics-after.json
             private-app/build/app/outputs/bundle/release/app-release.aab
             private-app/build/app/outputs/mapping/release/
