@@ -13,11 +13,12 @@ permissions:
 env:
   TARGET_REPOSITORY: Persie0/traffic-counting-light-main
   TARGET_BRANCH: feat/promote-yolo11n-384x288
+  BENCHMARK_RUN_ID: '35019716773'
 
 jobs:
   promote:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
 
     steps:
       - name: Checkout Playground
@@ -42,52 +43,44 @@ jobs:
           path: target
           lfs: false
 
+      - name: Download exact benchmark artifact
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: Persie0/Playground
+          run-id: ${{ env.BENCHMARK_RUN_ID }}
+          name: traffic-detector-384x288
+          path: benchmark-artifact
+
+      - name: Copy exact benchmark winner
+        run: |
+          rm -rf target/edge/models/yolo11n_384x288_ncnn_model
+          mkdir -p target/edge/models/yolo11n_384x288_ncnn_model
+          cp benchmark-artifact/models/yolo11n_384x288_ncnn_model/metadata.yaml \
+             benchmark-artifact/models/yolo11n_384x288_ncnn_model/model.ncnn.param \
+             benchmark-artifact/models/yolo11n_384x288_ncnn_model/model.ncnn.bin \
+             benchmark-artifact/models/yolo11n_384x288_ncnn_model/model_ncnn.py \
+             target/edge/models/yolo11n_384x288_ncnn_model/
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install exact exporter and verification dependencies
+      - name: Install verification dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --index-url https://download.pytorch.org/whl/cpu \
-            'torch==2.14.0' \
-            'torchvision==0.29.0'
           python -m pip install \
             'numpy>=2.2,<2.5' \
             'opencv-python>=4.12,<5' \
             'pyyaml>=6,<7' \
-            'pytest>=9,<10' \
-            'ncnn==1.0.20260526' \
-            'pnnx==20260526' \
-            'ultralytics==8.4.37'
+            'pytest>=9,<10'
 
-      - name: Export exact benchmarked YOLO11n model
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import shutil
-          from ultralytics import YOLO
-
-          exported = Path(YOLO('yolo11n.pt').export(
-              format='ncnn',
-              imgsz=(288, 384),
-              batch=1,
-              half=False,
-              device='cpu',
-          ))
-          target = Path('target/edge/models/yolo11n_384x288_ncnn_model')
-          if target.exists():
-              shutil.rmtree(target)
-          target.mkdir(parents=True)
-          for name in ('metadata.yaml', 'model.ncnn.param', 'model.ncnn.bin', 'model_ncnn.py'):
-              shutil.copy2(exported / name, target / name)
-          PY
-
-      - name: Verify model identity and Pi config tests
+      - name: Verify exact artifact and Pi config tests
         run: |
           echo 'bf9f082c9bfb7486a09810a0f6f34df7907321c0295de44366ee140d95c7631a  target/edge/models/yolo11n_384x288_ncnn_model/model.ncnn.bin' | sha256sum -c -
           echo '4839a5c5c99afa008258446115195d4b300a4786d7b4febe296b9241d05c0843  target/edge/models/yolo11n_384x288_ncnn_model/model.ncnn.param' | sha256sum -c -
+          grep -q 'imgsz: \[288, 384\]' target/edge/models/yolo11n_384x288_ncnn_model/metadata.yaml
           cd target/edge
           python -m pytest -q \
             tests/test_pi_detector_config.py \
