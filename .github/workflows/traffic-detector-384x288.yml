@@ -1,0 +1,150 @@
+name: Traffic detector 384x288 lab
+
+on:
+  workflow_dispatch:
+    inputs:
+      traffic_ref:
+        description: Branch/tag/SHA in Persie0/traffic-counting-light-main used for production detector code and baselines
+        required: true
+        default: main
+        type: string
+  push:
+    branches:
+      - traffic-detector-384x288
+    paths:
+      - 'traffic-counting-detector/**'
+      - '.github/workflows/traffic-detector-384x288.yml'
+  pull_request:
+    paths:
+      - 'traffic-counting-detector/**'
+      - '.github/workflows/traffic-detector-384x288.yml'
+
+permissions:
+  contents: read
+
+env:
+  TRAFFIC_REPOSITORY: Persie0/traffic-counting-light-main
+  TRAFFIC_REF: ${{ inputs.traffic_ref || 'main' }}
+
+jobs:
+  export-and-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout Playground
+        uses: actions/checkout@v4
+
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN (Contents: read on Persie0/traffic-counting-light-main)."
+            exit 2
+          fi
+
+      - name: Checkout private traffic project
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TRAFFIC_REPOSITORY }}
+          ref: ${{ env.TRAFFIC_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-traffic
+          lfs: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install CPU export and NCNN dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            'torch==2.14.0' \
+            'torchvision==0.29.0'
+          python -m pip install \
+            'numpy>=2.2,<2.5' \
+            'opencv-python>=4.12,<5' \
+            'pyyaml>=6,<7' \
+            'pytest>=9,<10' \
+            'easydict>=1.13,<2' \
+            'ncnn==1.0.20260526' \
+            'pnnx==20260526' \
+            'ultralytics==8.4.37'
+
+      - name: Test detector lab helpers
+        working-directory: traffic-counting-detector
+        env:
+          PYTHONPATH: .
+        run: python -m pytest -q test_export_ncnn_models.py test_accuracy_benchmark.py test_coco_transport.py
+
+      - name: Export YOLO11n 384x288 NCNN
+        working-directory: traffic-counting-detector
+        run: |
+          python export_ncnn_models.py \
+            --model yolo11n.pt \
+            --width 384 \
+            --height 288 \
+            --output-name yolo11n_384x288_ncnn_model \
+            --models-dir outputs/models
+
+      - name: Export YOLOv9t 384x288 NCNN
+        working-directory: traffic-counting-detector
+        run: |
+          python export_ncnn_models.py \
+            --model ../private-traffic/edge/models/yolov9t.pt \
+            --width 384 \
+            --height 288 \
+            --output-name yolov9t_384x288_ncnn_model \
+            --models-dir outputs/models
+
+      - name: Benchmark production detector latency
+        working-directory: traffic-counting-detector
+        run: |
+          python benchmark_detectors.py \
+            --private-repo ../private-traffic \
+            --generated-models outputs/models \
+            --output outputs/benchmark.json \
+            --threads 4 \
+            --warmup 10 \
+            --iterations 50
+
+      - name: Benchmark held-out COCO val accuracy
+        working-directory: traffic-counting-detector
+        run: |
+          python run_accuracy_benchmark.py \
+            --private-repo ../private-traffic \
+            --generated-models outputs/models \
+            --output-dir outputs/accuracy \
+            --num-images 180 \
+            --seed 20260915 \
+            --threads 4
+
+      - name: Print benchmark summaries
+        if: always()
+        working-directory: traffic-counting-detector
+        run: |
+          if [[ -f outputs/benchmark.json ]]; then
+            cat outputs/benchmark.json
+          fi
+          if [[ -f outputs/accuracy/accuracy_benchmark.md ]]; then
+            cat outputs/accuracy/accuracy_benchmark.md
+          fi
+
+      - name: Upload generated models and benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traffic-detector-384x288
+          path: |
+            traffic-counting-detector/outputs/models/yolo11n_384x288_ncnn_model
+            traffic-counting-detector/outputs/models/yolov9t_384x288_ncnn_model
+            traffic-counting-detector/outputs/benchmark.json
+            traffic-counting-detector/outputs/accuracy/accuracy_benchmark.json
+            traffic-counting-detector/outputs/accuracy/accuracy_benchmark.md
+          if-no-files-found: warn
+          retention-days: 7

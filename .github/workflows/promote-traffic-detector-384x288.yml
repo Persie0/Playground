@@ -1,0 +1,111 @@
+name: Promote traffic detector 384x288
+
+on:
+  push:
+    branches:
+      - traffic-detector-384x288
+    paths:
+      - '.github/workflows/promote-traffic-detector-384x288.yml'
+
+permissions:
+  contents: read
+
+env:
+  TARGET_REPOSITORY: Persie0/traffic-counting-light-main
+  TARGET_BRANCH: feat/promote-yolo11n-384x288
+  BENCHMARK_RUN_ID: '35019716773'
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Playground
+        uses: actions/checkout@v4
+
+      - name: Validate private repository token
+        env:
+          PUSH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PUSH_TOKEN" ]]; then
+            echo "::error::PRIVATE_REPO_TOKEN or GH_TOKEN is required."
+            exit 2
+          fi
+
+      - name: Checkout promotion branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TARGET_REPOSITORY }}
+          ref: ${{ env.TARGET_BRANCH }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          path: target
+          lfs: false
+
+      - name: Download exact benchmark artifact
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: Persie0/Playground
+          run-id: ${{ env.BENCHMARK_RUN_ID }}
+          name: traffic-detector-384x288
+          path: benchmark-artifact
+
+      - name: Copy exact benchmark winner
+        run: |
+          rm -rf target/edge/models/yolo11n_384x288_ncnn_model
+          mkdir -p target/edge/models/yolo11n_384x288_ncnn_model
+          cp benchmark-artifact/models/yolo11n_384x288_ncnn_model/metadata.yaml \
+             benchmark-artifact/models/yolo11n_384x288_ncnn_model/model.ncnn.param \
+             benchmark-artifact/models/yolo11n_384x288_ncnn_model/model.ncnn.bin \
+             benchmark-artifact/models/yolo11n_384x288_ncnn_model/model_ncnn.py \
+             target/edge/models/yolo11n_384x288_ncnn_model/
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            'easydict>=1.13,<2' \
+            'numpy>=2.2,<2.5' \
+            'opencv-python>=4.12,<5' \
+            'pyyaml>=6,<7' \
+            'pytest>=9,<10'
+
+      - name: Verify exact artifact and Pi config tests
+        run: |
+          echo 'bf9f082c9bfb7486a09810a0f6f34df7907321c0295de44366ee140d95c7631a  target/edge/models/yolo11n_384x288_ncnn_model/model.ncnn.bin' | sha256sum -c -
+          echo '4839a5c5c99afa008258446115195d4b300a4786d7b4febe296b9241d05c0843  target/edge/models/yolo11n_384x288_ncnn_model/model.ncnn.param' | sha256sum -c -
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          metadata = yaml.safe_load(Path('target/edge/models/yolo11n_384x288_ncnn_model/metadata.yaml').read_text())
+          assert metadata['imgsz'] == [288, 384], metadata['imgsz']
+          assert metadata['task'] == 'detect', metadata['task']
+          PY
+          cd target/edge
+          python -m pytest -q \
+            tests/test_pi_detector_config.py \
+            tests/test_fisheye_rectifier.py \
+            tests/test_image_loader_transform.py
+
+      - name: Commit model through Git LFS and push target branch
+        working-directory: target
+        run: |
+          git lfs install --local
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add edge/models/yolo11n_384x288_ncnn_model
+          git diff --cached --stat
+          git check-attr filter -- edge/models/yolo11n_384x288_ncnn_model/model.ncnn.bin
+          if git diff --cached --quiet; then
+            echo 'Model already committed; nothing to push.'
+            exit 0
+          fi
+          git commit -m 'model: add benchmarked YOLO11n 384x288 NCNN'
+          git push origin HEAD:${TARGET_BRANCH}
