@@ -32,15 +32,21 @@ jobs:
             exit 2
           fi
 
-      - name: Checkout final production branch with LFS
+      - name: Checkout final production branch
         uses: actions/checkout@v4
         with:
           repository: ${{ env.TARGET_REPOSITORY }}
           ref: ${{ env.TARGET_BRANCH }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
+          persist-credentials: true
           path: target
-          lfs: true
+          lfs: false
+
+      - name: Pull only promoted model LFS object
+        working-directory: target
+        run: |
+          git lfs install --local
+          git lfs pull --include='edge/models/yolo11n_384x288_ncnn_model/model.ncnn.bin' --exclude='*'
 
       - name: Set up Python
         uses: actions/setup-python@v5
