@@ -80,7 +80,13 @@ jobs:
         run: |
           echo 'bf9f082c9bfb7486a09810a0f6f34df7907321c0295de44366ee140d95c7631a  target/edge/models/yolo11n_384x288_ncnn_model/model.ncnn.bin' | sha256sum -c -
           echo '4839a5c5c99afa008258446115195d4b300a4786d7b4febe296b9241d05c0843  target/edge/models/yolo11n_384x288_ncnn_model/model.ncnn.param' | sha256sum -c -
-          grep -q 'imgsz: \[288, 384\]' target/edge/models/yolo11n_384x288_ncnn_model/metadata.yaml
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          metadata = yaml.safe_load(Path('target/edge/models/yolo11n_384x288_ncnn_model/metadata.yaml').read_text())
+          assert metadata['imgsz'] == [288, 384], metadata['imgsz']
+          assert metadata['task'] == 'detect', metadata['task']
+          PY
           cd target/edge
           python -m pytest -q \
             tests/test_pi_detector_config.py \
