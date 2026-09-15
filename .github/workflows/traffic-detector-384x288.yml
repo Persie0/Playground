@@ -29,7 +29,7 @@ env:
 jobs:
   export-and-benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout Playground
@@ -76,11 +76,11 @@ jobs:
             'pnnx==20260526' \
             'ultralytics==8.4.37'
 
-      - name: Test export helper
+      - name: Test detector lab helpers
         working-directory: traffic-counting-detector
         env:
           PYTHONPATH: .
-        run: python -m pytest -q test_export_ncnn_models.py
+        run: python -m pytest -q test_export_ncnn_models.py test_accuracy_benchmark.py
 
       - name: Export YOLO11n 384x288 NCNN
         working-directory: traffic-counting-detector
@@ -102,7 +102,7 @@ jobs:
             --output-name yolov9t_384x288_ncnn_model \
             --models-dir outputs/models
 
-      - name: Benchmark through production NCNN detector
+      - name: Benchmark production detector latency
         working-directory: traffic-counting-detector
         run: |
           python benchmark_detectors.py \
@@ -113,15 +113,29 @@ jobs:
             --warmup 10 \
             --iterations 50
 
-      - name: Print benchmark summary
+      - name: Benchmark held-out COCO val accuracy
+        working-directory: traffic-counting-detector
+        run: |
+          python accuracy_benchmark.py \
+            --private-repo ../private-traffic \
+            --generated-models outputs/models \
+            --output-dir outputs/accuracy \
+            --num-images 180 \
+            --seed 20260915 \
+            --threads 4
+
+      - name: Print benchmark summaries
         if: always()
         working-directory: traffic-counting-detector
         run: |
           if [[ -f outputs/benchmark.json ]]; then
             cat outputs/benchmark.json
           fi
+          if [[ -f outputs/accuracy/accuracy_benchmark.md ]]; then
+            cat outputs/accuracy/accuracy_benchmark.md
+          fi
 
-      - name: Upload generated models and benchmark
+      - name: Upload generated models and benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -130,5 +144,7 @@ jobs:
             traffic-counting-detector/outputs/models/yolo11n_384x288_ncnn_model
             traffic-counting-detector/outputs/models/yolov9t_384x288_ncnn_model
             traffic-counting-detector/outputs/benchmark.json
+            traffic-counting-detector/outputs/accuracy/accuracy_benchmark.json
+            traffic-counting-detector/outputs/accuracy/accuracy_benchmark.md
           if-no-files-found: warn
           retention-days: 7
