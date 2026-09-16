@@ -96,6 +96,10 @@ jobs:
           set -o pipefail
           ./gradlew --no-daemon :app:dependencies --configuration releaseRuntimeClasspath | tee ../../release-dependencies-appodeal43.txt
           grep -E 'appodeal|bidon|bidmachine|applovin|facebook|meta|mbridge|mintegral|vungle|bigo|fyber|dtexchange|ironsource|unity' ../../release-dependencies-appodeal43.txt | tee ../../ad-dependencies-appodeal43.txt || true
+          if grep -Eq 'org\.bidon:ironsource-adapter|com\.appodeal\.ads\.sdk\.adapters:ironsource|com\.unity3d\.ads-mediation:mediation-sdk' ../../release-dependencies-appodeal43.txt; then
+            echo '::error::IronSource/LevelPlay dependency still present after adapter removal'
+            exit 1
+          fi
 
       - name: Configure release build resources
         working-directory: private-app
