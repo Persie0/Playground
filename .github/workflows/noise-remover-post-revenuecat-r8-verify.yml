@@ -1,4 +1,4 @@
-name: Noise Remover post RevenueCat R8 verify
+name: Noise Remover Appodeal 4.3 release verify
 
 on:
   push:
@@ -57,8 +57,15 @@ jobs:
       - name: Prepare dependencies and Android SDK
         working-directory: private-app
         run: |
+          set -euxo pipefail
           flutter --version
           flutter pub get
+          grep -A7 '^  stack_appodeal_flutter:' pubspec.lock | tee ../appodeal-lock.txt
+          grep -q 'version: "4.3.0"' ../appodeal-lock.txt
+          grep -q 'stack_appodeal_flutter: \^4.3.0' pubspec.yaml
+          grep -q 'com.appodeal.ads.sdk:core:4.3.0' android/app/build.gradle.kts
+          grep -q "pod 'Appodeal', '4.3.0'" ios/Podfile
+          cp pubspec.lock ../pubspec.lock.generated
           printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_SDK_ROOT" > android/local.properties
           yes | sdkmanager "platforms;android-37" "ndk;29.0.14206865" >/dev/null || true
           cat > android/gradlew <<'EOF'
@@ -69,19 +76,6 @@ jobs:
           chmod +x android/gradlew
           keytool -genkeypair -v -keystore android/app/ci-release.jks -storepass android -keypass android -alias ci -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US"
           printf '%s\n' 'storePassword=android' 'keyPassword=android' 'keyAlias=ci' 'storeFile=ci-release.jks' > android/key.properties
-
-      - name: Confirm RevenueCat UI dependency is gone
-        working-directory: private-app
-        run: |
-          if grep -R -E "purchases_ui_flutter|RevenueCatUI" -n lib pubspec.yaml pubspec.lock; then
-            echo '::error::RevenueCat UI reference remains in source/dependencies'
-            exit 1
-          fi
-          echo "App commit: $(git rev-parse HEAD)"
-
-      - name: Dart formatting check
-        working-directory: private-app
-        run: dart format --output=none --set-exit-if-changed lib test
 
       - name: Flutter analyze
         working-directory: private-app
@@ -94,62 +88,12 @@ jobs:
           if grep -q '^SKIP_TESTERS:' .env; then sed -i 's/^SKIP_TESTERS:.*/SKIP_TESTERS:true/' .env; else echo 'SKIP_TESTERS:true' >> .env; fi
           flutter test
 
-      - name: Verify release dependency graph
+      - name: Capture Appodeal release dependency graph
         working-directory: private-app/android
         run: |
           set -o pipefail
-          ./gradlew --no-daemon :app:dependencies --configuration releaseRuntimeClasspath | tee ../../release-dependencies-after.txt
-          if grep -Ei 'purchases-ui|purchases_ui|revenuecat[^ ]*ui' ../../release-dependencies-after.txt; then
-            echo '::error::RevenueCat UI is still present in releaseRuntimeClasspath'
-            exit 1
-          fi
-
-      - name: Run R8 Configuration Analyzer
-        working-directory: private-app/android
-        run: |
-          ./gradlew --no-daemon :app:analyzeReleaseR8Config --stacktrace
-          find app/build -type f \( -iname '*r8*.html' -o -iname '*r8*.txt' -o -iname '*r8*.json' \) -print | tee ../../r8-report-files.txt
-          REPORT=$(find app/build -type f -iname '*r8*.html' | head -1)
-          test -n "$REPORT" && test -s "$REPORT"
-          cp "$REPORT" ../../r8-config-analyzer-release-after.html
-
-      - name: Summarize R8 analyzer and RevenueCat consumer rules
-        working-directory: private-app
-        run: |
-          python3 - <<'PY'
-          import html, re, zipfile
-          from pathlib import Path
-
-          report = Path('../r8-config-analyzer-release-after.html')
-          text = report.read_text(errors='ignore')
-          plain = re.sub(r'<script\b[^>]*>.*?</script>', ' ', text, flags=re.S|re.I)
-          plain = re.sub(r'<style\b[^>]*>.*?</style>', ' ', plain, flags=re.S|re.I)
-          plain = html.unescape(re.sub(r'<[^>]+>', '\n', plain))
-          lines = [' '.join(x.split()) for x in plain.splitlines() if x.strip()]
-          chosen = [x for x in lines if any(k in x.lower() for k in ('score','optimization','obfuscation','shrinking','keep','prevent','rule','revenuecat'))]
-          Path('../r8-analyzer-summary-after.txt').write_text('\n'.join(chosen))
-          print('\n'.join(chosen[:1000]))
-
-          cache = Path.home()/'.gradle/caches/modules-2/files-2.1'
-          hits = []
-          for aar in cache.rglob('*.aar'):
-              try:
-                  with zipfile.ZipFile(aar) as z:
-                      for name in z.namelist():
-                          low = name.lower()
-                          if not any(k in low for k in ('proguard','consumer-rules','consumer_rules')):
-                              continue
-                          data = z.read(name).decode('utf-8','ignore')
-                          for line in data.splitlines():
-                              if '-keep' in line.lower() and 'revenuecat' in line.lower():
-                                  hits.append(f'{aar} | {name} | {line.strip()}')
-              except (zipfile.BadZipFile, KeyError, OSError):
-                  pass
-          hits = sorted(set(hits))
-          Path('../revenuecat-consumer-keeps-after.txt').write_text('\n'.join(hits))
-          print('\nRevenueCat consumer keep rules:')
-          print('\n'.join(hits) if hits else '(none)')
-          PY
+          ./gradlew --no-daemon :app:dependencies --configuration releaseRuntimeClasspath | tee ../../release-dependencies-appodeal43.txt
+          grep -E 'appodeal|bidon|bidmachine|applovin|facebook|meta|mbridge|mintegral|vungle|bigo|fyber|dtexchange|ironsource|unity' ../../release-dependencies-appodeal43.txt | tee ../../ad-dependencies-appodeal43.txt || true
 
       - name: Configure release build resources
         working-directory: private-app
@@ -170,43 +114,55 @@ jobs:
           GRADLE_OPTS: '-Dorg.gradle.daemon=false -Dorg.gradle.vfs.watch=false'
         run: flutter build appbundle --release --obfuscate --split-debug-info=build/debug-info
 
-      - name: Extract final R8 metadata and RevenueCat retained class count
+      - name: Extract R8 and ad SDK metrics
         working-directory: private-app
         run: |
           python3 - <<'PY'
           import json, re, zipfile
           from pathlib import Path
+
           aab = Path('build/app/outputs/bundle/release/app-release.aab')
           with zipfile.ZipFile(aab) as z:
-              data = json.loads(z.read('BUNDLE-METADATA/com.android.tools/r8.json'))
-          Path('../r8-metrics-after.json').write_text(json.dumps(data, indent=2, sort_keys=True))
-          print('Final R8 metadata:')
-          print(json.dumps(data, indent=2, sort_keys=True))
+              r8 = json.loads(z.read('BUNDLE-METADATA/com.android.tools/r8.json'))
+              dex_entries = [(i.filename, i.file_size, i.compress_size) for i in z.infolist() if i.filename.endswith('.dex')]
+          result = {
+              'aab_bytes': aab.stat().st_size,
+              'dex_uncompressed_bytes': sum(x[1] for x in dex_entries),
+              'dex_compressed_bytes': sum(x[2] for x in dex_entries),
+              'dex_entries': dex_entries,
+              'r8': r8,
+          }
+          Path('../appodeal43-r8-metrics.json').write_text(json.dumps(result, indent=2, sort_keys=True))
+          print(json.dumps(result, indent=2, sort_keys=True))
 
-          mapping_candidates = list(Path('build').rglob('mapping.txt'))
-          stats=[]
-          for p in mapping_candidates:
-              lines=p.read_text(errors='ignore').splitlines()
-              rc=[x for x in lines if x.startswith('com.revenuecat.') and ' -> ' in x and x.endswith(':')]
-              ui=[x for x in rc if '.ui.' in x.lower() or '.ui' in x.lower()]
-              stats.append(f'{p}: RevenueCat mapped classes={len(rc)}, UI-like={len(ui)}')
-          Path('../revenuecat-mapping-count-after.txt').write_text('\n'.join(stats))
-          print('\n'.join(stats) if stats else 'No mapping.txt found')
+          mappings = list(Path('build').rglob('mapping.txt'))
+          prefixes = {
+              'appodeal':'com.appodeal.', 'bidmachine':'io.bidmachine.', 'bidon':'org.bidon.',
+              'applovin':'com.applovin.', 'meta':'com.facebook.', 'mintegral':'com.mbridge.',
+              'vungle':'com.vungle.', 'bigo':'com.bigossp.', 'ironsource':'com.ironsource.',
+              'unity':'com.unity3d.', 'fyber':'com.fyber.'
+          }
+          counts = {}
+          if mappings:
+              lines = mappings[0].read_text(errors='ignore').splitlines()
+              classes = [line.split(' -> ',1)[0] for line in lines if ' -> ' in line and line.endswith(':')]
+              for name,prefix in prefixes.items(): counts[name] = sum(c.startswith(prefix) for c in classes)
+          Path('../ad-mapped-class-counts.json').write_text(json.dumps(counts, indent=2, sort_keys=True))
+          print('Mapped retained ad classes:', json.dumps(counts, sort_keys=True))
           PY
 
       - name: Upload verification artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: noise-remover-post-revenuecat-r8-verify
+          name: noise-remover-appodeal43-r8-verify
           path: |
-            release-dependencies-after.txt
-            r8-report-files.txt
-            r8-config-analyzer-release-after.html
-            r8-analyzer-summary-after.txt
-            revenuecat-consumer-keeps-after.txt
-            r8-metrics-after.json
-            revenuecat-mapping-count-after.txt
+            appodeal-lock.txt
+            pubspec.lock.generated
+            release-dependencies-appodeal43.txt
+            ad-dependencies-appodeal43.txt
+            appodeal43-r8-metrics.json
+            ad-mapped-class-counts.json
             private-app/build/app/outputs/bundle/release/app-release.aab
             private-app/build/app/outputs/mapping/release/
           if-no-files-found: ignore
