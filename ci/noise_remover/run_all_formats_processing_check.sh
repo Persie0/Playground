@@ -28,17 +28,17 @@ LOG_FILE="../noise-remover-all-formats-log.txt"
 for _ in $(seq 1 3000); do
   adb -s "$DEVICE" logcat -d -v brief > "$LOG_FILE" || true
 
-  if grep -q 'FORMAT_CHECK_PASS' "$LOG_FILE"; then
-    grep -E 'FORMAT_CHECK_(CASE_(START|PASS)|SUMMARY|PASS|FAIL)|OUTPUT_FORMAT_CHECK_(START|PASS)|DPDF_FORMAT_CHECK_(START|PASS)' "$LOG_FILE" || true
-    echo 'Noise Remover all-format processing check passed.'
-    exit 0
-  fi
-
-  if grep -q 'FORMAT_CHECK_FAIL' "$LOG_FILE"; then
-    grep -E 'FORMAT_CHECK_(CASE_(START|PASS)|SUMMARY|PASS|FAIL)|OUTPUT_FORMAT_CHECK_(START|PASS)|DPDF_FORMAT_CHECK_(START|PASS)' "$LOG_FILE" || true
+  if grep -Eq '(^|[[:space:]])FORMAT_CHECK_FAIL:' "$LOG_FILE"; then
+    grep -E 'FORMAT_CHECK_(CASE_(START|PASS)|SUMMARY|PASS|FAIL)|OUTPUT_FORMAT_CHECK_(START|PASS)|DPDF_(MODEL_DOWNLOAD|FORMAT)_CHECK_(START|PASS)' "$LOG_FILE" || true
     echo 'Noise Remover all-format processing check failed.' >&2
     tail -n 350 "$LOG_FILE" >&2
     exit 1
+  fi
+
+  if grep -Eq '(^|[[:space:]])FORMAT_CHECK_PASS$' "$LOG_FILE"; then
+    grep -E 'FORMAT_CHECK_(CASE_(START|PASS)|SUMMARY|PASS|FAIL)|OUTPUT_FORMAT_CHECK_(START|PASS)|DPDF_(MODEL_DOWNLOAD|FORMAT)_CHECK_(START|PASS)' "$LOG_FILE" || true
+    echo 'Noise Remover all-format processing check passed.'
+    exit 0
   fi
 
   if grep -q 'FATAL EXCEPTION' "$LOG_FILE"; then

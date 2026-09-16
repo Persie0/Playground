@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_nnnoiseless/flutter_nnnoiseless.dart';
 import 'package:noise_remover/services/background_processing_task.dart';
+import 'package:noise_remover/services/model_download_service.dart';
 import 'package:noise_remover/services/settings_service.dart';
 import 'package:noise_remover/utils/ffmpeg_utils.dart';
 import 'package:path/path.dart' as path;
@@ -204,6 +205,16 @@ Future<void> _runOutputFormatMatrix({
 }
 
 Future<void> _runDpdfnetCrossChecks(Directory root) async {
+  const modelKey = 'dpdfnet2_48khz_hr';
+  print('DPDF_MODEL_DOWNLOAD_START:$modelKey');
+  await ModelDownloadService.instance
+      .downloadModel(modelKey)
+      .timeout(const Duration(minutes: 5));
+  if (!await ModelDownloadService.instance.isModelDownloaded(modelKey)) {
+    throw StateError('DPDF model download was not verified: $modelKey');
+  }
+  print('DPDF_MODEL_DOWNLOAD_PASS:$modelKey');
+
   for (final item in const [('audio', 'wav'), ('video', 'mp4')]) {
     final kind = item.$1;
     final ext = item.$2;
