@@ -1,0 +1,59 @@
+name: Noise Remover artifact validator unit test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-artifact-validator.yml'
+      - 'ci/noise_remover/ref_under_test.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  artifact-validator:
+    name: DPDF extensible WAV validator regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Playground
+        uses: actions/checkout@v5
+
+      - name: Resolve Noise Remover revision
+        id: app_ref
+        shell: bash
+        run: |
+          ref="$(tr -d '\r\n' < ci/noise_remover/ref_under_test.txt)"
+          case "$ref" in
+            *[!A-Za-z0-9._/@-]*)
+              echo "Invalid Noise Remover ref: $ref" >&2
+              exit 2
+              ;;
+          esac
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Noise Remover
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: ${{ steps.app_ref.outputs.ref }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Run artifact validator regression
+        run: |
+          cd app
+          flutter pub get
+          dart format --output=none --set-exit-if-changed \
+            lib/services/processing_artifact_service.dart \
+            test/services/processing_artifact_service_test.dart
+          flutter test test/services/processing_artifact_service_test.dart
