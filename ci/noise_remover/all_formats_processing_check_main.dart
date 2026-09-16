@@ -144,6 +144,17 @@ String _describeWavArtifact(WavArtifactInfo? info) {
   return 'rate=${info.sampleRate},channels=${info.channels},bits=${info.bitsPerSample},data=${info.dataBytes},duration=${info.durationSeconds.toStringAsFixed(6)}';
 }
 
+Future<String> _describeArtifactBytes(String filePath) async {
+  final file = File(filePath);
+  if (!await file.exists()) return 'exists=false';
+  final bytes = await file.readAsBytes();
+  final prefix = bytes
+      .take(64)
+      .map((value) => value.toRadixString(16).padLeft(2, '0'))
+      .join();
+  return 'exists=true,bytes=${bytes.length},prefix=$prefix';
+}
+
 /// Regression check for the exact DPDFNet → alignment → artifact-promotion
 /// boundary used by [runProcessingTask]. It exposes the emitted WAV details
 /// before the normal pipeline removes failed staging files.
@@ -172,18 +183,36 @@ Future<void> _runDpdfnetArtifactRegression(Directory root) async {
     expectedSampleRate: 48000,
   );
 
-  await DPDFNetEngine.processFileInIsolate(
+  final nativeResult = await DPDFNetEngine.processFileInIsolate(
     DPDFNetModel.dpdfnet2_48khzHr.packageAssetPath(),
     inputPath,
     stagedOutputPath,
     timeout: _caseTimeout,
   );
-  final rawInfo = await ProcessingArtifactService.inspectCompleteWav(
+  final rawInfoAtReturn = await ProcessingArtifactService.inspectCompleteWav(
     stagedOutputPath,
   );
-  print('DPDF_ARTIFACT_RAW:${_describeWavArtifact(rawInfo)}');
-  if (rawInfo == null) {
-    throw StateError('DPDFNet emitted an invalid raw WAV artifact');
+  final rawBytesAtReturn = await _describeArtifactBytes(stagedOutputPath);
+  print('DPDF_ARTIFACT_NATIVE_RETURN:$nativeResult');
+  print(
+    'DPDF_ARTIFACT_RAW_RETURN:${_describeWavArtifact(rawInfoAtReturn)}:$rawBytesAtReturn',
+  );
+
+  // A completed process call must already have installed a fully finalized WAV.
+  // Keep a second observation solely to distinguish a premature native return
+  // from a permanently malformed artifact.
+  await Future<void>.delayed(const Duration(seconds: 1));
+  final rawInfoAfterDelay = await ProcessingArtifactService.inspectCompleteWav(
+    stagedOutputPath,
+  );
+  final rawBytesAfterDelay = await _describeArtifactBytes(stagedOutputPath);
+  print(
+    'DPDF_ARTIFACT_RAW_AFTER_1S:${_describeWavArtifact(rawInfoAfterDelay)}:$rawBytesAfterDelay',
+  );
+  if (rawInfoAtReturn == null) {
+    throw StateError(
+      'DPDFNet emitted an invalid raw WAV artifact at method return: $rawBytesAtReturn',
+    );
   }
 
   await alignProcessedAudioToReference(
