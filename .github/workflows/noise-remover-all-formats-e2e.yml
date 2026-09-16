@@ -17,12 +17,13 @@ on:
       - 'ci/noise_remover/all_formats_processing_check_main.dart'
       - 'ci/noise_remover/generate_all_format_corpus.sh'
       - 'ci/noise_remover/run_all_formats_processing_check.sh'
+      - 'ci/noise_remover/ref_under_test.txt'
 
 permissions:
   contents: read
 
 env:
-  APP_REF: ${{ inputs.ref || 'master' }}
+  REQUESTED_APP_REF: ${{ inputs.ref || '' }}
 
 jobs:
   android-release-all-formats:
@@ -34,11 +35,29 @@ jobs:
       - name: Checkout Playground harness
         uses: actions/checkout@v5
 
+      - name: Resolve Noise Remover revision
+        id: app_ref
+        shell: bash
+        run: |
+          ref="${REQUESTED_APP_REF}"
+          if [ -z "$ref" ] && [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            ref="$(tr -d '\r\n' < ci/noise_remover/ref_under_test.txt)"
+          fi
+          ref="${ref:-master}"
+          case "$ref" in
+            *[!A-Za-z0-9._/@-]*)
+              echo "Invalid Noise Remover ref: $ref" >&2
+              exit 2
+              ;;
+          esac
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+          echo "Testing Noise Remover ref: $ref"
+
       - name: Checkout Noise Remover
         uses: actions/checkout@v5
         with:
           repository: Persie0/noise_remover
-          ref: ${{ env.APP_REF }}
+          ref: ${{ steps.app_ref.outputs.ref }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: app

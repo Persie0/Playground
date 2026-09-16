@@ -92,8 +92,8 @@ make_video() {
   esac
 }
 
-mapfile -t AUDIO_FORMATS < <(python3 -c 'import json; d=json.load(open("'"$work/formats.json"'")); print("\\n".join(d["audio"]))')
-mapfile -t VIDEO_FORMATS < <(python3 -c 'import json; d=json.load(open("'"$work/formats.json"'")); print("\\n".join(d["video"]))')
+mapfile -t AUDIO_FORMATS < <(python3 -c 'import json; d=json.load(open("'"$work/formats.json"'")); print("\n".join(d["audio"]))')
+mapfile -t VIDEO_FORMATS < <(python3 -c 'import json; d=json.load(open("'"$work/formats.json"'")); print("\n".join(d["video"]))')
 
 for ext in "${AUDIO_FORMATS[@]}"; do
   echo "Generating real audio fixture: .$ext"
