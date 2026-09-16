@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_nnnoiseless/flutter_nnnoiseless.dart';
 import 'package:noise_remover/services/background_processing_task.dart';
 import 'package:noise_remover/services/model_download_service.dart';
+import 'package:noise_remover/services/processing_artifact_service.dart';
 import 'package:noise_remover/services/settings_service.dart';
 import 'package:noise_remover/utils/ffmpeg_utils.dart';
 import 'package:path/path.dart' as path;
@@ -138,6 +139,85 @@ Future<void> _copyAsset(String assetPath, String destination) async {
   );
 }
 
+String _describeWavArtifact(WavArtifactInfo? info) {
+  if (info == null) return 'invalid-header-or-truncated';
+  return 'rate=${info.sampleRate},channels=${info.channels},bits=${info.bitsPerSample},data=${info.dataBytes},duration=${info.durationSeconds.toStringAsFixed(6)}';
+}
+
+/// Regression check for the exact DPDFNet → alignment → artifact-promotion
+/// boundary used by [runProcessingTask]. It exposes the emitted WAV details
+/// before the normal pipeline removes failed staging files.
+Future<void> _runDpdfnetArtifactRegression(Directory root) async {
+  final caseDir = Directory(path.join(root.path, 'dpdf-artifact-regression'));
+  await caseDir.create(recursive: true);
+
+  final sourcePath = path.join(caseDir.path, 'source.wav');
+  final inputPath = path.join(caseDir.path, 'input.wav');
+  final stagedInputPath = ProcessingArtifactService.stagedWavPath(inputPath);
+  final finalOutputPath = path.join(caseDir.path, 'output.wav');
+  final stagedOutputPath = ProcessingArtifactService.stagedWavPath(
+    finalOutputPath,
+  );
+  await _copyAsset('assets/ci_formats/sample.wav', sourcePath);
+  final expectedDuration = await _probeAndValidateInput(sourcePath, false);
+
+  await extractAudioToWav(
+    inputPath: sourcePath,
+    outputPath: stagedInputPath,
+    sampleRate: 48000,
+  );
+  await ProcessingArtifactService.promoteCompleteWav(
+    stagedPath: stagedInputPath,
+    finalPath: inputPath,
+    expectedSampleRate: 48000,
+  );
+
+  await DPDFNetEngine.processFileInIsolate(
+    DPDFNetModel.dpdfnet2_48khzHr.packageAssetPath(),
+    inputPath,
+    stagedOutputPath,
+    timeout: _caseTimeout,
+  );
+  final rawInfo = await ProcessingArtifactService.inspectCompleteWav(
+    stagedOutputPath,
+  );
+  print('DPDF_ARTIFACT_RAW:${_describeWavArtifact(rawInfo)}');
+  if (rawInfo == null) {
+    throw StateError('DPDFNet emitted an invalid raw WAV artifact');
+  }
+
+  await alignProcessedAudioToReference(
+    processedPath: stagedOutputPath,
+    referencePath: inputPath,
+    sampleRate: 48000,
+    targetDurationSeconds: expectedDuration,
+  );
+  final alignedInfo = await ProcessingArtifactService.inspectCompleteWav(
+    stagedOutputPath,
+  );
+  print(
+    'DPDF_ARTIFACT_ALIGNED:${_describeWavArtifact(alignedInfo)}:expectedDuration=${expectedDuration.toStringAsFixed(6)}',
+  );
+  final valid = await ProcessingArtifactService.isCompleteWav(
+    stagedOutputPath,
+    expectedDurationSeconds: expectedDuration,
+    expectedSampleRate: 48000,
+  );
+  if (!valid) {
+    throw StateError(
+      'DPDF aligned WAV was rejected: ${_describeWavArtifact(alignedInfo)} expectedRate=48000 expectedDuration=${expectedDuration.toStringAsFixed(6)}',
+    );
+  }
+
+  await ProcessingArtifactService.promoteCompleteWav(
+    stagedPath: stagedOutputPath,
+    finalPath: finalOutputPath,
+    expectedDurationSeconds: expectedDuration,
+    expectedSampleRate: 48000,
+  );
+  print('DPDF_ARTIFACT_PROMOTION_PASS');
+}
+
 Future<void> _runOneFormat({
   required Directory root,
   required String kind,
@@ -214,6 +294,7 @@ Future<void> _runDpdfnetCrossChecks(Directory root) async {
     throw StateError('DPDF model download was not verified: $modelKey');
   }
   print('DPDF_MODEL_DOWNLOAD_PASS:$modelKey');
+  await _runDpdfnetArtifactRegression(root);
 
   for (final item in const [('audio', 'wav'), ('video', 'mp4')]) {
     final kind = item.$1;
@@ -273,6 +354,8 @@ Future<void> _runAllChecks() async {
   final root = Directory(path.join(base.path, 'all_format_e2e_${DateTime.now().millisecondsSinceEpoch}'));
   await root.create(recursive: true);
 
+  await _runDpdfnetCrossChecks(root);
+
   var passed = 0;
   var index = 0;
   for (final ext in audio) {
@@ -285,7 +368,6 @@ Future<void> _runAllChecks() async {
   }
 
   await _runOutputFormatMatrix(root: root, outputFormats: outputs);
-  await _runDpdfnetCrossChecks(root);
 
   print('FORMAT_CHECK_SUMMARY:inputs=$passed/${audio.length + video.length}:outputs=${outputs.length}/${outputs.length}:dpdf=2/2');
   try {
