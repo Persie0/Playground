@@ -1,0 +1,98 @@
+name: Stem private CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch/tag/SHA in Persie0/stem
+        required: true
+        default: f48da82346b787afc4b364b8c5d549927dae59f1
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/stem-private-ci.yml'
+      - 'stem/trigger.txt'
+
+permissions:
+  contents: write
+
+env:
+  APP_REPOSITORY: Persie0/stem
+  APP_REF: ${{ inputs.ref || 'f48da82346b787afc4b364b8c5d549927dae59f1' }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::Set PRIVATE_REPO_TOKEN (Contents: read on Persie0/stem)."
+            exit 2
+          fi
+
+      - name: Checkout exact Stem revision
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: stem-app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Run regression tests
+        working-directory: stem-app
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter test test/practice_mode_screen_test.dart --reporter expanded
+
+      - name: Build debug APK
+        working-directory: stem-app
+        run: |
+          set -euo pipefail
+          flutter build apk --debug
+
+      - name: Verify Spleeter package
+        working-directory: stem-app
+        run: |
+          set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-debug.apk
+          test -f "$APK"
+          LISTING="$(mktemp)"
+          unzip -l "$APK" > "$LISTING"
+          grep -Eq 'assets/5stems\.tflite$' "$LISTING"
+          if grep -Eq 'assets/data[1-4]\.bin$' "$LISTING"; then
+            echo 'Legacy proprietary Spleeter data*.bin files are packaged.' >&2
+            exit 1
+          fi
+          if grep -Eq 'com/ttv/spleeter/SpleeterSDK|libttvspleeter\.so' "$LISTING"; then
+            echo 'Legacy proprietary ttvspleeter runtime is packaged.' >&2
+            exit 1
+          fi
+
+      - name: Publish exact APK release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${APP_REF:0:8}"
+          TAG="stem-debug-${SHORT_SHA}"
+          APK="stem-app/build/app/outputs/flutter-apk/app-debug.apk"
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes >/dev/null 2>&1 || true
+          git push origin ":refs/tags/$TAG" >/dev/null 2>&1 || true
+          gh release create "$TAG" "$APK#stem-debug.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Stem debug $SHORT_SHA" \
+            --notes "Verified Persie0/stem revision $APP_REF: regression tests, debug build, and Spleeter asset checks passed."
