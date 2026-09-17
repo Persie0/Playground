@@ -5,19 +5,9 @@ on:
     inputs:
       ref:
         description: Noise Remover branch, tag, or SHA to validate
-        required: true
-        default: master
+        required: false
+        default: main
         type: string
-  schedule:
-    - cron: '17 3 * * 0'
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/noise-remover-all-formats-e2e.yml'
-      - 'ci/noise_remover/all_formats_processing_check_main.dart'
-      - 'ci/noise_remover/generate_all_format_corpus.sh'
-      - 'ci/noise_remover/run_all_formats_processing_check.sh'
-      - 'ci/noise_remover/ref_under_test.txt'
 
 permissions:
   contents: read
@@ -40,10 +30,7 @@ jobs:
         shell: bash
         run: |
           ref="${REQUESTED_APP_REF}"
-          if [ -z "$ref" ] && [ "${GITHUB_EVENT_NAME}" = "push" ]; then
-            ref="$(tr -d '\r\n' < ci/noise_remover/ref_under_test.txt)"
-          fi
-          ref="${ref:-master}"
+          ref="${ref:-main}"
           case "$ref" in
             *[!A-Za-z0-9._/@-]*)
               echo "Invalid Noise Remover ref: $ref" >&2
