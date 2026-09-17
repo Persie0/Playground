@@ -2,14 +2,18 @@ name: Noise Remover artifact validator unit test
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/noise-remover-artifact-validator.yml'
-      - 'ci/noise_remover/ref_under_test.txt'
+    inputs:
+      ref:
+        description: Noise Remover branch, tag, or SHA to validate
+        required: false
+        default: main
+        type: string
 
 permissions:
   contents: read
+
+env:
+  REQUESTED_APP_REF: ${{ inputs.ref || 'main' }}
 
 jobs:
   artifact-validator:
@@ -25,7 +29,7 @@ jobs:
         id: app_ref
         shell: bash
         run: |
-          ref="$(tr -d '\r\n' < ci/noise_remover/ref_under_test.txt)"
+          ref="${REQUESTED_APP_REF:-main}"
           case "$ref" in
             *[!A-Za-z0-9._/@-]*)
               echo "Invalid Noise Remover ref: $ref" >&2
