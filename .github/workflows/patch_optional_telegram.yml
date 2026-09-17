@@ -1,0 +1,48 @@
+name: Patch optional Telegram delivery
+
+on:
+  push:
+    paths:
+      - '.github/workflows/patch_optional_telegram.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Make builder Telegram upload best-effort
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO=Persie0/firebase_tester_builder
+          PATH_IN_REPO=.github/workflows/play_auto.yml
+          SHA="$(gh api "repos/$REPO/contents/$PATH_IN_REPO?ref=main" --jq .sha)"
+          gh api "repos/$REPO/contents/$PATH_IN_REPO?ref=main" --jq .content | tr -d '\n' | base64 -d > play_auto.yml
+
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('play_auto.yml')
+          text = path.read_text()
+          old = "      - name: Send Universal APK to Telegram\n        if: github.event.inputs.build_apk == 'true'\n"
+          new = "      - name: Send Universal APK to Telegram\n        if: github.event.inputs.build_apk == 'true'\n        continue-on-error: true\n"
+          if new in text:
+              print('Telegram upload is already non-blocking.')
+          elif old in text:
+              path.write_text(text.replace(old, new, 1))
+              print('Updated Telegram upload to continue on error.')
+          else:
+              raise SystemExit('Telegram step pattern not found.')
+          PY
+
+          CONTENT="$(base64 -w0 play_auto.yml)"
+          gh api --method PUT "repos/$REPO/contents/$PATH_IN_REPO" \
+            -f message='ci: do not block Play release on Telegram' \
+            -f content="$CONTENT" \
+            -f sha="$SHA" \
+            -f branch=main

@@ -1,0 +1,60 @@
+name: Record screendetector release result
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 */6 * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  record-result:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Playground repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Record latest screendetector Play release
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_JSON="$(gh run list \
+            --repo Persie0/firebase_tester_builder \
+            --workflow play_auto.yml \
+            --event workflow_dispatch \
+            --limit 50 \
+            --json databaseId,displayTitle,status,conclusion,createdAt,updatedAt,url,headSha,headBranch \
+            --jq '[.[] | select(.displayTitle | contains("Deploy screendetector"))][0]')"
+          if [ -z "$RUN_JSON" ] || [ "$RUN_JSON" = "null" ]; then
+            echo 'No screendetector Play release found.'
+            exit 0
+          fi
+          mkdir -p .github/release-status
+          printf '%s\n' "$RUN_JSON" | jq -r '
+            "# screendetector release result\n\n" +
+            "- Title: " + (.displayTitle // "") + "\n" +
+            "- Run ID: " + ((.databaseId // 0) | tostring) + "\n" +
+            "- Conclusion: " + (.conclusion // "") + "\n" +
+            "- Status: " + (.status // "") + "\n" +
+            "- Source branch: " + (.headBranch // "") + "\n" +
+            "- Source SHA: " + (.headSha // "") + "\n" +
+            "- Created: " + (.createdAt // "") + "\n" +
+            "- Updated: " + (.updatedAt // "") + "\n" +
+            "- Run: " + (.url // "")
+          ' > .github/release-status/screendetector-latest.md
+
+      - name: Commit result when changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/release-status/screendetector-latest.md
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'ci: record screendetector release result [skip ci]'
+          git push origin HEAD:main
