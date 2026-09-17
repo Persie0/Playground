@@ -20,9 +20,10 @@ env:
   APP_REPOSITORY: Persie0/traffic-counting-light-main
   APP_REF: ${{ inputs.ref || 'fix/audit-runtime-1-5' }}
   PYTHONPATH: src
+  MPLBACKEND: Agg
 
 jobs:
-  edge-tests:
+  project-tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -52,7 +53,7 @@ jobs:
           cache: pip
           cache-dependency-path: traffic-counting/edge/pyproject.toml
 
-      - name: Install edge runtime and test dependencies
+      - name: Install runtime and test dependencies
         working-directory: traffic-counting/edge
         run: |
           python -m pip install --upgrade pip
@@ -103,13 +104,20 @@ jobs:
         working-directory: traffic-counting/edge
         run: python -m pytest -q tests
 
-      - name: Compile edge sources
-        working-directory: traffic-counting/edge
-        run: python -m compileall -q src tests
+      - name: Run tools experiments and repository tests
+        working-directory: traffic-counting
+        env:
+          PYTHONPATH: edge/src
+        run: python -m pytest -q project_tests
 
-      - name: Ruff correctness checks
+      - name: Compile all Python sources
+        working-directory: traffic-counting
+        run: python -m compileall -q edge/src edge/tests edge/scripts experiments tools project_tests
+
+      - name: Ruff edge correctness checks
         working-directory: traffic-counting/edge
-        # The repository has a pre-existing broad Ruff backlog. This gate keeps
-        # high-signal parser/undefined-name/import failures without turning a
-        # focused runtime patch into an unrelated style migration.
         run: python -m ruff check --select F,E9 src tests
+
+      - name: Ruff project high-signal checks
+        working-directory: traffic-counting
+        run: python -m ruff check --select E9,F63,F7,F82 project_tests experiments tools edge/scripts
