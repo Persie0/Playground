@@ -1,12 +1,28 @@
 # Playground
 
-Multi-project development and CI workspace.
+Public multi-project CI/orchestration workspace.
 
-## Projects
+## Security boundary
 
-- [`mobile-super-resolution/`](mobile-super-resolution/) — the original Mobile Super-Resolution Lab, moved intact from the repository root.
-- [`3dimageapp/`](3dimageapp/) — CI/test harness for the private `Persie0/3dimageapp` repository.
+This repository keeps only generic orchestration and intentionally public tooling. Private app implementation, app-specific test/patch logic, private source assertions, and detailed diagnostic harnesses live in the corresponding private application repositories.
 
-The 3D app's source code is **not stored in this public repository**. GitHub Actions checks out the private repository only inside an ephemeral runner using `PRIVATE_REPO_TOKEN` (or `GH_TOKEN` as a fallback), executes tests with private logs suppressed, and publishes only pass/fail status.
+For private-app jobs, a Playground workflow:
 
-Repository-level workflow files remain under `.github/workflows/` because GitHub only executes workflows from that location.
+1. validates the repository token;
+2. checks out the requested private app revision into the ephemeral runner;
+3. checks out only the private repo's `.github/playground/` CI harness;
+4. installs the generic runner/toolchain dependencies required by the job;
+5. invokes the private harness;
+6. publishes only intentionally safe artifacts or summaries.
+
+Private harnesses suppress source-derived compiler/test output where it could expose private implementation details. Public workflows must not embed private patch code, exact private test inventories, source snippets, symbol mappings, or raw private diagnostic logs.
+
+Repository-level workflow files remain under `.github/workflows/` because GitHub Actions only discovers workflows there.
+
+## Public projects
+
+- [`mobile-super-resolution/`](mobile-super-resolution/) — intentionally public model tooling and experiments.
+
+## Required secret
+
+Private-repository workflows use `PRIVATE_REPO_TOKEN` (with `GH_TOKEN`/release-token fallbacks where explicitly configured) to read the corresponding private repository at runtime.
