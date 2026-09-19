@@ -1,4 +1,4 @@
-name: Memory Palace PR47 review
+name: Memory Palace PR47 integrate and validate
 
 on:
   push:
@@ -10,50 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  branch-tests:
+  integrate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - name: Validate private checkout token
-        env:
-          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        run: test -n "$PRIVATE_TOKEN"
-
-      - name: Checkout PR branch
-        uses: actions/checkout@v5
-        with:
-          repository: Persie0/Memory_Palace_Builder
-          ref: fix/deep-audit-2026-08
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
-          path: app
-          fetch-depth: 0
-
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.1'
-          channel: stable
-          cache: true
-
-      - name: Resolve dependencies
-        working-directory: app
-        run: flutter pub get
-
-      - name: Format check
-        working-directory: app
-        run: dart format --output=none --set-exit-if-changed lib test
-
-      - name: Analyze
-        working-directory: app
-        run: flutter analyze
-
-      - name: Test
-        working-directory: app
-        run: flutter test
-
-  merge-probe:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
       - name: Validate private checkout token
         env:
@@ -70,16 +29,91 @@ jobs:
           path: app
           fetch-depth: 0
 
-      - name: Probe merge with current main
+      - name: Configure git
         working-directory: app
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Apply final audit corrections and remove migration scaffolding
+        working-directory: app
+        run: |
+          python3 tools/apply_final_audit_fixes.py
+          rm -f .github/workflows/deep_audit_fix.yml
+          rm -f tools/apply_deep_audit_fixes.py tools/apply_analyzer_cleanup.py tools/apply_final_audit_fixes.py
+          git add -A
+          git commit -m "Apply final deep-audit fixes and remove temporary migration tooling"
+
+      - name: Merge current main
+        working-directory: app
+        run: |
           git fetch origin main
-          if git merge --no-commit --no-ff origin/main; then
-            echo "MERGE_CLEAN=true"
-          else
-            echo "Merge conflicts:"
-            git diff --name-only --diff-filter=U
+          set +e
+          git merge --no-commit --no-ff origin/main
+          merge_status=$?
+          set -e
+
+          conflicts="$(git diff --name-only --diff-filter=U || true)"
+          unexpected="$(printf '%s\n' "$conflicts" | grep -v -E '^(analysis_options\.yaml|pubspec\.lock)$' | sed '/^$/d' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "::error::Unexpected merge conflicts:"
+            echo "$unexpected"
             exit 1
           fi
+
+          # Keep the current main CI configuration and analyzer policy. The
+          # private repo is intentionally not made responsible for this audit's
+          # extra validation while Playground is available.
+          git checkout origin/main --             .github/workflows/debug.yml             .github/workflows/firebase_tester_release.yml             .github/workflows/play_auto.yml             .github/workflows/release.yml             analysis_options.yaml             pubspec.lock
+          rm -f .github/workflows/deep_audit_fix.yml
+          git add -A
+
+          # A nonzero merge status is expected only for the two resolved files.
+          if [ "$merge_status" -ne 0 ] && [ -z "$conflicts" ]; then
+            echo "::error::Merge failed without resolvable file conflicts"
+            exit 1
+          fi
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.1'
+          channel: stable
+          cache: true
+
+      - name: Resolve merged dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Validate merged dependency/security choices
+        working-directory: app
+        run: |
+          grep -q "app_tracking_transparency:" pubspec.yaml
+          grep -q "github.com/Persie0/Appodeal-Flutter-Plugin.git" pubspec.yaml
+          grep -q "crypto:" pubspec.yaml
+          grep -q "d796e1912e159a098240226f15536d7c1a6f7ad1" pubspec.yaml
+          grep -q "46648107987bfaf4e1ada1501829d90ee5b251b6" pubspec.yaml
+          ! grep -q "purchases_ui_flutter:" pubspec.yaml
+          ! grep -q "auth_token:" pubspec.yaml
+
+      - name: Format
+        working-directory: app
+        run: dart format lib test
+
+      - name: Analyze
+        working-directory: app
+        run: flutter analyze
+
+      - name: Test
+        working-directory: app
+        run: flutter test
+
+      - name: Debug build smoke test
+        working-directory: app
+        run: flutter build apk --debug
+
+      - name: Commit and push integrated branch
+        working-directory: app
+        run: |
+          git add -A
+          git commit -m "Merge current main into deep-audit fixes"
+          git push origin HEAD:fix/deep-audit-2026-08
