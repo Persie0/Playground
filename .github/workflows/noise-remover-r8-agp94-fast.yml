@@ -18,7 +18,7 @@ permissions:
 
 env:
   APP_REPOSITORY: Persie0/noise_remover
-  APP_REF: ${{ inputs.ref || 'optimize/agp94-r8-analyzer' }}
+  APP_REF: ${{ inputs.ref || 'master' }}
 
 jobs:
   analyze:
@@ -78,7 +78,7 @@ jobs:
         working-directory: private-app/android
         run: |
           ./gradlew --no-daemon :app:analyzeReleaseR8Config --stacktrace
-          REPORT='app/build/reports/r8/r8-config-analyzer-release.html'
+          REPORT='../build/app/reports/r8/r8-config-analyzer-release.html'
           test -s "$REPORT"
           cp "$REPORT" ../../r8-config-analyzer-release.html
       - name: Extract analyzer text and likely blockers
@@ -97,6 +97,42 @@ jobs:
           Path('r8-analyzer-summary.txt').write_text('\n'.join(selected))
           print('\n'.join(selected[:800]))
           PY
+      - name: Dump embedded dependency keep rules
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import re, zipfile
+          from pathlib import Path
+
+          cache = Path.home() / '.gradle/caches/modules-2/files-2.1'
+          out = []
+          broad = re.compile(r'^\s*-(?:keep|keepnames|keepclassmembers|keepclasseswithmembers)\b.*(?:\.\*\*|\{\s*\*;\s*\})')
+          global_rule = re.compile(r'^\s*-(?:dontoptimize|dontobfuscate|dontshrink)\b')
+
+          for aar in sorted(cache.rglob('*.aar')):
+              rel = aar.relative_to(cache)
+              parts = rel.parts
+              gav = ':'.join(parts[:3]) if len(parts) >= 3 else str(rel)
+              try:
+                  with zipfile.ZipFile(aar) as z:
+                      names = [n for n in z.namelist()
+                               if n in ('proguard.txt', 'consumer-rules.pro')
+                               or n.startswith('META-INF/proguard/')]
+                      if not names:
+                          continue
+                      out.append(f'\n===== {gav} =====')
+                      for name in names:
+                          text_data = z.read(name).decode('utf-8', 'replace')
+                          out.append(f'--- {name} ---')
+                          for i, line in enumerate(text_data.splitlines(), 1):
+                              marker = ' !!!' if broad.search(line) or global_rule.search(line) else ''
+                              out.append(f'{i:04d}: {line}{marker}')
+              except zipfile.BadZipFile:
+                  pass
+
+          Path('dependency-consumer-rules.txt').write_text('\n'.join(out))
+          print('\n'.join(out[:2500]))
+          PY
       - name: Upload analyzer report
         if: always()
         uses: actions/upload-artifact@v4
@@ -105,5 +141,6 @@ jobs:
           path: |
             r8-config-analyzer-release.html
             r8-analyzer-summary.txt
+            dependency-consumer-rules.txt
           if-no-files-found: ignore
           retention-days: 7
