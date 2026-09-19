@@ -1,5 +1,5 @@
 name: Traffic analysis quality fixes
-# final verification: lint + expanded focused suite
+# final verification: compile + undefined-name lint + expanded focused suite
 
 on:
   push:
@@ -55,10 +55,10 @@ jobs:
         working-directory: target
         run: python -m compileall -q edge/src
 
-      - name: Lint changed runtime and tests
+      - name: Check undefined names in changed runtime and tests
         working-directory: target/edge
         run: |
-          python -m ruff check             src/analysis/analysis_pipeline.py             src/analysis/artifacts.py             src/analysis/background             src/analysis/traffic             src/tracking/bytetrack.py             src/utils/config.py             scripts/replay_traffic_heatmaps.py             tests/test_analysis_pipeline.py             tests/test_background_collector.py             tests/test_background_stage.py             tests/test_bytetrack_config.py             tests/test_config.py             tests/test_masked_median.py             tests/test_pi_detector_config.py             tests/test_route_heatmap.py             tests/test_traffic_renderer.py             tests/test_traffic_stage.py             tests/test_waiting_detector.py
+          python -m ruff check --select F             src/analysis/analysis_pipeline.py             src/analysis/artifacts.py             src/analysis/background             src/analysis/traffic/renderer.py             src/analysis/traffic/traffic_stage.py             src/analysis/traffic/waiting_detector.py             src/tracking/bytetrack.py             src/utils/config.py             scripts/replay_traffic_heatmaps.py             tests/test_analysis_pipeline.py             tests/test_background_collector.py             tests/test_background_stage.py             tests/test_bytetrack_config.py             tests/test_config.py             tests/test_masked_median.py             tests/test_pi_detector_config.py             tests/test_traffic_renderer.py             tests/test_traffic_stage.py             tests/test_waiting_detector.py
 
       - name: Run focused regression suite
         working-directory: target/edge
