@@ -1,34 +1,31 @@
-# Traffic detector 384x288 lab
+# Traffic detector YOLO26n 384x288 lab
 
 Isolated export and benchmark workspace for `Persie0/traffic-counting-light-main`.
 
-The goal is to test 384×288 NCNN detector inputs without putting experimental CI or generated model artifacts into the production traffic repository.
+## Goal
+
+Evaluate the current production detector, **YOLO11n 384×288 NCNN**, against the newer **YOLO26n 384×288 NCNN** candidate without changing the production repository first.
+
+Ultralytics currently recommends YOLO26 and YOLO11 for production. YOLO12/YOLO13 are intentionally excluded from this promotion test because Ultralytics warns that they are larger/slower or less stable for production CPU deployment.
 
 ## What the workflow does
 
-1. Checks out this Playground repository.
-2. Checks out the private traffic repository with `PRIVATE_REPO_TOKEN` (or `GH_TOKEN`).
-3. Installs CPU-only PyTorch plus the pinned Ultralytics/NCNN toolchain.
-4. Runs unit tests for the export validator.
-5. Exports:
-   - YOLO11n → 384×288 NCNN
-   - YOLOv9t → 384×288 NCNN
-6. Benchmarks both candidates through the traffic project's real `NcnnDetector` implementation against the existing:
-   - YOLOX-N 416×256 NCNN
-   - YOLO11n 416×256 NCNN
-7. Uploads only the generated detector models and benchmark JSON as a short-lived Playground artifact.
+1. Checks out Playground.
+2. Checks out the private traffic project at the requested ref.
+3. Pulls only the Git LFS object for the exact production YOLO11n 384×288 NCNN baseline.
+4. Installs the pinned CPU/NCNN toolchain and current Ultralytics release.
+5. Exports **YOLO26n → fixed 384×288 NCNN** using the traditional raw one-to-many output expected by the current `NcnnDetector`.
+6. Runs the helper tests.
+7. Benchmarks both models through the production `NcnnDetector` on the committed dewarped ZeroCam image.
+8. Runs the deterministic 180-image COCO val2017 traffic subset used by the previous promotion benchmark.
+9. Uploads the YOLO26n model plus benchmark JSON/Markdown as a short-lived artifact.
 
-The private traffic source tree itself is never uploaded as an artifact.
+## Promotion rule
 
-## Benchmark scope
+The benchmark retains the existing rule: choose the highest macro F1 among candidates within 20% of the fastest measured detector latency.
 
-The automated run is a smoke/performance benchmark on the committed dewarped ZeroCam sample image. It measures the complete production detector call, including NCNN inference, output decoding, confidence filtering, and NMS.
+Promotion to the private production repository happens only after reviewing the benchmark output.
 
-It is **not** a replacement for the Cityscapes accuracy benchmark. Model promotion back into the production Raspberry Pi config should require both:
+## Important limitation
 
-- functional/performance validation here; and
-- accuracy validation on the project's proper benchmark dataset or representative intersection footage.
-
-## Run
-
-Use the GitHub Actions workflow **Traffic detector 384x288 lab**. The default private traffic ref is `main`; a branch/tag/SHA can be supplied for manual runs.
+GitHub-hosted x86 CPU timing is a relative comparison. Final Raspberry Pi 5 latency, power and thermal behavior still need on-device verification.
