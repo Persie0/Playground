@@ -1,0 +1,50 @@
+name: Resistor PR23 Jetifier control
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-pr23-jetifier-control.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: chore/r8-modernization-20260919
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Restore Jetifier only for control
+        run: sed -i 's/android.enableJetifier=false/android.enableJetifier=true/' app/android/gradle.properties
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Debug build
+        working-directory: app
+        run: flutter build apk --debug --no-pub
