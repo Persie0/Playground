@@ -1,134 +1,68 @@
-name: Noise Remover all supported formats E2E
-
+name: Noise Remover private all-formats E2E
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Noise Remover branch, tag, or SHA to validate
+        description: Private app branch, tag, or SHA
         required: false
         default: master
         type: string
-
 permissions:
   contents: read
-
 env:
-  REQUESTED_APP_REF: ${{ inputs.ref || '' }}
-
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: ${{ inputs.ref || 'master' }}
 jobs:
   android-release-all-formats:
-    name: Android release · real files · every advertised format
     runs-on: ubuntu-latest
     timeout-minutes: 180
-
     steps:
-      - name: Checkout Playground harness
-        uses: actions/checkout@v5
-
-      - name: Resolve Noise Remover revision
-        id: app_ref
-        shell: bash
-        run: |
-          ref="${REQUESTED_APP_REF}"
-          ref="${ref:-main}"
-          case "$ref" in
-            *[!A-Za-z0-9._/@-]*)
-              echo "Invalid Noise Remover ref: $ref" >&2
-              exit 2
-              ;;
-          esac
-          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
-          echo "Testing Noise Remover ref: $ref"
-
-      - name: Checkout Noise Remover
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout private app revision
         uses: actions/checkout@v5
         with:
-          repository: Persie0/noise_remover
-          ref: ${{ steps.app_ref.outputs.ref }}
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: app
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
+      - name: Checkout private CI harness
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: master
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-ci
+          sparse-checkout: .github/playground
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-
-      - name: Install host FFmpeg fixture tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg
-          ffmpeg -version | head -n 1
-          ffprobe -version | head -n 1
-
-      - name: Generate real corpus from advertised formats
-        run: |
-          chmod +x ci/noise_remover/generate_all_format_corpus.sh
-          ci/noise_remover/generate_all_format_corpus.sh app
-
-      - name: Inject all-format release harness
-        run: |
-          cp ci/noise_remover/all_formats_processing_check_main.dart \
-            app/lib/all_formats_processing_check_main.dart
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('app/pubspec.yaml')
-          text = path.read_text()
-          asset = '    - assets/ci_formats/\n'
-          if asset not in text:
-              marker = '  assets:\n'
-              if marker not in text:
-                  raise SystemExit('pubspec flutter assets section not found')
-              text = text.replace(marker, marker + asset, 1)
-          path.write_text(text)
-          PY
-
-      - name: Prepare signed R8 release build
-        run: |
-          printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_SDK_ROOT" > app/android/local.properties
-          yes | sdkmanager "ndk;29.0.14206865" >/dev/null || true
-          printf '#!/usr/bin/env bash\nset -e\nexec gradle "$@"\n' > app/android/gradlew
-          chmod +x app/android/gradlew
-          keytool -genkeypair -v \
-            -keystore app/android/app/ci-release.jks \
-            -storepass android -keypass android -alias ci \
-            -keyalg RSA -keysize 2048 -validity 3650 \
-            -dname 'CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US'
-          printf '%s\n' \
-            'storePassword=android' \
-            'keyPassword=android' \
-            'keyAlias=ci' \
-            'storeFile=ci-release.jks' > app/android/key.properties
-          cd app
-          flutter pub get
-          dart format lib/all_formats_processing_check_main.dart
-          flutter analyze lib/all_formats_processing_check_main.dart --no-fatal-infos
-
+      - name: Install host media tools
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg >/dev/null
+      - name: Prepare private E2E harness
+        run: bash private-ci/.github/playground/noise_remover/prepare-all-formats.sh app private-ci/.github/playground/noise_remover
       - name: Enable KVM
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | \
-            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
-
-      - name: Process and validate every real input format
+      - name: Run private E2E harness
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -136,17 +70,4 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
-          script: |
-            chmod +x ci/noise_remover/run_all_formats_processing_check.sh
-            ci/noise_remover/run_all_formats_processing_check.sh
-
-      - name: Upload format-check diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: noise-remover-all-formats-${{ github.run_id }}
-          if-no-files-found: ignore
-          retention-days: 14
-          path: |
-            noise-remover-all-formats-log.txt
-            app/assets/ci_formats/manifest.json
+          script: bash private-ci/.github/playground/noise_remover/run_all_formats_processing_check.sh
