@@ -1,42 +1,27 @@
-name: ImagePdfScaler debug release
-
+name: ImagePdfScaler private debug release
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch/tag/SHA in Persie0/ImagePdfScaler
+        description: Private app branch, tag, or SHA
         required: true
         default: main
         type: string
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/imagepdfscaler-debug-release.yml'
-
 permissions:
   contents: read
-
 env:
   APP_REPOSITORY: Persie0/ImagePdfScaler
   APP_REF: ${{ inputs.ref || 'main' }}
-
 jobs:
   build-and-release-debug:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v5
-
       - name: Validate private/release token
         env:
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        run: |
-          if [[ -z "$RELEASE_TOKEN" ]]; then
-            echo "::error::Set RELEASE_TOKEN (preferred) or PRIVATE_REPO_TOKEN/GH_TOKEN with Contents: write on Persie0/ImagePdfScaler."
-            exit 2
-          fi
-
-      - name: Checkout ImagePdfScaler
+        run: test -n "$RELEASE_TOKEN"
+      - name: Checkout private app revision
         uses: actions/checkout@v5
         with:
           repository: ${{ env.APP_REPOSITORY }}
@@ -44,43 +29,26 @@ jobs:
           token: ${{ secrets.RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: private-app
-
+      - name: Checkout private CI harness
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: main
+          token: ${{ secrets.RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-ci
+          sparse-checkout: .github/playground
+          sparse-checkout-cone-mode: false
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
-      - name: Generate current Android scaffold
-        run: |
-          rm -rf /tmp/imagepdfscaler-scaffold
-          flutter create /tmp/imagepdfscaler-scaffold \
-            --platforms=android \
-            --org com.persie \
-            --project-name image_pdf_scaler
-          rm -rf private-app/android
-          cp -R /tmp/imagepdfscaler-scaffold/android private-app/android
-
-      - name: Resolve dependencies
-        working-directory: private-app
-        run: flutter pub get
-
-      - name: Analyze
-        working-directory: private-app
-        run: flutter analyze
-
-      - name: Test
-        working-directory: private-app
-        run: flutter test
-
-      - name: Build debug APK
-        working-directory: private-app
-        run: flutter build apk --debug
-
+      - name: Run private debug build harness
+        run: bash private-ci/.github/playground/debug-build.sh private-app
       - name: Prepare release asset
         id: meta
         run: |
@@ -93,15 +61,13 @@ jobs:
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
-
-      - name: Upload debug APK artifact backup
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: imagepdfscaler-debug-${{ steps.meta.outputs.short_sha }}
           path: ${{ steps.meta.outputs.apk_name }}
           if-no-files-found: error
-
-      - name: Create/update GitHub prerelease and upload APK
+      - name: Create/update private prerelease
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           TAG: ${{ steps.meta.outputs.tag }}
@@ -112,11 +78,5 @@ jobs:
           if gh release view "$TAG" --repo "$APP_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK_NAME" --repo "$APP_REPOSITORY" --clobber
           else
-            gh release create "$TAG" \
-              --repo "$APP_REPOSITORY" \
-              --target "$SHA" \
-              --title "ImagePdfScaler Debug ${SHORT_SHA}" \
-              --notes "Debug APK built from ImagePdfScaler main commit ${SHA}. Intended for testing; signed with the generated Android debug key." \
-              --prerelease \
-              "$APK_NAME"
+            gh release create "$TAG" --repo "$APP_REPOSITORY" --target "$SHA" --title "ImagePdfScaler Debug ${SHORT_SHA}" --notes "Private validation passed for ${SHA}." --prerelease "$APK_NAME"
           fi
