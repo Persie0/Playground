@@ -1,77 +1,64 @@
-name: Noise Remover R8 native processing smoke
-
+name: Noise Remover private R8 native smoke
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/noise-remover-r8-native-smoke.yml'
-      - 'ci/noise_remover/**'
   workflow_dispatch:
     inputs:
       ref:
-        description: Noise Remover branch/SHA
-        required: true
-        default: fix/actionable-errors-r8-processing
+        description: Private app branch, tag, or SHA
+        required: false
+        default: master
         type: string
-
 permissions:
   contents: read
-
 env:
-  APP_REF: ${{ inputs.ref || 'fix/actionable-errors-r8-processing' }}
-
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: ${{ inputs.ref || 'master' }}
 jobs:
   release-native-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Checkout Noise Remover
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout private app revision
         uses: actions/checkout@v5
         with:
-          repository: Persie0/noise_remover
+          repository: ${{ env.APP_REPOSITORY }}
           ref: ${{ env.APP_REF }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: app
-
+      - name: Checkout private CI harness
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: master
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-ci
+          sparse-checkout: .github/playground
+          sparse-checkout-cone-mode: false
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
       - uses: android-actions/setup-android@v3
-
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-
-      - name: Prepare release smoke app
-        run: |
-          printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_SDK_ROOT" > app/android/local.properties
-          yes | sdkmanager "ndk;29.0.14206865" >/dev/null || true
-          printf '#!/usr/bin/env bash\nset -e\nexec gradle "$@"\n' > app/android/gradlew
-          chmod +x app/android/gradlew
-          keytool -genkeypair -v -keystore app/android/app/ci-release.jks -storepass android -keypass android -alias ci -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US"
-          printf '%s\n' 'storePassword=android' 'keyPassword=android' 'keyAlias=ci' 'storeFile=ci-release.jks' > app/android/key.properties
-          cp ci/noise_remover/r8_native_processing_smoke_test.dart app/lib/r8_native_processing_smoke_main.dart
-          chmod +x ci/noise_remover/run_release_smoke.sh
-          cd app
-          flutter pub get
-
+      - name: Prepare private smoke harness
+        run: bash private-ci/.github/playground/noise_remover/prepare-r8-smoke.sh app private-ci/.github/playground/noise_remover
       - name: Enable KVM
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
-
-      - name: Run native processing in R8 release app
+      - name: Run private native smoke harness
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -79,4 +66,4 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
-          script: bash ci/noise_remover/run_release_smoke.sh
+          script: bash private-ci/.github/playground/noise_remover/run_release_smoke.sh
