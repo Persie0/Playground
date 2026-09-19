@@ -1,0 +1,57 @@
+name: Resistor PR23 review
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-pr23-review.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout prospective PR merge
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: refs/pull/23/merge
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Debug build with Jetifier disabled
+        working-directory: app
+        run: flutter build apk --debug --no-pub
+
+      - name: Validate release R8 configuration
+        working-directory: app/android
+        run: gradle :app:analyzeReleaseR8Config --no-daemon
+
+      - name: Exercise release R8 task
+        working-directory: app/android
+        run: gradle :app:minifyReleaseWithR8 --no-daemon
