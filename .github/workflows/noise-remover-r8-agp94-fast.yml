@@ -49,6 +49,24 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
+      - name: Point Noise Remover at Appodeal optimization fork
+        working-directory: private-app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('pubspec.yaml')
+          s = p.read_text()
+          old = '  stack_appodeal_flutter: ^4.3.0'
+          new = '''  stack_appodeal_flutter:
+    git:
+      url: https://github.com/Persie0/Appodeal-Flutter-Plugin.git
+      ref: optimize/r8-adapter-preserving'''
+          if old not in s:
+              raise SystemExit('stack_appodeal_flutter hosted dependency not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          rm -f pubspec.lock
+
       - name: Prepare project
         working-directory: private-app
         run: |
