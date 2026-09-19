@@ -1,4 +1,4 @@
-name: HanziHero logic tests v2
+name: HanziHero private logic tests
 
 on:
   push:
@@ -7,89 +7,49 @@ on:
       - 'hanzi-hero-tests/run.txt'
       - '.github/workflows/hanzi-hero-logic-tests-v2.yml'
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch/tag/SHA in Persie0/hanzi_hero
+        required: false
+        default: main
+        type: string
 
 permissions:
   contents: read
 
 env:
   APP_REPOSITORY: Persie0/hanzi_hero
-  APP_REF: superpowers/logic-provider-service-tests
+  APP_REF: ${{ inputs.ref || 'main' }}
 
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
-
       - name: Validate private checkout token
         env:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ -z "$PRIVATE_TOKEN" ]]; then
-            echo "::error::Set PRIVATE_REPO_TOKEN or GH_TOKEN with Contents: read on Persie0/hanzi_hero."
-            exit 2
-          fi
-
-      - name: Checkout HanziHero
-        uses: actions/checkout@v4
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout app revision
+        uses: actions/checkout@v5
         with:
           repository: ${{ env.APP_REPOSITORY }}
           ref: ${{ env.APP_REF }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
-          path: hanzi-hero
-
+          path: app
+      - name: Checkout private CI harness
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-ci
+          sparse-checkout: .github/playground
+          sparse-checkout-cone-mode: false
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
-      - name: Install dependencies
-        working-directory: hanzi-hero
-        run: flutter pub get
-
-      - name: Analyze
-        working-directory: hanzi-hero
-        shell: bash
-        run: |
-          set -o pipefail
-          flutter analyze 2>&1 | tee ../hanzi-analyze.log
-
-      - name: Test with coverage
-        working-directory: hanzi-hero
-        shell: bash
-        run: |
-          set -o pipefail
-          flutter test --coverage 2>&1 | tee ../hanzi-test.log
-
-      - name: Print scoped coverage summary
-        if: always()
-        working-directory: hanzi-hero
-        run: |
-          if [[ -f coverage/lcov.info ]]; then
-            awk '
-              /^SF:lib\/(models|providers|services|utils)\// {file=$0; sub(/^SF:/,"",file)}
-              /^LF:/ {lf=$0; sub(/^LF:/,"",lf)}
-              /^LH:/ {
-                lh=$0; sub(/^LH:/,"",lh)
-                if (file != "") {
-                  printf "%-70s %6.2f%% (%d/%d)\n", file, (lf ? 100*lh/lf : 100), lh, lf
-                  file=""
-                }
-              }
-            ' coverage/lcov.info
-          fi
-
-      - name: Upload test artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hanzi-hero-logic-test-results
-          path: |
-            hanzi-analyze.log
-            hanzi-test.log
-            hanzi-hero/coverage/lcov.info
-          if-no-files-found: ignore
-          retention-days: 3
+      - name: Run private logic/provider/service suite
+        run: bash private-ci/.github/playground/logic-tests.sh app
