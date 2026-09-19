@@ -17,14 +17,14 @@ jobs:
     steps:
       - name: Validate repository token
         env:
-          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: test -n "$REPO_TOKEN"
 
       - name: Checkout private Stem
         uses: actions/checkout@v5
         with:
           repository: Persie0/stem
-          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           ref: main
           fetch-depth: 0
           persist-credentials: false
@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Persie0/stem
-          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           ref: main
           persist-credentials: false
           path: private-ci
@@ -75,7 +75,7 @@ jobs:
 
       - name: Publish private Stem debug release
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           TARGET_SHA: ${{ steps.meta.outputs.sha }}
           SHORT_SHA: ${{ steps.meta.outputs.short_sha }}
         run: |
