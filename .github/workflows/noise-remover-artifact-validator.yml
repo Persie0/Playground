@@ -1,63 +1,47 @@
-name: Noise Remover artifact validator unit test
-
+name: Noise Remover private artifact validator
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Noise Remover branch, tag, or SHA to validate
+        description: Private app branch, tag, or SHA
         required: false
         default: master
         type: string
-
 permissions:
   contents: read
-
 env:
-  REQUESTED_APP_REF: ${{ inputs.ref || 'master' }}
-
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: ${{ inputs.ref || 'master' }}
 jobs:
   artifact-validator:
-    name: DPDF extensible WAV validator regression
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     steps:
-      - name: Checkout Playground
-        uses: actions/checkout@v5
-
-      - name: Resolve Noise Remover revision
-        id: app_ref
-        shell: bash
-        run: |
-          ref="${REQUESTED_APP_REF:-master}"
-          case "$ref" in
-            *[!A-Za-z0-9._/@-]*)
-              echo "Invalid Noise Remover ref: $ref" >&2
-              exit 2
-              ;;
-          esac
-          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout Noise Remover
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout private app revision
         uses: actions/checkout@v5
         with:
-          repository: Persie0/noise_remover
-          ref: ${{ steps.app_ref.outputs.ref }}
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: app
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - name: Checkout private CI harness
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: master
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-ci
+          sparse-checkout: .github/playground
+          sparse-checkout-cone-mode: false
+      - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
-      - name: Run artifact validator regression
-        run: |
-          cd app
-          flutter pub get
-          dart format --output=none --set-exit-if-changed \
-            lib/services/processing_artifact_service.dart \
-            test/services/processing_artifact_service_test.dart
-          flutter test test/services/processing_artifact_service_test.dart
+      - name: Run private artifact validator
+        run: bash private-ci/.github/playground/artifact-validator.sh app
