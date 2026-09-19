@@ -1,4 +1,4 @@
-name: Traffic detector 384x288 lab
+name: Traffic detector YOLO26n 384x288 lab
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
         type: string
   push:
     branches:
-      - traffic-detector-384x288
+      - traffic-detector-yolo26n-384x288
     paths:
       - 'traffic-counting-detector/**'
       - '.github/workflows/traffic-detector-384x288.yml'
@@ -50,9 +50,15 @@ jobs:
           repository: ${{ env.TRAFFIC_REPOSITORY }}
           ref: ${{ env.TRAFFIC_REF }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
+          persist-credentials: true
           path: private-traffic
           lfs: false
+
+      - name: Pull exact production YOLO11n 384x288 LFS object
+        working-directory: private-traffic
+        run: |
+          git lfs install --local
+          git lfs pull --include='edge/models/yolo11n_384x288_ncnn_model/model.ncnn.bin'
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -74,7 +80,7 @@ jobs:
             'easydict>=1.13,<2' \
             'ncnn==1.0.20260526' \
             'pnnx==20260526' \
-            'ultralytics==8.4.37'
+            'ultralytics==8.4.155'
 
       - name: Test detector lab helpers
         working-directory: traffic-counting-detector
@@ -82,24 +88,14 @@ jobs:
           PYTHONPATH: .
         run: python -m pytest -q test_export_ncnn_models.py test_accuracy_benchmark.py test_coco_transport.py
 
-      - name: Export YOLO11n 384x288 NCNN
+      - name: Export YOLO26n 384x288 NCNN
         working-directory: traffic-counting-detector
         run: |
           python export_ncnn_models.py \
-            --model yolo11n.pt \
+            --model yolo26n.pt \
             --width 384 \
             --height 288 \
-            --output-name yolo11n_384x288_ncnn_model \
-            --models-dir outputs/models
-
-      - name: Export YOLOv9t 384x288 NCNN
-        working-directory: traffic-counting-detector
-        run: |
-          python export_ncnn_models.py \
-            --model ../private-traffic/edge/models/yolov9t.pt \
-            --width 384 \
-            --height 288 \
-            --output-name yolov9t_384x288_ncnn_model \
+            --output-name yolo26n_384x288_ncnn_model \
             --models-dir outputs/models
 
       - name: Benchmark production detector latency
@@ -139,10 +135,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: traffic-detector-384x288
+          name: traffic-detector-yolo26n-384x288
           path: |
-            traffic-counting-detector/outputs/models/yolo11n_384x288_ncnn_model
-            traffic-counting-detector/outputs/models/yolov9t_384x288_ncnn_model
+            traffic-counting-detector/outputs/models/yolo26n_384x288_ncnn_model
             traffic-counting-detector/outputs/benchmark.json
             traffic-counting-detector/outputs/accuracy/accuracy_benchmark.json
             traffic-counting-detector/outputs/accuracy/accuracy_benchmark.md
