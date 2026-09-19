@@ -6,7 +6,7 @@ on:
       ref:
         description: Branch/tag/SHA in Persie0/stem
         required: true
-        default: ui/practice-export-polish
+        default: main
         type: string
   push:
     branches: [main]
@@ -19,80 +19,48 @@ permissions:
 
 env:
   APP_REPOSITORY: Persie0/stem
-  APP_REF: ${{ inputs.ref || 'ui/practice-export-polish' }}
+  APP_REF: ${{ inputs.ref || 'main' }}
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-
       - name: Validate private checkout token
         env:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        run: |
-          if [[ -z "$PRIVATE_TOKEN" ]]; then
-            echo "::error::Set PRIVATE_REPO_TOKEN (Contents: read on Persie0/stem)."
-            exit 2
-          fi
-
-      - name: Checkout exact Stem revision
-        uses: actions/checkout@v4
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout exact app revision
+        uses: actions/checkout@v5
         with:
           repository: ${{ env.APP_REPOSITORY }}
           ref: ${{ env.APP_REF }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: stem-app
-
+      - name: Checkout private CI harness
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-ci
+          sparse-checkout: .github/playground
+          sparse-checkout-cone-mode: false
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
-      - name: Run regression tests
-        working-directory: stem-app
-        run: |
-          set -euo pipefail
-          flutter pub get
-          flutter test test/practice_mode_screen_test.dart --reporter expanded
-
-      - name: Build debug APK
-        working-directory: stem-app
-        run: |
-          set -euo pipefail
-          flutter build apk --debug
-
-      - name: Verify Spleeter package
-        working-directory: stem-app
-        run: |
-          set -euo pipefail
-          APK=build/app/outputs/flutter-apk/app-debug.apk
-          test -f "$APK"
-          LISTING="$(mktemp)"
-          unzip -l "$APK" > "$LISTING"
-          grep -Eq 'assets/5stems\.tflite$' "$LISTING"
-          if grep -Eq 'assets/data[1-4]\.bin$' "$LISTING"; then
-            echo 'Legacy proprietary Spleeter data*.bin files are packaged.' >&2
-            exit 1
-          fi
-          if grep -Eq 'com/ttv/spleeter/SpleeterSDK|libttvspleeter\.so' "$LISTING"; then
-            echo 'Legacy proprietary ttvspleeter runtime is packaged.' >&2
-            exit 1
-          fi
-
-      - name: Publish exact APK release
+      - name: Run private regression/build harness
+        run: bash private-ci/.github/playground/private-ci.sh stem-app
+      - name: Publish verified debug APK
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          SHORT_SHA="${APP_REF:0:8}"
+          SHA="$(git -C stem-app rev-parse HEAD)"
+          SHORT_SHA="${SHA:0:8}"
           TAG="stem-debug-${SHORT_SHA}"
           APK="stem-app/build/app/outputs/flutter-apk/app-debug.apk"
-          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes >/dev/null 2>&1 || true
-          git push origin ":refs/tags/$TAG" >/dev/null 2>&1 || true
-          gh release create "$TAG" "$APK#stem-debug.apk" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Stem debug $SHORT_SHA" \
-            --notes "Verified Persie0/stem revision $APP_REF: regression tests, debug build, and Spleeter asset checks passed."
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes >/dev/null 2>&1 || true
+          gh release create "$TAG" "$APK#stem-debug.apk" --repo "$GITHUB_REPOSITORY" --title "Stem debug $SHORT_SHA" --notes "Private app regression/build validation passed for revision $SHA."
