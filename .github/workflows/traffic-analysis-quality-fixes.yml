@@ -1,0 +1,60 @@
+name: Traffic analysis quality fixes
+
+on:
+  push:
+    branches:
+      - traffic-analysis-quality-fixes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TARGET_REPOSITORY: Persie0/traffic-counting-light-main
+  TARGET_REF: feature/traffic-analysis-quality-fixes
+
+jobs:
+  focused-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Playground
+        uses: actions/checkout@v4
+
+      - name: Validate private repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::PRIVATE_REPO_TOKEN or GH_TOKEN is required."
+            exit 2
+          fi
+
+      - name: Checkout traffic branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TARGET_REPOSITORY }}
+          ref: ${{ env.TARGET_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: target
+          lfs: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install focused test dependencies
+        working-directory: target/edge
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+
+      - name: Compile
+        working-directory: target
+        run: python -m compileall -q edge/src
+
+      - name: Run focused regression suite
+        working-directory: target/edge
+        run: |
+          python -m pytest -q             tests/test_waiting_detector.py             tests/test_background_collector.py             tests/test_masked_median.py             tests/test_background_stage.py             tests/test_analysis_pipeline.py             tests/test_config.py             tests/test_pi_detector_config.py             tests/test_bytetrack_config.py             tests/test_route_heatmap.py             tests/test_traffic_renderer.py             tests/test_traffic_stage.py
