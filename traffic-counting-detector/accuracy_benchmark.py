@@ -491,10 +491,20 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     specs = [
-        ModelSpec("yoloxn_416x256", edge_dir / "models" / "yoloxn_416x256_ncnn_model", 416, 256, True),
-        ModelSpec("yolo11n_416x256", edge_dir / "models" / "yolo11n_416x256_ncnn_model", 416, 256, False),
-        ModelSpec("yolo11n_384x288", generated_models / "yolo11n_384x288_ncnn_model", 384, 288, False),
-        ModelSpec("yolov9t_384x288", generated_models / "yolov9t_384x288_ncnn_model", 384, 288, False),
+        ModelSpec(
+            "yolo11n_384x288_production",
+            edge_dir / "models" / "yolo11n_384x288_ncnn_model",
+            384,
+            288,
+            False,
+        ),
+        ModelSpec(
+            "yolo26n_384x288",
+            generated_models / "yolo26n_384x288_ncnn_model",
+            384,
+            288,
+            False,
+        ),
     ]
 
     for spec in specs:
