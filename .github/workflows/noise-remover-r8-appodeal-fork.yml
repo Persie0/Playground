@@ -90,6 +90,67 @@ jobs:
           REPORT='../build/app/reports/r8/r8-config-analyzer-release.html'
           test -s "$REPORT"
           cp "$REPORT" ../../r8-config-analyzer-release.html
+      - name: Build optimized release AAB with fork
+        working-directory: private-app
+        env:
+          CARGO_BUILD_JOBS: '2'
+          GRADLE_OPTS: '-Dorg.gradle.daemon=false -Dorg.gradle.vfs.watch=false'
+        run: |
+          sed -i -e '/^org\\.gradle\\.jvmargs=/d' -e '/^org\\.gradle\\.workers\\.max=/d' -e '/^org\\.gradle\\.parallel=/d' -e '/^org\\.gradle\\.daemon=/d' -e '/^kotlin\\.compiler\\.execution\\.strategy=/d' android/gradle.properties
+          cat >> android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xms2g -Xmx10g -XX:+UseParallelGC -Dfile.encoding=UTF-8
+          org.gradle.workers.max=1
+          org.gradle.parallel=false
+          org.gradle.daemon=false
+          kotlin.compiler.execution.strategy=in-process
+          EOF
+          flutter build appbundle --release --obfuscate --split-debug-info=build/debug-info
+
+      - name: Verify R8 percentages and bundle size
+        working-directory: private-app
+        run: |
+          python3 - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+
+          aab = Path('build/app/outputs/bundle/release/app-release.aab')
+          with zipfile.ZipFile(aab) as z:
+              r8 = json.loads(z.read('BUNDLE-METADATA/com.android.tools/r8.json'))
+              dex = [(i.filename, i.file_size, i.compress_size)
+                     for i in z.infolist() if i.filename.endswith('.dex')]
+
+          stats = r8['stats']
+          eligible = {
+              'optimization': round(100.0 - stats['noOptimizationPercentage'], 2),
+              'obfuscation': round(100.0 - stats['noObfuscationPercentage'], 2),
+              'shrinking': round(100.0 - stats['noShrinkingPercentage'], 2),
+          }
+          result = {
+              'aab_bytes': aab.stat().st_size,
+              'dex_uncompressed_bytes': sum(x[1] for x in dex),
+              'dex_compressed_bytes': sum(x[2] for x in dex),
+              'dex_entries': dex,
+              'r8_stats': stats,
+              'eligible_percentages': eligible,
+              'r8_version': r8.get('version'),
+          }
+          Path('../appodeal-fork-r8-metrics.json').write_text(
+              json.dumps(result, indent=2, sort_keys=True)
+          )
+          print(json.dumps(result, indent=2, sort_keys=True))
+
+          failed = {k:v for k,v in eligible.items() if v < 25.0}
+          if failed:
+              raise SystemExit(f'R8 >=25% target not met: {failed}')
+          PY
+
+          CONFIG='build/app/outputs/mapping/release/configuration.txt'
+          test -s "$CONFIG"
+          if grep -F -- '-keep class com.google.android.gms.** { *; }' "$CONFIG"; then
+            echo '::error::Legacy Vungle blanket Google Play services keep still present'
+            exit 1
+          fi
+
       - name: Extract analyzer text and likely blockers
         run: |
           python3 - <<'PY'
@@ -151,6 +212,9 @@ jobs:
             r8-config-analyzer-release.html
             r8-analyzer-summary.txt
             dependency-consumer-rules.txt
+            appodeal-fork-r8-metrics.json
+            private-app/build/app/outputs/bundle/release/app-release.aab
+            private-app/build/app/outputs/mapping/release/configuration.txt
           if-no-files-found: ignore
           retention-days: 7
 # A/B run trigger after workflow registration
