@@ -25,18 +25,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v5
-
       - name: Validate private checkout token
         env:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        run: |
-          if [[ -z "$PRIVATE_TOKEN" ]]; then
-            echo "::error::Set PRIVATE_REPO_TOKEN (Contents: read on Persie0/ImagePdfScaler)."
-            exit 2
-          fi
-
-      - name: Checkout private ImagePdfScaler
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout app revision
         uses: actions/checkout@v5
         with:
           repository: ${{ env.APP_REPOSITORY }}
@@ -44,57 +37,34 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: private-app
-
+      - name: Checkout private CI harness
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-ci
+          sparse-checkout: .github/playground
+          sparse-checkout-cone-mode: false
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
-      - name: Generate current Android scaffold
-        run: |
-          rm -rf /tmp/imagepdfscaler-scaffold
-          flutter create /tmp/imagepdfscaler-scaffold \
-            --platforms=android \
-            --org com.persie \
-            --project-name image_pdf_scaler
-          rm -rf private-app/android
-          cp -R /tmp/imagepdfscaler-scaffold/android private-app/android
-
-      - name: Resolve dependencies
-        working-directory: private-app
-        run: flutter pub get
-
-      - name: Analyze merged Fit copies and rotation fix
-        working-directory: private-app
-        run: flutter analyze
-
-      - name: Test Fit copies lifecycle, preview quality, rotation and layout
-        working-directory: private-app
-        run: flutter test
-
-      - name: Build debug APK
-        working-directory: private-app
-        run: flutter build apk --debug
-
-      - name: Build release APK
-        working-directory: private-app
-        run: flutter build apk --release
-
-      - name: Upload merged debug APK
+      - name: Run private test/build harness
+        run: bash private-ci/.github/playground/private-ci.sh private-app
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: imagepdfscaler-fit-copies-merged-debug-apk
+          name: imagepdfscaler-debug-apk
           path: private-app/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
-
-      - name: Upload merged release APK
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: imagepdfscaler-fit-copies-merged-release-apk
+          name: imagepdfscaler-release-apk
           path: private-app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
