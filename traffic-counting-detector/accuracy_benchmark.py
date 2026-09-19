@@ -291,6 +291,13 @@ def _write_detector_config(path: Path, spec: ModelSpec, threads: int) -> None:
     path.write_text(
         yaml.safe_dump(
             {
+                "experiment_name": spec.name,
+                "data": "traffic-detector-benchmark",
+                "preprocessing": {
+                    "resize": {
+                        "enabled": False,
+                    }
+                },
                 "detector": {
                     "type": "ncnn",
                     "half": False,
