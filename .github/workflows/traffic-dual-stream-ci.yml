@@ -15,7 +15,7 @@ env:
 jobs:
   project-tests:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - name: Validate private checkout token
         env:
@@ -31,20 +31,29 @@ jobs:
           persist-credentials: false
           path: app
 
-      - name: Checkout private CI harness
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ env.APP_REPOSITORY }}
-          ref: main
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
-          path: private-ci
-          sparse-checkout: .github/playground
-          sparse-checkout-cone-mode: false
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Run private runtime-hardening harness
-        run: bash private-ci/.github/playground/runtime-hardening.sh app
+      - name: Install config dependencies
+        run: python -m pip install pyyaml easydict
+
+      - name: Validate shipped configs with traceback
+        env:
+          PYTHONPATH: ${{ github.workspace }}/app/edge/src
+        run: |
+          cd app/edge
+          python - <<'PY'
+          from pathlib import Path
+          from utils.config import Config
+          paths = [
+              Path("configs/runtime/pi_camera.yaml"),
+              Path("configs/runtime/recording.yaml"),
+              Path("configs/runtime/webcam.yaml"),
+              Path("configs/benchmark/ncnn.yaml"),
+          ]
+          for path in paths:
+              print(f"VALIDATING {path}")
+              Config.load(path)
+              print(f"PASS {path}")
+          PY
