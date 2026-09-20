@@ -32,6 +32,9 @@ jobs:
           - label: norwegian-yoyillo
             repository: Persie0/norwegian_yoyillo
             ref: chore/google-signin-deps-2026-09
+          - label: punisher
+            repository: Persie0/punisher
+            ref: chore/google-signin-deps-2026-09
 
     steps:
       - name: Check private repository token
@@ -62,12 +65,12 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Resolve dependencies
+      - name: Upgrade direct dependencies to latest compatible majors
         id: pub
         continue-on-error: true
         working-directory: app
         shell: bash
-        run: flutter pub get >/tmp/pub-get.log 2>&1
+        run: flutter pub upgrade --major-versions >/tmp/pub-get.log 2>&1
 
       - name: Analyze
         id: analyze
@@ -118,7 +121,7 @@ jobs:
           git add .ci/google-signin-deps-validation.txt
 
           if [ "$PUB_OUTCOME" = "success" ]; then
-            git add pubspec.lock
+            git add pubspec.yaml pubspec.lock
           fi
 
           git commit -m "ci: record dependency validation"
