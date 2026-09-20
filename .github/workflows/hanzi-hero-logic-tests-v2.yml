@@ -1,25 +1,13 @@
-name: HanziHero private logic tests
+name: Norwegian Yoyillo private verification
 
 on:
   push:
     branches: [main]
     paths:
-      - 'hanzi-hero-tests/run.txt'
       - '.github/workflows/hanzi-hero-logic-tests-v2.yml'
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: Branch/tag/SHA in Persie0/hanzi_hero
-        required: false
-        default: main
-        type: string
 
 permissions:
   contents: read
-
-env:
-  APP_REPOSITORY: Persie0/hanzi_hero
-  APP_REF: ${{ inputs.ref || 'main' }}
 
 jobs:
   test:
@@ -30,26 +18,29 @@ jobs:
         env:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: test -n "$PRIVATE_TOKEN"
-      - name: Checkout app revision
+
+      - name: Checkout Norwegian Yoyillo
         uses: actions/checkout@v5
         with:
-          repository: ${{ env.APP_REPOSITORY }}
-          ref: ${{ env.APP_REF }}
+          repository: Persie0/norwegian_yoyillo
+          ref: sync/hanzi-latest-fixes-20260921
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: app
-      - name: Checkout private CI harness
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ env.APP_REPOSITORY }}
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
-          path: private-ci
-          sparse-checkout: .github/playground
-          sparse-checkout-cone-mode: false
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-      - name: Run private logic/provider/service suite
-        run: bash private-ci/.github/playground/logic-tests.sh app
+
+      - name: Verify privately
+        shell: bash
+        run: |
+          set -e
+          cd app
+          flutter pub get >/tmp/norwegian-pub.log 2>&1 || { echo "::error::Dependency resolution failed"; exit 1; }
+          echo "PASS: Flutter dependency resolution"
+          flutter analyze >/tmp/norwegian-analyze.log 2>&1 || { echo "::error::Static analysis failed"; exit 1; }
+          echo "PASS: Static analysis"
+          flutter test >/tmp/norwegian-test.log 2>&1 || { echo "::error::Flutter tests failed"; exit 1; }
+          echo "PASS: Flutter tests"
