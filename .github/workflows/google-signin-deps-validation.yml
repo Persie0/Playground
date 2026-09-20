@@ -63,40 +63,58 @@ jobs:
           cache: true
 
       - name: Resolve dependencies
+        id: pub
+        continue-on-error: true
         working-directory: app
         shell: bash
-        run: |
-          if ! flutter pub get >/tmp/pub-get.log 2>&1; then
-            echo "::error::Dependency resolution failed for ${{ matrix.label }}"
-            exit 1
-          fi
+        run: flutter pub get >/tmp/pub-get.log 2>&1
 
       - name: Analyze
+        id: analyze
+        if: steps.pub.outcome == 'success'
+        continue-on-error: true
         working-directory: app
         shell: bash
-        run: |
-          if ! flutter analyze --no-fatal-infos >/tmp/analyze.log 2>&1; then
-            echo "::error::Flutter analyze failed for ${{ matrix.label }}"
-            exit 1
-          fi
+        run: flutter analyze --no-fatal-infos >/tmp/analyze.log 2>&1
 
       - name: Build Android debug APK
+        id: build
+        if: steps.pub.outcome == 'success' && steps.analyze.outcome == 'success'
+        continue-on-error: true
         working-directory: app
         shell: bash
+        run: flutter build apk --debug >/tmp/build.log 2>&1
+
+      - name: Record sanitized result and refreshed lockfile
+        if: always()
+        working-directory: app
+        shell: bash
+        env:
+          PUB_OUTCOME: ${{ steps.pub.outcome }}
+          ANALYZE_OUTCOME: ${{ steps.analyze.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
         run: |
-          if ! flutter build apk --debug >/tmp/build.log 2>&1; then
-            echo "::error::Android debug build failed for ${{ matrix.label }}"
-            exit 1
+          set -euo pipefail
+          mkdir -p .ci
+          printf 'pub=%s\nanalyze=%s\nbuild=%s\n' \
+            "$PUB_OUTCOME" "$ANALYZE_OUTCOME" "$BUILD_OUTCOME" \
+            > .ci/google-signin-deps-validation.txt
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .ci/google-signin-deps-validation.txt
+
+          if [ "$PUB_OUTCOME" = "success" ] &&
+             [ "$ANALYZE_OUTCOME" = "success" ] &&
+             [ "$BUILD_OUTCOME" = "success" ]; then
+            git add pubspec.lock
           fi
 
-      - name: Commit refreshed lockfile
-        working-directory: app
-        shell: bash
-        run: |
-          if git status --porcelain -- pubspec.lock | grep -q .; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add pubspec.lock
-            git commit -m "chore: refresh dependency lockfile"
-            git push origin "HEAD:${{ matrix.ref }}"
+          git commit -m "ci: record dependency validation"
+          git push origin "HEAD:${{ matrix.ref }}"
+
+          if [ "$PUB_OUTCOME" != "success" ] ||
+             [ "$ANALYZE_OUTCOME" != "success" ] ||
+             [ "$BUILD_OUTCOME" != "success" ]; then
+            exit 1
           fi
