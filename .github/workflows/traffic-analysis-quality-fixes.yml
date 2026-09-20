@@ -1,5 +1,5 @@
 name: Traffic analysis quality fixes
-# final verification: exact route-support rendering + historical reference replay
+# Temporary Superpowers TDD harness for the vehicle-scale/sneckdown implementation.
 
 on:
   push:
@@ -17,7 +17,7 @@ env:
 jobs:
   focused-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - name: Checkout Playground
         uses: actions/checkout@v4
@@ -44,41 +44,26 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
 
-      - name: Install focused test dependencies
-        working-directory: target/edge
+      - name: Install lightweight test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e '.[dev]'
+          python -m pip install 'numpy>=2.2,<2.5' 'opencv-python-headless>=4.12,<5' 'pytest>=9,<10' 'ruff>=0.16,<0.17' 'easydict>=1.13,<2' 'loguru>=0.7.3,<0.8' 'pyyaml>=6,<7'
 
       - name: Compile
         working-directory: target
         run: python -m compileall -q edge/src
 
-      - name: Check undefined names in changed runtime and tests
+      - name: Check Task 1 undefined names
         working-directory: target/edge
         run: |
-          python -m ruff check --select F             src/analysis/analysis_pipeline.py             src/analysis/artifacts.py             src/analysis/background             src/analysis/traffic/renderer.py             src/analysis/traffic/traffic_stage.py             src/analysis/traffic/waiting_detector.py             src/tracking/bytetrack.py             src/utils/config.py             scripts/replay_traffic_heatmaps.py             tests/test_analysis_pipeline.py             tests/test_background_collector.py             tests/test_background_stage.py             tests/test_bytetrack_config.py             tests/test_config.py             tests/test_masked_median.py             tests/test_pi_detector_config.py             tests/test_traffic_renderer.py             tests/test_traffic_stage.py             tests/test_vehicle_scale.py             tests/test_waiting_detector.py
+          python -m ruff check --select F \
+            src/analysis/traffic/vehicle_scale.py \
+            src/analysis/traffic/heatmap_state.py \
+            tests/test_vehicle_scale.py \
+            tests/test_heatmap_storage.py
 
-      - name: Run focused regression suite
+      - name: Run Task 1 tests
         working-directory: target/edge
-        run: |
-          python -m pytest -q             tests/test_vehicle_scale.py             tests/test_waiting_detector.py             tests/test_background_collector.py             tests/test_masked_median.py             tests/test_background_stage.py             tests/test_analysis_pipeline.py             tests/test_config.py             tests/test_pi_detector_config.py             tests/test_bytetrack_config.py             tests/test_route_heatmap.py             tests/test_traffic_renderer.py             tests/test_traffic_stage.py             tests/test_traffic_replay.py             tests/test_heatmap_storage.py
-
-
-      - name: Replay historical reference tracks through new analysis
-        working-directory: target/edge
-        run: |
-          rm -rf /tmp/traffic-quality-replay
-          PYTHONPATH=src python scripts/replay_traffic_heatmaps.py --tracks ../experiments/intersection_analysis/heatmaps/tracks_bytetrack.csv --image ../experiments/intersection_analysis/heatmaps/frame.jpg --out /tmp/traffic-quality-replay --conf 0.5 --grid-width 384 --grid-height 288
-          python - <<'PY'
-          import sqlite3
-          from pathlib import Path
-
-          db = Path("/tmp/traffic-quality-replay/traffic_analysis.sqlite3")
-          with sqlite3.connect(db) as connection:
-              event_count = connection.execute("SELECT COUNT(*) FROM waiting_events").fetchone()[0]
-              track_count = connection.execute("SELECT COUNT(DISTINCT track_id) FROM waiting_events").fetchone()[0]
-          print(f"reference replay waiting events={event_count}, unique waiting tracks={track_count}")
-          assert event_count >= 50, "waiting-event recall regressed on the historical reference tracks"
-          PY
+        run: python -m pytest -q tests/test_vehicle_scale.py tests/test_heatmap_storage.py
