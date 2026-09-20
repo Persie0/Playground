@@ -79,7 +79,7 @@ jobs:
 
       - name: Build Android debug APK
         id: build
-        if: steps.pub.outcome == 'success' && steps.analyze.outcome == 'success'
+        if: steps.pub.outcome == 'success'
         continue-on-error: true
         working-directory: app
         shell: bash
@@ -100,13 +100,24 @@ jobs:
             "$PUB_OUTCOME" "$ANALYZE_OUTCOME" "$BUILD_OUTCOME" \
             > .ci/google-signin-deps-validation.txt
 
+          if [ "$PUB_OUTCOME" != "success" ]; then
+            printf '\n[pub-tail]\n' >> .ci/google-signin-deps-validation.txt
+            tail -n 35 /tmp/pub-get.log >> .ci/google-signin-deps-validation.txt
+          fi
+          if [ "$ANALYZE_OUTCOME" = "failure" ]; then
+            printf '\n[analyze-tail]\n' >> .ci/google-signin-deps-validation.txt
+            tail -n 45 /tmp/analyze.log >> .ci/google-signin-deps-validation.txt
+          fi
+          if [ "$BUILD_OUTCOME" = "failure" ]; then
+            printf '\n[build-tail]\n' >> .ci/google-signin-deps-validation.txt
+            tail -n 45 /tmp/build.log >> .ci/google-signin-deps-validation.txt
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .ci/google-signin-deps-validation.txt
 
-          if [ "$PUB_OUTCOME" = "success" ] &&
-             [ "$ANALYZE_OUTCOME" = "success" ] &&
-             [ "$BUILD_OUTCOME" = "success" ]; then
+          if [ "$PUB_OUTCOME" = "success" ]; then
             git add pubspec.lock
           fi
 
