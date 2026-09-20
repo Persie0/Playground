@@ -1,4 +1,4 @@
-# validation revision: 3
+# validation revision: 4
 name: Google sign-in dependency validation
 
 on:
@@ -80,6 +80,11 @@ jobs:
         working-directory: app
         shell: bash
         run: flutter analyze --no-fatal-infos >/tmp/analyze.log 2>&1
+
+      - name: Accept Android SDK licenses
+        if: steps.pub.outcome == 'success'
+        shell: bash
+        run: yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
       - name: Build Android debug APK
         id: build
