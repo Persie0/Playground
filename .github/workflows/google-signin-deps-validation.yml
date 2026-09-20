@@ -1,0 +1,102 @@
+name: Google sign-in dependency validation
+
+on:
+  push:
+    paths:
+      - .github/workflows/google-signin-deps-validation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: memory-palace
+            repository: Persie0/Memory_Palace_Builder
+            ref: chore/google-signin-deps-2026-09
+          - label: mwst-buchhalter
+            repository: Persie0/mwst_buchhalter
+            ref: chore/google-signin-deps-2026-09
+          - label: vitamindtracker
+            repository: Persie0/vitamindtracker
+            ref: chore/google-signin-deps-2026-09
+          - label: nomadrank
+            repository: Persie0/skratch_clone
+            ref: chore/google-signin-deps-2026-09
+          - label: norwegian-yoyillo
+            repository: Persie0/norwegian_yoyillo
+            ref: chore/google-signin-deps-2026-09
+
+    steps:
+      - name: Check private repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout app branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.ref }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+          persist-credentials: true
+
+      - name: Configure private GitHub dependencies
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          git config --global url."https://x-access-token:${PRIVATE_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: app
+        shell: bash
+        run: |
+          if ! flutter pub get >/tmp/pub-get.log 2>&1; then
+            echo "::error::Dependency resolution failed for ${{ matrix.label }}"
+            exit 1
+          fi
+
+      - name: Analyze
+        working-directory: app
+        shell: bash
+        run: |
+          if ! flutter analyze --no-fatal-infos >/tmp/analyze.log 2>&1; then
+            echo "::error::Flutter analyze failed for ${{ matrix.label }}"
+            exit 1
+          fi
+
+      - name: Build Android debug APK
+        working-directory: app
+        shell: bash
+        run: |
+          if ! flutter build apk --debug >/tmp/build.log 2>&1; then
+            echo "::error::Android debug build failed for ${{ matrix.label }}"
+            exit 1
+          fi
+
+      - name: Commit refreshed lockfile
+        working-directory: app
+        shell: bash
+        run: |
+          if git status --porcelain -- pubspec.lock | grep -q .; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add pubspec.lock
+            git commit -m "chore: refresh dependency lockfile"
+            git push origin "HEAD:${{ matrix.ref }}"
+          fi
