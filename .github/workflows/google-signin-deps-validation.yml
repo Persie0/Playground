@@ -1,4 +1,4 @@
-# validation revision: 10
+# validation revision: 11
 name: Google sign-in dependency validation
 
 on:
@@ -66,12 +66,12 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Upgrade direct dependencies to latest compatible majors
+      - name: Resolve committed dependencies
         id: pub
         continue-on-error: true
         working-directory: app
         shell: bash
-        run: flutter pub upgrade --major-versions >/tmp/pub-get.log 2>&1
+        run: flutter pub get >/tmp/pub-get.log 2>&1
 
       - name: Analyze
         id: analyze
@@ -134,7 +134,7 @@ jobs:
           git add .ci/google-signin-deps-validation.txt
 
           if [ "$PUB_OUTCOME" = "success" ]; then
-            git add pubspec.yaml pubspec.lock
+            git add pubspec.lock
           fi
 
           git commit -m "ci: record dependency validation"
