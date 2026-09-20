@@ -1,4 +1,4 @@
-# validation revision: 8
+# validation revision: 9
 name: Google sign-in dependency validation
 
 on:
@@ -111,8 +111,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .ci
-          printf 'pub=%s\nanalyze=%s\nbuild=%s\n' \
-            "$PUB_OUTCOME" "$ANALYZE_OUTCOME" "$BUILD_OUTCOME" \
+          APP_HEAD="$(git rev-parse HEAD)"
+          printf 'validator=%s\napp_head=%s\npub=%s\nanalyze=%s\nbuild=%s\n' \
+            "$GITHUB_SHA" "$APP_HEAD" "$PUB_OUTCOME" "$ANALYZE_OUTCOME" "$BUILD_OUTCOME" \
             > .ci/google-signin-deps-validation.txt
 
           if [ "$PUB_OUTCOME" != "success" ]; then
