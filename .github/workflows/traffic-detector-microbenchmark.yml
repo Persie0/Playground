@@ -1,0 +1,120 @@
+name: Traffic detector paired microbenchmark
+
+on:
+  push:
+    branches:
+      - perf/traffic-runtime-optimization
+    paths:
+      - ".github/workflows/traffic-detector-microbenchmark.yml"
+      - ".github/runtime-detector-bench-trigger.txt"
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/traffic-counting-light-main
+  CANDIDATE_REF: perf/runtime-optimization
+
+jobs:
+  paired-detector:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private baseline
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: baseline
+
+      - name: Checkout private candidate
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.CANDIDATE_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: candidate
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install focused detector benchmark dependencies
+        run: |
+          python -m pip install \
+            "numpy>=2.2,<2.5" \
+            "opencv-python>=4.12.0.88,<5" \
+            "easydict>=1.13,<2" \
+            "pyyaml>=6.0.3,<7"
+
+      - name: Run baseline detector benchmark
+        run: |
+          mkdir -p runtime-detector-results
+          BASE_SHA="$(git -C baseline rev-parse HEAD)"
+          PYTHONPATH="$PWD/baseline/edge/src:$PWD/candidate" BASE_SHA="$BASE_SHA" python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from benchmarks.runtime_perf.detector_cases import DETECTOR_CASE_FACTORIES
+          from benchmarks.runtime_perf.run_suite import build_suite
+          result = build_suite(
+              DETECTOR_CASE_FACTORIES,
+              sha=os.environ["BASE_SHA"],
+              profile="hosted",
+              rounds=7,
+              iterations=1000,
+              warmups=100,
+          )
+          Path("runtime-detector-results/baseline.json").write_text(
+              json.dumps(result, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Run candidate detector benchmark
+        run: |
+          CANDIDATE_SHA="$(git -C candidate rev-parse HEAD)"
+          PYTHONPATH="$PWD/candidate/edge/src:$PWD/candidate" CANDIDATE_SHA="$CANDIDATE_SHA" python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from benchmarks.runtime_perf.detector_cases import DETECTOR_CASE_FACTORIES
+          from benchmarks.runtime_perf.run_suite import build_suite
+          result = build_suite(
+              DETECTOR_CASE_FACTORIES,
+              sha=os.environ["CANDIDATE_SHA"],
+              profile="hosted",
+              rounds=7,
+              iterations=1000,
+              warmups=100,
+          )
+          Path("runtime-detector-results/candidate.json").write_text(
+              json.dumps(result, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Compare detector benchmark
+        run: |
+          PYTHONPATH="$PWD/candidate/edge/src:$PWD/candidate" \
+          python candidate/benchmarks/runtime_perf/compare.py \
+            --baseline runtime-detector-results/baseline.json \
+            --candidate runtime-detector-results/candidate.json \
+            --json runtime-detector-results/comparison.json \
+            --markdown runtime-detector-results/comparison.md
+          cat runtime-detector-results/comparison.md
+          cat runtime-detector-results/comparison.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload detector comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traffic-detector-runtime-comparison
+          path: runtime-detector-results/
+          if-no-files-found: warn
