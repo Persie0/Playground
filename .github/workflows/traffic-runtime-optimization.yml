@@ -60,5 +60,22 @@ jobs:
               Config.load(p)
           PY
 
+      - name: Reproduce private harness config environment
+        run: |
+          export PYTHONPATH="app/edge/src"
+          cd app/edge
+          python - <<'PY'
+          from pathlib import Path
+          from utils.config import Config
+          for p in [
+              Path("configs/runtime/pi_camera.yaml"),
+              Path("configs/runtime/recording.yaml"),
+              Path("configs/runtime/webcam.yaml"),
+              Path("configs/benchmark/ncnn.yaml"),
+          ]:
+              print("harness-loading", p)
+              Config.load(p)
+          PY
+
       - name: Run private runtime hardening harness
         run: bash app/.github/playground/runtime-hardening.sh app
