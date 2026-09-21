@@ -1,55 +1,39 @@
-name: HanziHero private logic tests
+name: Norwegian Yoyillo sync regression diagnostic
 
 on:
   push:
     branches: [main]
     paths:
-      - 'hanzi-hero-tests/run.txt'
       - '.github/workflows/hanzi-hero-logic-tests-v2.yml'
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: Branch/tag/SHA in Persie0/hanzi_hero
-        required: false
-        default: main
-        type: string
 
 permissions:
   contents: read
 
-env:
-  APP_REPOSITORY: Persie0/hanzi_hero
-  APP_REF: ${{ inputs.ref || 'main' }}
-
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 20
     steps:
-      - name: Validate private checkout token
-        env:
-          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        run: test -n "$PRIVATE_TOKEN"
-      - name: Checkout app revision
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
-          repository: ${{ env.APP_REPOSITORY }}
-          ref: ${{ env.APP_REF }}
+          repository: Persie0/norwegian_yoyillo
+          ref: sync/hanzi-latest-fixes-20260921
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
-          path: app
-      - name: Checkout private CI harness
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ env.APP_REPOSITORY }}
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
-          path: private-ci
-          sparse-checkout: .github/playground
-          sparse-checkout-cone-mode: false
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-      - name: Run private logic/provider/service suite
-        run: bash private-ci/.github/playground/logic-tests.sh app
+      - run: flutter pub get >/dev/null
+      - name: Run sync regression test
+        shell: bash
+        run: |
+          set +e
+          flutter test test/services/progress_sync_payload_service_test.dart > /tmp/test.log 2>&1
+          rc=$?
+          if [[ $rc -ne 0 ]]; then
+            grep -E '(^[[:space:]]*[0-9]+:[0-9]+|Expected:|Actual:|Which:|Test failed|Some tests failed|Error:|Exception:)' /tmp/test.log || true
+          else
+            echo "PASS: sync regression test"
+          fi
+          exit $rc
