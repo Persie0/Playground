@@ -1,0 +1,37 @@
+name: Noise Remover manual RevenueCat reinit
+on:
+  push:
+    paths:
+      - '.github/workflows/noise-remover-manual-revenuecat.yml'
+permissions:
+  contents: read
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: fix/manual-revenuecat-reinitialize
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout private app branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Format changed files
+        run: dart format --output=none --set-exit-if-changed lib/services/subscription_service.dart lib/screens/paywall_screen.dart test/network_error_test.dart
+      - name: Tests
+        run: flutter test test/network_error_test.dart test/purchase_restriction_reporting_test.dart
+      - name: Analyze
+        run: flutter analyze --fatal-infos
