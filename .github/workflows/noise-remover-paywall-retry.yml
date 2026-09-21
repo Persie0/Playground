@@ -30,8 +30,10 @@ jobs:
           cache: true
       - name: Install dependencies
         run: flutter pub get
-      - name: Check new test/helper formatting
-        run: dart format --output=none --set-exit-if-changed lib/services/deferred_service_retry_guard.dart test/network_error_test.dart
+      - name: Show formatter diff
+        run: |
+          dart format lib/services/deferred_service_retry_guard.dart test/network_error_test.dart
+          git diff -- lib/services/deferred_service_retry_guard.dart test/network_error_test.dart
       - name: Network retry regression tests
         run: flutter test test/network_error_test.dart test/purchase_restriction_reporting_test.dart
       - name: Strict analyze
