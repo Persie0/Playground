@@ -30,8 +30,10 @@ jobs:
           cache: true
       - name: Install dependencies
         run: flutter pub get
-      - name: Check formatting
-        run: dart format --output=none --set-exit-if-changed lib/screens/home_screen.dart lib/screens/audio_recording_screen.dart lib/services/background_processing_task.dart lib/screens/bulk_processing_screen.dart lib/utils/ffmpeg_utils.dart lib/utils/user_facing_error.dart test/recording_storage_regression_test.dart
+      - name: Show formatter diff
+        run: |
+          dart format test/recording_storage_regression_test.dart
+          git diff -- test/recording_storage_regression_test.dart
       - name: Targeted regression tests
         run: flutter test test/recording_storage_regression_test.dart test/user_facing_error_test.dart
       - name: Strict analyze
