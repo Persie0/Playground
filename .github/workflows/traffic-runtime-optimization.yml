@@ -38,5 +38,21 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Diagnose shipped config loading
+        run: |
+          cd app/edge
+          PYTHONPATH=src python - <<'PY'
+          from pathlib import Path
+          from utils.config import Config
+          for p in [
+              Path("configs/runtime/pi_camera.yaml"),
+              Path("configs/runtime/recording.yaml"),
+              Path("configs/runtime/webcam.yaml"),
+              Path("configs/benchmark/ncnn.yaml"),
+          ]:
+              print("loading", p)
+              Config.load(p)
+          PY
+
       - name: Run private runtime hardening harness
         run: bash app/.github/playground/runtime-hardening.sh app
