@@ -39,4 +39,17 @@ jobs:
           python-version: "3.12"
 
       - name: Run full private runtime hardening
+        id: hardening
+        continue-on-error: true
         run: bash app/.github/playground/runtime-hardening.sh app
+
+      - name: Diagnose project tests when hardening fails
+        if: steps.hardening.outcome == 'failure'
+        run: |
+          APP="$(cd app && pwd -P)"
+          cd "$APP"
+          PYTHONPATH="$APP/edge/src:$APP" python -m pytest -q project_tests
+
+      - name: Enforce hardening result
+        if: steps.hardening.outcome == 'failure'
+        run: exit 1
