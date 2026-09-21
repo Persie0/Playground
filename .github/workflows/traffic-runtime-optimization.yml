@@ -38,5 +38,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run private runtime hardening harness
-        run: bash app/.github/playground/runtime-hardening.sh app
+      - name: Install runtime/test dependencies
+        run: |
+          cd app/edge
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[pi,dev]'
+
+      - name: Run focused private optimization step
+        run: bash app/.github/playground/runtime-optimization-step.sh app
