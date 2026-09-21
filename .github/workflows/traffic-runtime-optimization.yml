@@ -1,0 +1,42 @@
+name: Traffic runtime optimization executor
+
+on:
+  push:
+    branches:
+      - perf/traffic-runtime-optimization
+    paths:
+      - ".github/workflows/traffic-runtime-optimization.yml"
+      - ".github/runtime-optimization-trigger.txt"
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/traffic-counting-light-main
+  APP_REF: perf/runtime-optimization
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private optimization branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run private runtime hardening harness
+        run: bash app/.github/playground/runtime-hardening.sh app
