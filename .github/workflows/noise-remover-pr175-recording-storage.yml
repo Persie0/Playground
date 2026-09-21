@@ -1,0 +1,38 @@
+name: Noise Remover PR175 recording storage validation
+on:
+  push:
+    paths:
+      - '.github/workflows/noise-remover-pr175-recording-storage.yml'
+permissions:
+  contents: read
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: fix/recording-persistence-storage-errors
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout private app branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed lib/screens/home_screen.dart lib/screens/audio_recording_screen.dart lib/services/background_processing_task.dart lib/screens/bulk_processing_screen.dart lib/utils/ffmpeg_utils.dart lib/utils/user_facing_error.dart test/recording_storage_regression_test.dart
+      - name: Targeted regression tests
+        run: flutter test test/recording_storage_regression_test.dart test/user_facing_error_test.dart
+      - name: Strict analyze
+        run: flutter analyze --fatal-infos
