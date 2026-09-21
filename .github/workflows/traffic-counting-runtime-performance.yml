@@ -1,0 +1,79 @@
+name: Traffic counting paired runtime performance
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: Private candidate branch, tag, or SHA
+        required: true
+        default: perf/runtime-optimization
+        type: string
+  push:
+    branches:
+      - perf/traffic-runtime-optimization
+    paths:
+      - ".github/workflows/traffic-counting-runtime-performance.yml"
+      - ".github/runtime-performance-trigger.txt"
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/traffic-counting-light-main
+  CANDIDATE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_ref || 'perf/runtime-optimization' }}
+
+jobs:
+  paired-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private baseline
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: baseline
+
+      - name: Checkout private candidate
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.CANDIDATE_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: candidate
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install candidate runtime/test dependencies
+        run: |
+          cd candidate/edge
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[pi,dev]'
+
+      - name: Run paired private runtime benchmark
+        run: bash candidate/.github/playground/runtime-performance.sh baseline candidate runtime-results
+
+      - name: Publish comparison summary
+        if: always()
+        run: |
+          if [ -f runtime-results/comparison.md ]; then
+            cat runtime-results/comparison.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload runtime comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traffic-runtime-comparison
+          path: runtime-results/
+          if-no-files-found: warn
