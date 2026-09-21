@@ -1,4 +1,4 @@
-name: Traffic analysis review fast
+name: Traffic config simplification
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
 
 env:
   TARGET_REPOSITORY: Persie0/traffic-counting-light-main
-  TARGET_REF: feature/traffic-analysis-quality-fixes
+  TARGET_REF: refactor/simplify-traffic-heatmap-config
 
 jobs:
   review-fast:
@@ -41,9 +41,9 @@ jobs:
 
       - name: Run review regression tests
         working-directory: target/edge
-        run: PYTHONPATH=src python -m pytest -q tests/test_vehicle_scale.py tests/test_config.py
+        run: PYTHONPATH=src python -m pytest -q tests/test_config.py tests/test_analysis_pipeline.py tests/test_waiting_detector.py tests/test_occupied_area.py tests/test_traffic_renderer.py tests/test_traffic_stage.py tests/test_traffic_replay.py
 
-      - name: Historical replay after review fixes
+      - name: Historical replay after config simplification
         working-directory: target/edge
         run: |
           rm -rf /tmp/review-replay
