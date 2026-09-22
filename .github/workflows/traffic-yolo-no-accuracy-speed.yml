@@ -60,18 +60,17 @@ jobs:
             'requests>=2.32,<3' \
             'ncnn==1.0.20260526'
 
-      - name: Build matching FP32 ncnnoptimize
+      - name: Download matching FP32 ncnnoptimize
         run: |
-          git clone --depth 1 --branch 20260526 https://github.com/Tencent/ncnn.git ncnn-src
-          cmake -S ncnn-src -B ncnn-src/build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DNCNN_VULKAN=OFF \
-            -DNCNN_BUILD_TOOLS=ON \
-            -DNCNN_BUILD_EXAMPLES=OFF \
-            -DNCNN_BUILD_BENCHMARK=OFF \
-            -DNCNN_BUILD_TESTS=OFF
-          cmake --build ncnn-src/build --target ncnnoptimize -j2
-          test -x ncnn-src/build/tools/ncnnoptimize
+          curl -L --fail --retry 3 \
+            -o ncnn-ubuntu.zip \
+            https://github.com/Tencent/ncnn/releases/download/20260526/ncnn-20260526-ubuntu-2404.zip
+          unzip -q ncnn-ubuntu.zip -d ncnn-prebuilt
+          NCNNOPT="$(find ncnn-prebuilt -type f -name ncnnoptimize -perm -u+x | head -n 1)"
+          test -n "$NCNNOPT"
+          cp "$NCNNOPT" ./ncnnoptimize
+          chmod +x ./ncnnoptimize
+          ./ncnnoptimize 2>&1 | head -n 2 || true
 
       - name: Syntax check experiment harness
         run: python -m py_compile traffic-yolo-no-accuracy/run_experiments.py
@@ -81,7 +80,7 @@ jobs:
           python traffic-yolo-no-accuracy/run_experiments.py \
             --private-repo private-traffic \
             --output-dir traffic-yolo-no-accuracy/outputs \
-            --ncnnoptimize ncnn-src/build/tools/ncnnoptimize \
+            --ncnnoptimize ./ncnnoptimize \
             --threads 4 \
             --num-images 180 \
             --seed 20260915 \
