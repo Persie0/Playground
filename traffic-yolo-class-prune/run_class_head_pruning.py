@@ -181,6 +181,71 @@ def benchmark_pruned(runner: Runner, image: np.ndarray, class_aware_nms_indices,
     }
 
 
+def paired_pruned_latency(
+    full: Runner,
+    pruned: Runner,
+    image: np.ndarray,
+    class_aware_nms_indices,
+    *,
+    blocks: int = 25,
+    iterations: int = 12,
+) -> dict:
+    import random
+
+    for _ in range(8):
+        decode_array(full.infer_array(image), class_aware_nms_indices, 0.10)
+        decode_array(expand_pruned_output(pruned.infer_array(image)), class_aware_nms_indices, 0.10)
+
+    rng = random.Random(20260922)
+    deltas_percent: list[float] = []
+    deltas_ms: list[float] = []
+    faster = 0
+
+    def run_full() -> float:
+        started = time.perf_counter_ns()
+        for _ in range(iterations):
+            decode_array(full.infer_array(image), class_aware_nms_indices, 0.10)
+        return (time.perf_counter_ns() - started) / 1_000_000.0 / iterations
+
+    def run_pruned() -> float:
+        started = time.perf_counter_ns()
+        for _ in range(iterations):
+            decode_array(
+                expand_pruned_output(pruned.infer_array(image)),
+                class_aware_nms_indices,
+                0.10,
+            )
+        return (time.perf_counter_ns() - started) / 1_000_000.0 / iterations
+
+    for block in range(blocks):
+        if rng.getrandbits(1):
+            p_ms = run_pruned()
+            f_ms = run_full()
+        else:
+            f_ms = run_full()
+            p_ms = run_pruned()
+        delta_ms = p_ms - f_ms
+        delta_percent = (p_ms / f_ms - 1.0) * 100.0
+        deltas_ms.append(delta_ms)
+        deltas_percent.append(delta_percent)
+        faster += int(delta_ms < 0.0)
+        print(
+            f"class-head paired {block + 1:02d}/{blocks}: "
+            f"full80={f_ms:.4f} ms pruned6={p_ms:.4f} ms delta={delta_percent:+.3f}%",
+            flush=True,
+        )
+
+    return {
+        "blocks": blocks,
+        "iterations_per_side_per_block": iterations,
+        "paired_delta_ms_median": median(deltas_ms),
+        "paired_delta_percent_median": median(deltas_percent),
+        "faster_blocks": faster,
+        "faster_fraction": faster / blocks,
+        "round_delta_percent": deltas_percent,
+    }
+
+
 def render(payload: dict) -> str:
     prod = payload["latency"]["production"]
     full = payload["latency"]["reexport_full80"]
@@ -188,6 +253,7 @@ def render(payload: dict) -> str:
     vs_full = (pruned["median_ms"] / full["median_ms"] - 1.0) * 100.0
     vs_prod = (pruned["median_ms"] / prod["median_ms"] - 1.0) * 100.0
     eq = payload["equivalence"]
+    paired = payload["paired_latency"]
     lines = [
         "# YOLO11n final class-head 80→6 pruning experiment",
         "",
@@ -202,6 +268,10 @@ def render(payload: dict) -> str:
         f"| exact production | {prod['median_ms']:.3f} | baseline reference | {payload['model_bytes']['production']:,} B |",
         f"| same-run 80-class re-export | {full['median_ms']:.3f} | same-toolchain control | {payload['model_bytes']['reexport_full80']:,} B |",
         f"| pruned 6-class final head | {pruned['median_ms']:.3f} | {vs_full:+.2f}% vs re-export / {vs_prod:+.2f}% vs production | {payload['model_bytes']['pruned6']:,} B |",
+        "",
+        f"Interleaved paired full80→pruned median: **{paired['paired_delta_percent_median']:+.3f}%** "
+        f"({paired['paired_delta_ms_median']:+.4f} ms), pruned faster in "
+        f"**{paired['faster_blocks']}/{paired['blocks']}** blocks.",
         "",
         "## Equivalence",
         "",
@@ -287,6 +357,12 @@ def main() -> None:
         "reexport_full80": benchmark(full, smoke, class_aware_nms_indices),
         "pruned6": benchmark_pruned(pruned, smoke, class_aware_nms_indices),
     }
+    paired_latency = paired_pruned_latency(
+        full,
+        pruned,
+        smoke,
+        class_aware_nms_indices,
+    )
 
     cache_dir = output_dir / "_coco_cache"
     coco = load_coco_annotations(cache_dir)
@@ -370,6 +446,7 @@ def main() -> None:
         "dataset": {"num_images": len(samples), "seed": args.seed},
         "patch": patch_info,
         "latency": latency,
+        "paired_latency": paired_latency,
         "accuracy": accuracy,
         "equivalence": eq,
         "model_bytes": {
