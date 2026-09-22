@@ -1,0 +1,81 @@
+name: Resistor scanner race verification
+
+on:
+  push:
+    paths:
+      - '.github/workflows/resistor-scanner-race-verify.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Playground for result
+        uses: actions/checkout@v5
+        with:
+          path: report
+
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout app revision
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: fix/glitchtip-34-camera-race
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Checkout private CI harness
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: tflite
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-ci
+          sparse-checkout: .github/playground
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - uses: gradle/actions/setup-gradle@v5
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Run private scanner/camera suite
+        id: scanner
+        continue-on-error: true
+        run: bash private-ci/.github/playground/scanning-tests.sh app
+
+      - name: Record verification result
+        working-directory: report
+        env:
+          OUTCOME: ${{ steps.scanner.outcome }}
+          APP_SHA: 23a1245d3d3b84890af3b4555b35d34851a08154
+        run: |
+          mkdir -p results
+          printf 'outcome=%s\napp_sha=%s\n' "$OUTCOME" "$APP_SHA" > results/resistor-scanner-race-verify.txt
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add results/resistor-scanner-race-verify.txt
+          git commit -m "ci: record resistor scanner race verification"
+          git push origin HEAD:main
+
+      - name: Preserve failing status
+        if: steps.scanner.outcome != 'success'
+        run: exit 1
