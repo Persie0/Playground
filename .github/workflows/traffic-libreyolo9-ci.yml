@@ -38,6 +38,7 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: app
+          lfs: true
 
       - uses: actions/setup-python@v5
         with:
@@ -50,6 +51,23 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e '.[pi,dev,libreyolo-export]'
+
+      - name: Verify checked-in LibreYOLO9t LFS artifacts
+        working-directory: app
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+
+          for shape in ("384x288", "416x256"):
+              d = Path("edge/models") / f"libreyolo9t_{shape}_ncnn_model"
+              bin_path = d / "model.ncnn.bin"
+              prov = json.loads((d / "provenance.json").read_text())
+              assert bin_path.stat().st_size > 1_000_000, (bin_path, bin_path.stat().st_size)
+              digest = hashlib.sha256(bin_path.read_bytes()).hexdigest()
+              assert digest == prov["files"]["model.ncnn.bin"]["sha256"], (shape, digest)
+          print("Checked-in LibreYOLO9t LFS artifacts are materialized and hash-valid")
+          PY
 
       - name: Export both active LibreYOLO9t NCNN shapes
         working-directory: app
