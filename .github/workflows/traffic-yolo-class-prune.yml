@@ -1,0 +1,100 @@
+name: Traffic YOLO11n six-class final-head pruning lab
+
+on:
+  push:
+    branches:
+      - research/yolo11n-ncnn-no-accuracy-speed
+    paths:
+      - 'traffic-yolo-class-prune/**'
+      - '.github/workflows/traffic-yolo-class-prune.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TRAFFIC_REPOSITORY: Persie0/traffic-counting-light-main
+  TRAFFIC_REF: research/yolo11n-ncnn-no-accuracy-speed
+
+jobs:
+  prune-and-benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout Playground experiment branch
+        uses: actions/checkout@v5
+
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private traffic project
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.TRAFFIC_REPOSITORY }}
+          ref: ${{ env.TRAFFIC_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          path: private-traffic
+          lfs: false
+
+      - name: Pull exact production YOLO11n model
+        working-directory: private-traffic
+        run: |
+          git lfs install --local
+          git lfs pull --include='edge/models/yolo11n_384x288_ncnn_model/model.ncnn.bin'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install pinned export/runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            'torch==2.14.0' \
+            'torchvision==0.29.0'
+          python -m pip install \
+            'numpy>=2.2,<2.5' \
+            'opencv-python>=4.12,<5' \
+            'requests>=2.32,<3' \
+            'pyyaml>=6,<7' \
+            'ncnn==1.0.20260526' \
+            'pnnx==20260526' \
+            'ultralytics==8.4.37'
+
+      - name: Syntax check pruning harness
+        run: python -m py_compile traffic-yolo-class-prune/run_class_head_pruning.py
+
+      - name: Export and benchmark physical six-class final head
+        run: |
+          python traffic-yolo-class-prune/run_class_head_pruning.py \
+            --private-repo private-traffic \
+            --output-dir traffic-yolo-class-prune/outputs \
+            --num-images 180 \
+            --seed 20260915 \
+            --threads 4
+
+      - name: Publish pruning summary
+        if: always()
+        run: |
+          if [[ -f traffic-yolo-class-prune/outputs/class_head_pruning.md ]]; then
+            cat traffic-yolo-class-prune/outputs/class_head_pruning.md >> "$GITHUB_STEP_SUMMARY"
+            cat traffic-yolo-class-prune/outputs/class_head_pruning.md
+          fi
+
+      - name: Upload pruning results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traffic-yolo-class-head-pruning
+          path: |
+            traffic-yolo-class-prune/outputs/class_head_pruning.json
+            traffic-yolo-class-prune/outputs/class_head_pruning.md
+            traffic-yolo-class-prune/outputs/models/reexport_full80
+            traffic-yolo-class-prune/outputs/models/pruned6
+          if-no-files-found: warn
+          retention-days: 30
