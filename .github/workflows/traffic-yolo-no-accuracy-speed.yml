@@ -1,0 +1,111 @@
+name: Traffic YOLO11n no-accuracy-loss speed lab
+
+on:
+  push:
+    branches:
+      - research/yolo11n-ncnn-no-accuracy-speed
+    paths:
+      - 'traffic-yolo-no-accuracy/**'
+      - '.github/workflows/traffic-yolo-no-accuracy-speed.yml'
+      - '.github/traffic-yolo-no-accuracy-trigger.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TRAFFIC_REPOSITORY: Persie0/traffic-counting-light-main
+  TRAFFIC_REF: research/yolo11n-ncnn-no-accuracy-speed
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout Playground experiment branch
+        uses: actions/checkout@v5
+
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private traffic project
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.TRAFFIC_REPOSITORY }}
+          ref: ${{ env.TRAFFIC_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-traffic
+          lfs: false
+
+      - name: Pull exact production YOLO11n model
+        working-directory: private-traffic
+        run: |
+          git lfs install --local
+          git lfs pull --include='edge/models/yolo11n_384x288_ncnn_model/model.ncnn.bin'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install experiment dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            'numpy>=2.2,<2.5' \
+            'opencv-python>=4.12,<5' \
+            'requests>=2.32,<3' \
+            'ncnn==1.0.20260526'
+
+      - name: Build matching FP32 ncnnoptimize
+        run: |
+          git clone --depth 1 --branch 20260526 https://github.com/Tencent/ncnn.git ncnn-src
+          cmake -S ncnn-src -B ncnn-src/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNCNN_VULKAN=OFF \
+            -DNCNN_BUILD_TOOLS=ON \
+            -DNCNN_BUILD_EXAMPLES=OFF \
+            -DNCNN_BUILD_BENCHMARK=OFF \
+            -DNCNN_BUILD_TESTS=OFF
+          cmake --build ncnn-src/build --target ncnnoptimize -j2
+          test -x ncnn-src/build/tools/ncnnoptimize
+
+      - name: Syntax check experiment harness
+        run: python -m py_compile traffic-yolo-no-accuracy/run_experiments.py
+
+      - name: Run all Playground-safe experiments
+        run: |
+          python traffic-yolo-no-accuracy/run_experiments.py \
+            --private-repo private-traffic \
+            --output-dir traffic-yolo-no-accuracy/outputs \
+            --ncnnoptimize ncnn-src/build/tools/ncnnoptimize \
+            --threads 4 \
+            --num-images 180 \
+            --seed 20260915 \
+            --warmup 10 \
+            --iterations 50 \
+            --rounds 5
+
+      - name: Publish summary
+        if: always()
+        run: |
+          if [[ -f traffic-yolo-no-accuracy/outputs/summary.md ]]; then
+            cat traffic-yolo-no-accuracy/outputs/summary.md >> "$GITHUB_STEP_SUMMARY"
+            cat traffic-yolo-no-accuracy/outputs/summary.md
+          fi
+
+      - name: Upload full experiment results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traffic-yolo-no-accuracy-speed
+          path: |
+            traffic-yolo-no-accuracy/outputs/results.json
+            traffic-yolo-no-accuracy/outputs/summary.md
+            traffic-yolo-no-accuracy/outputs/models/*/model.ncnn.param
+            traffic-yolo-no-accuracy/outputs/models/*/model.ncnn.bin
+          if-no-files-found: warn
+          retention-days: 30
