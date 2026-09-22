@@ -88,6 +88,18 @@ jobs:
             --iterations 50 \
             --rounds 5
 
+      - name: Run interleaved paired latency filter
+        run: |
+          python traffic-yolo-no-accuracy/run_paired_latency.py \
+            --private-repo private-traffic \
+            --output-dir traffic-yolo-no-accuracy/outputs/paired \
+            --ncnnoptimize ./ncnnoptimize \
+            --threads 4 \
+            --warmup 8 \
+            --blocks 25 \
+            --iterations 12 \
+            --seed 20260922
+
       - name: Publish summary
         if: always()
         run: |
@@ -104,6 +116,8 @@ jobs:
           path: |
             traffic-yolo-no-accuracy/outputs/results.json
             traffic-yolo-no-accuracy/outputs/summary.md
+            traffic-yolo-no-accuracy/outputs/paired/paired_latency.json
+            traffic-yolo-no-accuracy/outputs/paired/paired_latency.md
             traffic-yolo-no-accuracy/outputs/models/*/model.ncnn.param
             traffic-yolo-no-accuracy/outputs/models/*/model.ncnn.bin
           if-no-files-found: warn
