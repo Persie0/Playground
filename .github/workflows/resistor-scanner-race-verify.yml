@@ -60,19 +60,27 @@ jobs:
       - name: Run private scanner/camera suite
         id: scanner
         continue-on-error: true
-        run: bash private-ci/.github/playground/scanning-tests.sh app
+        shell: bash
+        run: |
+          set +e
+          bash private-ci/.github/playground/scanning-tests.sh app 2>&1 | tee scanner.log
+          status=${PIPESTATUS[0]}
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
 
       - name: Record verification result
         working-directory: report
         env:
           OUTCOME: ${{ steps.scanner.outcome }}
-          APP_SHA: da4b87f2374322b847da2f49b374608f516341a6
+          EXIT_CODE: ${{ steps.scanner.outputs.exit_code }}
         run: |
           mkdir -p results
-          printf 'outcome=%s\napp_sha=%s\n' "$OUTCOME" "$APP_SHA" > results/resistor-scanner-race-verify.txt
+          APP_SHA="$(git -C ../app rev-parse HEAD)"
+          printf 'outcome=%s\nexit_code=%s\napp_sha=%s\n' "$OUTCOME" "$EXIT_CODE" "$APP_SHA" > results/resistor-scanner-race-verify.txt
+          cp ../scanner.log results/resistor-scanner-race-verify.log
           git config user.name github-actions
           git config user.email github-actions@github.com
-          git add results/resistor-scanner-race-verify.txt
+          git add results/resistor-scanner-race-verify.txt results/resistor-scanner-race-verify.log
           git commit -m "ci: record resistor scanner race verification"
           git push origin HEAD:main
 
