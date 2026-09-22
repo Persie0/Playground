@@ -1,0 +1,102 @@
+name: Traffic Counting LibreYOLO9 verification
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/traffic-counting-libreyolo9.yml"
+      - "debug_triggers/traffic-counting-libreyolo9.txt"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout Playground
+        uses: actions/checkout@v4
+
+      - name: Checkout traffic-counting migration branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/traffic-counting-light-main
+          ref: chore/libreyolo9-migration
+          path: traffic-counting-light-main
+          lfs: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: traffic-counting-light-main/edge/pyproject.toml
+
+      - name: Install LibreYOLO export and test dependencies
+        working-directory: traffic-counting-light-main/edge
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[libreyolo-export,dev]"
+
+      - name: Export LibreYOLO9t NCNN artifacts
+        working-directory: traffic-counting-light-main
+        run: |
+          python tools/export_libreyolo9_ncnn.py --overwrite
+          find edge/models -maxdepth 2 -type f -path "*/libreyolo9t_*/*" -printf "%p %s bytes\n" | sort
+
+      - name: Validate artifact metadata and hashes
+        working-directory: traffic-counting-light-main
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json, yaml
+
+          for shape in ("384x288", "416x256"):
+              d = Path("edge/models") / f"libreyolo9t_{shape}_ncnn_model"
+              required = ["model.ncnn.param", "model.ncnn.bin", "metadata.yaml", "provenance.json"]
+              for name in required:
+                  p = d / name
+                  assert p.is_file() and p.stat().st_size > 0, p
+              meta = yaml.safe_load((d / "metadata.yaml").read_text())
+              assert meta["model_family"] == "yolo9"
+              assert meta["task"] == "detect"
+              prov = json.loads((d / "provenance.json").read_text())
+              for name in ("model.ncnn.param", "model.ncnn.bin", "metadata.yaml"):
+                  digest = hashlib.sha256((d / name).read_bytes()).hexdigest()
+                  assert prov["files"][name]["sha256"] == digest
+          print("LibreYOLO9 artifacts validated")
+          PY
+
+      - name: Run migration-focused tests
+        working-directory: traffic-counting-light-main/edge
+        run: |
+          PYTHONPATH=src pytest -q \
+            tests/test_ncnn_output.py \
+            tests/test_pi_detector_config.py \
+            tests/test_config.py \
+            tests/test_preprocessors.py \
+            tests/test_rpi_dual_stream_loader.py
+
+      - name: Run repository asset tests
+        working-directory: traffic-counting-light-main
+        run: |
+          python -m pytest -q project_tests/test_repository_assets.py
+
+      - name: Package exported models
+        working-directory: traffic-counting-light-main
+        run: |
+          tar -czf ../libreyolo9t-ncnn-models.tar.gz \
+            edge/models/libreyolo9t_384x288_ncnn_model \
+            edge/models/libreyolo9t_416x256_ncnn_model
+          sha256sum ../libreyolo9t-ncnn-models.tar.gz | tee ../libreyolo9t-ncnn-models.tar.gz.sha256
+
+      - name: Upload exported models
+        uses: actions/upload-artifact@v4
+        with:
+          name: libreyolo9t-ncnn-models
+          path: |
+            libreyolo9t-ncnn-models.tar.gz
+            libreyolo9t-ncnn-models.tar.gz.sha256
+          retention-days: 7
