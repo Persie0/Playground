@@ -721,10 +721,16 @@ def main() -> None:
     ]
 
     smoke_path = private_repo / "tools" / "camera_calibration" / "docs" / "example1_dewarped.jpg"
-    smoke = cv2.imread(str(smoke_path))
+    smoke = cv2.imread(str(smoke_path)) if smoke_path.is_file() else None
     if smoke is None:
-        raise RuntimeError(f"Missing smoke image {smoke_path}")
-    smoke_processed = letterbox(smoke)[0]
+        yy, xx = np.indices((288, 384), dtype=np.uint16)
+        smoke_processed = np.empty((288, 384, 3), dtype=np.uint8)
+        smoke_processed[..., 0] = (xx % 251).astype(np.uint8)
+        smoke_processed[..., 1] = (yy % 251).astype(np.uint8)
+        smoke_processed[..., 2] = ((xx + yy) % 251).astype(np.uint8)
+        print("Repository smoke image absent; using deterministic 384x288 synthetic latency frame.", flush=True)
+    else:
+        smoke_processed = letterbox(smoke)[0]
 
     runners = {candidate.name: Runner(candidate, args.threads) for candidate in candidates}
 
