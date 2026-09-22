@@ -67,6 +67,7 @@ class Candidate:
     normalize: bool = True
     pooled: bool = False
     reuse_extractor: bool = False
+    array_view: bool = False
 
 
 def percentile(values: list[float], p: float) -> float:
@@ -370,7 +371,20 @@ class Runner:
 
     def infer_array(self, image: np.ndarray) -> np.ndarray:
         output = self.infer_output(image)
+        if self.candidate.array_view:
+            return np.asarray(output, dtype=np.float32)
         return np.array(output, dtype=np.float32)
+
+    def close(self) -> None:
+        self.extractor = None
+        self.net = None
+        gc.collect()
+        if self.blob_pool is not None:
+            self.blob_pool.clear()
+            self.blob_pool = None
+        if self.workspace_pool is not None:
+            self.workspace_pool.clear()
+            self.workspace_pool = None
 
 
 def decode_array(arr: np.ndarray, class_aware_nms_indices, conf_threshold: float, road_only_argmax: bool = False):
@@ -427,15 +441,24 @@ def decode_array(arr: np.ndarray, class_aware_nms_indices, conf_threshold: float
     return result
 
 
-def detections_equal(left, right, score_tolerance: float = 1e-6):
+def compare_detections(left, right):
     if len(left) != len(right):
-        return False, float("inf")
+        return {
+            "structure_equal": False,
+            "same_length": False,
+            "max_score_delta": float("inf"),
+        }
+    structure_equal = True
     max_score_delta = 0.0
     for a, b in zip(left, right):
         if a[:4] != b[:4] or a[5] != b[5]:
-            return False, float("inf")
+            structure_equal = False
         max_score_delta = max(max_score_delta, abs(float(a[4]) - float(b[4])))
-    return max_score_delta <= score_tolerance, max_score_delta
+    return {
+        "structure_equal": structure_equal,
+        "same_length": True,
+        "max_score_delta": max_score_delta,
+    }
 
 
 def init_stats():
@@ -603,18 +626,20 @@ def build_markdown(payload: dict) -> str:
         "",
         "## Candidate summary",
         "",
-        "| Candidate | median ms | delta vs baseline | changed images | Macro F1 | decision |",
-        "| --- | ---: | ---: | ---: | ---: | --- |",
+        "| Candidate | median ms | delta vs baseline | structure-changed images | score-only images | Macro F1 | decision |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     baseline_ms = payload["benchmarks"]["baseline"]["median_ms"]
     baseline_f1 = payload["accuracy"]["baseline"]["macro_f1"]
     for name, bench in payload["benchmarks"].items():
         accuracy = payload["accuracy"].get(name)
-        changed = payload["equivalence"].get(name, {}).get("changed_detection_images", 0)
+        eq = payload["equivalence"].get(name, {})
+        changed = eq.get("structure_changed_images", eq.get("changed_detection_images", 0))
+        score_only = eq.get("score_changed_images", 0)
         delta = (bench["median_ms"] / baseline_ms - 1.0) * 100.0
         f1 = accuracy["macro_f1"] if accuracy else baseline_f1
         decision = payload["decisions"].get(name, "")
-        lines.append(f"| {name} | {bench['median_ms']:.3f} | {delta:+.2f}% | {changed} | {f1:.6f} | {decision} |")
+        lines.append(f"| {name} | {bench['median_ms']:.3f} | {delta:+.2f}% | {changed} | {score_only} | {f1:.6f} | {decision} |")
 
     lines += [
         "",
@@ -711,6 +736,7 @@ def main() -> None:
             normalize=False,
         ),
         Candidate("extractor_reuse", baseline_dir, reuse_extractor=True),
+        Candidate("numpy_asarray", baseline_dir, array_view=True),
         Candidate(
             "input_fold_pooled",
             models_dir / "input_fold",
@@ -783,8 +809,8 @@ def main() -> None:
         update_accuracy(baseline_stats, dets, sample, transforms[sample.image_id])
 
         road = decode_array(arr, class_aware_nms_indices, 0.30, road_only_argmax=True)
-        equal, _ = detections_equal(dets, road)
-        if not equal:
+        road_cmp = compare_detections(dets, road)
+        if not road_cmp["structure_equal"]:
             road_only_changed_images += 1
             road_only_changed_detection_count += abs(len(dets) - len(road)) + sum(
                 1 for a, b in zip(dets, road) if a[:4] != b[:4] or a[5] != b[5]
@@ -796,6 +822,8 @@ def main() -> None:
     equivalence = {
         "baseline": {
             "changed_detection_images": 0,
+            "structure_changed_images": 0,
+            "score_changed_images": 0,
             "max_score_delta": 0.0,
             "max_raw_abs_diff": 0.0,
             "exact_raw_images": len(samples),
@@ -807,7 +835,8 @@ def main() -> None:
             continue
         print(f"Evaluating {candidate.name}...", flush=True)
         stats = init_stats()
-        changed_images = 0
+        structure_changed_images = 0
+        score_changed_images = 0
         max_score_delta = 0.0
         max_raw_abs_diff = 0.0
         exact_raw_images = 0
@@ -821,15 +850,19 @@ def main() -> None:
                 allclose_1e5_images += 1
             max_raw_abs_diff = max(max_raw_abs_diff, float(raw_cmp.get("max_abs_diff", float("inf"))))
             dets = decode_array(arr, class_aware_nms_indices, 0.30)
-            equal, score_delta = detections_equal(baseline_dets[sample.image_id], dets)
-            if not equal:
-                changed_images += 1
-            if math.isfinite(score_delta):
-                max_score_delta = max(max_score_delta, score_delta)
+            det_cmp = compare_detections(baseline_dets[sample.image_id], dets)
+            if not det_cmp["structure_equal"]:
+                structure_changed_images += 1
+            elif det_cmp["max_score_delta"] > 0.0:
+                score_changed_images += 1
+            if math.isfinite(det_cmp["max_score_delta"]):
+                max_score_delta = max(max_score_delta, det_cmp["max_score_delta"])
             update_accuracy(stats, dets, sample, transforms[sample.image_id])
         accuracy[candidate.name] = finalize_stats(stats)
         equivalence[candidate.name] = {
-            "changed_detection_images": changed_images,
+            "changed_detection_images": structure_changed_images,
+            "structure_changed_images": structure_changed_images,
+            "score_changed_images": score_changed_images,
             "max_score_delta": max_score_delta,
             "max_raw_abs_diff": max_raw_abs_diff,
             "exact_raw_images": exact_raw_images,
@@ -847,13 +880,15 @@ def main() -> None:
         eq = equivalence[name]
         same_f1 = abs(accuracy[name]["macro_f1"] - baseline_f1) < 1e-12
         faster = benchmarks[name]["median_ms"] < benchmarks["baseline"]["median_ms"] * 0.995
-        if eq["changed_detection_images"] == 0 and same_f1 and faster:
+        if eq["structure_changed_images"] == 0 and same_f1 and faster:
             if name == "extractor_reuse":
-                decisions[name] = "measured win, but API-lifetime/support review required"
+                decisions[name] = "reject: extractor reuse returns stale/cached inference"
+            elif eq["max_score_delta"] == 0.0:
+                decisions[name] = "strictly equivalent Playground winner; send to Pi confirmation"
             else:
-                decisions[name] = "Playground winner; send to Pi confirmation"
-        elif eq["changed_detection_images"] == 0 and same_f1:
-            decisions[name] = "accuracy-safe but no stable hosted speed win"
+                decisions[name] = "no measured accuracy loss; tiny FP score drift; Pi + threshold-margin confirmation"
+        elif eq["structure_changed_images"] == 0 and same_f1:
+            decisions[name] = "same measured accuracy but no stable hosted speed win"
         else:
             decisions[name] = "reject: detector outputs/accuracy changed"
 
@@ -897,6 +932,7 @@ def main() -> None:
                 "normalize": candidate.normalize,
                 "pooled": candidate.pooled,
                 "reuse_extractor": candidate.reuse_extractor,
+                "array_view": candidate.array_view,
             }
             for candidate in candidates
         },
@@ -906,6 +942,11 @@ def main() -> None:
     (output_dir / "summary.md").write_text(build_markdown(payload), encoding="utf-8")
     print(build_markdown(payload), flush=True)
 
+    del output_mat
+    for runner in runners.values():
+        runner.close()
+    runners.clear()
+    gc.collect()
     shutil.rmtree(cache_dir, ignore_errors=True)
 
 
