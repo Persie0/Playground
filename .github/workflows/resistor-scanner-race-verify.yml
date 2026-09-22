@@ -57,13 +57,21 @@ jobs:
         with:
           gradle-version: '9.6.0'
 
-      - name: Run private scanner/camera suite
+      - name: Run focused camera and gallery lifecycle tests
         id: scanner
         continue-on-error: true
         shell: bash
         run: |
           set +e
-          bash private-ci/.github/playground/scanning-tests.sh app 2>&1 | tee scanner.log
+          (
+            cd app
+            flutter pub get
+            flutter test \
+              test/pages/camera_lifecycle_test.dart \
+              test/pages/live_scan_lifecycle_test.dart \
+              test/pages/track_scan_lifecycle_test.dart \
+              test/pages/gallery_lifecycle_test.dart
+          ) 2>&1 | tee scanner.log
           status=${PIPESTATUS[0]}
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
           exit "$status"
