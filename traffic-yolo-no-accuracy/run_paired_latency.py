@@ -163,6 +163,18 @@ def main() -> None:
 
     patch_first_conv(
         baseline_dir,
+        model_out / "norm_fold",
+        divide_by_255=True,
+        swap_rgb_to_bgr=False,
+    )
+    patch_first_conv(
+        baseline_dir,
+        model_out / "bgr_fold",
+        divide_by_255=False,
+        swap_rgb_to_bgr=True,
+    )
+    patch_first_conv(
+        baseline_dir,
         model_out / "input_fold",
         divide_by_255=True,
         swap_rgb_to_bgr=True,
@@ -172,9 +184,26 @@ def main() -> None:
         baseline_dir,
         model_out / "ncnnoptimize_fp32",
     )
+    optimize_model(
+        args.ncnnoptimize.resolve(),
+        model_out / "input_fold",
+        model_out / "input_fold_ncnnoptimize",
+    )
 
     candidate_specs = {
         "pooled_allocators": Candidate("pooled_allocators", baseline_dir, pooled=True),
+        "norm_fold": Candidate(
+            "norm_fold",
+            model_out / "norm_fold",
+            bgr_to_rgb=True,
+            normalize=False,
+        ),
+        "bgr_fold": Candidate(
+            "bgr_fold",
+            model_out / "bgr_fold",
+            bgr_to_rgb=False,
+            normalize=True,
+        ),
         "input_fold": Candidate(
             "input_fold",
             model_out / "input_fold",
@@ -184,6 +213,12 @@ def main() -> None:
         "ncnnoptimize_fp32": Candidate(
             "ncnnoptimize_fp32",
             model_out / "ncnnoptimize_fp32",
+        ),
+        "input_fold_ncnnoptimize": Candidate(
+            "input_fold_ncnnoptimize",
+            model_out / "input_fold_ncnnoptimize",
+            bgr_to_rgb=False,
+            normalize=False,
         ),
         "numpy_asarray": Candidate(
             "numpy_asarray",
