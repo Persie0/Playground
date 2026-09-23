@@ -1,0 +1,67 @@
+name: Generate Video Upscaler iOS Project
+
+on:
+  push:
+    branches: ["agent/video-upscaler-ios-port-ci"]
+    paths:
+      - "ci/run-video-upscaler-ios-project-mutation.txt"
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/video_upscaler
+  APP_BRANCH: agent/ios-port
+  EXPECTED_APP_REF: be0625f864faaa5b9bfa1ea23961c7a0cf4edab8
+
+jobs:
+  generate:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout CI harness
+        uses: actions/checkout@v5
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout Video Upscaler
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_BRANCH }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: app
+      - name: Guard exact app head
+        working-directory: app
+        shell: bash
+        run: |
+          git fetch origin "$APP_BRANCH"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_APP_REF"
+          test "$(git rev-parse origin/$APP_BRANCH)" = "$EXPECTED_APP_REF"
+      - name: Install xcodeproj
+        run: sudo gem install xcodeproj --no-document
+      - name: Generate iOS targets and prove idempotency
+        working-directory: app
+        shell: bash
+        run: |
+          ruby Scripts/configure_ios_target.rb
+          git diff -- VideoUpscaler.xcodeproj > /tmp/first.diff
+          test -s /tmp/first.diff
+          ruby Scripts/configure_ios_target.rb
+          git diff -- VideoUpscaler.xcodeproj > /tmp/second.diff
+          cmp /tmp/first.diff /tmp/second.diff
+          xcodebuild -project VideoUpscaler.xcodeproj -list
+          test -f VideoUpscaler.xcodeproj/xcshareddata/xcschemes/VideoUpscalerIOS.xcscheme
+      - name: Commit generated project
+        working-directory: app
+        shell: bash
+        run: |
+          git config user.name "Persie0"
+          git config user.email "76871553+Persie0@users.noreply.github.com"
+          git add VideoUpscaler.xcodeproj
+          git diff --cached --check
+          git commit -m "feat: add ios video upscaler target"
+          git push origin HEAD:"$APP_BRANCH"
