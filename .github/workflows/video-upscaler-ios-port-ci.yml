@@ -1,0 +1,71 @@
+name: Video Upscaler iOS Port CI
+
+on:
+  push:
+    branches: ["agent/video-upscaler-ios-port-ci"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/video_upscaler
+
+jobs:
+  apple:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - name: Checkout CI harness
+        uses: actions/checkout@v5
+      - name: Read app revision
+        shell: bash
+        run: |
+          test -f ci/video-upscaler-ref.txt
+          APP_REF="$(tr -d '[:space:]' < ci/video-upscaler-ref.txt)"
+          test -n "$APP_REF"
+          echo "APP_REF=$APP_REF" >> "$GITHUB_ENV"
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout Video Upscaler
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Toolchain
+        run: xcodebuild -version
+      - name: Localization audit
+        working-directory: app
+        run: python3 Scripts/audit_localizations.py
+      - name: macOS tests
+        working-directory: app
+        run: xcodebuild -project VideoUpscaler.xcodeproj -scheme VideoUpscaler -destination 'platform=macOS' -derivedDataPath DerivedData-Mac CODE_SIGNING_ALLOWED=NO SWIFT_STRICT_CONCURRENCY=complete test
+      - name: Swift package tests
+        working-directory: app
+        run: swift test
+      - name: iOS simulator build and tests when target exists
+        working-directory: app
+        shell: bash
+        run: |
+          if [ ! -f VideoUpscaler.xcodeproj/xcshareddata/xcschemes/VideoUpscalerIOS.xcscheme ]; then
+            echo "VideoUpscalerIOS scheme not present yet; skipping iOS phase."
+            exit 0
+          fi
+          xcodebuild -project VideoUpscaler.xcodeproj -scheme VideoUpscalerIOS -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedData-iOS CODE_SIGNING_ALLOWED=NO SWIFT_STRICT_CONCURRENCY=complete build
+          IOS_SIM_UDID="$(python3 - <<'PY'
+import json, subprocess
+data=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','-j']))
+for runtime in data['devices'].values():
+    for device in runtime:
+        if 'iPhone' in device['name']:
+            print(device['udid'])
+            raise SystemExit
+raise SystemExit('No available iPhone simulator')
+PY
+)"
+          xcodebuild -project VideoUpscaler.xcodeproj -scheme VideoUpscalerIOS -destination "platform=iOS Simulator,id=$IOS_SIM_UDID" -derivedDataPath DerivedData-iOS-Tests CODE_SIGNING_ALLOWED=NO SWIFT_STRICT_CONCURRENCY=complete test
