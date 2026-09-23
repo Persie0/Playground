@@ -1,0 +1,122 @@
+name: Traffic counting NCNN postprocess benchmark
+
+on:
+  push:
+    paths:
+      - ".github/workflows/traffic-counting-ncnn-postprocess-bench.yml"
+      - "debug_triggers/traffic-counting-ncnn-postprocess-bench.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/traffic-counting-light-main
+  APP_REF: perf/pipeline-25fps
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout traffic-counting candidate
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install benchmark dependencies
+        run: python -m pip install 'numpy>=2.2,<2.5'
+      - name: Benchmark class pruning
+        working-directory: app
+        run: |
+          PYTHONPATH=edge/src python - <<'PY'
+          import json
+          import statistics
+          import time
+          from pathlib import Path
+
+          import numpy as np
+          from detectors.ncnn_output import decode_ncnn_candidates
+
+          rng = np.random.default_rng(20260923)
+          anchors = 2268  # 384x288 heads at strides 8, 16 and 32
+          classes = 80
+          output = np.empty((4 + classes, anchors), dtype=np.float32)
+          x1 = rng.uniform(0, 330, anchors).astype(np.float32)
+          y1 = rng.uniform(0, 240, anchors).astype(np.float32)
+          output[0] = x1
+          output[1] = y1
+          output[2] = x1 + rng.uniform(4, 54, anchors).astype(np.float32)
+          output[3] = y1 + rng.uniform(4, 48, anchors).astype(np.float32)
+          # Most logits are below ByteTrack's 0.10 detector floor. Sprinkle realistic
+          # candidates over all classes so the baseline also pays Python conversion/NMS input costs.
+          output[4:] = rng.uniform(0.0, 0.085, (classes, anchors)).astype(np.float32)
+          for class_id in range(classes):
+              ids = rng.choice(anchors, size=12, replace=False)
+              output[4 + class_id, ids] = rng.uniform(0.11, 0.92, size=ids.size)
+
+          allowed = {0, 1, 2, 3, 5, 7}
+          kwargs = dict(
+              yolox=False,
+              box_format='xyxy',
+              confidence_threshold=0.10,
+              input_width=384,
+              input_height=288,
+          )
+
+          baseline = decode_ncnn_candidates(output, **kwargs)
+          pruned = decode_ncnn_candidates(output, allowed_class_ids=allowed, **kwargs)
+          baseline_relevant = [
+              (box, score, label)
+              for box, score, label in zip(*baseline, strict=True)
+              if label in allowed
+          ]
+          pruned_rows = list(zip(*pruned, strict=True))
+          if len(baseline_relevant) != len(pruned_rows):
+              raise AssertionError((len(baseline_relevant), len(pruned_rows)))
+          for expected, actual in zip(baseline_relevant, pruned_rows, strict=True):
+              if expected[0] != actual[0] or expected[2] != actual[2] or abs(expected[1] - actual[1]) > 1e-6:
+                  raise AssertionError((expected, actual))
+
+          def bench(allowed_ids, n=1200):
+              for _ in range(40):
+                  decode_ncnn_candidates(output, allowed_class_ids=allowed_ids, **kwargs)
+              values = []
+              for _ in range(n):
+                  t0 = time.perf_counter_ns()
+                  decode_ncnn_candidates(output, allowed_class_ids=allowed_ids, **kwargs)
+                  values.append((time.perf_counter_ns() - t0) / 1e6)
+              values.sort()
+              return {
+                  'mean_ms': statistics.fmean(values),
+                  'median_ms': statistics.median(values),
+                  'p95_ms': values[int(0.95 * (len(values) - 1))],
+              }
+
+          before = bench(None)
+          after = bench(allowed)
+          report = {
+              'anchors': anchors,
+              'classes': classes,
+              'allowed_classes': sorted(allowed),
+              'baseline_candidates': len(baseline[0]),
+              'relevant_candidates': len(pruned[0]),
+              'before': before,
+              'after': after,
+              'mean_speedup': before['mean_ms'] / after['mean_ms'],
+              'mean_saved_ms': before['mean_ms'] - after['mean_ms'],
+          }
+          print(json.dumps(report, indent=2))
+          Path('../ncnn_postprocess_benchmark.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ncnn-postprocess-benchmark
+          path: ncnn_postprocess_benchmark.json
+          retention-days: 7
