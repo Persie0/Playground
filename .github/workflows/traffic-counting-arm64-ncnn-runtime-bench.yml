@@ -31,11 +31,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Verify model materialized
+      - name: Verify LFS assets materialized
         working-directory: app
         run: |
-          ls -lh edge/models/libreyolo9t_384x288_ncnn_model/model.ncnn.bin
+          ls -lh edge/models/libreyolo9t_384x288_ncnn_model/model.ncnn.bin edge/data/videos/autos.mp4
           test "$(stat -c%s edge/models/libreyolo9t_384x288_ncnn_model/model.ncnn.bin)" -gt 1000000
+          test "$(stat -c%s edge/data/videos/autos.mp4)" -gt 100000
       - name: Install benchmark dependencies
         run: python -m pip install 'ncnn>=1.0.20260526' 'numpy>=2.2,<2.5'
       - name: Benchmark ARM64 NCNN thread and FP16 candidates
@@ -144,8 +145,173 @@ jobs:
           print(json.dumps(report, indent=2))
           Path('../arm64_ncnn_runtime_benchmark.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
           PY
+      - name: Compare FP32 and FP16 detections on real video
+        working-directory: app
+        run: |
+          PYTHONPATH=edge/src python - <<'PY'
+          import json
+          import statistics
+          import time
+          from pathlib import Path
+
+          import cv2
+          import ncnn
+          import numpy as np
+          from detectors.ncnn_output import decode_ncnn_candidates
+          from detectors.nms import class_aware_nms_indices
+
+          model = Path('edge/models/libreyolo9t_384x288_ncnn_model')
+          video_path = Path('edge/data/videos/autos.mp4')
+          allowed = {0, 1, 2, 3, 5, 7}
+
+          if hasattr(ncnn, 'set_omp_dynamic'):
+              ncnn.set_omp_dynamic(0)
+          if hasattr(ncnn, 'set_cpu_powersave'):
+              ncnn.set_cpu_powersave(0)
+          if hasattr(ncnn, 'set_omp_num_threads'):
+              ncnn.set_omp_num_threads(4)
+
+          def build_net(half):
+              net=ncnn.Net()
+              net.opt.num_threads=4
+              for name in ('use_fp16_packed','use_fp16_storage','use_fp16_arithmetic'):
+                  if hasattr(net.opt, name):
+                      setattr(net.opt, name, half)
+              if int(net.load_param(str(model/'model.ncnn.param'))) != 0:
+                  raise RuntimeError('load_param failed')
+              if int(net.load_model(str(model/'model.ncnn.bin'))) != 0:
+                  raise RuntimeError('load_model failed')
+              input_name=str(net.input_names()[0]) if net.input_names() else 'in0'
+              output_name=str(net.output_names()[0]) if net.output_names() else 'out0'
+              return net,input_name,output_name
+
+          fp32=build_net(False)
+          fp16=build_net(True)
+
+          def infer(bundle, image):
+              net,input_name,output_name=bundle
+              mat=ncnn.Mat.from_pixels(image,ncnn.Mat.PixelType.PIXEL_BGR2RGB,384,288)
+              mat.substract_mean_normalize([], [1/255.0,1/255.0,1/255.0])
+              ex=net.create_extractor()
+              if int(ex.input(input_name,mat)) != 0:
+                  raise RuntimeError('input failed')
+              ret,out=ex.extract(output_name)
+              if int(ret) != 0:
+                  raise RuntimeError('extract failed')
+              return np.asarray(out,dtype=np.float32)
+
+          def decode(output):
+              boxes,scores,labels=decode_ncnn_candidates(
+                  output,
+                  yolox=False,
+                  box_format='xyxy',
+                  confidence_threshold=0.10,
+                  input_width=384,
+                  input_height=288,
+                  allowed_class_ids=allowed,
+              )
+              selected=class_aware_nms_indices(boxes,scores,labels,0.10,0.5)
+              return [(boxes[i],float(scores[i]),int(labels[i])) for i in selected]
+
+          def iou(a,b):
+              ax,ay,aw,ah=a; bx,by,bw,bh=b
+              ax2=ax+aw; ay2=ay+ah; bx2=bx+bw; by2=by+bh
+              ix=max(0,min(ax2,bx2)-max(ax,bx)); iy=max(0,min(ay2,by2)-max(ay,by))
+              inter=ix*iy
+              union=aw*ah+bw*bh-inter
+              return inter/union if union>0 else 0.0
+
+          cap=cv2.VideoCapture(str(video_path))
+          if not cap.isOpened():
+              raise RuntimeError(f'could not open {video_path}')
+
+          frame_count=0
+          fp32_total=0
+          fp16_total=0
+          matched_total=0
+          matched_iou_50=0
+          count_mismatch_frames=0
+          unmatched_fp32=0
+          unmatched_fp16=0
+          ious=[]
+          score_diffs=[]
+          fp32_ms=[]
+          fp16_ms=[]
+          class_counts_fp32={}
+          class_counts_fp16={}
+
+          try:
+              while frame_count < 150:
+                  ok,frame=cap.read()
+                  if not ok:
+                      break
+                  # Spread samples through the clip while keeping the run compact.
+                  if frame_count % 3 != 0:
+                      frame_count += 1
+                      continue
+                  image=cv2.resize(frame,(384,288),interpolation=cv2.INTER_AREA)
+
+                  t0=time.perf_counter_ns(); out32=infer(fp32,image); fp32_ms.append((time.perf_counter_ns()-t0)/1e6)
+                  t0=time.perf_counter_ns(); out16=infer(fp16,image); fp16_ms.append((time.perf_counter_ns()-t0)/1e6)
+                  det32=decode(out32); det16=decode(out16)
+
+                  fp32_total += len(det32); fp16_total += len(det16)
+                  if len(det32) != len(det16):
+                      count_mismatch_frames += 1
+                  for _,_,label in det32:
+                      class_counts_fp32[str(label)]=class_counts_fp32.get(str(label),0)+1
+                  for _,_,label in det16:
+                      class_counts_fp16[str(label)]=class_counts_fp16.get(str(label),0)+1
+
+                  available=set(range(len(det16)))
+                  frame_matches=0
+                  for box32,score32,label32 in det32:
+                      candidates=[(iou(box32,det16[j][0]),j) for j in available if det16[j][2]==label32]
+                      if not candidates:
+                          continue
+                      best_iou,j=max(candidates)
+                      available.remove(j)
+                      frame_matches += 1
+                      matched_total += 1
+                      ious.append(best_iou)
+                      score_diffs.append(abs(score32-det16[j][1]))
+                      if best_iou >= 0.5:
+                          matched_iou_50 += 1
+                  unmatched_fp32 += len(det32)-frame_matches
+                  unmatched_fp16 += len(available)
+                  frame_count += 1
+          finally:
+              cap.release()
+
+          sampled=len(fp32_ms)
+          report={
+              'sampled_frames': sampled,
+              'fp32_total_detections': fp32_total,
+              'fp16_total_detections': fp16_total,
+              'count_mismatch_frames': count_mismatch_frames,
+              'count_mismatch_frame_fraction': count_mismatch_frames/sampled if sampled else None,
+              'matched_pairs': matched_total,
+              'matched_iou_ge_0_5': matched_iou_50,
+              'matched_iou_ge_0_5_fraction_of_fp32': matched_iou_50/fp32_total if fp32_total else None,
+              'unmatched_fp32': unmatched_fp32,
+              'unmatched_fp16': unmatched_fp16,
+              'mean_matched_iou': statistics.fmean(ious) if ious else None,
+              'min_matched_iou': min(ious) if ious else None,
+              'mean_score_abs_diff': statistics.fmean(score_diffs) if score_diffs else None,
+              'max_score_abs_diff': max(score_diffs) if score_diffs else None,
+              'class_counts_fp32': class_counts_fp32,
+              'class_counts_fp16': class_counts_fp16,
+              'fp32_mean_ms': statistics.fmean(fp32_ms) if fp32_ms else None,
+              'fp16_mean_ms': statistics.fmean(fp16_ms) if fp16_ms else None,
+              'fp16_speedup': statistics.fmean(fp32_ms)/statistics.fmean(fp16_ms) if fp16_ms else None,
+          }
+          print(json.dumps(report,indent=2))
+          Path('../arm64_fp16_detection_parity.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: arm64-ncnn-runtime-benchmark
-          path: arm64_ncnn_runtime_benchmark.json
+          path: |
+            arm64_ncnn_runtime_benchmark.json
+            arm64_fp16_detection_parity.json
           retention-days: 7
