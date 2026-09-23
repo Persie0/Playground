@@ -34,13 +34,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: app/edge/pyproject.toml
-      - name: Install edge test dependencies
-        working-directory: app/edge
+      - name: Install focused test dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install ".[dev]" ncnn
+          python -m pip install \
+            'pytest>=9,<10' \
+            'ncnn>=1.0.20260526' \
+            'numpy>=2.2,<2.5' \
+            'opencv-python>=4.12,<5' \
+            'pyyaml>=6,<7' \
+            'easydict>=1.13,<2'
       - name: Run NCNN runtime option test
         working-directory: app/edge
         run: PYTHONPATH=src pytest -q tests/test_ncnn_runtime_options.py
