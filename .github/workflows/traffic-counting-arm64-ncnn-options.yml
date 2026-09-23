@@ -1,0 +1,231 @@
+name: Traffic counting ARM64 NCNN option benchmark
+
+on:
+  push:
+    paths:
+      - ".github/workflows/traffic-counting-arm64-ncnn-options.yml"
+      - "debug_triggers/traffic-counting-arm64-ncnn-options.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/traffic-counting-light-main
+  APP_REF: perf/pipeline-25fps
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - name: Checkout candidate with LFS assets
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          lfs: true
+          path: app
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install 'ncnn>=1.0.20260526' 'numpy>=2.2,<2.5'
+      - name: Benchmark BF16, allocators, output conversion, and NCNN defaults
+        working-directory: app
+        run: |
+          PYTHONPATH=edge/src python - <<'PY'
+          import json
+          import statistics
+          import time
+          from pathlib import Path
+
+          import cv2
+          import ncnn
+          import numpy as np
+          from detectors.ncnn_output import decode_ncnn_candidates
+          from detectors.nms import class_aware_nms_indices
+
+          MODEL = Path('edge/models/libreyolo9t_384x288_ncnn_model')
+          VIDEO = Path('edge/data/videos/autos.mp4')
+          ALLOWED = {0, 1, 2, 3, 5, 7}
+
+          if hasattr(ncnn, 'set_cpu_powersave'):
+              ncnn.set_cpu_powersave(0)
+          if hasattr(ncnn, 'set_omp_dynamic'):
+              ncnn.set_omp_dynamic(0)
+          if hasattr(ncnn, 'set_omp_num_threads'):
+              ncnn.set_omp_num_threads(4)
+
+          cap = cv2.VideoCapture(str(VIDEO))
+          frames = []
+          decoded = 0
+          try:
+              while decoded < 240 and len(frames) < 60:
+                  ok, frame = cap.read()
+                  if not ok:
+                      break
+                  if decoded % 4 == 0:
+                      frames.append(cv2.resize(frame, (384, 288), interpolation=cv2.INTER_AREA))
+                  decoded += 1
+          finally:
+              cap.release()
+          if not frames:
+              raise RuntimeError('no frames')
+
+          defaults_net = ncnn.Net()
+          default_names = [
+              'lightmode', 'num_threads', 'use_packing_layout',
+              'use_fp16_packed', 'use_fp16_storage', 'use_fp16_arithmetic',
+              'use_bf16_storage', 'use_winograd_convolution', 'use_sgemm_convolution',
+              'flush_denormals', 'use_local_pool_allocator',
+          ]
+          defaults = {}
+          for name in default_names:
+              if hasattr(defaults_net.opt, name):
+                  value = getattr(defaults_net.opt, name)
+                  if isinstance(value, (bool, int, float, str)):
+                      defaults[name] = value
+                  else:
+                      defaults[name] = str(value)
+
+          def make_pool():
+              blob = ncnn.UnlockedPoolAllocator()
+              workspace = ncnn.PoolAllocator()
+              if hasattr(blob, 'set_size_compare_ratio'):
+                  blob.set_size_compare_ratio(0.0)
+              if hasattr(workspace, 'set_size_compare_ratio'):
+                  workspace.set_size_compare_ratio(0.5)
+              return blob, workspace
+
+          MODES = {
+              'baseline': {'bf16': False, 'pool': False, 'lightmode': True},
+              'bf16_storage': {'bf16': True, 'pool': False, 'lightmode': True},
+              'pool_allocators': {'bf16': False, 'pool': True, 'lightmode': True},
+              'pool_plus_bf16': {'bf16': True, 'pool': True, 'lightmode': True},
+              'lightmode_off': {'bf16': False, 'pool': False, 'lightmode': False},
+          }
+
+          def build(mode):
+              net = ncnn.Net()
+              net.opt.num_threads = 4
+              net.opt.lightmode = mode['lightmode']
+              if hasattr(net.opt, 'use_bf16_storage'):
+                  net.opt.use_bf16_storage = mode['bf16']
+              keepalive = None
+              if mode['pool']:
+                  keepalive = make_pool()
+                  net.opt.blob_allocator = keepalive[0]
+                  net.opt.workspace_allocator = keepalive[1]
+              if int(net.load_param(str(MODEL / 'model.ncnn.param'))) != 0:
+                  raise RuntimeError('load_param failed')
+              if int(net.load_model(str(MODEL / 'model.ncnn.bin'))) != 0:
+                  raise RuntimeError('load_model failed')
+              return {
+                  'net': net,
+                  'input': str(net.input_names()[0]) if net.input_names() else 'in0',
+                  'output': str(net.output_names()[0]) if net.output_names() else 'out0',
+                  'keepalive': keepalive,
+              }
+
+          runtimes = {name: build(mode) for name, mode in MODES.items()}
+
+          def infer(runtime, image):
+              mat = ncnn.Mat.from_pixels(image, ncnn.Mat.PixelType.PIXEL_BGR2RGB, 384, 288)
+              mat.substract_mean_normalize([], [1/255.0, 1/255.0, 1/255.0])
+              ex = runtime['net'].create_extractor()
+              if int(ex.input(runtime['input'], mat)) != 0:
+                  raise RuntimeError('input failed')
+              ret, out = ex.extract(runtime['output'])
+              if int(ret) != 0:
+                  raise RuntimeError('extract failed')
+              return out
+
+          def decode(out):
+              arr = np.asarray(out, dtype=np.float32)
+              boxes, scores, labels = decode_ncnn_candidates(
+                  arr,
+                  yolox=False,
+                  box_format='xyxy',
+                  confidence_threshold=0.10,
+                  input_width=384,
+                  input_height=288,
+                  allowed_class_ids=ALLOWED,
+              )
+              selected = class_aware_nms_indices(boxes, scores, labels, 0.10, 0.5)
+              return [(boxes[i], float(scores[i]), int(labels[i])) for i in selected]
+
+          for runtime in runtimes.values():
+              for frame in frames[:8]:
+                  infer(runtime, frame)
+
+          times = {name: [] for name in MODES}
+          detections = {name: [] for name in MODES}
+          for frame_i, frame in enumerate(frames):
+              names = list(MODES)
+              shift = frame_i % len(names)
+              names = names[shift:] + names[:shift]
+              for name in names:
+                  t0 = time.perf_counter_ns()
+                  out = infer(runtimes[name], frame)
+                  elapsed = (time.perf_counter_ns() - t0) / 1e6
+                  times[name].append(elapsed)
+                  detections[name].append(decode(out))
+
+          reference = detections['baseline']
+          mode_report = {}
+          for name, mode in MODES.items():
+              vals = sorted(times[name])
+              mismatch_frames = sum(
+                  1 for a, b in zip(reference, detections[name], strict=True)
+                  if a != b
+              )
+              mean_ms = statistics.fmean(vals)
+              mode_report[name] = {
+                  **mode,
+                  'mean_ms': mean_ms,
+                  'median_ms': statistics.median(vals),
+                  'p95_ms': vals[int(0.95 * (len(vals) - 1))],
+                  'exact_detection_mismatch_frames': mismatch_frames,
+                  'exact_detection_match_fraction': 1.0 - mismatch_frames / len(frames),
+              }
+
+          baseline_ms = mode_report['baseline']['mean_ms']
+          for entry in mode_report.values():
+              entry['speedup_vs_baseline'] = baseline_ms / entry['mean_ms']
+              entry['saved_ms_vs_baseline'] = baseline_ms - entry['mean_ms']
+
+          # Isolate Python conversion cost using one real output kept alive.
+          out = infer(runtimes['baseline'], frames[0])
+          conversion = {}
+          for name, fn in {
+              'np_array_copy': lambda: np.array(out, dtype=np.float32),
+              'np_asarray': lambda: np.asarray(out, dtype=np.float32),
+          }.items():
+              vals = []
+              for _ in range(5000):
+                  t0 = time.perf_counter_ns()
+                  arr = fn()
+                  _ = arr.shape
+                  vals.append((time.perf_counter_ns() - t0) / 1e6)
+              conversion[name] = {
+                  'mean_ms': statistics.fmean(vals),
+                  'median_ms': statistics.median(vals),
+              }
+
+          report = {
+              'sampled_frames': len(frames),
+              'ncnn_option_defaults': defaults,
+              'modes': mode_report,
+              'output_conversion': conversion,
+          }
+          print(json.dumps(report, indent=2))
+          Path('../arm64_ncnn_options.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arm64-ncnn-options
+          path: arm64_ncnn_options.json
+          retention-days: 7
