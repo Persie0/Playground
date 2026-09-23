@@ -112,6 +112,11 @@ jobs:
               net = ncnn.Net()
               net.opt.num_threads = 4
               net.opt.lightmode = mode['lightmode']
+              # Production half:false explicitly disables NCNN's default FP16 flags.
+              # Keep this benchmark baseline identical to that production contract.
+              for option_name in ('use_fp16_packed', 'use_fp16_storage', 'use_fp16_arithmetic'):
+                  if hasattr(net.opt, option_name):
+                      setattr(net.opt, option_name, False)
               if hasattr(net.opt, 'use_bf16_storage'):
                   net.opt.use_bf16_storage = mode['bf16']
               keepalive = None
@@ -197,7 +202,6 @@ jobs:
               entry['speedup_vs_baseline'] = baseline_ms / entry['mean_ms']
               entry['saved_ms_vs_baseline'] = baseline_ms - entry['mean_ms']
 
-          # Isolate Python conversion cost using one real output kept alive.
           out = infer(runtimes['baseline'], frames[0])
           conversion = {}
           for name, fn in {
