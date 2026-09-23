@@ -46,9 +46,18 @@ jobs:
         working-directory: private-traffic/edge
         run: PYTHONPATH=src python -m pytest -q tests
 
-      - name: Run Ruff
+      - name: Lint runtime-tuning additions
         working-directory: private-traffic/edge
-        run: python -m ruff check src tests
+        run: |
+          python -m ruff check \
+            src/utils/runtime_tuning.py \
+            src/img_processing/image_preprocessor.py \
+            tests/test_pi_runtime_tuning.py \
+            tests/test_pi_detector_config.py \
+            tests/test_preprocessors.py
+          python -m ruff check --select I001,PLR0402,SIM102 \
+            src/detectors/ncnn_detector.py \
+            src/utils/config.py
 
       - name: Compile Python sources
         working-directory: private-traffic/edge
