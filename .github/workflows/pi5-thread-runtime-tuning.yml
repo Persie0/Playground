@@ -19,7 +19,7 @@ env:
 jobs:
   tests:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
 
@@ -36,23 +36,20 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install focused test dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install \
-            'pytest>=9.1.1,<10' \
-            'numpy>=2.2,<2.5' \
-            'opencv-python>=4.12,<5' \
-            'pyyaml>=6,<7' \
-            'easydict>=1.13,<2' \
-            'ncnn>=1.0.20260526,<1.1' \
-            'loguru>=0.7.3,<0.8'
-
-      - name: Run focused runtime tuning tests
+      - name: Install edge runtime and development dependencies
         working-directory: private-traffic/edge
         run: |
-          PYTHONPATH=src python -m pytest -q \
-            tests/test_pi_detector_config.py \
-            tests/test_preprocessors.py \
-            tests/test_pi_runtime_tuning.py \
-            tests/test_config.py
+          python -m pip install --upgrade pip
+          python -m pip install '.[pi,dev]'
+
+      - name: Run complete edge test suite
+        working-directory: private-traffic/edge
+        run: PYTHONPATH=src python -m pytest -q tests
+
+      - name: Run Ruff
+        working-directory: private-traffic/edge
+        run: python -m ruff check src tests
+
+      - name: Compile Python sources
+        working-directory: private-traffic/edge
+        run: python -m compileall -q src tests
