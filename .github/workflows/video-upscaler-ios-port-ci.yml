@@ -76,12 +76,6 @@ jobs:
       - name: Localization audit
         working-directory: app
         run: python3 Scripts/audit_localizations.py
-      - name: Swift package tests
-        working-directory: app
-        run: swift test
-      - name: macOS tests
-        working-directory: app
-        run: xcodebuild -project VideoUpscaler.xcodeproj -scheme VideoUpscaler -destination 'platform=macOS' -derivedDataPath DerivedData-Mac CODE_SIGNING_ALLOWED=NO SWIFT_STRICT_CONCURRENCY=complete test
       - name: iOS simulator build and tests when target exists
         working-directory: app
         shell: bash
@@ -94,3 +88,9 @@ jobs:
           IOS_SIM_UDID="$(python3 -c 'import json,subprocess; data=json.loads(subprocess.check_output(["xcrun","simctl","list","devices","available","-j"])); devices=[d for runtime in data["devices"].values() for d in runtime if "iPhone" in d["name"]]; print(devices[0]["udid"] if devices else "")')"
           test -n "$IOS_SIM_UDID"
           xcodebuild -project VideoUpscaler.xcodeproj -scheme VideoUpscalerIOS -destination "platform=iOS Simulator,id=$IOS_SIM_UDID" -derivedDataPath DerivedData-iOS-Tests CODE_SIGNING_ALLOWED=NO SWIFT_STRICT_CONCURRENCY=complete test
+      - name: Swift package tests
+        working-directory: app
+        run: swift test
+      - name: macOS tests
+        working-directory: app
+        run: xcodebuild -project VideoUpscaler.xcodeproj -scheme VideoUpscaler -destination 'platform=macOS' -derivedDataPath DerivedData-Mac CODE_SIGNING_ALLOWED=NO SWIFT_STRICT_CONCURRENCY=complete test
