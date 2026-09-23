@@ -53,16 +53,20 @@ jobs:
               balance=1.0,
           )
           rect = FisheyeRectifier(cfg)
-          candidates = [
-              Path('tools/camera_calibration/docs/example2.jpg'),
-              Path('tools/camera_calibration/docs/example1.jpg'),
-          ]
-          source_path = next(p for p in candidates if p.is_file())
-          src = cv2.imread(str(source_path), cv2.IMREAD_COLOR)
-          if src is None:
-              raise RuntimeError(f'Could not read {source_path}')
-          # Structural runtime comparison at the production source shape.
-          src = cv2.resize(src, (1296, 972), interpolation=cv2.INTER_AREA)
+
+          # Deterministic edge/detail-rich source avoids Git LFS fixture dependencies and
+          # stresses aliasing/downsampling differences more than a smooth natural frame.
+          h, w = 972, 1296
+          yy, xx = np.indices((h, w), dtype=np.int32)
+          checker = (((xx // 8) + (yy // 8)) & 1) * 80
+          src = np.empty((h, w, 3), dtype=np.uint8)
+          src[..., 0] = ((xx * 255) // max(1, w - 1)).astype(np.uint8)
+          src[..., 1] = ((yy * 255) // max(1, h - 1)).astype(np.uint8)
+          src[..., 2] = np.clip(70 + checker, 0, 255).astype(np.uint8)
+          for radius in range(60, 460, 50):
+              cv2.circle(src, (w // 2, h // 2), radius, (255, 255, 255), 2, cv2.LINE_AA)
+          for x in range(30, w, 75):
+              cv2.line(src, (x, 0), (w - x // 2, h - 1), (0, 0, 0), 1, cv2.LINE_AA)
 
           def baseline():
               full = rect.rectify(src)
@@ -71,11 +75,10 @@ jobs:
           def direct():
               return rect.rectify_to(src, 384, 288, 'stretch')[0]
 
-          def supersample(w, h):
-              mid = rect.rectify_to(src, w, h, 'stretch')[0]
+          def supersample(w2, h2):
+              mid = rect.rectify_to(src, w2, h2, 'stretch')[0]
               return cv2.resize(mid, (384, 288), interpolation=cv2.INTER_AREA)
 
-          # Warm map caches and kernels.
           reference = baseline()
           variants = {
               'baseline_full_1296_then_area': baseline,
@@ -85,10 +88,12 @@ jobs:
               'supersample_960_then_area': lambda: supersample(960, 720),
           }
           for fn in variants.values():
-              for _ in range(8): fn()
+              for _ in range(8):
+                  fn()
 
           def bench(fn, n=120):
               vals=[]
+              out=None
               for _ in range(n):
                   t=time.perf_counter(); out=fn(); vals.append((time.perf_counter()-t)*1000)
               vals.sort()
@@ -101,7 +106,7 @@ jobs:
               mae=float(np.mean(np.abs(diff)))
               return {'mse':mse,'mae':mae,'psnr_db':psnr}
 
-          report={'source':str(source_path),'source_shape':list(src.shape),'opencv_threads':cv2.getNumThreads(),'variants':{}}
+          report={'source':'synthetic_edges_1296x972','source_shape':list(src.shape),'opencv_threads':cv2.getNumThreads(),'variants':{}}
           for name, fn in variants.items():
               timing, out=bench(fn)
               report['variants'][name]={'timing':timing,'quality_vs_baseline':quality(out)}
