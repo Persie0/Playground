@@ -47,7 +47,7 @@ jobs:
 
   apple:
     needs: portability
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - name: Checkout CI harness
@@ -72,7 +72,9 @@ jobs:
           persist-credentials: false
           path: app
       - name: Toolchain
-        run: xcodebuild -version
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes
       - name: Localization audit
         working-directory: app
         run: python3 Scripts/audit_localizations.py
