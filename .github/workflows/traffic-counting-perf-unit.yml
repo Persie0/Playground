@@ -38,12 +38,33 @@ jobs:
         run: |
           python -m pip install \
             'pytest>=9,<10' \
+            'ruff>=0.16.7,<0.17' \
             'ncnn>=1.0.20260526' \
             'numpy>=2.2,<2.5' \
             'opencv-python>=4.12,<5' \
             'pyyaml>=6,<7' \
             'easydict>=1.13,<2' \
             'loguru>=0.7,<1'
+      - name: Ruff changed performance files
+        working-directory: app/edge
+        run: |
+          ruff check \
+            ../benchmarks/scripts/benchmark_fisheye_modes.py \
+            src/detectors/ncnn_detector.py \
+            src/detectors/ncnn_output.py \
+            src/detectors/nms.py \
+            src/img_processing/fisheye_rectifier.py \
+            src/img_processing/preprocessing_factory.py \
+            src/tracking/line_counter.py \
+            src/utils/config.py \
+            tests/test_benchmark_fisheye_profiles.py \
+            tests/test_fisheye_rectifier.py \
+            tests/test_fisheye_supersampled.py \
+            tests/test_line_counter_geometry_cache.py \
+            tests/test_ncnn_nms.py \
+            tests/test_ncnn_output.py \
+            tests/test_ncnn_runtime_options.py \
+            tests/test_pi_supersample_config.py
       - name: Run focused performance/regression tests
         working-directory: app/edge
         run: |
