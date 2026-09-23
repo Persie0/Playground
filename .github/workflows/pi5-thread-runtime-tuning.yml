@@ -1,0 +1,52 @@
+name: Pi5 thread runtime tuning TDD
+
+on:
+  push:
+    branches:
+      - test/pi5-thread-runtime-tuning
+    paths:
+      - '.github/workflows/pi5-thread-runtime-tuning.yml'
+      - '.github/pi5-thread-runtime-tuning-trigger.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TRAFFIC_REPOSITORY: Persie0/traffic-counting-light-main
+  TRAFFIC_REF: perf/pi5-thread-runtime-tuning
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Checkout traffic project
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.TRAFFIC_REPOSITORY }}
+          ref: ${{ env.TRAFFIC_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-traffic
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install focused test dependencies
+        working-directory: private-traffic/edge
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install '.[pi,dev]'
+
+      - name: Run focused runtime tuning tests
+        working-directory: private-traffic/edge
+        run: |
+          PYTHONPATH=src python -m pytest -q \
+            tests/test_pi_detector_config.py \
+            tests/test_preprocessors.py \
+            tests/test_pi_runtime_tuning.py \
+            tests/test_config.py
