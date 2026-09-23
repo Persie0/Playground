@@ -1,0 +1,269 @@
+name: Traffic counting ARM64 FP16 option matrix
+
+on:
+  push:
+    paths:
+      - ".github/workflows/traffic-counting-arm64-fp16-matrix.yml"
+      - "debug_triggers/traffic-counting-arm64-fp16-matrix.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/traffic-counting-light-main
+  APP_REF: perf/pipeline-25fps
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - name: Checkout candidate with LFS assets
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          lfs: true
+          path: app
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install benchmark dependencies
+        run: python -m pip install 'ncnn>=1.0.20260526' 'numpy>=2.2,<2.5'
+      - name: Benchmark FP16 option combinations on real video
+        working-directory: app
+        run: |
+          PYTHONPATH=edge/src python - <<'PY'
+          import json
+          import statistics
+          import time
+          from pathlib import Path
+
+          import cv2
+          import ncnn
+          import numpy as np
+          from detectors.ncnn_output import decode_ncnn_candidates
+          from detectors.nms import class_aware_nms_indices
+
+          MODEL = Path('edge/models/libreyolo9t_384x288_ncnn_model')
+          VIDEO = Path('edge/data/videos/autos.mp4')
+          ALLOWED = {0, 1, 2, 3, 5, 7}
+          MODES = {
+              'fp32': (False, False, False),
+              'packed_only': (True, False, False),
+              'storage_only': (False, True, False),
+              'packed_storage': (True, True, False),
+              'arithmetic_only': (False, False, True),
+              'packed_arithmetic': (True, False, True),
+              'storage_arithmetic': (False, True, True),
+              'all_fp16': (True, True, True),
+          }
+
+          if hasattr(ncnn, 'set_omp_dynamic'):
+              ncnn.set_omp_dynamic(0)
+          if hasattr(ncnn, 'set_omp_num_threads'):
+              ncnn.set_omp_num_threads(4)
+          if hasattr(ncnn, 'set_cpu_powersave'):
+              ncnn.set_cpu_powersave(0)
+
+          def build_net(flags):
+              packed, storage, arithmetic = flags
+              net = ncnn.Net()
+              net.opt.num_threads = 4
+              for name, enabled in (
+                  ('use_fp16_packed', packed),
+                  ('use_fp16_storage', storage),
+                  ('use_fp16_arithmetic', arithmetic),
+              ):
+                  if hasattr(net.opt, name):
+                      setattr(net.opt, name, enabled)
+              if int(net.load_param(str(MODEL / 'model.ncnn.param'))) != 0:
+                  raise RuntimeError('load_param failed')
+              if int(net.load_model(str(MODEL / 'model.ncnn.bin'))) != 0:
+                  raise RuntimeError('load_model failed')
+              input_name = str(net.input_names()[0]) if net.input_names() else 'in0'
+              output_name = str(net.output_names()[0]) if net.output_names() else 'out0'
+              return net, input_name, output_name
+
+          nets = {name: build_net(flags) for name, flags in MODES.items()}
+
+          def infer(bundle, image):
+              net, input_name, output_name = bundle
+              mat = ncnn.Mat.from_pixels(
+                  image, ncnn.Mat.PixelType.PIXEL_BGR2RGB, 384, 288
+              )
+              mat.substract_mean_normalize([], [1/255.0, 1/255.0, 1/255.0])
+              ex = net.create_extractor()
+              if int(ex.input(input_name, mat)) != 0:
+                  raise RuntimeError('input failed')
+              ret, out = ex.extract(output_name)
+              if int(ret) != 0:
+                  raise RuntimeError('extract failed')
+              return np.asarray(out, dtype=np.float32)
+
+          def decode(output):
+              boxes, scores, labels = decode_ncnn_candidates(
+                  output,
+                  yolox=False,
+                  box_format='xyxy',
+                  confidence_threshold=0.10,
+                  input_width=384,
+                  input_height=288,
+                  allowed_class_ids=ALLOWED,
+              )
+              selected = class_aware_nms_indices(boxes, scores, labels, 0.10, 0.5)
+              return [(boxes[i], float(scores[i]), int(labels[i])) for i in selected]
+
+          def iou(a, b):
+              ax, ay, aw, ah = a
+              bx, by, bw, bh = b
+              ax2, ay2 = ax + aw, ay + ah
+              bx2, by2 = bx + bw, by + bh
+              iw = max(0, min(ax2, bx2) - max(ax, bx))
+              ih = max(0, min(ay2, by2) - max(ay, by))
+              inter = iw * ih
+              union = aw * ah + bw * bh - inter
+              return inter / union if union > 0 else 0.0
+
+          def match(reference, candidate):
+              available = set(range(len(candidate)))
+              matched = []
+              for ref_box, ref_score, ref_label in reference:
+                  choices = [
+                      (iou(ref_box, candidate[j][0]), j)
+                      for j in available
+                      if candidate[j][2] == ref_label
+                  ]
+                  if not choices:
+                      continue
+                  best_iou, j = max(choices)
+                  available.remove(j)
+                  matched.append((best_iou, abs(ref_score - candidate[j][1])))
+              return matched, len(reference) - len(matched), len(available)
+
+          cap = cv2.VideoCapture(str(VIDEO))
+          if not cap.isOpened():
+              raise RuntimeError(f'could not open {VIDEO}')
+
+          # Sample 80 frames distributed over the first 320 decoded frames.
+          sampled_frames = []
+          decoded = 0
+          try:
+              while decoded < 320 and len(sampled_frames) < 80:
+                  ok, frame = cap.read()
+                  if not ok:
+                      break
+                  if decoded % 4 == 0:
+                      sampled_frames.append(
+                          cv2.resize(frame, (384, 288), interpolation=cv2.INTER_AREA)
+                      )
+                  decoded += 1
+          finally:
+              cap.release()
+
+          if not sampled_frames:
+              raise RuntimeError('no sample frames')
+
+          # Warm all nets on the same frames before timing.
+          for name, net in nets.items():
+              for image in sampled_frames[:8]:
+                  infer(net, image)
+
+          per_mode_detections = {name: [] for name in MODES}
+          per_mode_times = {name: [] for name in MODES}
+          for image in sampled_frames:
+              # Rotate mode order frame-to-frame to reduce thermal/order bias.
+              names = list(MODES)
+              shift = len(per_mode_detections['fp32']) % len(names)
+              names = names[shift:] + names[:shift]
+              for name in names:
+                  t0 = time.perf_counter_ns()
+                  output = infer(nets[name], image)
+                  per_mode_times[name].append((time.perf_counter_ns() - t0) / 1e6)
+                  per_mode_detections[name].append(decode(output))
+
+          reference_frames = per_mode_detections['fp32']
+          report = {
+              'sampled_frames': len(sampled_frames),
+              'threads': 4,
+              'modes': {},
+          }
+          for name, flags in MODES.items():
+              times = per_mode_times[name]
+              detections = per_mode_detections[name]
+              total_ref = 0
+              total_candidate = 0
+              count_mismatch_frames = 0
+              matched_count = 0
+              matched_iou_50 = 0
+              matched_iou_75 = 0
+              unmatched_ref = 0
+              unmatched_candidate = 0
+              ious = []
+              score_diffs = []
+              class_counts = {}
+              for reference, candidate in zip(reference_frames, detections, strict=True):
+                  total_ref += len(reference)
+                  total_candidate += len(candidate)
+                  if len(reference) != len(candidate):
+                      count_mismatch_frames += 1
+                  for _, _, label in candidate:
+                      key = str(label)
+                      class_counts[key] = class_counts.get(key, 0) + 1
+                  matched, missing, extra = match(reference, candidate)
+                  matched_count += len(matched)
+                  unmatched_ref += missing
+                  unmatched_candidate += extra
+                  for box_iou, score_diff in matched:
+                      ious.append(box_iou)
+                      score_diffs.append(score_diff)
+                      if box_iou >= 0.5:
+                          matched_iou_50 += 1
+                      if box_iou >= 0.75:
+                          matched_iou_75 += 1
+
+              mean_ms = statistics.fmean(times)
+              entry = {
+                  'flags': {
+                      'packed': flags[0],
+                      'storage': flags[1],
+                      'arithmetic': flags[2],
+                  },
+                  'mean_ms': mean_ms,
+                  'median_ms': statistics.median(times),
+                  'p95_ms': sorted(times)[int(0.95 * (len(times) - 1))],
+                  'fps_from_mean': 1000.0 / mean_ms,
+                  'total_detections': total_candidate,
+                  'count_mismatch_frames': count_mismatch_frames,
+                  'count_mismatch_fraction': count_mismatch_frames / len(sampled_frames),
+                  'matched_pairs': matched_count,
+                  'matched_iou_ge_0_5': matched_iou_50,
+                  'matched_iou_ge_0_5_fraction_of_fp32': matched_iou_50 / total_ref if total_ref else None,
+                  'matched_iou_ge_0_75_fraction_of_fp32': matched_iou_75 / total_ref if total_ref else None,
+                  'unmatched_fp32': unmatched_ref,
+                  'unmatched_candidate': unmatched_candidate,
+                  'mean_matched_iou': statistics.fmean(ious) if ious else None,
+                  'mean_score_abs_diff': statistics.fmean(score_diffs) if score_diffs else None,
+                  'max_score_abs_diff': max(score_diffs) if score_diffs else None,
+                  'class_counts': class_counts,
+              }
+              report['modes'][name] = entry
+
+          base_ms = report['modes']['fp32']['mean_ms']
+          for entry in report['modes'].values():
+              entry['speedup_vs_fp32'] = base_ms / entry['mean_ms']
+              entry['saved_ms_vs_fp32'] = base_ms - entry['mean_ms']
+
+          print(json.dumps(report, indent=2))
+          Path('../arm64_fp16_option_matrix.json').write_text(
+              json.dumps(report, indent=2), encoding='utf-8'
+          )
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arm64-fp16-option-matrix
+          path: arm64_fp16_option_matrix.json
+          retention-days: 7
