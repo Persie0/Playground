@@ -1,0 +1,184 @@
+name: Traffic counting Roboflow ByteTrack verification
+
+on:
+  push:
+    branches:
+      - traffic-roboflow-verify
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/traffic-counting-light-main
+  APP_REF: deps/roboflow-bytetrack-runtime-final
+
+jobs:
+  core-pi-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout migration branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install constrained core Pi runtime and dev tools
+        shell: bash
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip setuptools wheel
+          cd app/edge
+          python -m pip install -c constraints/pi-aarch64.txt ".[pi,dev]"
+          python -m pip check
+
+      - name: Verify lightweight dependency split
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          cd app/edge
+          python - <<'PY'
+          import importlib.util
+          from importlib.metadata import version
+
+          assert importlib.util.find_spec("boxmot") is None
+          assert importlib.util.find_spec("fast_plate_ocr") is None
+          assert version("trackers") == "2.6.0"
+          assert version("ncnn") == "1.0.20260526"
+          print("core dependency split OK")
+          PY
+
+      - name: Ruff
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          cd app/edge
+          python -m ruff check src tests
+
+      - name: Tracker migration regression tests
+        shell: bash
+        env:
+          PYTHONPATH: src
+          MPLBACKEND: Agg
+        run: |
+          source .venv/bin/activate
+          cd app/edge
+          python -m pytest -q \
+            tests/test_bytetrack_adapter.py \
+            tests/test_bytetrack_behavior.py \
+            tests/test_bytetrack_config.py \
+            tests/test_runtime_dependencies.py \
+            tests/test_pi_constraints.py
+
+      - name: OCR test is optional without OCR extra
+        shell: bash
+        env:
+          PYTHONPATH: src
+        run: |
+          source .venv/bin/activate
+          cd app/edge
+          python -m pytest -q tests/test_fast_plate_ocr_batching.py
+
+  full-production-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout migration branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install constrained OCR-enabled Pi runtime and dev tools
+        shell: bash
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip setuptools wheel
+          cd app/edge
+          python -m pip install -c constraints/pi-aarch64.txt ".[pi,plate-ocr,dev]"
+          python -m pip check
+
+      - name: Smoke-test production imports and versions
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          cd app/edge
+          python - <<'PY'
+          from importlib.metadata import version
+          import cv2
+          import ncnn
+          from fast_plate_ocr import LicensePlateRecognizer
+          from trackers import ByteTrackTracker
+
+          print("trackers", version("trackers"))
+          print("ncnn", version("ncnn"))
+          print("fast-plate-ocr", version("fast-plate-ocr"))
+          print("onnxruntime", version("onnxruntime"))
+          print("opencv-python", version("opencv-python"))
+          print("opencv-python-headless", version("opencv-python-headless"))
+          print("cv2", cv2.__version__)
+          assert ByteTrackTracker is not None
+          assert LicensePlateRecognizer is not None
+          assert ncnn is not None
+          PY
+
+      - name: Complete edge tests
+        shell: bash
+        env:
+          PYTHONPATH: src
+          MPLBACKEND: Agg
+        run: |
+          source .venv/bin/activate
+          cd app/edge
+          python -m pytest -q tests
+
+      - name: Project tests
+        shell: bash
+        env:
+          PYTHONPATH: edge/src
+          MPLBACKEND: Agg
+        run: |
+          source .venv/bin/activate
+          cd app
+          python -m pytest -q project_tests
+
+      - name: Compile Python sources
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          cd app
+          python -m compileall -q edge/src edge/tests edge/scripts experiments tools project_tests
+
+      - name: Ruff all relevant Python
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          cd app
+          python -m ruff check edge/src edge/tests
+          python -m ruff check --select E9,F63,F7,F82 project_tests experiments tools edge/scripts
