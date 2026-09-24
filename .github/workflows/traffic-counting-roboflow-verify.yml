@@ -56,17 +56,12 @@ jobs:
 
           assert importlib.util.find_spec("boxmot") is None
           assert importlib.util.find_spec("fast_plate_ocr") is None
+          assert importlib.util.find_spec("pandas") is None
+          assert importlib.util.find_spec("sklearn") is None
           assert version("trackers") == "2.6.0"
           assert version("ncnn") == "1.0.20260526"
           print("core dependency split OK")
           PY
-
-      - name: Ruff
-        shell: bash
-        run: |
-          source .venv/bin/activate
-          cd app/edge
-          python -m ruff check src tests
 
       - name: Tracker migration regression tests
         shell: bash
@@ -92,6 +87,13 @@ jobs:
           cd app/edge
           python -m pytest -q tests/test_fast_plate_ocr_batching.py
 
+      - name: Established edge Ruff contract
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          cd app/edge
+          python -m ruff check --select F,E9 src tests
+
   full-production-tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -114,7 +116,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install constrained OCR-enabled Pi runtime and dev tools
+      - name: Install constrained OCR-enabled runtime and test tools
         shell: bash
         run: |
           python -m venv .venv
@@ -122,6 +124,9 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           cd app/edge
           python -m pip install -c constraints/pi-aarch64.txt ".[pi,plate-ocr,dev]"
+          # project_tests exercise offline experimental scripts. BoxMOT used to
+          # provide these packages transitively; keep them out of the Pi runtime.
+          python -m pip install "pandas>=2.2,<3" "scikit-learn>=1.7,<2"
           python -m pip check
 
       - name: Smoke-test production imports and versions
@@ -175,10 +180,10 @@ jobs:
           cd app
           python -m compileall -q edge/src edge/tests edge/scripts experiments tools project_tests
 
-      - name: Ruff all relevant Python
+      - name: Established Ruff contracts
         shell: bash
         run: |
           source .venv/bin/activate
           cd app
-          python -m ruff check edge/src edge/tests
+          python -m ruff check --select F,E9 edge/src edge/tests
           python -m ruff check --select E9,F63,F7,F82 project_tests experiments tools edge/scripts
