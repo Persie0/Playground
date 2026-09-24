@@ -30,62 +30,66 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Inspect raw detections and historical tracks
+      - name: Inspect replay geometry
         shell: bash
         run: |
           cd app
+          file experiments/intersection_analysis/heatmaps/frame.jpg || true
+          file experiments/intersection_analysis/heatmaps/bg.jpeg || true
           python - <<'PY'
           import csv
           from collections import Counter
           from pathlib import Path
 
           root = Path('experiments/intersection_analysis/heatmaps')
-          for name in ('detections_all_frames.csv', 'tracks_bytetrack.csv'):
-              path = root / name
-              print(f'=== {name} ===')
-              with path.open(newline='', encoding='utf-8-sig') as f:
-                  reader = csv.DictReader(f)
-                  print('columns:', reader.fieldnames)
-                  rows = []
-                  for i, row in enumerate(reader):
-                      rows.append(row)
-                      if i == 4:
-                          break
-                  for row in rows:
-                      print(row)
-              print('size_bytes:', path.stat().st_size)
-
           path = root / 'detections_all_frames.csv'
+          counts = Counter()
+          classes = Counter()
+          min_frame = None
+          max_frame = None
+          conf_min = None
+          conf_max = None
+          max_x2 = 0.0
+          max_y2 = 0.0
+          min_x1 = float('inf')
+          min_y1 = float('inf')
+          total = 0
           with path.open(newline='', encoding='utf-8-sig') as f:
               reader = csv.DictReader(f)
-              fields = reader.fieldnames or []
-              frame_key = next((k for k in fields if k.lower() in {'frame','frame_id','frame_idx','frame_index'}), None)
-              class_key = next((k for k in fields if k.lower() in {'class','class_id','cls','label','class_name'}), None)
-              conf_key = next((k for k in fields if k.lower() in {'confidence','conf','score'}), None)
-              counts = Counter()
-              classes = Counter()
-              min_frame = None
-              max_frame = None
-              conf_min = None
-              conf_max = None
-              total = 0
+              print('detections columns:', reader.fieldnames)
               for row in reader:
                   total += 1
-                  if frame_key:
-                      value = int(float(row[frame_key]))
-                      counts[value] += 1
-                      min_frame = value if min_frame is None else min(min_frame, value)
-                      max_frame = value if max_frame is None else max(max_frame, value)
-                  if class_key:
-                      classes[row[class_key]] += 1
-                  if conf_key and row[conf_key]:
-                      c = float(row[conf_key])
-                      conf_min = c if conf_min is None else min(conf_min, c)
-                      conf_max = c if conf_max is None else max(conf_max, c)
-              print('raw_total_rows:', total)
-              print('frame_key:', frame_key, 'frame_range:', (min_frame, max_frame), 'unique_frames:', len(counts))
-              print('class_key:', class_key, 'classes_top20:', classes.most_common(20))
-              print('conf_key:', conf_key, 'confidence_range:', (conf_min, conf_max))
-              if counts:
-                  print('detections_per_frame_min_max:', min(counts.values()), max(counts.values()))
+                  frame = int(row['frame'])
+                  counts[frame] += 1
+                  min_frame = frame if min_frame is None else min(min_frame, frame)
+                  max_frame = frame if max_frame is None else max(max_frame, frame)
+                  classes[row['class_name']] += 1
+                  c = float(row['confidence'])
+                  conf_min = c if conf_min is None else min(conf_min, c)
+                  conf_max = c if conf_max is None else max(conf_max, c)
+                  min_x1 = min(min_x1, float(row['x1']))
+                  min_y1 = min(min_y1, float(row['y1']))
+                  max_x2 = max(max_x2, float(row['x2']))
+                  max_y2 = max(max_y2, float(row['y2']))
+          print('raw_total_rows:', total)
+          print('frame_range:', (min_frame, max_frame), 'unique_frames:', len(counts))
+          print('classes:', classes)
+          print('confidence_range:', (conf_min, conf_max))
+          print('coordinate_extrema:', (min_x1, min_y1, max_x2, max_y2))
+          print('detections_per_frame_min_max:', min(counts.values()), max(counts.values()))
+
+          tracks = root / 'tracks_bytetrack.csv'
+          with tracks.open(newline='', encoding='utf-8-sig') as f:
+              reader = csv.DictReader(f)
+              print('historical track columns:', reader.fieldnames)
+              track_ids = set()
+              rows = 0
+              max_track_frame = -1
+              for row in reader:
+                  rows += 1
+                  track_ids.add(int(row['track_id']))
+                  max_track_frame = max(max_track_frame, int(row['frame']))
+          print('historical_track_rows:', rows)
+          print('historical_unique_tracks:', len(track_ids))
+          print('historical_max_frame:', max_track_frame)
           PY
