@@ -1,0 +1,210 @@
+name: Traffic counting final ARM64 validation
+
+on:
+  push:
+    branches:
+      - traffic-roboflow-verify
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/traffic-counting-light-main
+  APP_REF: deps/roboflow-bytetrack-runtime-final
+  DETECTIONS: app/experiments/intersection_analysis/heatmaps/detections_all_frames.csv
+
+jobs:
+  arm64-production-install:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - name: Assert native ARM64 runner
+        shell: bash
+        run: |
+          set -euxo pipefail
+          uname -a
+          test "$(uname -m)" = "aarch64"
+          test "$(dpkg --print-architecture)" = "arm64"
+
+      - name: Checkout migration branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install exact OCR-enabled production profile
+        shell: bash
+        run: |
+          python -m venv .venv-prod
+          source .venv-prod/bin/activate
+          python -m pip install --upgrade pip setuptools wheel
+          cd app/edge
+          python -m pip install -c constraints/pi-aarch64.txt ".[pi,plate-ocr]"
+          python -m pip check
+
+      - name: Verify production dependency footprint
+        shell: bash
+        run: |
+          source .venv-prod/bin/activate
+          cd app/edge
+          python - <<'PY'
+          import importlib.util
+          import platform
+          from importlib.metadata import version
+
+          assert platform.machine() == "aarch64"
+          assert importlib.util.find_spec("boxmot") is None
+          assert importlib.util.find_spec("torch") is None
+          assert importlib.util.find_spec("torchvision") is None
+          assert importlib.util.find_spec("timm") is None
+          assert importlib.util.find_spec("pandas") is None
+          assert importlib.util.find_spec("sklearn") is None
+          assert importlib.util.find_spec("pyarrow") is None
+
+          expected = {
+              "trackers": "2.6.0",
+              "ncnn": "1.0.20260526",
+              "fast-plate-ocr": "1.1.0",
+              "onnxruntime": "1.24.3",
+              "opencv-python": "4.14.0.94",
+              "opencv-python-headless": "4.14.0.94",
+          }
+          for package, wanted in expected.items():
+              actual = version(package)
+              print(package, actual)
+              assert actual == wanted, (package, actual, wanted)
+          print("machine", platform.machine())
+          PY
+          du -sh ../../.venv-prod
+
+      - name: Import native runtime stack and application modules
+        shell: bash
+        env:
+          PYTHONPATH: src
+        run: |
+          source .venv-prod/bin/activate
+          cd app/edge
+          python - <<'PY'
+          import platform
+          import cv2
+          import ncnn
+          import onnxruntime as ort
+          from fast_plate_ocr import LicensePlateRecognizer
+          from trackers import ByteTrackTracker as RoboflowByteTrackTracker
+          import main
+          import pipeline
+          from utils.config import Config
+          from tracking.bytetrack import ByteTrackTracker
+
+          assert platform.machine() == "aarch64"
+          print("cv2", cv2.__version__, cv2.__file__)
+          print("onnxruntime", ort.__version__, ort.__file__)
+          print("ncnn", ncnn.__file__)
+          assert LicensePlateRecognizer is not None
+          assert RoboflowByteTrackTracker is not None
+          assert main.main is not None
+          assert pipeline.run_recorder is not None
+
+          Config.load("configs/runtime/pi_camera.yaml")
+          tracker = ByteTrackTracker()
+          assert tracker.vehicles_tracker is not None
+          assert tracker.people_tracker is not None
+          print("Pi config + tracker construction OK")
+          PY
+
+      - name: Native shared-library smoke
+        shell: bash
+        run: |
+          source .venv-prod/bin/activate
+          python - <<'PY'
+          import cv2, ncnn, onnxruntime
+          print("native imports complete")
+          PY
+
+  arm64-tests-and-replay:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 50
+    steps:
+      - name: Assert native ARM64 runner
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(dpkg --print-architecture)" = "arm64"
+
+      - name: Checkout Playground probe
+        uses: actions/checkout@v5
+        with:
+          path: playground
+
+      - name: Checkout migration branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install constrained ARM64 test environment
+        shell: bash
+        run: |
+          python -m venv .venv-test
+          source .venv-test/bin/activate
+          python -m pip install --upgrade pip setuptools wheel
+          cd app/edge
+          python -m pip install -c constraints/pi-aarch64.txt ".[pi,plate-ocr,dev]"
+          # Legacy project_tests exercise offline experiment helpers only.
+          python -m pip install "pandas>=2.2,<3" "scikit-learn>=1.7,<2"
+          python -m pip check
+
+      - name: Full edge tests on ARM64
+        shell: bash
+        env:
+          PYTHONPATH: src
+          MPLBACKEND: Agg
+        run: |
+          source .venv-test/bin/activate
+          cd app/edge
+          python -m pytest -q tests
+
+      - name: Project tests on ARM64
+        shell: bash
+        env:
+          PYTHONPATH: edge/src
+          MPLBACKEND: Agg
+        run: |
+          source .venv-test/bin/activate
+          cd app
+          python -m pytest -q project_tests
+
+      - name: Compile and Ruff contracts on ARM64
+        shell: bash
+        run: |
+          source .venv-test/bin/activate
+          cd app
+          python -m compileall -q edge/src edge/tests edge/scripts experiments tools project_tests
+          python -m ruff check --select F,E9 edge/src edge/tests
+          python -m ruff check --select E9,F63,F7,F82 project_tests experiments tools edge/scripts
+
+      - name: Replay production Roboflow tracker on ARM64
+        shell: bash
+        run: |
+          source .venv-test/bin/activate
+          /usr/bin/time -v python playground/scripts/traffic_tracker_ab.py roboflow \
+            --detections "$DETECTIONS" \
+            --iou 0.20 2>&1 | tee arm64-replay.log
+          grep '"line_crossings_x960": 247' arm64-replay.log
+          grep '"unique_tracks": 1914' arm64-replay.log
+          grep '"assigned_rows": 362234' arm64-replay.log
