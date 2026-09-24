@@ -2,8 +2,14 @@
 """Throwaway tracker A/B probe for the traffic-counting migration.
 
 Replays the repository's raw per-frame detector CSV through either BoxMOT 25
-or Roboflow Trackers 2.6.0 and prints compact JSON metrics. This lives only in
-the Playground verification branch; it is not production application code.
+or Roboflow Trackers 2.6.0 and prints compact JSON metrics. The replay also
+implements the production one-line DriveThroughCounter semantics for the
+1920x1080 stored dataset: rounded project boxes, bottom-center x coordinate,
+vertical line x=960, no crossing across missing frames, one count per track,
+and a 300-update counted-ID retention window.
+
+This lives only in the Playground verification branch; it is not production
+application code.
 """
 
 from __future__ import annotations
@@ -18,13 +24,15 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
-import numpy as np
-
 MIN_CONF = 0.10
 TRACK_THRESH = 0.30
 MATCH_THRESH = 0.80
 TRACK_BUFFER = 45
 FRAME_RATE = 30.0
+IMAGE_WIDTH = 1920
+IMAGE_HEIGHT = 1080
+LINE_X = 960
+COUNTED_ID_RETENTION_UPDATES = 300
 
 
 def iter_frames(path: Path):
@@ -46,6 +54,8 @@ def iter_frames(path: Path):
 
 
 def raw_arrays(rows: list[dict[str, str]]):
+    import numpy as np
+
     xyxy = np.asarray(
         [[float(r["x1"]), float(r["y1"]), float(r["x2"]), float(r["y2"])] for r in rows],
         dtype=np.float32,
@@ -53,6 +63,67 @@ def raw_arrays(rows: list[dict[str, str]]):
     conf = np.asarray([float(r["confidence"]) for r in rows], dtype=np.float32)
     cls = np.asarray([int(r["class_id"]) for r in rows], dtype=np.int32)
     return xyxy, conf, cls
+
+
+def project_box_x_center(x1_raw: float, x2_raw: float) -> int:
+    """Match the migration adapter + BoundingBox.bottom_center_int()."""
+    x1 = int(round(float(x1_raw)))
+    x2 = int(round(float(x2_raw)))
+    x1 = max(0, min(x1, IMAGE_WIDTH - 1))
+    x2 = max(0, min(x2, IMAGE_WIDTH))
+    width = max(1, x2 - x1)
+    return int(x1 + width * 0.5)
+
+
+class LineCrossCounter:
+    """Production-equivalent single-line counting state for replay."""
+
+    def __init__(self):
+        self.update_index = 0
+        self.side_by_track_id: dict[int, int] = {}
+        self.counted_track_ids: set[int] = set()
+        self.counted_last_seen: dict[int, int] = {}
+        self.total = 0
+        self.by_class: Counter[int] = Counter()
+
+    def update(self, tracks: list[tuple[int, float, float, int]]) -> None:
+        self.update_index += 1
+        active_ids: set[int] = set()
+
+        for track_id, x1, x2, class_id in tracks:
+            active_ids.add(track_id)
+            center_x = project_box_x_center(x1, x2)
+            # DriveThroughCounter's vertical line has the same sign-change
+            # behavior; multiplying both sides by -1079 does not change whether
+            # prev*now is negative.
+            side_now = center_x - LINE_X
+            side_prev = self.side_by_track_id.get(track_id)
+            self.side_by_track_id[track_id] = side_now
+
+            if track_id in self.counted_track_ids:
+                self.counted_last_seen[track_id] = self.update_index
+                continue
+
+            if side_prev is not None and side_prev * side_now < 0:
+                self.counted_track_ids.add(track_id)
+                self.counted_last_seen[track_id] = self.update_index
+                self.total += 1
+                self.by_class[class_id] += 1
+
+        # Production removes side history immediately when a track is missing,
+        # so an occlusion cannot create a synthetic crossing on reappearance.
+        for track_id in [tid for tid in self.side_by_track_id if tid not in active_ids]:
+            self.side_by_track_id.pop(track_id, None)
+
+        expired = [
+            track_id
+            for track_id, last_seen in self.counted_last_seen.items()
+            if track_id not in active_ids
+            and self.update_index - last_seen > COUNTED_ID_RETENTION_UPDATES
+        ]
+        for track_id in expired:
+            self.counted_track_ids.discard(track_id)
+            self.counted_last_seen.pop(track_id, None)
 
 
 def percentile(values: list[int], q: float) -> float:
@@ -78,6 +149,7 @@ def summarize(
     assignments: dict[int, list[int]],
     track_classes: dict[int, int],
     tracker_seconds: float,
+    line_counter: LineCrossCounter,
 ):
     lengths = [len(frames) for frames in assignments.values()]
     gap_events = 0
@@ -114,6 +186,8 @@ def summarize(
         "gap_events_inside_tracks": gap_events,
         "gap_frames_inside_tracks": gap_frames,
         "recovered_gap_events_le_buffer": recovered_gap_events,
+        "line_crossings_x960": line_counter.total,
+        "line_crossings_by_class": {str(k): v for k, v in sorted(line_counter.by_class.items())},
         "tracker_seconds": tracker_seconds,
         "tracker_ms_per_frame": tracker_seconds * 1000.0 / total_frames if total_frames else 0.0,
         "max_rss_kb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
@@ -123,6 +197,8 @@ def summarize(
 
 
 def replay_boxmot(path: Path):
+    import numpy as np
+
     try:
         from boxmot import ByteTrack
     except ImportError:
@@ -135,11 +211,10 @@ def replay_boxmot(path: Path):
         track_buffer=TRACK_BUFFER,
         frame_rate=int(FRAME_RATE),
     )
-    # The project's previous adapter passed an image into BoxMOT. Standard IoU
-    # ByteTrack does not use pixels, but keep the same call shape for parity.
-    image = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    image = np.zeros((IMAGE_HEIGHT, IMAGE_WIDTH, 3), dtype=np.uint8)
     assignments: dict[int, list[int]] = defaultdict(list)
     track_classes: dict[int, int] = {}
+    line_counter = LineCrossCounter()
     total_frames = total_input = accepted_input = 0
     tracker_seconds = 0.0
 
@@ -153,18 +228,21 @@ def replay_boxmot(path: Path):
         tracked = tracker.update(dets, image)
         tracker_seconds += time.perf_counter() - started
         arr = np.asarray(tracked)
-        if arr.size == 0:
-            continue
-        if arr.ndim == 1:
-            arr = arr.reshape(1, -1)
-        for row in arr:
-            if row.shape[0] < 7:
-                continue
-            track_id = int(row[4])
-            if track_id < 0:
-                continue
-            assignments[track_id].append(frame)
-            track_classes.setdefault(track_id, int(row[6]))
+        frame_tracks: list[tuple[int, float, float, int]] = []
+        if arr.size:
+            if arr.ndim == 1:
+                arr = arr.reshape(1, -1)
+            for row in arr:
+                if row.shape[0] < 7:
+                    continue
+                track_id = int(row[4])
+                if track_id < 0:
+                    continue
+                class_id = int(row[6])
+                assignments[track_id].append(frame)
+                track_classes.setdefault(track_id, class_id)
+                frame_tracks.append((track_id, float(row[0]), float(row[2]), class_id))
+        line_counter.update(frame_tracks)
 
     summarize(
         name="boxmot-25",
@@ -175,10 +253,12 @@ def replay_boxmot(path: Path):
         assignments=assignments,
         track_classes=track_classes,
         tracker_seconds=tracker_seconds,
+        line_counter=line_counter,
     )
 
 
 def replay_roboflow(path: Path, minimum_iou_threshold: float):
+    import numpy as np
     import supervision as sv
     from trackers import ByteTrackTracker
 
@@ -192,6 +272,7 @@ def replay_roboflow(path: Path, minimum_iou_threshold: float):
     )
     assignments: dict[int, list[int]] = defaultdict(list)
     track_classes: dict[int, int] = {}
+    line_counter = LineCrossCounter()
     total_frames = total_input = accepted_input = 0
     tracker_seconds = 0.0
 
@@ -208,15 +289,19 @@ def replay_roboflow(path: Path, minimum_iou_threshold: float):
         started = time.perf_counter()
         tracked = tracker.update(detections)
         tracker_seconds += time.perf_counter() - started
-        if tracked.tracker_id is None:
-            continue
-        for index, track_id_raw in enumerate(tracked.tracker_id):
-            track_id = int(track_id_raw)
-            if track_id < 0:
-                continue
-            assignments[track_id].append(frame)
-            if tracked.class_id is not None:
-                track_classes.setdefault(track_id, int(tracked.class_id[index]))
+        frame_tracks: list[tuple[int, float, float, int]] = []
+        if tracked.tracker_id is not None:
+            for index, track_id_raw in enumerate(tracked.tracker_id):
+                track_id = int(track_id_raw)
+                if track_id < 0:
+                    continue
+                class_id = int(tracked.class_id[index]) if tracked.class_id is not None else -1
+                assignments[track_id].append(frame)
+                track_classes.setdefault(track_id, class_id)
+                frame_tracks.append(
+                    (track_id, float(tracked.xyxy[index][0]), float(tracked.xyxy[index][2]), class_id)
+                )
+        line_counter.update(frame_tracks)
 
     summarize(
         name="roboflow-2.6",
@@ -227,23 +312,40 @@ def replay_roboflow(path: Path, minimum_iou_threshold: float):
         assignments=assignments,
         track_classes=track_classes,
         tracker_seconds=tracker_seconds,
+        line_counter=line_counter,
     )
 
 
 def summarize_historical(path: Path):
     assignments: dict[int, list[int]] = defaultdict(list)
     track_classes: dict[int, int] = {}
+    line_counter = LineCrossCounter()
     total_rows = 0
     max_frame = -1
+    current_frame = None
+    frame_tracks: list[tuple[int, float, float, int]] = []
+
     with path.open(newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
             total_rows += 1
             frame = int(row["frame"])
+            if current_frame is None:
+                current_frame = frame
+            while current_frame < frame:
+                line_counter.update(frame_tracks)
+                frame_tracks = []
+                current_frame += 1
             max_frame = max(max_frame, frame)
             track_id = int(row["track_id"])
+            class_id = int(row["class_id"])
             assignments[track_id].append(frame)
-            track_classes.setdefault(track_id, int(row["class_id"]))
+            track_classes.setdefault(track_id, class_id)
+            frame_tracks.append((track_id, float(row["x1"]), float(row["x2"]), class_id))
+
+    if current_frame is not None:
+        line_counter.update(frame_tracks)
+
     summarize(
         name="historical-tracks-csv",
         threshold=None,
@@ -253,6 +355,7 @@ def summarize_historical(path: Path):
         assignments=assignments,
         track_classes=track_classes,
         tracker_seconds=0.0,
+        line_counter=line_counter,
     )
 
 
