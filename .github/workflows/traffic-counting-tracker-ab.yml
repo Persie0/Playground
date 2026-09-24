@@ -1,0 +1,102 @@
+name: Traffic counting tracker A-B replay
+
+on:
+  push:
+    branches:
+      - traffic-roboflow-verify
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/traffic-counting-light-main
+  APP_REF: deps/roboflow-bytetrack-runtime-final
+  DETECTIONS: app/experiments/intersection_analysis/heatmaps/detections_all_frames.csv
+  HISTORICAL_TRACKS: app/experiments/intersection_analysis/heatmaps/tracks_bytetrack.csv
+
+jobs:
+  historical-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: playground
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Summarize historical ByteTrack CSV
+        run: >-
+          python playground/scripts/traffic_tracker_ab.py historical
+          --tracks "$HISTORICAL_TRACKS"
+
+  boxmot-25:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: playground
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install exact BoxMOT baseline
+        run: |
+          python -m venv .venv-boxmot
+          source .venv-boxmot/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install 'boxmot==25.0.0'
+          python -m pip check
+      - name: Replay BoxMOT 25
+        run: |
+          source .venv-boxmot/bin/activate
+          python playground/scripts/traffic_tracker_ab.py boxmot --detections "$DETECTIONS"
+
+  roboflow-26:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        iou: ['0.10', '0.15', '0.20', '0.25', '0.30', '0.35', '0.40', '0.50']
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: playground
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Roboflow tracker runtime
+        run: |
+          python -m venv .venv-roboflow
+          source .venv-roboflow/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install 'trackers==2.6.0' 'supervision==0.26.1'
+          python -m pip check
+      - name: Replay Roboflow 2.6 at IoU ${{ matrix.iou }}
+        run: |
+          source .venv-roboflow/bin/activate
+          python playground/scripts/traffic_tracker_ab.py roboflow \
+            --detections "$DETECTIONS" \
+            --iou '${{ matrix.iou }}'
