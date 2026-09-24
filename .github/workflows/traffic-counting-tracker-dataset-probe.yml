@@ -1,0 +1,91 @@
+name: Traffic counting tracker dataset probe
+
+on:
+  push:
+    branches:
+      - traffic-roboflow-verify
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/traffic-counting-light-main
+  APP_REF: deps/roboflow-bytetrack-runtime-final
+
+jobs:
+  inspect-dataset:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Inspect raw detections and historical tracks
+        shell: bash
+        run: |
+          cd app
+          python - <<'PY'
+          import csv
+          from collections import Counter
+          from pathlib import Path
+
+          root = Path('experiments/intersection_analysis/heatmaps')
+          for name in ('detections_all_frames.csv', 'tracks_bytetrack.csv'):
+              path = root / name
+              print(f'=== {name} ===')
+              with path.open(newline='', encoding='utf-8-sig') as f:
+                  reader = csv.DictReader(f)
+                  print('columns:', reader.fieldnames)
+                  rows = []
+                  for i, row in enumerate(reader):
+                      rows.append(row)
+                      if i == 4:
+                          break
+                  for row in rows:
+                      print(row)
+              print('size_bytes:', path.stat().st_size)
+
+          path = root / 'detections_all_frames.csv'
+          with path.open(newline='', encoding='utf-8-sig') as f:
+              reader = csv.DictReader(f)
+              fields = reader.fieldnames or []
+              frame_key = next((k for k in fields if k.lower() in {'frame','frame_id','frame_idx','frame_index'}), None)
+              class_key = next((k for k in fields if k.lower() in {'class','class_id','cls','label','class_name'}), None)
+              conf_key = next((k for k in fields if k.lower() in {'confidence','conf','score'}), None)
+              counts = Counter()
+              classes = Counter()
+              min_frame = None
+              max_frame = None
+              conf_min = None
+              conf_max = None
+              total = 0
+              for row in reader:
+                  total += 1
+                  if frame_key:
+                      value = int(float(row[frame_key]))
+                      counts[value] += 1
+                      min_frame = value if min_frame is None else min(min_frame, value)
+                      max_frame = value if max_frame is None else max(max_frame, value)
+                  if class_key:
+                      classes[row[class_key]] += 1
+                  if conf_key and row[conf_key]:
+                      c = float(row[conf_key])
+                      conf_min = c if conf_min is None else min(conf_min, c)
+                      conf_max = c if conf_max is None else max(conf_max, c)
+              print('raw_total_rows:', total)
+              print('frame_key:', frame_key, 'frame_range:', (min_frame, max_frame), 'unique_frames:', len(counts))
+              print('class_key:', class_key, 'classes_top20:', classes.most_common(20))
+              print('conf_key:', conf_key, 'confidence_range:', (conf_min, conf_max))
+              if counts:
+                  print('detections_per_frame_min_max:', min(counts.values()), max(counts.values()))
+          PY
