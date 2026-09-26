@@ -1,0 +1,154 @@
+name: Noise Remover private macOS CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Private app branch, tag, or SHA
+        required: false
+        default: macos-release
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-macos-private-ci.yml'
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: ${{ inputs.ref || 'macos-release' }}
+
+jobs:
+  macos-test-and-build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private app revision
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Tool versions
+        run: |
+          flutter --version
+          rustc --version
+          cargo --version
+          xcodebuild -version
+          pod --version
+
+      - name: Verify release credentials are not hardcoded
+        working-directory: app
+        run: |
+          if grep -R -n -E "static const String _testerProCode[[:space:]]*=[[:space:]]*['\"]" lib; then
+            echo 'Hardcoded tester unlock found in Dart source.'
+            exit 1
+          fi
+          grep -q "String.fromEnvironment" lib/services/subscription_service.dart
+          if grep -n -E '^[[:space:]]*auth_token:' pubspec.yaml; then
+            echo 'Sentry upload auth token must come from CI secrets.'
+            exit 1
+          fi
+
+      - name: Run macOS setup transform tests
+        working-directory: app
+        run: python3 -m unittest tool/test_bootstrap_macos.py tool/test_setup_macos.py
+
+      - name: Resolve Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Verify lockfile reproducibility
+        working-directory: app
+        run: |
+          if ! git diff --exit-code -- pubspec.lock; then
+            echo 'pubspec.lock changed after flutter pub get.'
+            exit 1
+          fi
+
+      - name: Generate macOS target when absent
+        working-directory: app
+        run: |
+          if [ ! -f macos/Runner.xcodeproj/project.pbxproj ]; then
+            flutter create --platforms=macos --org at.persie0 .
+            flutter pub get
+          fi
+
+      - name: Apply Noise Remover macOS configuration
+        working-directory: app
+        run: |
+          python3 tool/setup_macos.py
+          dart run flutter_launcher_icons
+
+      - name: Verify generated macOS target policy
+        working-directory: app
+        run: |
+          grep -q 'PRODUCT_BUNDLE_IDENTIFIER = at.persie0.noiseremover' macos/Runner/Configs/AppInfo.xcconfig
+          grep -q 'PRODUCT_NAME = Noise Remover' macos/Runner/Configs/AppInfo.xcconfig
+          grep -q 'MACOSX_DEPLOYMENT_TARGET = 14.0' macos/Runner/Configs/AppInfo.xcconfig
+          grep -q 'ENABLE_HARDENED_RUNTIME = YES' macos/Runner/Configs/AppInfo.xcconfig
+          grep -q "platform :osx, '14.0'" macos/Podfile
+          grep -q "s.dependency 'onnxruntime-c', '1.26.0'" flutter_nnnoiseless/macos/flutter_nnnoiseless.podspec
+          grep -q "s.platform = :osx, '14.0'" flutter_nnnoiseless/macos/flutter_nnnoiseless.podspec
+          grep -q -- '-framework "onnxruntime"' flutter_nnnoiseless/macos/flutter_nnnoiseless.podspec
+          grep -q 'com.apple.security.app-sandbox' macos/Runner/Release.entitlements
+          grep -q 'com.apple.security.files.user-selected.read-write' macos/Runner/Release.entitlements
+          grep -q 'com.apple.security.files.bookmarks.app-scope' macos/Runner/Release.entitlements
+          grep -q 'com.apple.security.device.audio-input' macos/Runner/Release.entitlements
+          grep -q 'com.apple.security.network.client' macos/Runner/Release.entitlements
+          grep -q 'case "stageExternalFile"' macos/Runner/MainFlutterWindow.swift
+          grep -q 'dropImportQueue.async' macos/Runner/MainFlutterWindow.swift
+          grep -q 'isRegularFileKey' macos/Runner/MainFlutterWindow.swift
+          grep -q 'inactive_count' macos/Runner/MainFlutterWindow.swift
+          grep -q 'setExportActionFor(this' lib/screens/result_screen.dart
+          grep -q 'removeExportActionFor(this)' lib/screens/result_screen.dart
+          grep -q 'lgpl21LicenseText()' lib/screens/about_legal_page.dart
+          grep -q 'options.sendDefaultPii = false;' lib/main.dart
+          ! grep -q 'TESTER_PRO_CODE=' macos/Runner/Configs/*.xcconfig
+
+      - name: Flutter analyze
+        working-directory: app
+        run: flutter analyze
+
+      - name: Flutter tests
+        working-directory: app
+        run: flutter test
+
+      - name: Build macOS debug
+        working-directory: app
+        run: flutter build macos --debug
+
+      - name: Build macOS release
+        working-directory: app
+        run: flutter build macos --release
+
+      - name: Verify release bundle
+        working-directory: app
+        run: |
+          APP_PATH="$(find build/macos/Build/Products/Release -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")" = 'at.persie0.noiseremover'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$APP_PATH/Contents/Info.plist")" = 'Noise Remover'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP_PATH/Contents/Info.plist")" = '14.0'
+          codesign -d --entitlements :- "$APP_PATH" > embedded-entitlements.plist
+          grep -q 'com.apple.security.app-sandbox' embedded-entitlements.plist
+          grep -q 'com.apple.security.files.bookmarks.app-scope' embedded-entitlements.plist
+          grep -q 'com.apple.security.device.audio-input' embedded-entitlements.plist
+          grep -q 'com.apple.security.network.client' embedded-entitlements.plist
