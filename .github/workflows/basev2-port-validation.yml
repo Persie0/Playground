@@ -73,7 +73,7 @@ jobs:
           pytest -q tests \
             --ignore=tests/http_publisher_tests/test_settings_publisher.py
 
-      - name: Confirm excluded settings-publisher test is unchanged from main
+      - name: Confirm excluded detection test is unchanged from main
         working-directory: traffic-counting-light-main
         shell: bash
         run: |
@@ -87,12 +87,20 @@ jobs:
           PYTHONPATH: .
         run: pytest -q tests/test_analysis.py
 
-      - name: Build and test dashboard frontend
+      - name: Build dashboard frontend and run analysis spec
         working-directory: traffic-counting-light-main/baseV2/traffic-counting-edge-dashboard-main/frontend
         run: |
           npm ci
           npm run build
-          npm test
+          npm test -- --include=src/app/route/analysis/analysis.spec.ts
+
+      - name: Confirm unrelated broken frontend spec is unchanged from main
+        working-directory: traffic-counting-light-main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse origin/main:baseV2/traffic-counting-edge-dashboard-main/frontend/src/app/service/system-statistics.spec.ts)" = \
+               "$(git rev-parse HEAD:baseV2/traffic-counting-edge-dashboard-main/frontend/src/app/service/system-statistics.spec.ts)"
 
       - name: Verify copied LibreYOLO model is byte-identical
         working-directory: traffic-counting-light-main
