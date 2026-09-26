@@ -1,0 +1,64 @@
+name: Noise Remover refresh private lockfile
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-refresh-lock.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  refresh-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private macOS branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: macos-release
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          fetch-depth: 0
+          path: app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Regenerate lockfile
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          mapfile -t changed < <(git status --short | sed -E 's/^.. //' | sort -u)
+          printf 'Changed files after pub get:\n'
+          printf '  %s\n' "${changed[@]}"
+          if [ "${#changed[@]}" -ne 1 ] || [ "${changed[0]}" != 'pubspec.lock' ]; then
+            echo 'Expected flutter pub get to change only pubspec.lock.'
+            exit 1
+          fi
+          grep -A7 '^  connectivity_plus:$' pubspec.lock
+          grep -A7 '^  connectivity_plus_platform_interface:$' pubspec.lock
+          grep -A7 '^  connectivity_plus:$' pubspec.lock | grep -q 'version: "7.0.0"'
+          grep -A7 '^  connectivity_plus_platform_interface:$' pubspec.lock | grep -q 'version: "2.0.1"'
+
+      - name: Commit generated lockfile to macos-release
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add pubspec.lock
+          git commit -m 'fix: refresh connectivity lock for macOS'
+          git push origin HEAD:macos-release
