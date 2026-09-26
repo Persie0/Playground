@@ -1,0 +1,162 @@
+name: Temporary Image Enhancer R8 matrix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tmp-image-enhancer-r8-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, no_sentry_keep, onnx_allowoptimization, both]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout Image Enhancer
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_enhancer
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+
+      - name: Checkout EULA assets
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/Persie0.github.io
+          path: eula_repo
+
+      - name: Install EULA assets
+        run: |
+          mkdir -p app/assets/eula/translations_eula app/assets/eula/static
+          cp -rf eula_repo/translations_eula/. app/assets/eula/translations_eula/
+          cp -rf eula_repo/static/. app/assets/eula/static/
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '21.x'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Pre-install NDK
+        working-directory: app
+        run: |
+          set -euo pipefail
+          NDK_VERSION="$(grep -r 'ndkVersion' android/ --include='*.gradle' --include='*.gradle.kts' | grep -oP '"\K[^"]+' | head -n1)"
+          echo y | sdkmanager "ndk;${NDK_VERSION}" --sdk_root="$ANDROID_SDK_ROOT"
+
+      - name: Free disk space
+        uses: endersonmenezes/free-disk-space@v2
+        with:
+          remove_android: false
+          remove_dotnet: false
+          remove_haskell: true
+          remove_tool_cache: false
+          remove_swap: false
+          remove_packages_one_command: true
+          remove_folders: /usr/share/swift
+          testing: false
+
+      - name: Configure temporary signing and Gradle memory
+        working-directory: app
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -noprompt -keystore android/key.jks \
+            -storepass testpass123 -keypass testpass123 -alias key \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname 'CN=R8 Test, OU=CI, O=Persie0, L=Vienna, ST=Vienna, C=AT'
+          sed -i 's/#{KEYSTORE_PASS}#/testpass123/g; s/#{KEYSTORE_KEY_PASS}#/testpass123/g' android/key.properties
+          sed -i '/org.gradle.jvmargs=/d;/kotlin.daemon/d;/kotlin.compiler/d;/android.r8/d;/org.gradle.workers/d;/org.gradle.daemon=/d;/org.gradle.vfs.watch=/d' android/gradle.properties
+          {
+            echo 'org.gradle.jvmargs=-Xms6g -Xmx13g -XX:+UseParallelGC -XX:ParallelGCThreads=2'
+            echo 'org.gradle.daemon=false'
+            echo 'org.gradle.vfs.watch=false'
+            echo 'org.gradle.workers.max=1'
+            echo 'kotlin.compiler.execution.strategy=in-process'
+            echo 'android.r8.jvmargs=-Xmx6g -XX:+UseParallelGC'
+          } >> android/gradle.properties
+
+      - name: Apply keep-rule variant
+        working-directory: app
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          RULES=android/app/src/main/keepRules/app.keep
+          case "$VARIANT" in
+            baseline)
+              ;;
+            no_sentry_keep)
+              sed -i '/# Flutter plugins register Sentry/,/-keep class io\.sentry\.flutter\.\*\* { \*; }/d' "$RULES"
+              ;;
+            onnx_allowoptimization)
+              sed -i 's/-keep class ai\.onnxruntime\.\*\* { \*; }/-keep,allowoptimization class ai.onnxruntime.** { *; }/' "$RULES"
+              ;;
+            both)
+              sed -i '/# Flutter plugins register Sentry/,/-keep class io\.sentry\.flutter\.\*\* { \*; }/d' "$RULES"
+              sed -i 's/-keep class ai\.onnxruntime\.\*\* { \*; }/-keep,allowoptimization class ai.onnxruntime.** { *; }/' "$RULES"
+              ;;
+          esac
+          echo "=== $VARIANT rules ==="
+          cat "$RULES"
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Build release AAB
+        working-directory: app
+        run: flutter build appbundle --release --build-name=0.0.0 --build-number=1
+
+      - name: Report R8 metrics
+        working-directory: app
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          python3 - <<'PY'
+          import json, os, zipfile
+          from pathlib import Path
+          aab = Path('build/app/outputs/bundle/release/app-release.aab')
+          meta = 'BUNDLE-METADATA/com.android.tools/r8.json'
+          with zipfile.ZipFile(aab) as z:
+              data = json.loads(z.read(meta))
+          def find(node, key):
+              if isinstance(node, dict):
+                  if key in node: return node[key]
+                  for v in node.values():
+                      r = find(v, key)
+                      if r is not None: return r
+              elif isinstance(node, list):
+                  for v in node:
+                      r = find(v, key)
+                      if r is not None: return r
+          vals = {}
+          for name, key in [('optimization','noOptimizationPercentage'), ('obfuscation','noObfuscationPercentage'), ('shrinking','noShrinkingPercentage')]:
+              vals[name] = 100.0 - float(find(data, key))
+          print('R8_RESULT variant=%s optimization=%.2f obfuscation=%.2f shrinking=%.2f' % (os.environ['VARIANT'], vals['optimization'], vals['obfuscation'], vals['shrinking']))
+          if min(vals.values()) < 25.0:
+              print('R8_GATE=FAIL')
+          else:
+              print('R8_GATE=PASS')
+          PY
