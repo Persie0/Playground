@@ -25,8 +25,12 @@ jobs:
   macos-test-and-build:
     runs-on: macos-15
     timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: app
     steps:
       - name: Validate private checkout token
+        working-directory: .
         env:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: test -n "$PRIVATE_TOKEN"
@@ -48,6 +52,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Ensure CocoaPods is available
+        working-directory: .
         shell: bash
         run: |
           if ! command -v pod >/dev/null 2>&1; then
@@ -55,21 +60,84 @@ jobs:
           fi
           pod --version
 
-      - name: Run private macOS harness
-        id: macos_harness
-        continue-on-error: true
-        shell: bash
-        run: bash app/.github/playground/noise_remover/run_macos_ci.sh app
+      - name: Toolchain
+        run: |
+          flutter --version
+          rustc --version
+          cargo --version
+          xcodebuild -version
 
-      - name: Diagnose transformed analyzer workspace
-        if: steps.macos_harness.outcome == 'failure'
+      - name: Test macOS setup transforms
+        run: python3 -m unittest tool/test_bootstrap_macos.py tool/test_setup_macos.py
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Verify lockfile is reproducible
+        run: git diff --exit-code -- pubspec.lock
+
+      - name: Generate macOS target
+        run: |
+          if [ ! -f macos/Runner.xcodeproj/project.pbxproj ]; then
+            flutter create --platforms=macos --org at.persie0 .
+            flutter pub get
+          fi
+          python3 tool/setup_macos.py
+          dart run flutter_launcher_icons
+
+      - name: Verify generated target policy
         shell: bash
         run: |
-          echo '=== home_screen.dart lines 1028-1060 as analyzed ==='
-          nl -ba app/lib/screens/home_screen.dart | sed -n '1028,1060p'
-          echo '=== committed-vs-generated source diff ==='
-          git -C app diff -- lib/screens/home_screen.dart
+          grep -q 'PRODUCT_BUNDLE_IDENTIFIER = at.persie0.noiseremover' macos/Runner/Configs/AppInfo.xcconfig
+          grep -q 'PRODUCT_NAME = Noise Remover' macos/Runner/Configs/AppInfo.xcconfig
+          grep -q 'MACOSX_DEPLOYMENT_TARGET = 14.0' macos/Runner/Configs/AppInfo.xcconfig
+          grep -q 'ENABLE_HARDENED_RUNTIME = YES' macos/Runner/Configs/AppInfo.xcconfig
+          grep -q "platform :osx, '14.0'" macos/Podfile
+          grep -q "s.dependency 'onnxruntime-c', '1.26.0'" flutter_nnnoiseless/macos/flutter_nnnoiseless.podspec
+          grep -q "s.platform = :osx, '14.0'" flutter_nnnoiseless/macos/flutter_nnnoiseless.podspec
+          grep -q 'com.apple.security.app-sandbox' macos/Runner/Release.entitlements
+          grep -q 'com.apple.security.files.user-selected.read-write' macos/Runner/Release.entitlements
+          grep -q 'com.apple.security.files.bookmarks.app-scope' macos/Runner/Release.entitlements
+          grep -q 'com.apple.security.device.audio-input' macos/Runner/Release.entitlements
+          grep -q 'com.apple.security.network.client' macos/Runner/Release.entitlements
+          grep -q 'at.persie0.noise_remover/macos_file_access' macos/Runner/MainFlutterWindow.swift
+          grep -q 'at.persie0.noise_remover/macos_drop' macos/Runner/MainFlutterWindow.swift
+          grep -q 'at.persie0.noiseremover.export' macos/Runner/MainFlutterWindow.swift
+          grep -q 'case "stageExternalFile"' macos/Runner/MainFlutterWindow.swift
+          grep -q 'dropImportQueue.async' macos/Runner/MainFlutterWindow.swift
+          grep -q 'DroppedImports' macos/Runner/MainFlutterWindow.swift
+          grep -q 'inactive_count' macos/Runner/MainFlutterWindow.swift
+          grep -q 'github.com/MrOlolo/memory_info' macos/Runner/MainFlutterWindow.swift
+          grep -q 'setExportActionFor(this' lib/screens/result_screen.dart
+          grep -q 'removeExportActionFor(this)' lib/screens/result_screen.dart
+          grep -q 'lgpl21LicenseText()' lib/screens/about_legal_page.dart
+          ! grep -q 'TESTER_PRO_CODE=' macos/Runner/Configs/*.xcconfig
 
-      - name: Propagate harness failure
-        if: steps.macos_harness.outcome == 'failure'
-        run: exit 1
+      - name: Flutter analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Flutter tests
+        shell: bash
+        run: |
+          mapfile -t tracked_tests < <(git ls-files 'test/*_test.dart' 'test/**/*_test.dart' | sort -u)
+          test "${#tracked_tests[@]}" -gt 0
+          flutter test "${tracked_tests[@]}"
+
+      - name: Build macOS debug
+        run: flutter build macos --debug
+
+      - name: Build macOS release
+        run: flutter build macos --release
+
+      - name: Verify release bundle
+        shell: bash
+        run: |
+          APP_PATH="$(find build/macos/Build/Products/Release -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")" = 'at.persie0.noiseremover'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$APP_PATH/Contents/Info.plist")" = 'Noise Remover'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP_PATH/Contents/Info.plist")" = '14.0'
+          codesign -d --entitlements :- "$APP_PATH" > embedded-entitlements.plist
+          grep -q 'com.apple.security.app-sandbox' embedded-entitlements.plist
+          grep -q 'com.apple.security.files.bookmarks.app-scope' embedded-entitlements.plist
+          grep -q 'com.apple.security.device.audio-input' embedded-entitlements.plist
