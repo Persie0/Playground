@@ -1,0 +1,91 @@
+name: Noise Remover analyzer autofix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-analyzer-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout macos-release
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: macos-release
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          path: app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Apply analyzer quick fixes
+        working-directory: app
+        run: |
+          dart fix --apply
+          dart format \
+            integration_test/media_format_pipeline_test.dart \
+            lib/screens/about_legal_page.dart \
+            lib/screens/general_settings_page.dart \
+            lib/screens/processing_settings_page.dart \
+            lib/screens/storage_settings_page.dart \
+            lib/services/macos_file_access_service.dart \
+            lib/services/macos_import_staging_service.dart \
+            lib/services/model_download_service.dart
+
+      - name: Keep only analyzer-targeted files
+        working-directory: app
+        shell: bash
+        run: |
+          allowed='^(integration_test/media_format_pipeline_test\.dart|lib/screens/(about_legal_page|general_settings_page|processing_settings_page|storage_settings_page)\.dart|lib/services/(macos_file_access_service|macos_import_staging_service|model_download_service)\.dart)$'
+          while IFS= read -r file; do
+            if ! [[ "$file" =~ $allowed ]]; then
+              git restore -- "$file"
+            fi
+          done < <(git diff --name-only)
+          echo 'Kept changes:'
+          git diff --name-only
+          git diff --check
+
+      - name: Commit and push fixes
+        working-directory: app
+        env:
+          GIT_AUTHOR_NAME: Persie0
+          GIT_AUTHOR_EMAIL: 76871553+Persie0@users.noreply.github.com
+          GIT_COMMITTER_NAME: Persie0
+          GIT_COMMITTER_EMAIL: 76871553+Persie0@users.noreply.github.com
+        run: |
+          if git diff --quiet; then
+            echo 'No analyzer fixes to commit.'
+            exit 0
+          fi
+          git add \
+            integration_test/media_format_pipeline_test.dart \
+            lib/screens/about_legal_page.dart \
+            lib/screens/general_settings_page.dart \
+            lib/screens/processing_settings_page.dart \
+            lib/screens/storage_settings_page.dart \
+            lib/services/macos_file_access_service.dart \
+            lib/services/macos_import_staging_service.dart \
+            lib/services/model_download_service.dart
+          git commit -m 'fix: satisfy current Dart analyzer lints'
+          git push origin HEAD:macos-release
