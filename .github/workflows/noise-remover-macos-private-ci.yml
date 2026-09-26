@@ -47,12 +47,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Tool versions
+        working-directory: app
         run: |
           flutter --version
+          dart --version
           rustc --version
           cargo --version
-          xcodebuild -version
           pod --version
+          xcodebuild -version
+          sw_vers
 
       - name: Verify release credentials are not hardcoded
         working-directory: app
@@ -108,19 +111,42 @@ jobs:
           grep -q "s.dependency 'onnxruntime-c', '1.26.0'" flutter_nnnoiseless/macos/flutter_nnnoiseless.podspec
           grep -q "s.platform = :osx, '14.0'" flutter_nnnoiseless/macos/flutter_nnnoiseless.podspec
           grep -q -- '-framework "onnxruntime"' flutter_nnnoiseless/macos/flutter_nnnoiseless.podspec
+          grep -q "\[target.'cfg(target_os = \"macos\")'.dependencies\]" flutter_nnnoiseless/rust/Cargo.toml
+          grep -q 'ort-sys = { version = "=2.0.0-rc.12", default-features = false, features = \["disable-linking"\] }' flutter_nnnoiseless/rust/Cargo.toml
           grep -q 'com.apple.security.app-sandbox' macos/Runner/Release.entitlements
           grep -q 'com.apple.security.files.user-selected.read-write' macos/Runner/Release.entitlements
           grep -q 'com.apple.security.files.bookmarks.app-scope' macos/Runner/Release.entitlements
           grep -q 'com.apple.security.device.audio-input' macos/Runner/Release.entitlements
           grep -q 'com.apple.security.network.client' macos/Runner/Release.entitlements
+          grep -q 'at.persie0.noise_remover/macos_file_access' macos/Runner/MainFlutterWindow.swift
+          grep -q 'at.persie0.noise_remover/macos_drop' macos/Runner/MainFlutterWindow.swift
+          grep -q 'at.persie0.noiseremover.export' macos/Runner/MainFlutterWindow.swift
+          grep -q 'exportQueue.async' macos/Runner/MainFlutterWindow.swift
+          ! grep -q 'DispatchQueue.global(qos: .userInitiated).async' macos/Runner/MainFlutterWindow.swift
           grep -q 'case "stageExternalFile"' macos/Runner/MainFlutterWindow.swift
+          grep -q 'stageImportedFileURL' macos/Runner/MainFlutterWindow.swift
           grep -q 'dropImportQueue.async' macos/Runner/MainFlutterWindow.swift
           grep -q 'isRegularFileKey' macos/Runner/MainFlutterWindow.swift
+          grep -q 'DroppedImports' macos/Runner/MainFlutterWindow.swift
           grep -q 'inactive_count' macos/Runner/MainFlutterWindow.swift
+          grep -q 'github.com/MrOlolo/memory_info' macos/Runner/MainFlutterWindow.swift
+          grep -q 'case "getMemoryInfo"' macos/Runner/MainFlutterWindow.swift
+          ! grep -q 'case "getDiskSpace"' macos/Runner/MainFlutterWindow.swift
+          ! grep -q 'volumeAvailableCapacityForImportantUsageKey' macos/Runner/MainFlutterWindow.swift
+          ! grep -q '\.systemFreeSize' macos/Runner/MainFlutterWindow.swift
+          ! grep -q '\.systemSize' macos/Runner/MainFlutterWindow.swift
+          grep -q 'MacosDropController.instance.drops.listen' lib/screens/home_screen.dart
+          grep -q 'MacosMenuController.instance.setOpenAction(_pickFileFromFiles)' lib/screens/home_screen.dart
+          grep -q 'BulkProcessingScreen(initialFilePaths: supported)' lib/screens/home_screen.dart
+          grep -q '_cleanupMacosStagedInputIfUnowned' lib/screens/home_screen.dart
+          grep -q '_cleanupMacosStagedInputsIfUnowned' lib/screens/bulk_processing_screen.dart
+          grep -q '_cleanupAbandonedMacosGalleryFiles' lib/screens/bulk_processing_screen.dart
           grep -q 'setExportActionFor(this' lib/screens/result_screen.dart
           grep -q 'removeExportActionFor(this)' lib/screens/result_screen.dart
+          grep -q '_saveToDownloads : null' lib/screens/result_screen.dart
           grep -q 'lgpl21LicenseText()' lib/screens/about_legal_page.dart
           grep -q 'options.sendDefaultPii = false;' lib/main.dart
+          grep -q '_isExpectedRevenueCatBackendEvent(event)' lib/main.dart
           ! grep -q 'TESTER_PRO_CODE=' macos/Runner/Configs/*.xcconfig
 
       - name: Flutter analyze
@@ -143,7 +169,10 @@ jobs:
         working-directory: app
         run: |
           APP_PATH="$(find build/macos/Build/Products/Release -maxdepth 1 -type d -name '*.app' -print -quit)"
-          test -n "$APP_PATH"
+          if [ -z "$APP_PATH" ]; then
+            echo 'No release .app bundle produced'
+            exit 1
+          fi
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")" = 'at.persie0.noiseremover'
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$APP_PATH/Contents/Info.plist")" = 'Noise Remover'
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP_PATH/Contents/Info.plist")" = '14.0'
