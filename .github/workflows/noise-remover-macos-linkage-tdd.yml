@@ -1,0 +1,34 @@
+name: Noise Remover macOS linkage TDD
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-macos-linkage-tdd.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  linkage-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private macOS branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: macos-release
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Run macOS linkage regression test
+        working-directory: app
+        run: python3 tool/test_macos_podfile_linkage.py
