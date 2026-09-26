@@ -32,18 +32,11 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: app
 
-      - name: Checkout EULA assets
-        uses: actions/checkout@v5
-        with:
-          repository: Persie0/Persie0.github.io
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          path: eula_repo
-
-      - name: Install EULA assets
+      - name: Provide minimal EULA assets for build-only measurement
         run: |
           mkdir -p app/assets/eula/translations_eula app/assets/eula/static
-          cp -rf eula_repo/translations_eula/. app/assets/eula/translations_eula/
-          cp -rf eula_repo/static/. app/assets/eula/static/
+          printf '%s\n' '<html><body>CI placeholder</body></html>' > app/assets/eula/translations_eula/eula-en.html
+          printf '%s\n' 'CI placeholder' > app/assets/eula/static/placeholder.txt
 
       - uses: actions/setup-java@v4
         with:
