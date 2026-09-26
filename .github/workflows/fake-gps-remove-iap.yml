@@ -1,0 +1,83 @@
+name: Fake GPS remove unused IAP
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'debug_triggers/fake-gps-remove-iap.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-update-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APP_REPOSITORY: Persie0/fake_gps_detector
+      APP_REF: remove-unused-in-app-purchase
+    steps:
+      - name: Validate private repo token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout Fake GPS branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Regenerate dependency lockfile
+        working-directory: private-app
+        run: flutter pub get
+
+      - name: Verify in_app_purchase is gone
+        working-directory: private-app
+        run: |
+          set -euo pipefail
+          if grep -R --line-number --exclude-dir=.git --exclude='*.lock' --exclude='pubspec.yaml' 'package:in_app_purchase' lib test 2>/dev/null; then
+            echo '::error::Found live Dart imports of in_app_purchase.'
+            exit 1
+          fi
+          if grep -q '^  in_app_purchase:' pubspec.yaml; then
+            echo '::error::pubspec.yaml still declares in_app_purchase.'
+            exit 1
+          fi
+          if grep -q '^  in_app_purchase:' pubspec.lock; then
+            echo '::error::pubspec.lock still contains in_app_purchase after flutter pub get.'
+            exit 1
+          fi
+
+      - name: Analyze
+        working-directory: private-app
+        run: flutter analyze
+
+      - name: Test
+        working-directory: private-app
+        run: flutter test
+
+      - name: Commit regenerated lockfile
+        working-directory: private-app
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pubspec.lock
+          if git diff --cached --quiet; then
+            echo 'pubspec.lock already consistent; nothing to commit.'
+            exit 0
+          fi
+          git commit -m 'chore: refresh lockfile after removing in_app_purchase [skip ci]'
+          git remote set-url origin "https://x-access-token:${PRIVATE_TOKEN}@github.com/${APP_REPOSITORY}.git"
+          git push origin "HEAD:${APP_REF}"
