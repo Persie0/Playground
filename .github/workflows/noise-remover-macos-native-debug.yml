@@ -1,0 +1,88 @@
+name: Noise Remover macOS native debug
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-macos-native-debug.yml'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Private Noise Remover branch, tag, or SHA
+        required: false
+        default: macos-release
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: ${{ inputs.ref || 'macos-release' }}
+
+jobs:
+  native-debug:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private app revision
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Resolve dependencies and configure macOS
+        working-directory: app
+        shell: bash
+        run: |
+          set -euxo pipefail
+          flutter pub get
+          if [ ! -f macos/Runner.xcodeproj/project.pbxproj ]; then
+            flutter create --platforms=macos --org at.persie0 .
+            flutter pub get
+          fi
+          python3 tool/setup_macos.py
+          dart run flutter_launcher_icons
+
+      - name: Build macOS debug with focused diagnostics
+        id: mac_build
+        working-directory: app
+        shell: bash
+        run: |
+          set -o pipefail
+          LOG="$RUNNER_TEMP/noise-remover-macos-debug.log"
+          flutter build macos --debug 2>&1 | tee "$LOG"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo '::group::Focused macOS build errors'
+            grep -nE '(^|[[:space:]])(error:|fatal error:|Undefined symbols|duplicate symbol|ld:|clang:|rustc|cargo: error|error\[E[0-9]+\]|PhaseScriptExecution|Command PhaseScriptExecution failed|CocoaPods|pod install|failed to build|linker command failed)' "$LOG" | tail -n 300 || true
+            echo '::endgroup::'
+            echo '::group::Last 400 build lines'
+            tail -n 400 "$LOG" || true
+            echo '::endgroup::'
+            exit "$status"
+          fi
+
+      - name: Upload native debug build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noise-remover-macos-native-debug-log
+          path: ${{ runner.temp }}/noise-remover-macos-debug.log
+          if-no-files-found: error
+          retention-days: 7
