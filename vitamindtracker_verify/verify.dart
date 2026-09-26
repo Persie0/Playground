@@ -24,6 +24,13 @@ void main() {
   if (BloodConcentrationUnit.nmolL.formatFromNgMl(20) != '50.0 nmol/L') {
     _fail('nmol/L display formatting is wrong');
   }
+  if (BloodConcentrationUnit.nmolL.formatHistoryMeasurementTitle(
+        'Blood test',
+        50,
+      ) !=
+      'Blood test • 125.0 nmol/L') {
+    _fail('history blood-test title did not use the selected display unit');
+  }
 
   final date = DateTime(2026, 7, 23);
   final curve = UvForecastService.buildDailyCurve(
