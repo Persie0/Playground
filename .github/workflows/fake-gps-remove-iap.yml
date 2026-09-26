@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 30
     env:
       APP_REPOSITORY: Persie0/fake_gps_detector
-      APP_REF: remove-unused-in-app-purchase
+      APP_REF: master
     steps:
       - name: Validate private repo token
         env:
@@ -65,19 +65,6 @@ jobs:
         working-directory: private-app
         run: flutter test
 
-      - name: Commit regenerated lockfile
+      - name: Verify lockfile is committed
         working-directory: private-app
-        env:
-          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add pubspec.lock
-          if git diff --cached --quiet; then
-            echo 'pubspec.lock already consistent; nothing to commit.'
-            exit 0
-          fi
-          git commit -m 'chore: refresh lockfile after removing in_app_purchase [skip ci]'
-          git remote set-url origin "https://x-access-token:${PRIVATE_TOKEN}@github.com/${APP_REPOSITORY}.git"
-          git push origin "HEAD:${APP_REF}"
+        run: git diff --exit-code -- pubspec.lock
