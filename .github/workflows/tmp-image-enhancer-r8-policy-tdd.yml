@@ -1,0 +1,25 @@
+name: Temporary Image Enhancer R8 policy TDD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tmp-image-enhancer-r8-policy-tdd.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Image Enhancer branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_enhancer
+          ref: optimize/r8-sentry-9-30
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+      - name: Run R8 keep-policy tests
+        working-directory: app
+        run: python3 -m unittest -v .github/scripts/tests/test_r8_keep_policy.py
