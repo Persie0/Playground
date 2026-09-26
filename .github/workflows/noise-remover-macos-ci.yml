@@ -40,17 +40,6 @@ jobs:
           persist-credentials: false
           path: app
 
-      - name: Checkout matching private CI harness
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ env.APP_REPOSITORY }}
-          ref: ${{ env.APP_REF }}
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
-          path: private-ci
-          sparse-checkout: .github/playground/noise_remover
-          sparse-checkout-cone-mode: false
-
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -70,7 +59,7 @@ jobs:
         id: macos_harness
         continue-on-error: true
         shell: bash
-        run: bash private-ci/.github/playground/noise_remover/run_macos_ci.sh app
+        run: bash app/.github/playground/noise_remover/run_macos_ci.sh app
 
       - name: Diagnose transformed analyzer workspace
         if: steps.macos_harness.outcome == 'failure'
