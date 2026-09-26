@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [baseline, no_sentry_keep, onnx_allowoptimization, both]
+        variant: [baseline, onnx_allowoptimization]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -76,7 +76,8 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          keytool -genkeypair -noprompt -keystore android/key.jks \
+          rm -f android/app/key.jks
+          keytool -genkeypair -noprompt -keystore android/app/key.jks \
             -storepass testpass123 -keypass testpass123 -alias key \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -dname 'CN=R8 Test, OU=CI, O=Persie0, L=Vienna, ST=Vienna, C=AT'
@@ -101,14 +102,7 @@ jobs:
           case "$VARIANT" in
             baseline)
               ;;
-            no_sentry_keep)
-              sed -i '/# Flutter plugins register Sentry/,/-keep class io\.sentry\.flutter\.\*\* { \*; }/d' "$RULES"
-              ;;
             onnx_allowoptimization)
-              sed -i 's/-keep class ai\.onnxruntime\.\*\* { \*; }/-keep,allowoptimization class ai.onnxruntime.** { *; }/' "$RULES"
-              ;;
-            both)
-              sed -i '/# Flutter plugins register Sentry/,/-keep class io\.sentry\.flutter\.\*\* { \*; }/d' "$RULES"
               sed -i 's/-keep class ai\.onnxruntime\.\*\* { \*; }/-keep,allowoptimization class ai.onnxruntime.** { *; }/' "$RULES"
               ;;
           esac
@@ -149,8 +143,5 @@ jobs:
           for name, key in [('optimization','noOptimizationPercentage'), ('obfuscation','noObfuscationPercentage'), ('shrinking','noShrinkingPercentage')]:
               vals[name] = 100.0 - float(find(data, key))
           print('R8_RESULT variant=%s optimization=%.2f obfuscation=%.2f shrinking=%.2f' % (os.environ['VARIANT'], vals['optimization'], vals['obfuscation'], vals['shrinking']))
-          if min(vals.values()) < 25.0:
-              print('R8_GATE=FAIL')
-          else:
-              print('R8_GATE=PASS')
+          print('R8_GATE=' + ('PASS' if min(vals.values()) >= 25.0 else 'FAIL'))
           PY
