@@ -1,0 +1,69 @@
+name: BaseV2 port validation
+
+on:
+  push:
+    branches:
+      - basev2-port-validation
+    paths:
+      - ".github/workflows/basev2-port-validation.yml"
+      - "debug_triggers/basev2-port-validation.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Playground
+        uses: actions/checkout@v4
+
+      - name: Checkout BaseV2 port branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/traffic-counting-light-main
+          ref: basev2-port-edge-features
+          path: traffic-counting-light-main
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          lfs: true
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install lightweight verification dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pytest<10" numpy opencv-python-headless pyyaml ruamel-yaml loguru
+
+      - name: Compile BaseV2 Python sources
+        working-directory: traffic-counting-light-main/baseV2/traffic-counting-edge-detection-master
+        run: python -m compileall -q src tests
+
+      - name: Run port tests
+        working-directory: traffic-counting-light-main/baseV2/traffic-counting-edge-detection-master
+        env:
+          PYTHONPATH: src
+        run: |
+          pytest -q \
+            tests/test_analysis_adapter.py \
+            tests/test_analysis_pipeline_integration.py \
+            tests/test_dependency_profiles.py \
+            tests/test_fisheye_preprocessing.py \
+            tests/test_inference_auto_resizer.py \
+            tests/test_libreyolo_export_contract.py \
+            tests/test_optional_dependency_boundaries.py
+
+      - name: Check deferred dual-stream stays documentation-only
+        working-directory: traffic-counting-light-main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f baseV2/traffic-counting-edge-detection-master/docs/fisheye-dual-stream-idea.md
+          ! grep -R --line-number --exclude='fisheye-dual-stream-idea.md' 'fisheye_dual_stream' baseV2/traffic-counting-edge-detection-master/src
