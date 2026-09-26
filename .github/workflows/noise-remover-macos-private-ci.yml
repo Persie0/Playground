@@ -8,6 +8,9 @@ on:
         required: false
         default: macos-release
         type: string
+  workflow_run:
+    workflows: ['Noise Remover analyzer autofix']
+    types: [completed]
   push:
     branches: [main]
     paths:
@@ -22,6 +25,7 @@ env:
 
 jobs:
   macos-test-and-build:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: macos-15
     timeout-minutes: 90
     steps:
