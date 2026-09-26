@@ -91,6 +91,11 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
           script: bash private-ci/.github/playground/noise_remover/run-media-format-integration-e2e.sh app
 
+      - name: Persist tested generated files to private branch
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: bash private-ci/.github/playground/noise_remover/persist-media-format-generated-files.sh app
+
       - name: Report generated lockfile state
         if: always()
         run: |
