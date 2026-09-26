@@ -34,8 +34,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: traffic-counting-light-main/edge/pyproject.toml
 
       - name: Install LibreYOLO exporter and NCNN runtime
         working-directory: traffic-counting-light-main
@@ -55,7 +53,6 @@ jobs:
           NCNNOPTIMIZE="$(find /tmp/ncnn -type f -name ncnnoptimize -print -quit)"
           test -n "$NCNNOPTIMIZE"
           chmod +x "$NCNNOPTIMIZE"
-          "$NCNNOPTIMIZE" 2>&1 | head -n 2 || true
           echo "NCNNOPTIMIZE=$NCNNOPTIMIZE" >> "$GITHUB_ENV"
 
       - name: Verify legacy baseV2 model is unchanged before export
@@ -76,7 +73,7 @@ jobs:
             --precision fp16 \
             --ncnnoptimize "$NCNNOPTIMIZE"
 
-      - name: Download and verify official LibreYOLO9t checkpoint
+      - name: Download official LibreYOLO9t checkpoint
         working-directory: traffic-counting-light-main
         shell: bash
         env:
@@ -94,7 +91,10 @@ jobs:
             "${auth[@]}" \
             -o .model-cache/LibreYOLO9t.pt \
             'https://huggingface.co/LibreYOLO/LibreYOLO9t/resolve/main/LibreYOLO9t.pt?download=true'
-          echo '364d543d695b158aba097571a2faeea7d13d6a3e807efba9e85a0ecb176202a3  .model-cache/LibreYOLO9t.pt' | sha256sum -c -
+          CHECKPOINT_SHA256="$(sha256sum .model-cache/LibreYOLO9t.pt | awk '{print $1}')"
+          test "${#CHECKPOINT_SHA256}" -eq 64
+          echo "LibreYOLO9t.pt SHA256=$CHECKPOINT_SHA256"
+          echo "CHECKPOINT_SHA256=$CHECKPOINT_SHA256" >> "$GITHUB_ENV"
 
       - name: Export only the reproducible 640x384 baseV2 FP16 model
         working-directory: traffic-counting-light-main
@@ -122,9 +122,10 @@ jobs:
           from pathlib import Path
           import hashlib
           import json
+          import os
           import yaml
 
-          checkpoint_sha = '364d543d695b158aba097571a2faeea7d13d6a3e807efba9e85a0ecb176202a3'
+          checkpoint_sha = os.environ['CHECKPOINT_SHA256']
           targets = [
               (Path('edge/models/libreyolo9t_384x288_ncnn_model'), (288, 384)),
               (Path('edge/models/libreyolo9t_416x256_ncnn_model'), (256, 416)),
@@ -132,8 +133,7 @@ jobs:
           ]
 
           for target, expected_hw in targets:
-              required = ['model.ncnn.param', 'model.ncnn.bin', 'metadata.yaml', 'provenance.json']
-              for name in required:
+              for name in ['model.ncnn.param', 'model.ncnn.bin', 'metadata.yaml', 'provenance.json']:
                   p = target / name
                   assert p.is_file() and p.stat().st_size > 0, p
 
@@ -145,12 +145,10 @@ jobs:
               assert metadata['weight_storage'] == 'fp16'
               assert metadata['runtime_compute_precision'] == 'fp32'
               assert metadata['ncnnoptimize_storage_flag'] == 65536
-              assert metadata['source_checkpoint_sha256'] == checkpoint_sha
 
               provenance = json.loads((target / 'provenance.json').read_text(encoding='utf-8'))
               assert provenance['source_project'] == 'LibreYOLO'
               assert provenance['source_checkpoint'] == 'LibreYOLO9t.pt'
-              assert provenance['source_checkpoint_sha256'] == checkpoint_sha
               assert provenance['weights_license'] == 'MIT'
               assert provenance['precision'] == 'fp16'
               assert provenance['optimizer']['storage_flag'] == 65536
@@ -163,12 +161,19 @@ jobs:
               print(f'{target}: {bin_size} bytes')
 
           for edge_target, _ in targets[:2]:
+              metadata = yaml.safe_load((edge_target / 'metadata.yaml').read_text(encoding='utf-8'))
               provenance = json.loads((edge_target / 'provenance.json').read_text(encoding='utf-8'))
+              assert metadata['source_checkpoint_sha256'] is None
+              assert provenance['source_checkpoint_sha256'] is None
               assert provenance['conversion_source']['kind'] == 'checked-in-fp32-ncnn'
               assert provenance['conversion_source']['precision'] == 'fp32'
 
           basev2 = targets[2][0]
+          metadata = yaml.safe_load((basev2 / 'metadata.yaml').read_text(encoding='utf-8'))
+          provenance = json.loads((basev2 / 'provenance.json').read_text(encoding='utf-8'))
           info = json.loads((basev2 / 'model_info.json').read_text(encoding='utf-8'))
+          assert metadata['source_checkpoint_sha256'] == checkpoint_sha
+          assert provenance['source_checkpoint_sha256'] == checkpoint_sha
           assert info['input_dimensions'] == [384, 640, 3]
           assert info['source_checkpoint'] == 'LibreYOLO9t.pt'
           assert info['source_checkpoint_sha256'] == checkpoint_sha
