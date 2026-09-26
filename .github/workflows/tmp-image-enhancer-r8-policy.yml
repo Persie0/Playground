@@ -51,6 +51,11 @@ jobs:
             exit 1
           fi
 
+          if grep -Fq 'com.facebook.infer.annotation:infer-annotation' "$GRADLE"; then
+            echo '::error::Redundant explicit infer-annotation dependency must not be present.'
+            exit 1
+          fi
+
           if ! grep -Fqx -- '-keep class ai.onnxruntime.** { *; }' "$RULES"; then
             echo '::error::Official ONNX Runtime broad keep rule must remain unchanged.'
             cat "$RULES"
