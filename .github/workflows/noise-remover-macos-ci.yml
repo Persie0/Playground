@@ -1,0 +1,70 @@
+name: Noise Remover private macOS CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Private app branch, tag, or SHA
+        required: false
+        default: macos-release
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-macos-ci.yml'
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: ${{ inputs.ref || 'macos-release' }}
+
+jobs:
+  macos-test-and-build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private app revision
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Checkout matching private CI harness
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-ci
+          sparse-checkout: .github/playground/noise_remover
+          sparse-checkout-cone-mode: false
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Ensure CocoaPods is available
+        shell: bash
+        run: |
+          if ! command -v pod >/dev/null 2>&1; then
+            sudo gem install cocoapods -N
+          fi
+          pod --version
+
+      - name: Run private macOS harness
+        shell: bash
+        run: bash private-ci/.github/playground/noise_remover/run_macos_ci.sh app
