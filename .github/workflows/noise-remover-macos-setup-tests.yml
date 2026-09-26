@@ -1,0 +1,41 @@
+name: Noise Remover macOS setup tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-macos-setup-tests.yml'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Private Noise Remover branch, tag, or SHA
+        required: false
+        default: macos-release
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  APP_REF: ${{ inputs.ref || 'macos-release' }}
+
+jobs:
+  setup-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout private app revision
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Run macOS setup tests
+        working-directory: app
+        run: python3 -m unittest tool/test_setup_macos.py
