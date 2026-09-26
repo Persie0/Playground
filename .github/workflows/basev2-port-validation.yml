@@ -40,25 +40,50 @@ jobs:
       - name: Install lightweight verification dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "pytest<10" numpy opencv-python-headless pyyaml ruamel-yaml loguru
+          python -m pip install \
+            "pytest<10" \
+            numpy \
+            opencv-python-headless \
+            pyyaml \
+            ruamel-yaml \
+            loguru \
+            lz4 \
+            requests \
+            jsonpickle \
+            watchfiles
 
       - name: Compile BaseV2 Python sources
         working-directory: traffic-counting-light-main/baseV2/traffic-counting-edge-detection-master
         run: python -m compileall -q src tests
 
-      - name: Run port tests
+      - name: Run complete BaseV2 test directory
         working-directory: traffic-counting-light-main/baseV2/traffic-counting-edge-detection-master
         env:
           PYTHONPATH: src
+        run: pytest -q tests
+
+      - name: Verify copied LibreYOLO model is byte-identical
+        working-directory: traffic-counting-light-main
+        shell: bash
         run: |
-          pytest -q \
-            tests/test_analysis_adapter.py \
-            tests/test_analysis_pipeline_integration.py \
-            tests/test_dependency_profiles.py \
-            tests/test_fisheye_preprocessing.py \
-            tests/test_inference_auto_resizer.py \
-            tests/test_libreyolo_export_contract.py \
-            tests/test_optional_dependency_boundaries.py
+          set -euo pipefail
+          source_dir='edge/models/libreyolo9t_384x288_ncnn_model'
+          target_dir='baseV2/traffic-counting-edge-detection-master/src/inference/models/libreyolo9t-288x384-ncnn'
+
+          for name in model.ncnn.param model.ncnn.bin metadata.yaml provenance.json; do
+            test -s "$source_dir/$name"
+            test -s "$target_dir/$name"
+            cmp "$source_dir/$name" "$target_dir/$name"
+          done
+
+          test "$(stat -c '%s' "$target_dir/model.ncnn.bin")" -eq 4102140
+          test "$(sha256sum "$target_dir/model.ncnn.bin" | cut -d' ' -f1)" = \
+            'af1724a2bc8c225bdcd6f2840c5c0624c5399d4ebf144f63d01dfee29be3d7e0'
+
+          attr="$(git check-attr filter -- "$target_dir/model.ncnn.param")"
+          echo "$attr"
+          test "$attr" = "$target_dir/model.ncnn.param: filter: unset" || \
+            test "$attr" = "$target_dir/model.ncnn.param: filter: unspecified"
 
       - name: Check deferred dual-stream stays documentation-only
         working-directory: traffic-counting-light-main
