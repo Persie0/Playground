@@ -35,10 +35,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install LibreYOLO exporter and NCNN runtime
+      - name: Run lightweight exporter contract tests first
         working-directory: traffic-counting-light-main
         run: |
           python -m pip install --upgrade pip
+          python -m pip install "pytest<10" "pyyaml<7"
+          PYTHONPATH=edge/src pytest -q edge/tests/test_libreyolo_fp16_export.py
+
+      - name: Install LibreYOLO exporter and NCNN runtime
+        working-directory: traffic-counting-light-main
+        run: |
           python -m pip install "./edge[libreyolo-export,dev]"
           python -m pip install "ncnn==1.0.20260526"
 
