@@ -68,10 +68,40 @@ jobs:
           test -f baseV2/traffic-counting-edge-detection-master/src/inference/models/yolov9tMIT-384x640-ncnn/metadata.yaml
           test -f baseV2/traffic-counting-edge-detection-master/src/inference/models/yolov9tMIT-384x640-ncnn/provenance.json
 
-      - name: Generate reproducible FP16-storage LibreYOLO9t models
+      - name: Convert checked-in edge NCNN models to FP16 storage offline
         working-directory: traffic-counting-light-main
         run: |
           python tools/export_libreyolo9_ncnn.py \
+            --convert-existing-edge \
+            --precision fp16 \
+            --ncnnoptimize "$NCNNOPTIMIZE"
+
+      - name: Download and verify official LibreYOLO9t checkpoint
+        working-directory: traffic-counting-light-main
+        shell: bash
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p .model-cache
+          auth=()
+          if [[ -n "${HF_TOKEN:-}" ]]; then
+            auth=(-H "Authorization: Bearer ${HF_TOKEN}")
+          fi
+          curl -L --fail \
+            --retry 12 --retry-all-errors --retry-delay 10 \
+            -A 'Persie0-traffic-counting-model-export/1.0' \
+            "${auth[@]}" \
+            -o .model-cache/LibreYOLO9t.pt \
+            'https://huggingface.co/LibreYOLO/LibreYOLO9t/resolve/main/LibreYOLO9t.pt?download=true'
+          echo '364d543d695b158aba097571a2faeea7d13d6a3e807efba9e85a0ecb176202a3  .model-cache/LibreYOLO9t.pt' | sha256sum -c -
+
+      - name: Export only the reproducible 640x384 baseV2 FP16 model
+        working-directory: traffic-counting-light-main
+        run: |
+          python tools/export_libreyolo9_ncnn.py \
+            --checkpoint .model-cache/LibreYOLO9t.pt \
+            --skip-edge \
             --precision fp16 \
             --include-basev2 \
             --overwrite \
@@ -94,6 +124,7 @@ jobs:
           import json
           import yaml
 
+          checkpoint_sha = '364d543d695b158aba097571a2faeea7d13d6a3e807efba9e85a0ecb176202a3'
           targets = [
               (Path('edge/models/libreyolo9t_384x288_ncnn_model'), (288, 384)),
               (Path('edge/models/libreyolo9t_416x256_ncnn_model'), (256, 416)),
@@ -114,10 +145,12 @@ jobs:
               assert metadata['weight_storage'] == 'fp16'
               assert metadata['runtime_compute_precision'] == 'fp32'
               assert metadata['ncnnoptimize_storage_flag'] == 65536
+              assert metadata['source_checkpoint_sha256'] == checkpoint_sha
 
               provenance = json.loads((target / 'provenance.json').read_text(encoding='utf-8'))
               assert provenance['source_project'] == 'LibreYOLO'
               assert provenance['source_checkpoint'] == 'LibreYOLO9t.pt'
+              assert provenance['source_checkpoint_sha256'] == checkpoint_sha
               assert provenance['weights_license'] == 'MIT'
               assert provenance['precision'] == 'fp16'
               assert provenance['optimizer']['storage_flag'] == 65536
@@ -129,10 +162,16 @@ jobs:
               assert bin_size < 5_000_000, (target, bin_size)
               print(f'{target}: {bin_size} bytes')
 
+          for edge_target, _ in targets[:2]:
+              provenance = json.loads((edge_target / 'provenance.json').read_text(encoding='utf-8'))
+              assert provenance['conversion_source']['kind'] == 'checked-in-fp32-ncnn'
+              assert provenance['conversion_source']['precision'] == 'fp32'
+
           basev2 = targets[2][0]
           info = json.loads((basev2 / 'model_info.json').read_text(encoding='utf-8'))
           assert info['input_dimensions'] == [384, 640, 3]
           assert info['source_checkpoint'] == 'LibreYOLO9t.pt'
+          assert info['source_checkpoint_sha256'] == checkpoint_sha
           assert info['weights_license'] == 'MIT'
           assert info['weight_storage'] == 'fp16'
 
