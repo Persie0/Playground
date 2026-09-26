@@ -67,5 +67,20 @@ jobs:
           pod --version
 
       - name: Run private macOS harness
+        id: macos_harness
+        continue-on-error: true
         shell: bash
         run: bash private-ci/.github/playground/noise_remover/run_macos_ci.sh app
+
+      - name: Diagnose transformed analyzer workspace
+        if: steps.macos_harness.outcome == 'failure'
+        shell: bash
+        run: |
+          echo '=== home_screen.dart lines 1028-1060 as analyzed ==='
+          nl -ba app/lib/screens/home_screen.dart | sed -n '1028,1060p'
+          echo '=== committed-vs-generated source diff ==='
+          git -C app diff -- lib/screens/home_screen.dart
+
+      - name: Propagate harness failure
+        if: steps.macos_harness.outcome == 'failure'
+        run: exit 1
