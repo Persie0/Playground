@@ -1,0 +1,146 @@
+name: Temporary Image Enhancer R8 no Mintegral Amazon
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tmp-image-enhancer-r8-no-mintegral-amazon.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout Image Enhancer
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_enhancer
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+
+      - name: Provide minimal EULA assets for build-only measurement
+        run: |
+          mkdir -p app/assets/eula/translations_eula app/assets/eula/static
+          printf '%s\n' '<html><body>CI placeholder</body></html>' > app/assets/eula/translations_eula/eula-en.html
+          printf '%s\n' 'CI placeholder' > app/assets/eula/static/placeholder.txt
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: '21.x'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Pre-install NDK
+        working-directory: app
+        run: |
+          set -euo pipefail
+          NDK_VERSION="$(grep -r 'ndkVersion' android/ --include='*.gradle' --include='*.gradle.kts' | grep -oP '"\K[^"]+' | head -n1)"
+          echo y | sdkmanager "ndk;${NDK_VERSION}" --sdk_root="$ANDROID_SDK_ROOT"
+
+      - name: Free disk space
+        uses: endersonmenezes/free-disk-space@v2
+        with:
+          remove_android: false
+          remove_dotnet: false
+          remove_haskell: true
+          remove_tool_cache: false
+          remove_swap: false
+          remove_packages_one_command: true
+          remove_folders: /usr/share/swift
+          testing: false
+
+      - name: Configure temporary signing and Gradle memory
+        working-directory: app
+        run: |
+          set -euo pipefail
+          rm -f android/app/key.jks
+          keytool -genkeypair -noprompt -keystore android/app/key.jks \
+            -storepass testpass123 -keypass testpass123 -alias key \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname 'CN=R8 Test, OU=CI, O=Persie0, L=Vienna, ST=Vienna, C=AT'
+          sed -i 's/#{KEYSTORE_PASS}#/testpass123/g; s/#{KEYSTORE_KEY_PASS}#/testpass123/g' android/key.properties
+          sed -i '/org.gradle.jvmargs=/d;/kotlin.daemon/d;/kotlin.compiler/d;/android.r8/d;/org.gradle.workers/d;/org.gradle.daemon=/d;/org.gradle.vfs.watch=/d' android/gradle.properties
+          {
+            echo 'org.gradle.jvmargs=-Xms6g -Xmx13g -XX:+UseParallelGC -XX:ParallelGCThreads=2'
+            echo 'org.gradle.daemon=false'
+            echo 'org.gradle.vfs.watch=false'
+            echo 'org.gradle.workers.max=1'
+            echo 'kotlin.compiler.execution.strategy=in-process'
+            echo 'android.r8.jvmargs=-Xmx6g -XX:+UseParallelGC'
+          } >> android/gradle.properties
+
+      - name: Remove Mintegral and RevenueCat Amazon
+        working-directory: app
+        run: |
+          set -euo pipefail
+          FILE=android/app/build.gradle.kts
+          sed -i '/io\.bidmachine:ads\.networks\.mintegral:/d' "$FILE"
+          sed -i '/org\.bidon:mintegral-adapter:/d' "$FILE"
+          sed -i '/com\.appodeal\.ads\.sdk\.adapters:mintegral:/d' "$FILE"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/app/build.gradle.kts')
+          s = p.read_text()
+          marker = '    dependencies {\n'
+          replacement = '''    dependencies {\n        configurations.configureEach {\n            exclude(group = "com.revenuecat.purchases", module = "purchases-store-amazon")\n        }\n'''
+          if marker not in s:
+              raise SystemExit('dependencies block marker not found')
+          p.write_text(s.replace(marker, replacement, 1))
+          PY
+          grep -n -E 'mintegral|purchases-store-amazon' "$FILE" || true
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Build release AAB
+        working-directory: app
+        run: flutter build appbundle --release --build-name=0.0.0 --build-number=1
+
+      - name: Report R8 metrics
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+          aab = Path('build/app/outputs/bundle/release/app-release.aab')
+          with zipfile.ZipFile(aab) as z:
+              data = json.loads(z.read('BUNDLE-METADATA/com.android.tools/r8.json'))
+              mapping = z.read('BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map').decode('utf-8', errors='replace')
+          def find(node, key):
+              if isinstance(node, dict):
+                  if key in node: return node[key]
+                  for value in node.values():
+                      found = find(value, key)
+                      if found is not None: return found
+              elif isinstance(node, list):
+                  for value in node:
+                      found = find(value, key)
+                      if found is not None: return found
+          vals = {}
+          for name, key in [('optimization','noOptimizationPercentage'), ('obfuscation','noObfuscationPercentage'), ('shrinking','noShrinkingPercentage')]:
+              vals[name] = 100.0 - float(find(data, key))
+          print('R8_RESULT variant=no_mintegral_no_amazon optimization=%.2f obfuscation=%.2f shrinking=%.2f' % (vals['optimization'], vals['obfuscation'], vals['shrinking']))
+          print('MINTEGRAL_MAPPING_PRESENT=' + str('com.mbridge.msdk.' in mapping).lower())
+          print('AMAZON_RC_MAPPING_PRESENT=' + str('com.revenuecat.purchases.amazon.' in mapping).lower())
+          print('R8_GATE=' + ('PASS' if min(vals.values()) >= 25.0 else 'FAIL'))
+          PY
