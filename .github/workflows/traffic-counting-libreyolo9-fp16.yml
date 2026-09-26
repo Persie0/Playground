@@ -1,0 +1,186 @@
+name: Traffic Counting LibreYOLO9 FP16 validation
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/traffic-counting-libreyolo9-fp16.yml"
+      - "debug_triggers/traffic-counting-libreyolo9-fp16.txt"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Playground
+        uses: actions/checkout@v4
+
+      - name: Checkout traffic-counting FP16 feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/traffic-counting-light-main
+          ref: fp16-libreyolo-artifacts
+          path: traffic-counting-light-main
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          lfs: true
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: traffic-counting-light-main/edge/pyproject.toml
+
+      - name: Install LibreYOLO exporter and NCNN runtime
+        working-directory: traffic-counting-light-main
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "./edge[libreyolo-export,dev]"
+          python -m pip install "ncnn==1.0.20260526"
+
+      - name: Install ncnnoptimize 20260526
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 3 \
+            -o /tmp/ncnn.zip \
+            https://github.com/Tencent/ncnn/releases/download/20260526/ncnn-20260526-ubuntu-2404.zip
+          unzip -q /tmp/ncnn.zip -d /tmp/ncnn
+          NCNNOPTIMIZE="$(find /tmp/ncnn -type f -name ncnnoptimize -print -quit)"
+          test -n "$NCNNOPTIMIZE"
+          chmod +x "$NCNNOPTIMIZE"
+          "$NCNNOPTIMIZE" 2>&1 | head -n 2 || true
+          echo "NCNNOPTIMIZE=$NCNNOPTIMIZE" >> "$GITHUB_ENV"
+
+      - name: Verify legacy baseV2 model is unchanged before export
+        working-directory: traffic-counting-light-main
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '7e04a01188aa883031ef4cfaf3dc27e25587c039303766b518b3b6efa97532e3  baseV2/traffic-counting-edge-detection-master/src/inference/models/yolov9tMIT-384x640-ncnn/yolov9tMIT-384x640-ncnn.ncnn.bin' | sha256sum -c -
+          echo 'fb8a158ef479512b8b7998de15040f7d902aff2d50f8c0595b5173edab6d7f97  baseV2/traffic-counting-edge-detection-master/src/inference/models/yolov9tMIT-384x640-ncnn/yolov9tMIT-384x640-ncnn.ncnn.param' | sha256sum -c -
+          test -f baseV2/traffic-counting-edge-detection-master/src/inference/models/yolov9tMIT-384x640-ncnn/metadata.yaml
+          test -f baseV2/traffic-counting-edge-detection-master/src/inference/models/yolov9tMIT-384x640-ncnn/provenance.json
+
+      - name: Generate reproducible FP16-storage LibreYOLO9t models
+        working-directory: traffic-counting-light-main
+        run: |
+          python tools/export_libreyolo9_ncnn.py \
+            --precision fp16 \
+            --include-basev2 \
+            --overwrite \
+            --ncnnoptimize "$NCNNOPTIMIZE"
+
+      - name: Compare legacy and new 640x384 NCNN contracts
+        working-directory: traffic-counting-light-main
+        run: |
+          python tools/compare_libreyolo9_ncnn.py
+          cat baseV2/traffic-counting-edge-detection-master/src/inference/models/libreyolo9t-384x640-ncnn/comparison_to_legacy.json
+
+      - name: Validate generated model metadata, provenance and size
+        working-directory: traffic-counting-light-main
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+          import yaml
+
+          targets = [
+              (Path('edge/models/libreyolo9t_384x288_ncnn_model'), (288, 384)),
+              (Path('edge/models/libreyolo9t_416x256_ncnn_model'), (256, 416)),
+              (Path('baseV2/traffic-counting-edge-detection-master/src/inference/models/libreyolo9t-384x640-ncnn'), (384, 640)),
+          ]
+
+          for target, expected_hw in targets:
+              required = ['model.ncnn.param', 'model.ncnn.bin', 'metadata.yaml', 'provenance.json']
+              for name in required:
+                  p = target / name
+                  assert p.is_file() and p.stat().st_size > 0, p
+
+              metadata = yaml.safe_load((target / 'metadata.yaml').read_text(encoding='utf-8'))
+              assert (metadata['imgsz_h'], metadata['imgsz_w']) == expected_hw
+              assert metadata['model_family'] == 'yolo9'
+              assert metadata['task'] == 'detect'
+              assert metadata['precision'] == 'fp16'
+              assert metadata['weight_storage'] == 'fp16'
+              assert metadata['runtime_compute_precision'] == 'fp32'
+              assert metadata['ncnnoptimize_storage_flag'] == 65536
+
+              provenance = json.loads((target / 'provenance.json').read_text(encoding='utf-8'))
+              assert provenance['source_project'] == 'LibreYOLO'
+              assert provenance['source_checkpoint'] == 'LibreYOLO9t.pt'
+              assert provenance['weights_license'] == 'MIT'
+              assert provenance['precision'] == 'fp16'
+              assert provenance['optimizer']['storage_flag'] == 65536
+              for name in ('model.ncnn.param', 'model.ncnn.bin', 'metadata.yaml'):
+                  digest = hashlib.sha256((target / name).read_bytes()).hexdigest()
+                  assert provenance['files'][name]['sha256'] == digest
+
+              bin_size = (target / 'model.ncnn.bin').stat().st_size
+              assert bin_size < 5_000_000, (target, bin_size)
+              print(f'{target}: {bin_size} bytes')
+
+          basev2 = targets[2][0]
+          info = json.loads((basev2 / 'model_info.json').read_text(encoding='utf-8'))
+          assert info['input_dimensions'] == [384, 640, 3]
+          assert info['source_checkpoint'] == 'LibreYOLO9t.pt'
+          assert info['weights_license'] == 'MIT'
+          assert info['weight_storage'] == 'fp16'
+
+          comparison = json.loads((basev2 / 'comparison_to_legacy.json').read_text(encoding='utf-8'))
+          assert comparison['same_resolution'] is True
+          assert comparison['same_input_blob'] is True
+          assert comparison['same_output_blob'] is True
+          assert comparison['same_output_shape'] is True
+          PY
+
+      - name: Run FP16-focused tests
+        working-directory: traffic-counting-light-main
+        run: |
+          PYTHONPATH=edge/src pytest -q \
+            edge/tests/test_libreyolo_fp16_export.py \
+            edge/tests/test_pi_detector_config.py
+
+      - name: Verify legacy baseV2 model is still byte-identical
+        working-directory: traffic-counting-light-main
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '7e04a01188aa883031ef4cfaf3dc27e25587c039303766b518b3b6efa97532e3  baseV2/traffic-counting-edge-detection-master/src/inference/models/yolov9tMIT-384x640-ncnn/yolov9tMIT-384x640-ncnn.ncnn.bin' | sha256sum -c -
+          echo 'fb8a158ef479512b8b7998de15040f7d902aff2d50f8c0595b5173edab6d7f97  baseV2/traffic-counting-edge-detection-master/src/inference/models/yolov9tMIT-384x640-ncnn/yolov9tMIT-384x640-ncnn.ncnn.param' | sha256sum -c -
+
+      - name: Commit validated FP16 artifacts to feature branch
+        working-directory: traffic-counting-light-main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git lfs install --local
+          git add \
+            edge/models/libreyolo9t_384x288_ncnn_model \
+            edge/models/libreyolo9t_416x256_ncnn_model \
+            baseV2/traffic-counting-edge-detection-master/src/inference/models/libreyolo9t-384x640-ncnn
+          git lfs ls-files
+          if git diff --cached --quiet; then
+            echo "Generated artifacts already match the branch"
+          else
+            git commit -m "models: regenerate LibreYOLO9t NCNN artifacts with FP16 storage"
+            git push origin HEAD:fp16-libreyolo-artifacts
+          fi
+
+      - name: Upload comparison report
+        uses: actions/upload-artifact@v4
+        with:
+          name: libreyolo9t-fp16-comparison
+          path: traffic-counting-light-main/baseV2/traffic-counting-edge-detection-master/src/inference/models/libreyolo9t-384x640-ncnn/comparison_to_legacy.json
+          retention-days: 7
