@@ -1,0 +1,56 @@
+name: Temporary Image Enhancer dependency insight
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tmp-image-enhancer-dependency-insight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout Image Enhancer optimization branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_enhancer
+          ref: optimize/r8-play-25
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: '21.x'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Inspect candidate dependencies
+        working-directory: app/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          echo '=== infer-annotation ==='
+          ./gradlew :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency infer-annotation || true
+          echo '=== RevenueCat Amazon ==='
+          ./gradlew :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency purchases-store-amazon || true
+          echo '=== multidex ==='
+          ./gradlew :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency multidex || true
