@@ -45,6 +45,7 @@ jobs:
           dart format \
             integration_test/media_format_pipeline_test.dart \
             lib/screens/about_legal_page.dart \
+            lib/screens/bulk_processing_screen.dart \
             lib/screens/general_settings_page.dart \
             lib/screens/processing_settings_page.dart \
             lib/screens/storage_settings_page.dart \
@@ -56,7 +57,8 @@ jobs:
         working-directory: app
         shell: bash
         run: |
-          allowed='^(integration_test/media_format_pipeline_test\.dart|lib/screens/(about_legal_page|general_settings_page|processing_settings_page|storage_settings_page)\.dart|lib/services/(macos_file_access_service|macos_import_staging_service|model_download_service)\.dart)$'
+          rm -f .git/index.lock
+          allowed='^(integration_test/media_format_pipeline_test\.dart|lib/screens/(about_legal_page|bulk_processing_screen|general_settings_page|processing_settings_page|storage_settings_page)\.dart|lib/services/(macos_file_access_service|macos_import_staging_service|model_download_service)\.dart)$'
           while IFS= read -r file; do
             if ! [[ "$file" =~ $allowed ]]; then
               git restore -- "$file"
@@ -74,6 +76,7 @@ jobs:
           GIT_COMMITTER_NAME: Persie0
           GIT_COMMITTER_EMAIL: 76871553+Persie0@users.noreply.github.com
         run: |
+          rm -f .git/index.lock
           if git diff --quiet; then
             echo 'No analyzer fixes to commit.'
             exit 0
@@ -81,6 +84,7 @@ jobs:
           git add \
             integration_test/media_format_pipeline_test.dart \
             lib/screens/about_legal_page.dart \
+            lib/screens/bulk_processing_screen.dart \
             lib/screens/general_settings_page.dart \
             lib/screens/processing_settings_page.dart \
             lib/screens/storage_settings_page.dart \
