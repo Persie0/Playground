@@ -1,0 +1,25 @@
+name: Image Enhancer R8 policy test
+
+on:
+  push:
+    paths:
+      - '.github/workflows/image-enhancer-r8-policy-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout private app branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_enhancer
+          ref: fix/r8-play-policy-scope
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Run R8 policy unit tests
+        run: python3 -m unittest discover -s app/.github/scripts/tests -p 'test_*.py' -v
