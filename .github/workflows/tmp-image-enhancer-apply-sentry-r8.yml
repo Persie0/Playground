@@ -1,0 +1,55 @@
+name: Temporary apply Image Enhancer Sentry R8 upgrade
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tmp-image-enhancer-apply-sentry-r8.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Image Enhancer branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_enhancer
+          ref: optimize/r8-sentry-9-30
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+          persist-credentials: true
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Upgrade Sentry
+        working-directory: app
+        run: |
+          set -euo pipefail
+          sed -i 's/sentry_flutter: \^9\.26\.0/sentry_flutter: ^9.30.1/' pubspec.yaml
+          flutter pub upgrade sentry_flutter
+
+      - name: Run R8 keep-policy tests
+        working-directory: app
+        run: python3 .github/scripts/tests/test_r8_keep_policy.py -v
+
+      - name: Commit generated dependency update
+        working-directory: app
+        run: |
+          set -euo pipefail
+          git diff --check
+          git status --short
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pubspec.yaml pubspec.lock
+          if git diff --cached --quiet; then
+            echo 'No dependency changes to commit.'
+            exit 0
+          fi
+          git commit -m 'build: upgrade Sentry for narrower R8 rules'
+          git push origin HEAD:optimize/r8-sentry-9-30
