@@ -20,11 +20,11 @@ jobs:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: test -n "$PRIVATE_TOKEN"
 
-      - name: Checkout Image Enhancer
+      - name: Checkout Image Enhancer candidate
         uses: actions/checkout@v5
         with:
           repository: Persie0/image_enhancer
-          ref: main
+          ref: optimize/r8-sentry-9-30
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: app
 
@@ -41,7 +41,7 @@ jobs:
           cp -rf eula_repo/translations_eula/. app/assets/eula/translations_eula/
           cp -rf eula_repo/static/. app/assets/eula/static/
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: zulu
           java-version: '21.x'
@@ -59,6 +59,7 @@ jobs:
       - name: Pre-install NDK
         working-directory: app
         run: |
+          set -euo pipefail
           NDK_VERSION="$(grep -r 'ndkVersion' android/ --include='*.gradle' --include='*.gradle.kts' | grep -oP '"\K[^"]+' | head -n1)"
           echo y | sdkmanager "ndk;${NDK_VERSION}" --sdk_root="$ANDROID_SDK_ROOT"
 
@@ -78,7 +79,8 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          keytool -genkeypair -noprompt -keystore android/key.jks \
+          rm -f android/app/key.jks
+          keytool -genkeypair -noprompt -keystore android/app/key.jks \
             -storepass testpass123 -keypass testpass123 -alias key \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -dname 'CN=R8 Test, OU=CI, O=Persie0, L=Vienna, ST=Vienna, C=AT'
@@ -93,23 +95,20 @@ jobs:
             echo 'android.r8.jvmargs=-Xmx6g -XX:+UseParallelGC'
           } >> android/gradle.properties
 
-      - name: Upgrade Sentry and remove redundant app keep
+      - name: Verify dependency and keep policy
         working-directory: app
         run: |
-          set -euo pipefail
-          sed -i 's/sentry_flutter: \^9\.26\.0/sentry_flutter: ^9.30.1/' pubspec.yaml
-          sed -i '/# Flutter plugins register Sentry/,/-keep class io\.sentry\.flutter\.\*\* { \*; }/d' android/app/src/main/keepRules/app.keep
-          flutter pub upgrade sentry_flutter
-          grep -A8 '^  sentry_flutter:' pubspec.lock
-          cat android/app/src/main/keepRules/app.keep
+          flutter pub get
+          python3 .github/scripts/tests/test_r8_keep_policy.py -v
 
       - name: Build release AAB
         working-directory: app
         run: flutter build appbundle --release --build-name=0.0.0 --build-number=1
 
-      - name: Report R8 metrics
+      - name: Report and enforce R8 metrics
         working-directory: app
         run: |
+          python3 .github/scripts/verify_r8_metrics.py
           python3 - <<'PY'
           import json, zipfile
           from pathlib import Path
@@ -131,6 +130,6 @@ jobs:
               ('obfuscation','noObfuscationPercentage'),
               ('shrinking','noShrinkingPercentage'),
           ]}
-          print('R8_RESULT variant=sentry_9_30_1_no_local_keep optimization=%.2f obfuscation=%.2f shrinking=%.2f' % tuple(vals.values()))
+          print('R8_RESULT variant=sentry_9_30_1 optimization=%.2f obfuscation=%.2f shrinking=%.2f' % tuple(vals.values()))
           print('R8_GATE=' + ('PASS' if min(vals.values()) >= 25.0 else 'FAIL'))
           PY
