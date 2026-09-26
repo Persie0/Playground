@@ -1,0 +1,96 @@
+name: Noise Remover private media-format integration E2E
+
+on:
+  push:
+    branches:
+      - test/noise-remover-pr187-e2e
+    paths:
+      - '.github/workflows/noise-remover-pr187-media-format-e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: test/complete-media-format-e2e
+
+jobs:
+  android-media-format-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private app revision
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Checkout private CI harness
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: private-ci
+          sparse-checkout: .github/playground/noise_remover
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Locate hosted Android SDK
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -perm -u+x 2>/dev/null | sort -V | tail -n 1)"
+          test -x "$SDKMANAGER"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Install host media tools
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg >/dev/null
+
+      - name: Prepare private integration harness
+        run: bash private-ci/.github/playground/noise_remover/prepare-media-format-integration-e2e.sh app
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
+      - name: Run private integration harness
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
+          script: bash private-ci/.github/playground/noise_remover/run-media-format-integration-e2e.sh app
+
+      - name: Report generated lockfile state
+        if: always()
+        run: echo "pubspec.lock status after dependency resolution: ${LOCKFILE_STATUS:-unknown}"
