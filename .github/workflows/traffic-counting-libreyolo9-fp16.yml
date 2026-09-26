@@ -143,7 +143,7 @@ jobs:
               assert metadata['task'] == 'detect'
               assert metadata['precision'] == 'fp16'
               assert metadata['weight_storage'] == 'fp16'
-              assert metadata['runtime_compute_precision'] == 'fp32'
+              assert metadata['runtime_compute_precision'] == 'runtime-dependent'
               assert metadata['ncnnoptimize_storage_flag'] == 65536
 
               provenance = json.loads((target / 'provenance.json').read_text(encoding='utf-8'))
@@ -151,6 +151,7 @@ jobs:
               assert provenance['source_checkpoint'] == 'LibreYOLO9t.pt'
               assert provenance['weights_license'] == 'MIT'
               assert provenance['precision'] == 'fp16'
+              assert provenance['runtime_compute_precision'] == 'runtime-dependent'
               assert provenance['optimizer']['storage_flag'] == 65536
               for name in ('model.ncnn.param', 'model.ncnn.bin', 'metadata.yaml'):
                   digest = hashlib.sha256((target / name).read_bytes()).hexdigest()
@@ -179,6 +180,7 @@ jobs:
           assert info['source_checkpoint_sha256'] == checkpoint_sha
           assert info['weights_license'] == 'MIT'
           assert info['weight_storage'] == 'fp16'
+          assert info['runtime_compute_precision'] == 'runtime-dependent'
 
           comparison = json.loads((basev2 / 'comparison_to_legacy.json').read_text(encoding='utf-8'))
           assert comparison['same_resolution'] is True
