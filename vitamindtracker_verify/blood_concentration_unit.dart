@@ -27,6 +27,14 @@ extension BloodConcentrationUnitX on BloodConcentrationUnit {
     return includeUnit ? '$value $label' : value;
   }
 
+  String formatHistoryMeasurementTitle(
+    String bloodTestLabel,
+    double valueNgMl, {
+    int fractionDigits = 1,
+  }) {
+    return '$bloodTestLabel • ${formatFromNgMl(valueNgMl, fractionDigits: fractionDigits)}';
+  }
+
   static BloodConcentrationUnit fromStorage(String? value) {
     return value == BloodConcentrationUnit.nmolL.label
         ? BloodConcentrationUnit.nmolL
