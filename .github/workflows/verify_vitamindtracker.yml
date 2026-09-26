@@ -1,0 +1,22 @@
+name: Verify VitaminD Tracker helpers
+
+on:
+  push:
+    branches:
+      - verify/vitamindtracker-20260926
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Parse and format-check helper snapshots
+        run: dart format --output=none --set-exit-if-changed vitamindtracker_verify
+      - name: Run focused behavior checks
+        run: dart run vitamindtracker_verify/verify.dart
