@@ -1,0 +1,80 @@
+name: Noise Remover FFmpeg framework layout probe
+
+on:
+  push:
+    branches: [noise-remover-macos-ci]
+    paths:
+      - '.github/workflows/noise-remover-ffmpeg-layout-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Download exact audio macOS frameworks
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://github.com/sk3llo/ffmpeg_kit_flutter/releases/download/8.1.2-audio/ffmpeg-kit-macos-audio-8.1.2.zip'
+          curl -fL --retry 3 -o /tmp/ffmpeg-audio.zip "$url"
+          unzip -q /tmp/ffmpeg-audio.zip -d /tmp/ffmpeg-audio
+
+      - name: Inspect framework roots and signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          for framework in /tmp/ffmpeg-audio/*.framework; do
+            echo "===== $(basename "$framework") ====="
+            echo '-- root ls -la --'
+            ls -la "$framework"
+            echo '-- tree depth 3 --'
+            find "$framework" -maxdepth 3 -print -exec stat -f '%HT %N -> %Y' {} \; | head -200
+            echo '-- existing signature --'
+            codesign -dvv "$framework" 2>&1 | grep -E 'Executable=|CodeDirectory|Signature=|Info.plist=|Sealed Resources=' || true
+            echo '-- strict verify --'
+            codesign --verify --strict --verbose=4 "$framework" || true
+          done
+
+      - name: Test canonical versioned-framework normalization
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -R /tmp/ffmpeg-audio /tmp/ffmpeg-normalized
+          for framework in /tmp/ffmpeg-normalized/*.framework; do
+            current="$framework/Versions/Current"
+            test -L "$current"
+            version="$(readlink "$current")"
+            version_dir="$framework/Versions/$version"
+            test -d "$version_dir"
+
+            # Modern codesign requires a versioned framework root to contain
+            # Versions plus symlinks into Versions/Current, not duplicate files.
+            for entry in "$framework"/*; do
+              name="$(basename "$entry")"
+              [ "$name" = Versions ] && continue
+              if [ -L "$entry" ]; then
+                continue
+              fi
+              if [ ! -e "$version_dir/$name" ]; then
+                mv "$entry" "$version_dir/$name"
+              else
+                rm -rf "$entry"
+              fi
+              ln -s "Versions/Current/$name" "$entry"
+            done
+
+            echo "===== normalized $(basename "$framework") ====="
+            ls -la "$framework"
+            /usr/bin/codesign --force --sign - "$framework"
+            details="$(codesign -dvv "$framework" 2>&1)"
+            printf '%s\n' "$details" | grep -E 'Executable=|CodeDirectory|Signature=|Info.plist=|Sealed Resources='
+            if printf '%s\n' "$details" | grep -q 'linker-signed'; then
+              echo 'ERROR: normalized framework retained linker-signed flag' >&2
+              exit 1
+            fi
+            codesign --verify --strict --verbose=4 "$framework"
+          done
