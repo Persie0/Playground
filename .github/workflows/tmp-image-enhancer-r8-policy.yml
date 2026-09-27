@@ -10,7 +10,7 @@ on:
       ref:
         description: Image Enhancer git ref
         required: false
-        default: optimize/r8-play-25
+        default: main
 
 permissions:
   contents: read
@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Persie0/image_enhancer
-          ref: ${{ inputs.ref || 'optimize/r8-play-25' }}
+          ref: ${{ inputs.ref || 'main' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: app
 
@@ -40,7 +40,6 @@ jobs:
           GRADLE=android/app/build.gradle.kts
           RULES=android/app/src/main/keepRules/app.keep
 
-          # Keep this test pointed at the current optimization branch state.
           if grep -Eqi 'io\.bidmachine:ads\.networks\.mintegral|org\.bidon:mintegral-adapter|com\.appodeal\.ads\.sdk\.adapters:mintegral' "$GRADLE"; then
             echo '::error::Mintegral mediation dependencies must not be present in the Play build.'
             grep -Ein 'mintegral' "$GRADLE" || true
@@ -68,4 +67,4 @@ jobs:
             exit 1
           fi
 
-          echo 'R8 dependency policy passed for the optimization branch.'
+          echo 'R8 dependency policy passed for merged main.'
