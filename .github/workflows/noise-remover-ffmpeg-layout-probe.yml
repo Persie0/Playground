@@ -23,57 +23,30 @@ jobs:
           curl -fL --retry 3 -o /tmp/ffmpeg-audio.zip "$url"
           unzip -q /tmp/ffmpeg-audio.zip -d /tmp/ffmpeg-audio
 
-      - name: Inspect framework roots and signing
+      - name: Prove AppleDouble sidecars are the sealing defect
         shell: bash
         run: |
           set -euo pipefail
+          sidecars_before="$(find /tmp/ffmpeg-audio -type f -name '._*' | wc -l | tr -d ' ')"
+          echo "appledouble_before=$sidecars_before"
+          test "$sidecars_before" -gt 0
+
+          # The upstream ZIP stores AppleDouble metadata as real files. These
+          # files are not valid entries in a sealed versioned framework.
+          find /tmp/ffmpeg-audio -type f -name '._*' -delete
+          sidecars_after="$(find /tmp/ffmpeg-audio -type f -name '._*' | wc -l | tr -d ' ')"
+          echo "appledouble_after=$sidecars_after"
+          test "$sidecars_after" -eq 0
+
           for framework in /tmp/ffmpeg-audio/*.framework; do
-            echo "===== $(basename "$framework") ====="
-            echo '-- root ls -la --'
-            ls -la "$framework"
-            echo '-- tree depth 3 --'
-            find "$framework" -maxdepth 3 -print -exec stat -f '%HT %N -> %Y' {} \; | head -200
-            echo '-- existing signature --'
-            codesign -dvv "$framework" 2>&1 | grep -E 'Executable=|CodeDirectory|Signature=|Info.plist=|Sealed Resources=' || true
-            echo '-- strict verify --'
-            codesign --verify --strict --verbose=4 "$framework" || true
-          done
-
-      - name: Test canonical versioned-framework normalization
-        shell: bash
-        run: |
-          set -euo pipefail
-          cp -R /tmp/ffmpeg-audio /tmp/ffmpeg-normalized
-          for framework in /tmp/ffmpeg-normalized/*.framework; do
-            current="$framework/Versions/Current"
-            test -L "$current"
-            version="$(readlink "$current")"
-            version_dir="$framework/Versions/$version"
-            test -d "$version_dir"
-
-            # Modern codesign requires a versioned framework root to contain
-            # Versions plus symlinks into Versions/Current, not duplicate files.
-            for entry in "$framework"/*; do
-              name="$(basename "$entry")"
-              [ "$name" = Versions ] && continue
-              if [ -L "$entry" ]; then
-                continue
-              fi
-              if [ ! -e "$version_dir/$name" ]; then
-                mv "$entry" "$version_dir/$name"
-              else
-                rm -rf "$entry"
-              fi
-              ln -s "Versions/Current/$name" "$entry"
-            done
-
-            echo "===== normalized $(basename "$framework") ====="
+            echo "===== sanitized $(basename "$framework") ====="
             ls -la "$framework"
             /usr/bin/codesign --force --sign - "$framework"
             details="$(codesign -dvv "$framework" 2>&1)"
-            printf '%s\n' "$details" | grep -E 'Executable=|CodeDirectory|Signature=|Info.plist=|Sealed Resources='
+            printf '%s\n' "$details" | grep -E 'Executable=|CodeDirectory|Signature=|Info.plist=|Sealed Resources=' || true
+            printf '%s\n' "$details" | grep -q 'Signature=adhoc'
             if printf '%s\n' "$details" | grep -q 'linker-signed'; then
-              echo 'ERROR: normalized framework retained linker-signed flag' >&2
+              echo 'ERROR: framework retained linker-signed flag after sanitization' >&2
               exit 1
             fi
             codesign --verify --strict --verbose=4 "$framework"
