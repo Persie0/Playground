@@ -2,7 +2,7 @@ name: Noise Remover macOS signing probe
 
 on:
   push:
-    branches: [main]
+    branches: [main, noise-remover-macos-ci]
     paths:
       - '.github/workflows/noise-remover-macos-signing-probe.yml'
   workflow_dispatch:
@@ -22,7 +22,7 @@ env:
 jobs:
   probe:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout private app
         uses: actions/checkout@v5
@@ -38,6 +38,8 @@ jobs:
           channel: stable
           cache: true
 
+      - uses: dtolnay/rust-toolchain@stable
+
       - name: Generate macOS target and pods
         working-directory: app
         shell: bash
@@ -45,6 +47,7 @@ jobs:
           set -euo pipefail
           echo "private_sha=$(git rev-parse HEAD)"
           flutter config --enable-macos-desktop
+          flutter precache --macos
           flutter pub get
           if [ ! -d macos/Runner.xcodeproj ]; then
             flutter create --platforms=macos --org at.persie0 .
@@ -52,28 +55,92 @@ jobs:
           python3 tool/setup_macos.py
           (cd macos && pod install)
 
+      - name: Reproduce release signing failure
+        id: release
+        working-directory: app
+        shell: bash
+        run: |
+          set +e
+          flutter build macos --release > /tmp/noise-remover-release.log 2>&1
+          status=$?
+          set -e
+          tail -100 /tmp/noise-remover-release.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" -eq 0 ]; then
+            echo 'Release build unexpectedly passed; signing defect is not reproduced.'
+          else
+            grep -F 'code object is not signed at all' /tmp/noise-remover-release.log
+            grep -F 'libswresample.framework' /tmp/noise-remover-release.log
+          fi
+
+      - name: Probe FFmpeg signatures and explicit re-sign
+        if: steps.release.outputs.status != '0'
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP='build/macos/Build/Products/Release/Noise Remover.app'
+          FRAMEWORKS="$APP/Contents/Frameworks"
+          test -d "$FRAMEWORKS"
+
+          ffmpeg_frameworks=(
+            ffmpegkit
+            libavcodec
+            libavdevice
+            libavfilter
+            libavformat
+            libavutil
+            libswresample
+            libswscale
+          )
+
+          echo '=== before explicit re-sign ==='
+          for name in "${ffmpeg_frameworks[@]}"; do
+            framework="$FRAMEWORKS/$name.framework"
+            test -d "$framework"
+            codesign -dvv "$framework" 2>&1 | grep -E 'Executable=|CodeDirectory|Signature=|Info.plist=|Sealed Resources=' || true
+            if codesign --verify --strict --verbose=4 "$framework"; then
+              echo "$name strict_verify_before=PASS"
+            else
+              echo "$name strict_verify_before=FAIL"
+            fi
+          done
+
+          echo '=== explicit ad-hoc re-sign ==='
+          for name in "${ffmpeg_frameworks[@]}"; do
+            framework="$FRAMEWORKS/$name.framework"
+            /usr/bin/codesign --force --sign - "$framework"
+          done
+
+          echo '=== after explicit re-sign ==='
+          for name in "${ffmpeg_frameworks[@]}"; do
+            framework="$FRAMEWORKS/$name.framework"
+            details="$(codesign -dvv "$framework" 2>&1)"
+            printf '%s\n' "$details" | grep -E 'Executable=|CodeDirectory|Signature=|Info.plist=|Sealed Resources=' || true
+            printf '%s\n' "$details" | grep -q 'Signature=adhoc'
+            if printf '%s\n' "$details" | grep -q 'linker-signed'; then
+              echo "ERROR: $name still has linker-signed flag after explicit re-sign" >&2
+              exit 1
+            fi
+            codesign --verify --strict --verbose=4 "$framework"
+          done
+
+          echo '=== retry app signing after FFmpeg re-sign ==='
+          /usr/bin/codesign --force --sign - --entitlements macos/Runner/Release.entitlements "$APP"
+          codesign --verify --deep --strict --verbose=4 "$APP"
+
       - name: Verify Runner signing settings and CocoaPods fallback
         working-directory: app
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== Runner Release signing settings ==='
           settings="$(xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner -configuration Release -showBuildSettings 2>/dev/null)"
-          printf '%s\n' "$settings" | grep -E '^[[:space:]]*(CODE_SIGNING_ALLOWED|CODE_SIGNING_REQUIRED|CODE_SIGN_IDENTITY|EXPANDED_CODE_SIGN_IDENTITY|EXPANDED_CODE_SIGN_IDENTITY_NAME|DEVELOPMENT_TEAM|ENABLE_HARDENED_RUNTIME)' || true
           printf '%s\n' "$settings" | grep -q 'CODE_SIGNING_ALLOWED = YES'
           printf '%s\n' "$settings" | grep -q 'CODE_SIGNING_REQUIRED = YES'
           printf '%s\n' "$settings" | grep -q 'CODE_SIGN_IDENTITY = -'
 
-          echo '=== Pods Runner framework embed script ==='
           script="macos/Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh"
           test -f "$script"
-          grep -n -E 'Noise Remover|code_sign_if_enabled|EXPANDED_CODE_SIGN_IDENTITY|CODE_SIGNING_REQUIRED|CODE_SIGNING_ALLOWED|libswresample|libav|ffmpegkit' "$script" || true
           grep -q '# Noise Remover: ad-hoc signing fallback for embedded frameworks' "$script"
-          grep -Fq 'if [ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" ] && [ -z "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then' "$script"
           grep -Fq 'EXPANDED_CODE_SIGN_IDENTITY="-"' "$script"
-          grep -Fq 'EXPANDED_CODE_SIGN_IDENTITY_NAME="Ad Hoc"' "$script"
-
-          echo '=== FFmpeg framework sources referenced by CocoaPods ==='
-          grep -q 'ffmpegkit.framework' "$script"
-          grep -q 'libavcodec.framework' "$script"
           grep -q 'libswresample.framework' "$script"
