@@ -1,0 +1,73 @@
+name: Noise Remover macOS signing probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-macos-signing-probe.yml'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Private Noise Remover branch/tag/SHA
+        required: false
+        default: macos-release
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  APP_REF: ${{ inputs.ref || 'macos-release' }}
+
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout private app
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate macOS target and pods
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "private_sha=$(git rev-parse HEAD)"
+          flutter config --enable-macos-desktop
+          flutter pub get
+          if [ ! -d macos/Runner.xcodeproj ]; then
+            flutter create --platforms=macos --org at.persie0 .
+          fi
+          python3 tool/setup_macos.py
+          (cd macos && pod install)
+
+      - name: Inspect Runner signing settings and CocoaPods embed script
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== Runner Release signing settings ==='
+          xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner -configuration Release -showBuildSettings 2>/dev/null \
+            | grep -E '^[[:space:]]*(CODE_SIGNING_ALLOWED|CODE_SIGNING_REQUIRED|CODE_SIGN_IDENTITY|EXPANDED_CODE_SIGN_IDENTITY|EXPANDED_CODE_SIGN_IDENTITY_NAME|DEVELOPMENT_TEAM|ENABLE_HARDENED_RUNTIME)' || true
+
+          echo '=== Pods Runner framework embed script ==='
+          script="macos/Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh"
+          test -f "$script"
+          grep -n -E 'code_sign_if_enabled|EXPANDED_CODE_SIGN_IDENTITY|CODE_SIGNING_REQUIRED|CODE_SIGNING_ALLOWED|libswresample|libav|ffmpegkit' "$script" || true
+
+          echo '=== FFmpeg framework source signatures ==='
+          find macos/Pods -type d \( -name 'libswresample.framework' -o -name 'libavcodec.framework' -o -name 'ffmpegkit.framework' \) -print | while IFS= read -r framework; do
+            echo "--- $framework ---"
+            codesign -dvv "$framework" 2>&1 || true
+          done
