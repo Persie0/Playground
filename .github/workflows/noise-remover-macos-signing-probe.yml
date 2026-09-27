@@ -52,22 +52,28 @@ jobs:
           python3 tool/setup_macos.py
           (cd macos && pod install)
 
-      - name: Inspect Runner signing settings and CocoaPods embed script
+      - name: Verify Runner signing settings and CocoaPods fallback
         working-directory: app
         shell: bash
         run: |
           set -euo pipefail
           echo '=== Runner Release signing settings ==='
-          xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner -configuration Release -showBuildSettings 2>/dev/null \
-            | grep -E '^[[:space:]]*(CODE_SIGNING_ALLOWED|CODE_SIGNING_REQUIRED|CODE_SIGN_IDENTITY|EXPANDED_CODE_SIGN_IDENTITY|EXPANDED_CODE_SIGN_IDENTITY_NAME|DEVELOPMENT_TEAM|ENABLE_HARDENED_RUNTIME)' || true
+          settings="$(xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner -configuration Release -showBuildSettings 2>/dev/null)"
+          printf '%s\n' "$settings" | grep -E '^[[:space:]]*(CODE_SIGNING_ALLOWED|CODE_SIGNING_REQUIRED|CODE_SIGN_IDENTITY|EXPANDED_CODE_SIGN_IDENTITY|EXPANDED_CODE_SIGN_IDENTITY_NAME|DEVELOPMENT_TEAM|ENABLE_HARDENED_RUNTIME)' || true
+          printf '%s\n' "$settings" | grep -q 'CODE_SIGNING_ALLOWED = YES'
+          printf '%s\n' "$settings" | grep -q 'CODE_SIGNING_REQUIRED = YES'
+          printf '%s\n' "$settings" | grep -q 'CODE_SIGN_IDENTITY = -'
 
           echo '=== Pods Runner framework embed script ==='
           script="macos/Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh"
           test -f "$script"
-          grep -n -E 'code_sign_if_enabled|EXPANDED_CODE_SIGN_IDENTITY|CODE_SIGNING_REQUIRED|CODE_SIGNING_ALLOWED|libswresample|libav|ffmpegkit' "$script" || true
+          grep -n -E 'Noise Remover|code_sign_if_enabled|EXPANDED_CODE_SIGN_IDENTITY|CODE_SIGNING_REQUIRED|CODE_SIGNING_ALLOWED|libswresample|libav|ffmpegkit' "$script" || true
+          grep -q '# Noise Remover: ad-hoc signing fallback for embedded frameworks' "$script"
+          grep -Fq 'if [ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" ] && [ -z "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then' "$script"
+          grep -Fq 'EXPANDED_CODE_SIGN_IDENTITY="-"' "$script"
+          grep -Fq 'EXPANDED_CODE_SIGN_IDENTITY_NAME="Ad Hoc"' "$script"
 
-          echo '=== FFmpeg framework source signatures ==='
-          find macos/Pods -type d \( -name 'libswresample.framework' -o -name 'libavcodec.framework' -o -name 'ffmpegkit.framework' \) -print | while IFS= read -r framework; do
-            echo "--- $framework ---"
-            codesign -dvv "$framework" 2>&1 || true
-          done
+          echo '=== FFmpeg framework sources referenced by CocoaPods ==='
+          grep -q 'ffmpegkit.framework' "$script"
+          grep -q 'libavcodec.framework' "$script"
+          grep -q 'libswresample.framework' "$script"
