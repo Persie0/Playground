@@ -82,5 +82,43 @@ jobs:
         run: python3 -m unittest tool/test_macos_drag_destination.py -v
 
       - name: Run current private macOS harness
+        id: harness
+        continue-on-error: true
         shell: bash
         run: bash private-ci/.github/playground/noise_remover/run_macos_ci.sh app
+
+      - name: Diagnose release framework signing
+        if: steps.harness.outcome == 'failure'
+        working-directory: app
+        shell: bash
+        run: |
+          set -u
+          echo '=== checked out private revision ==='
+          git rev-parse HEAD
+          echo '=== Runner code-sign build settings ==='
+          xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner -configuration Release -showBuildSettings 2>/dev/null \
+            | grep -E '^[[:space:]]*(CODE_SIGN|EXPANDED_CODE_SIGN|DEVELOPMENT_TEAM|FRAMEWORKS_FOLDER_PATH|TARGET_BUILD_DIR|WRAPPER_NAME)' || true
+          echo '=== CocoaPods embed-framework scripts ==='
+          find macos/Pods/Target\ Support\ Files -type f -name '*frameworks.sh' -print
+          while IFS= read -r script; do
+            echo "--- $script ---"
+            grep -n -E 'code_sign|EXPANDED_CODE_SIGN_IDENTITY|install_framework|libswresample|ffmpeg' "$script" || true
+          done < <(find macos/Pods/Target\ Support\ Files -type f -name '*frameworks.sh' -print)
+          echo '=== Release embedded framework signatures ==='
+          APP='build/macos/Build/Products/Release/Noise Remover.app'
+          if [ -d "$APP/Contents/Frameworks" ]; then
+            find "$APP/Contents/Frameworks" -maxdepth 1 -type d -name '*.framework' -print | sort | while IFS= read -r framework; do
+              echo "--- $framework ---"
+              codesign -dvv "$framework" 2>&1 || true
+              binary="$framework/Versions/A/$(basename "$framework" .framework)"
+              if [ -e "$binary" ]; then
+                file "$binary" || true
+              fi
+            done
+          fi
+          echo '=== FFmpeg source framework signatures ==='
+          find macos -path '*ffmpeg*' -o -path '*libswresample.framework' 2>/dev/null | head -200 || true
+
+      - name: Fail when private harness failed
+        if: steps.harness.outcome == 'failure'
+        run: exit 1
