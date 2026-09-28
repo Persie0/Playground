@@ -1,0 +1,81 @@
+name: Resistor Scanner iOS PR29
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-ios-pr29.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout resistor_scanner iOS branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: feat/ios-vision-support
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: source
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Show toolchain
+        run: |
+          flutter --version
+          xcodebuild -version
+          pod --version
+
+      - name: Resolve and analyze app camera runtime
+        working-directory: source
+        run: |
+          flutter pub get
+          flutter analyze lib/services/camera_runtime.dart
+
+      - name: Run flutter_vision Dart tests
+        working-directory: source/flutter_vision
+        run: |
+          flutter pub get
+          flutter test test/ios_flutter_vision_test.dart
+
+      - name: Create minimal iOS plugin harness
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP"
+          flutter create --platforms=ios --org com.persie0.ci ios_harness
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          pubspec = Path(os.environ['RUNNER_TEMP']) / 'ios_harness' / 'pubspec.yaml'
+          plugin = Path(os.environ['GITHUB_WORKSPACE']) / 'source' / 'flutter_vision'
+          text = pubspec.read_text()
+          marker = "dependencies:\n  flutter:\n    sdk: flutter\n"
+          replacement = marker + f"  flutter_vision:\n    path: {plugin}\n"
+          if marker not in text:
+              raise SystemExit('Could not find Flutter dependency block in generated pubspec')
+          pubspec.write_text(text.replace(marker, replacement, 1))
+          PY
+
+      - name: Resolve iOS harness dependencies
+        working-directory: ${{ runner.temp }}/ios_harness
+        run: flutter pub get
+
+      - name: Build iOS simulator harness
+        working-directory: ${{ runner.temp }}/ios_harness
+        run: flutter build ios --simulator --debug
