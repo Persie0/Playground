@@ -1,0 +1,35 @@
+name: Image Enhancer layout test
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Image Enhancer branch, tag, or SHA
+        required: true
+        default: main
+        type: string
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout image enhancer
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_enhancer
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Run layout test
+        run: flutter test test/home_layout_test.dart
