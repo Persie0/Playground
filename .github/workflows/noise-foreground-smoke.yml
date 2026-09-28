@@ -1,0 +1,178 @@
+name: Noise Remover foreground processing smoke
+
+on:
+  push:
+    branches: [background-media-processing-validation-20260928]
+    paths: ['.github/workflows/noise-foreground-smoke.yml']
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: feature/android-background-media-processing-20260928
+
+jobs:
+  android-emulator-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout noise remover feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install host FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Create long foreground fixture
+        working-directory: app
+        run: |
+          set -euo pipefail
+          mkdir -p .ci/foreground-fixtures
+          ffmpeg -hide_banner -loglevel error -y \
+            -f lavfi -i 'sine=frequency=523.25:sample_rate=48000:duration=20' \
+            -f lavfi -i 'anoisesrc=color=white:sample_rate=48000:duration=20:amplitude=0.02' \
+            -filter_complex '[0:a][1:a]amix=inputs=2:normalize=0' \
+            -ac 1 -c:a pcm_s16le .ci/foreground-fixtures/foreground.wav
+          ffprobe -v error -show_entries format=duration -of default=nw=1 .ci/foreground-fixtures/foreground.wav
+
+      - name: Enable KVM group access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run background and lock-screen smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          working-directory: app
+          script: |
+            set -eu
+            mkdir -p .ci
+            python3 -m http.server 8765 --directory .ci/foreground-fixtures > .ci/foreground-http.log 2>&1 &
+            SERVER_PID=$!
+            trap 'kill $SERVER_PID >/dev/null 2>&1 || true' EXIT
+
+            flutter test integration_test/foreground_media_processing_test.dart \
+              -d emulator-5554 \
+              --dart-define=MEDIA_FIXTURE_BASE_URL=http://10.0.2.2:8765 \
+              -r expanded > .ci/foreground-smoke.log 2>&1 &
+            TEST_PID=$!
+
+            installed=false
+            for _ in $(seq 1 240); do
+              if adb shell pm path at.persie0.noise_remover >/dev/null 2>&1; then
+                installed=true
+                break
+              fi
+              sleep 1
+            done
+            if [ "$installed" != true ]; then
+              echo 'App was not installed in time.'
+              kill $TEST_PID >/dev/null 2>&1 || true
+              cat .ci/foreground-smoke.log || true
+              exit 1
+            fi
+
+            adb shell pm grant at.persie0.noise_remover android.permission.POST_NOTIFICATIONS || true
+            adb shell appops set at.persie0.noise_remover POST_NOTIFICATION allow || true
+
+            ready=false
+            for _ in $(seq 1 240); do
+              if grep -q 'FOREGROUND_SMOKE_READY:' .ci/foreground-smoke.log 2>/dev/null; then
+                ready=true
+                break
+              fi
+              if ! kill -0 $TEST_PID >/dev/null 2>&1; then
+                break
+              fi
+              sleep 1
+            done
+            if [ "$ready" != true ]; then
+              echo 'Foreground service never reached the ready marker.'
+              cat .ci/foreground-smoke.log || true
+              set +e
+              wait $TEST_PID
+              status=$?
+              set -e
+              exit $status
+            fi
+
+            adb shell input keyevent KEYCODE_HOME
+            sleep 1
+            adb shell dumpsys activity activities > .ci/foreground-activity.txt
+            adb shell dumpsys activity services at.persie0.noise_remover > .ci/foreground-services-home.txt
+            adb shell dumpsys notification --noredact > .ci/foreground-notifications.txt || true
+            if grep -E 'mResumedActivity.*at\.persie0\.noise_remover' .ci/foreground-activity.txt; then
+              echo 'Noise Remover remained the resumed Activity after HOME.'
+              kill $TEST_PID >/dev/null 2>&1 || true
+              exit 1
+            fi
+            if ! grep -q 'com.pravera.flutter_foreground_task.service.ForegroundService' .ci/foreground-services-home.txt; then
+              echo 'Noise foreground service was not alive after HOME.'
+              kill $TEST_PID >/dev/null 2>&1 || true
+              exit 1
+            fi
+
+            adb shell input keyevent KEYCODE_SLEEP
+            sleep 2
+            adb shell dumpsys activity services at.persie0.noise_remover > .ci/foreground-services-locked.txt
+            adb logcat -d > .ci/foreground-logcat-locked.txt || true
+            if ! grep -q 'com.pravera.flutter_foreground_task.service.ForegroundService' .ci/foreground-services-locked.txt; then
+              echo 'Noise foreground service did not survive screen lock.'
+              adb shell input keyevent KEYCODE_WAKEUP || true
+              kill $TEST_PID >/dev/null 2>&1 || true
+              exit 1
+            fi
+            adb shell input keyevent KEYCODE_WAKEUP || true
+
+            set +e
+            wait $TEST_PID
+            TEST_STATUS=$?
+            set -e
+            cat .ci/foreground-smoke.log || true
+            adb logcat -d > .ci/foreground-logcat-final.txt || true
+            exit $TEST_STATUS
+
+      - name: Upload smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noise-foreground-smoke-diagnostics
+          path: |
+            app/.ci/foreground-smoke.log
+            app/.ci/foreground-http.log
+            app/.ci/foreground-activity.txt
+            app/.ci/foreground-services-home.txt
+            app/.ci/foreground-services-locked.txt
+            app/.ci/foreground-notifications.txt
+            app/.ci/foreground-logcat-locked.txt
+            app/.ci/foreground-logcat-final.txt
+          if-no-files-found: ignore
