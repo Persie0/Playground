@@ -1,7 +1,7 @@
 name: Print Layout Studio browser and unit tests
 
-# Public CI trigger for Print Layout Studio. The source ref can be temporarily
-# pointed at an implementation branch for red/green regression verification.
+# Public CI trigger for Print Layout Studio. This intentionally tests the
+# public source repository so no private-repository Actions credits are used.
 
 on:
   push:
@@ -15,12 +15,12 @@ permissions:
 
 jobs:
   test:
-    name: Unit and browser tests
+    name: Unit, build, and browser tests
     runs-on: ubuntu-latest
     timeout-minutes: 26
     steps:
       - name: Check out the public print-layout-studio source
-        run: git clone --depth 1 --branch fix/layout-audit-20260928 https://github.com/Persie0/print-layout-studio.git source
+        run: git clone --depth 1 --branch main https://github.com/Persie0/print-layout-studio.git source
 
       - uses: pnpm/action-setup@v4
         with:
@@ -46,6 +46,10 @@ jobs:
       - name: Check TypeScript
         working-directory: source
         run: pnpm exec tsc --noEmit
+
+      - name: Build production bundle
+        working-directory: source
+        run: pnpm run build
 
       - name: Install Chromium for Playwright
         working-directory: source
