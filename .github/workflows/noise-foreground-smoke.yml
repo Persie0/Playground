@@ -49,9 +49,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Dependencies
+      - name: Dependencies and prebuild
         working-directory: app
-        run: flutter pub get
+        run: |
+          flutter pub get
+          # Cold Gradle assembly on the hosted x86 runner can take longer than
+          # the device-install poll. Build before launching the emulator so the
+          # smoke test starts from the real merged APK instead of racing Gradle.
+          flutter build apk --debug
 
       - name: Create long foreground fixture
         working-directory: app
