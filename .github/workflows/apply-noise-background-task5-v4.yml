@@ -1,0 +1,83 @@
+name: Apply Noise Remover background Task 5 v4
+
+on:
+  push:
+    branches: [background-media-processing-validation-20260928]
+    paths: ['.github/workflows/apply-noise-background-task5-v4.yml']
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: feature/android-background-media-processing-20260928
+
+jobs:
+  apply-test-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout public harness
+        uses: actions/checkout@v5
+        with:
+          ref: background-media-processing-validation-20260928
+          path: harness
+
+      - name: Checkout private feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: app
+
+      - name: Apply HomeScreen reattach patch
+        working-directory: app
+        run: python3 ../harness/scripts/patch_noise_background_task5.py
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Format touched file
+        working-directory: app
+        run: dart format lib/screens/home_screen.dart
+
+      - name: Focused foreground tests
+        working-directory: app
+        run: |
+          flutter test \
+            test/background_processing_foreground_service_regression_test.dart \
+            test/services/android_media_processing_service_test.dart \
+            test/services/background_processing_recovery_test.dart \
+            test/services/foreground_processing_state_test.dart
+
+      - name: Analyze foreground integration
+        working-directory: app
+        run: flutter analyze lib/screens/home_screen.dart lib/services/background_processing_task.dart lib/services/android_media_processing_service.dart
+
+      - name: Commit verified patch
+        working-directory: app
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git diff --quiet; then
+            echo 'No patch to push.'
+            exit 0
+          fi
+          git add lib/screens/home_screen.dart
+          git commit -m 'feat: reattach active Android foreground noise jobs'
+          git push origin HEAD:${APP_REF}
