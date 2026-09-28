@@ -1,8 +1,7 @@
 name: Print Layout Studio browser and unit tests
 
-# Each run checks the latest print-layout-studio main; this workflow file is the public trigger.
-# Retriggered after waiting for the saved orientation setting.
-# Triggered for the Sep 2026 full-sheet preview and OCR-size UI update.
+# Public CI trigger for Print Layout Studio. The source ref can be temporarily
+# pointed at an implementation branch for red/green regression verification.
 
 on:
   push:
@@ -21,7 +20,7 @@ jobs:
     timeout-minutes: 26
     steps:
       - name: Check out the public print-layout-studio source
-        run: git clone --depth 1 --branch main https://github.com/Persie0/print-layout-studio.git source
+        run: git clone --depth 1 --branch fix/layout-audit-20260928 https://github.com/Persie0/print-layout-studio.git source
 
       - uses: pnpm/action-setup@v4
         with:
@@ -55,32 +54,6 @@ jobs:
       - name: Run browser usage tests
         working-directory: source
         run: pnpm test:e2e
-# Triggered for Markdown tables and inline math, split text blocks, and image navigation.
-# Retriggered after correcting preview fit and browser assertions.
-
-# Triggered for disabled action contrast, typed-text OCR sizing, viewer deletion, and full-height sheet preview.
-
-# Retriggered with per-group print numbering and updated browser checks.
-
-# Retriggered after adding adjustable image-matched text sizing.
-
-# Added a wait for the persisted OCR result before the reload assertion.
-
-# Retriggered after page switching, paste undo, and group image numbering changes.
-
-# Retriggered for portable workspace export/import, group balancing, OCR-matched text, and portrait printing.
-
-# Retriggered after correcting the browser workflow expectations and reload timing.
-
-# Retriggered after waiting for imported data and group assignments to persist before assertions.
-
-# Retriggered after fixing print page flow and the intact-group balance scenario.
-
-# Retriggered with PDF pagination diagnostics and saved balance results.
-
-# Retriggered with page geometry and persisted move assertions.
-
-# Retriggered after constraining the print document to the selected sheet width.
 
       - name: Upload Playwright failure artifacts
         if: failure()
@@ -90,8 +63,3 @@ jobs:
           path: source/test-results
           if-no-files-found: ignore
           retention-days: 1
-
-# Retriggered to upload the rendered print output for visual diagnosis.
-
-# Retriggered after saving the PDF directly into Playwright test output.
-# Verify the portrait print frame and OCR-maximizing placement heuristics.
