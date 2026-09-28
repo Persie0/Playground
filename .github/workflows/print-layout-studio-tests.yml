@@ -81,3 +81,14 @@ jobs:
 # Retriggered with page geometry and persisted move assertions.
 
 # Retriggered after constraining the print document to the selected sheet width.
+
+      - name: Upload Playwright failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: print-layout-playwright-${{ github.run_id }}
+          path: source/test-results
+          if-no-files-found: ignore
+          retention-days: 1
+
+# Retriggered to upload the rendered print output for visual diagnosis.
