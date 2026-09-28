@@ -2,10 +2,8 @@ name: Apply Noise Remover background Task 5
 
 on:
   push:
-    branches:
-      - background-media-processing-validation-20260928
-    paths:
-      - '.github/workflows/apply-noise-background-task5.yml'
+    branches: [background-media-processing-validation-20260928]
+    paths: ['.github/workflows/apply-noise-background-task5.yml']
 
 permissions:
   contents: read
@@ -19,13 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - name: Validate private checkout token
-        env:
-          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        run: test -n "$PRIVATE_TOKEN"
-
-      - name: Checkout private feature branch
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           repository: ${{ env.APP_REPOSITORY }}
           ref: ${{ env.APP_REF }}
@@ -34,52 +26,34 @@ jobs:
           fetch-depth: 0
           path: app
 
-      - name: Patch foreground startup reattach and direct cancel
+      - name: Patch HomeScreen foreground reattach
         working-directory: app
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          def replace_once(text: str, old: str, new: str, label: str) -> str:
-              count = text.count(old)
+          p = Path('lib/screens/home_screen.dart')
+          s = p.read_text()
+
+          def once(old, new, label, source=None):
+              global s
+              target = s if source is None else source
+              count = target.count(old)
               if count != 1:
-                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
-              return text.replace(old, new, 1)
+                  raise SystemExit(f'{label}: expected one match, got {count}')
+              return target.replace(old, new, 1)
 
-          path = Path('lib/screens/home_screen.dart')
-          text = path.read_text()
+          base_import = "import '../services/background_processing_task.dart';\n"
+          if "import '../services/android_media_processing_service.dart';" not in s:
+              s = once(
+                  base_import,
+                  base_import
+                  + "import '../services/android_media_processing_service.dart';\n"
+                  + "import '../services/background_processing_recovery.dart';\n",
+                  'service imports',
+              )
 
-          old_import = "import '../services/background_processing_task.dart';\n"
-          new_import = (
-              old_import
-              + "import '../services/android_media_processing_events.dart';\n"
-              + "import '../services/android_media_processing_service.dart';\n"
-              + "import '../services/background_processing_recovery.dart';\n"
-          )
-          if "../services/android_media_processing_service.dart" not in text:
-              text = replace_once(text, old_import, new_import, 'foreground imports')
-
-          old_startup = '''    if (savedJob != null && mounted) {
-              if (savedJob['status'] == 'inProgress') {
-                savedJob['status'] = 'interrupted';
-                await _processingLock.saveJobState(savedJob);
-              }
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  unawaited(
-                    _promptSavedJobRecovery(savedJob).catchError((
-                      Object error,
-                      StackTrace stackTrace,
-                    ) async {
-                      debugPrint('Saved-job recovery prompt failed: $error');
-                      await Sentry.captureException(error, stackTrace: stackTrace);
-                    }),
-                  );
-                }
-              });
-            }
-          '''
-          new_startup = '''    if (savedJob != null && mounted) {
+          startup = '''    if (savedJob != null && mounted) {
               var recoveryJob = savedJob;
 
               void scheduleRecoveryPrompt(Map<String, dynamic> job) {
@@ -173,248 +147,68 @@ jobs:
               }
             }
           '''
-          if old_startup in text:
-              text = replace_once(text, old_startup, new_startup, 'startup recovery')
-          elif '_reattachShortForegroundJob(recoveryJob)' not in text:
-              raise SystemExit('startup recovery block changed unexpectedly')
 
-          reattach_method = '''
-            Future<void> _reattachShortForegroundJob(
+          if '_reattachShortForegroundJob(recoveryJob)' not in s:
+              start = s.find("    if (savedJob != null && mounted) {")
+              end_marker = "\n  }\n\n  Future<void> _promptSavedJobRecovery"
+              end = s.find(end_marker, start)
+              if start < 0 or end < 0:
+                  raise SystemExit('startup recovery block not found')
+              s = s[:start] + startup + s[end:]
+
+          method = '''  Future<void> _reattachShortForegroundJob(
               Map<String, dynamic> savedJob,
             ) async {
-              if (!mounted || _isLoading) return;
-              final jobId = savedJob['jobId'] as String?;
-              final originalPath = savedJob['filePath'] as String?;
-              if (jobId == null || jobId.isEmpty || originalPath == null) {
+              final filePath = savedJob['filePath'] as String?;
+              if (filePath == null || filePath.isEmpty) {
                 await _processingLock.clearJobState();
                 return;
               }
-
-              final source = File(originalPath);
-              if (!await source.exists()) {
-                await _processingLock.saveJobState({
-                  ...savedJob,
-                  'status': 'interrupted',
-                  'lastError': 'The source file is no longer available.',
-                });
-                if (mounted) {
-                  await _promptSavedJobRecovery(
-                    await _processingLock.loadJobState() ?? savedJob,
-                  );
-                }
-                return;
-              }
-
-              setState(() => _isLoading = true);
-              final l10n = AppLocalizations.of(context)!;
-              final progressNotifier = ValueNotifier<double>(
-                ((savedJob['progress'] as num?)?.toDouble() ?? 0.0)
-                    .clamp(0.0, 1.0)
-                    .toDouble(),
+              await _processFile(
+                filePath,
+                wasResumed: true,
+                foregroundReattach: true,
               );
-              final messageNotifier = ValueNotifier<String>(
-                savedJob['message'] as String? ?? l10n.msgStarting,
-              );
-              final speedNotifier = ValueNotifier<String>('');
-              final cancelRequestedNotifier = ValueNotifier<bool>(false);
-              final terminal = Completer<AndroidMediaProcessingEvent>();
-              var processingScreenPushed = false;
-              late final StreamSubscription<AndroidMediaProcessingEvent> subscription;
-
-              void acceptEvent(AndroidMediaProcessingEvent event) {
-                if (event.jobId != jobId || terminal.isCompleted) return;
-                if (event.type == AndroidMediaProcessingEventType.progress) {
-                  progressNotifier.value =
-                      (event.progress ?? progressNotifier.value)
-                          .clamp(0.0, 1.0)
-                          .toDouble();
-                  if (event.message != null && event.message!.isNotEmpty) {
-                    messageNotifier.value = event.message!;
-                  }
-                  return;
-                }
-                terminal.complete(event);
-              }
-
-              void acceptCheckpoint(Map<String, dynamic>? checkpoint) {
-                if (checkpoint == null ||
-                    checkpoint['jobId'] != jobId ||
-                    terminal.isCompleted) {
-                  return;
-                }
-                final status = checkpoint['status'] as String?;
-                final progress = (checkpoint['progress'] as num?)?.toDouble();
-                final message = checkpoint['message'] as String?;
-                if (progress != null) {
-                  progressNotifier.value = progress.clamp(0.0, 1.0).toDouble();
-                }
-                if (message != null && message.isNotEmpty) {
-                  messageNotifier.value = message;
-                }
-                switch (status) {
-                  case 'completed':
-                    terminal.complete(
-                      AndroidMediaProcessingEvent(
-                        type: AndroidMediaProcessingEventType.completed,
-                        jobId: jobId,
-                        progress: 1.0,
-                        message: message,
-                        finalOutputPath: checkpoint['finalOutputPath'] as String?,
-                      ),
-                    );
-                    break;
-                  case 'cancelled':
-                    terminal.complete(
-                      AndroidMediaProcessingEvent(
-                        type: AndroidMediaProcessingEventType.cancelled,
-                        jobId: jobId,
-                        message: message,
-                        error: checkpoint['lastError'] as String?,
-                      ),
-                    );
-                    break;
-                  case 'failed':
-                    terminal.complete(
-                      AndroidMediaProcessingEvent(
-                        type: AndroidMediaProcessingEventType.failed,
-                        jobId: jobId,
-                        message: message,
-                        error: checkpoint['lastError'] as String?,
-                      ),
-                    );
-                    break;
-                  case 'interrupted':
-                    terminal.complete(
-                      AndroidMediaProcessingEvent(
-                        type: AndroidMediaProcessingEventType.interrupted,
-                        jobId: jobId,
-                        message: message,
-                        error: checkpoint['lastError'] as String?,
-                      ),
-                    );
-                    break;
-                }
-              }
-
-              subscription = AndroidMediaProcessingService.instance.events.listen(
-                acceptEvent,
-              );
-
-              try {
-                final fileSize = await source.length();
-                final fileName =
-                    savedJob['originalFileName'] as String? ?? path.basename(originalPath);
-                final fileExt = path
-                    .extension(originalPath)
-                    .toUpperCase()
-                    .replaceAll('.', '');
-
-                if (!mounted) return;
-                processingScreenPushed = true;
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder:
-                        (context) => ProcessingScreen(
-                          fileName: fileName,
-                          fileSize:
-                              '${(fileSize / (1024 * 1024)).toStringAsFixed(1)} MB',
-                          fileFormat: fileExt,
-                          progressNotifier: progressNotifier,
-                          messageNotifier: messageNotifier,
-                          speedNotifier: speedNotifier,
-                          cancelRequestedNotifier: cancelRequestedNotifier,
-                          showBackgroundInfo: true,
-                          onCancel: () async {
-                            if (cancelRequestedNotifier.value) return;
-                            cancelRequestedNotifier.value = true;
-                            messageNotifier.value = l10n.cancel;
-                            await AndroidMediaProcessingService.instance.cancel();
-                            if (mounted && processingScreenPushed) {
-                              Navigator.pop(context);
-                              processingScreenPushed = false;
-                            }
-                          },
-                        ),
-                  ),
-                );
-
-                final checkpoint = await _processingLock.loadJobState();
-                acceptCheckpoint(checkpoint);
-                if (!terminal.isCompleted &&
-                    !await AndroidMediaProcessingService.instance
-                        .isRunningForJob(jobId)) {
-                  final latest = await _processingLock.loadJobState();
-                  acceptCheckpoint(latest);
-                  if (!terminal.isCompleted) {
-                    final interrupted = {
-                      ...(latest ?? savedJob),
-                      'status': 'interrupted',
-                      'lastError':
-                          'Android foreground processing stopped before completion.',
-                    };
-                    await _processingLock.saveJobState(interrupted);
-                    acceptCheckpoint(interrupted);
-                  }
-                }
-
-                final event = await terminal.future;
-                if (mounted && processingScreenPushed) {
-                  Navigator.pop(context);
-                  processingScreenPushed = false;
-                }
-
-                final latest =
-                    await _processingLock.loadJobState() ?? <String, dynamic>{...savedJob};
-                switch (event.type) {
-                  case AndroidMediaProcessingEventType.completed:
-                    final outputPath =
-                        event.finalOutputPath ?? latest['finalOutputPath'] as String?;
-                    if (outputPath == null || outputPath.isEmpty) {
-                      final failed = {
-                        ...latest,
-                        'status': 'failed',
-                        'lastError':
-                            'Foreground processing completed without an output path.',
-                      };
-                      await _processingLock.saveJobState(failed);
-                      if (mounted) await _promptSavedJobRecovery(failed);
-                      return;
-                    }
-                    final finalizationState = {
-                      ...latest,
-                      'status': 'finalizing',
-                      'finalOutputPath': outputPath,
-                    };
-                    await _processingLock.saveJobState(finalizationState);
-                    if (mounted) {
-                      await _resumeShortFinalization(finalizationState);
-                    }
-                    break;
-                  case AndroidMediaProcessingEventType.cancelled:
-                    await _processingLock.clearJobState();
-                    break;
-                  case AndroidMediaProcessingEventType.failed:
-                  case AndroidMediaProcessingEventType.interrupted:
-                    if (mounted) await _promptSavedJobRecovery(latest);
-                    break;
-                  case AndroidMediaProcessingEventType.progress:
-                    break;
-                }
-              } finally {
-                await subscription.cancel();
-                progressNotifier.dispose();
-                messageNotifier.dispose();
-                speedNotifier.dispose();
-                cancelRequestedNotifier.dispose();
-                if (mounted) setState(() => _isLoading = false);
-              }
             }
 
           '''
           marker = '  Future<void> _promptSavedJobRecovery(Map<String, dynamic> savedJob) async {'
-          if '_reattachShortForegroundJob(' not in text:
-              text = replace_once(text, marker, reattach_method + marker, 'reattach method insertion')
+          if 'Future<void> _reattachShortForegroundJob(' not in s:
+              s = once(marker, method + marker, 'reattach method')
+
+          old_sig = '''  Future<void> _processFile(
+              String filePath, {
+              bool wasResumed = false,
+              String? pickedFileName,
+            }) async {'''
+          new_sig = '''  Future<void> _processFile(
+              String filePath, {
+              bool wasResumed = false,
+              bool foregroundReattach = false,
+              String? pickedFileName,
+            }) async {'''
+          if 'bool foregroundReattach = false' not in s:
+              s = once(old_sig, new_sig, 'process signature')
+
+          process_start = s.find('  Future<void> _processFile(')
+          if process_start < 0:
+              raise SystemExit('process method not found')
+          head, tail = s[:process_start], s[process_start:]
+
+          old_lock = '''      recoveryState = payload;
+              await _processingLock.start(jobId: shortJobId, payload: payload);
+              processingLockStarted = true;
+
+              workerFuture = runProcessingTask('''
+          new_lock = '''      recoveryState = payload;
+              if (!foregroundReattach) {
+                await _processingLock.start(jobId: shortJobId, payload: payload);
+                processingLockStarted = true;
+              }
+
+              workerFuture = runProcessingTask('''
+          if 'if (!foregroundReattach) {' not in tail:
+              tail = once(old_lock, new_lock, 'foreground lock handoff', tail)
 
           old_cancel = '''                  messageNotifier?.value = l10n.cancel;
                             unawaited(cancellationToken.cancel());'''
@@ -423,12 +217,30 @@ jobs:
                               await AndroidMediaProcessingService.instance.cancel();
                             }
                             unawaited(cancellationToken.cancel());'''
-          if old_cancel in text:
-              text = replace_once(text, old_cancel, new_cancel, 'short direct cancel')
-          elif 'await AndroidMediaProcessingService.instance.cancel();' not in text:
-              raise SystemExit('short cancellation block changed unexpectedly')
+          if new_cancel not in tail:
+              tail = once(old_cancel, new_cancel, 'direct foreground cancel', tail)
 
-          path.write_text(text)
+          old_cancelled_catch = '''      if (isCancelled || !mounted) {
+              if (mounted && processingScreenPushed) Navigator.pop(context);
+              return;
+            }'''
+          new_cancelled_catch = '''      if (isCancelled || !mounted) {
+              if (isCancelled && foregroundReattach) {
+                await _processingLock.clearJobState();
+              }
+              if (mounted && processingScreenPushed) Navigator.pop(context);
+              return;
+            }'''
+          if 'if (isCancelled && foregroundReattach)' not in tail:
+              tail = once(
+                  old_cancelled_catch,
+                  new_cancelled_catch,
+                  'reattach cancellation cleanup',
+                  tail,
+              )
+
+          s = head + tail
+          p.write_text(s)
           PY
 
       - uses: actions/setup-java@v5
@@ -441,32 +253,33 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Flutter pub get
+      - name: Dependencies
         working-directory: app
         run: flutter pub get
 
-      - name: Task 5 focused tests
+      - name: Focused foreground tests
         working-directory: app
         run: |
           flutter test \
+            test/background_processing_foreground_service_regression_test.dart \
             test/services/android_media_processing_service_test.dart \
             test/services/background_processing_recovery_test.dart \
-            test/background_processing_foreground_service_regression_test.dart
+            test/services/foreground_processing_state_test.dart
 
-      - name: Analyze touched integration
+      - name: Analyze foreground integration
         working-directory: app
-        run: flutter analyze lib/main.dart lib/screens/home_screen.dart lib/services/background_processing_task.dart lib/services/background_processing_recovery.dart lib/services/android_media_processing_task.dart
+        run: flutter analyze lib/screens/home_screen.dart lib/services/background_processing_task.dart lib/services/android_media_processing_service.dart
 
-      - name: Commit and push verified patch
+      - name: Commit verified patch
         working-directory: app
         run: |
           set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           if git diff --quiet; then
             echo 'No patch to push.'
             exit 0
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add lib/screens/home_screen.dart
           git commit -m 'feat: reattach active Android foreground noise jobs'
           git push origin HEAD:${APP_REF}
