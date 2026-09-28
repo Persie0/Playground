@@ -13,7 +13,7 @@ permissions:
 jobs:
   pilot:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - name: Validate private checkout token
         env:
@@ -32,3 +32,78 @@ jobs:
       - name: Run country pipeline contract tests
         working-directory: toiletcompass
         run: python3 -m unittest database.tests.test_country_pipeline -v
+
+      - name: Install OSM tooling
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends osmium-tool
+          osmium --version
+
+      - name: Build Austria then Slovenia in one sequential job
+        working-directory: toiletcompass
+        run: |
+          rm -rf /tmp/toilet-db-scratch pilot-output
+          mkdir -p /tmp/toilet-db-scratch pilot-output
+          python3 database/country_pipeline.py \
+            --config database/countries.pilot.json \
+            --output-dir pilot-output \
+            --scratch-dir /tmp/toilet-db-scratch
+          echo 'Scratch after complete run:'
+          du -ah /tmp/toilet-db-scratch || true
+          test -z "$(find /tmp/toilet-db-scratch -type f -print -quit)"
+
+      - name: Independently inspect generated app databases
+        working-directory: toiletcompass
+        run: |
+          python3 - <<'PY' | tee pilot-output/pilot-report.txt
+          import hashlib
+          import sqlite3
+          from pathlib import Path
+
+          expected = [
+              'id','osm_id','name','lat','lon','fee','wheelchair','opening_hours',
+              'access','changing_table','toilets_position','toilets_disposal',
+              'toilets_handwashing','drinking_water','level','location','gender'
+          ]
+          counts = {}
+          for name in ('AT.db', 'SI.db', 'europe.db'):
+              path = Path('pilot-output') / name
+              assert path.exists(), name
+              assert not Path(str(path) + '-wal').exists()
+              assert not Path(str(path) + '-shm').exists()
+              con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+              integrity = con.execute('PRAGMA integrity_check').fetchone()[0]
+              columns = [r[1] for r in con.execute('PRAGMA table_info(toilets)')]
+              indexes = {r[1] for r in con.execute('PRAGMA index_list(toilets)')}
+              count = con.execute('SELECT COUNT(*) FROM toilets').fetchone()[0]
+              bad_coords = con.execute('SELECT COUNT(*) FROM toilets WHERE lat IS NULL OR lon IS NULL OR lat < -90 OR lat > 90 OR lon < -180 OR lon > 180').fetchone()[0]
+              null_osm = con.execute('SELECT COUNT(*) FROM toilets WHERE osm_id IS NULL').fetchone()[0]
+              sample = con.execute('SELECT osm_id,name,lat,lon FROM toilets ORDER BY id LIMIT 3').fetchall()
+              con.close()
+              assert integrity == 'ok'
+              assert columns == expected, (name, columns)
+              assert {'idx_lat','idx_lon','idx_osm_id'} <= indexes
+              assert bad_coords == 0
+              assert null_osm == 0
+              assert count > 0
+              counts[name] = count
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              print(f'{name}: rows={count} bytes={path.stat().st_size} sha256={digest}')
+              print(f'  columns={columns}')
+              print(f'  indexes={sorted(indexes)}')
+              print(f'  sample={sample}')
+          assert counts['europe.db'] == counts['AT.db'] + counts['SI.db'], counts
+          print(f"merge-count-check=ok ({counts['europe.db']} == {counts['AT.db']} + {counts['SI.db']})")
+          PY
+
+      - name: Upload pilot app-format databases
+        uses: actions/upload-artifact@v4
+        with:
+          name: toiletcompass-country-db-pilot
+          path: |
+            toiletcompass/pilot-output/AT.db
+            toiletcompass/pilot-output/SI.db
+            toiletcompass/pilot-output/europe.db
+            toiletcompass/pilot-output/pilot-report.txt
+          retention-days: 3
+          if-no-files-found: error
