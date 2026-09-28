@@ -1,0 +1,183 @@
+name: Noise Task 5 home recovery
+on:
+  push:
+    branches:
+      - background-media-processing-validation-20260928
+    paths:
+      - '.github/workflows/noise-task5-home.yml'
+permissions:
+  contents: read
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: feature/android-background-media-processing-20260928
+jobs:
+  verify-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: app
+      - name: Patch HomeScreen recovery
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('lib/screens/home_screen.dart')
+          s = p.read_text()
+          imp = "import '../services/background_processing_task.dart';\n"
+          extra = imp + "import '../services/android_media_processing_service.dart';\nimport '../services/background_processing_recovery.dart';\n"
+          if "import '../services/android_media_processing_service.dart';" not in s:
+              if s.count(imp) != 1:
+                  raise SystemExit('background processing import marker mismatch')
+              s = s.replace(imp, extra, 1)
+          old = """    if (savedJob != null && mounted) {
+              if (savedJob['status'] == 'inProgress') {
+                savedJob['status'] = 'interrupted';
+                await _processingLock.saveJobState(savedJob);
+              }
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  unawaited(
+                    _promptSavedJobRecovery(savedJob).catchError((
+                      Object error,
+                      StackTrace stackTrace,
+                    ) async {
+                      debugPrint('Saved-job recovery prompt failed: $error');
+                      await Sentry.captureException(error, stackTrace: stackTrace);
+                    }),
+                  );
+                }
+              });
+            }
+          """
+          # Use exact source indentation from repository, not workflow YAML indentation.
+          old = old.replace('            ', '')
+          new = """    void scheduleSavedJobRecovery(Map<String, dynamic> job) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                unawaited(
+                  _promptSavedJobRecovery(job).catchError((
+                    Object error,
+                    StackTrace stackTrace,
+                  ) async {
+                    debugPrint('Saved-job recovery prompt failed: $error');
+                    await Sentry.captureException(error, stackTrace: stackTrace);
+                  }),
+                );
+              });
+            }
+
+            if (savedJob != null && mounted) {
+              var recoveryJob = savedJob;
+              final savedJobId = recoveryJob['jobId'] as String?;
+              var foregroundOwnsJob = false;
+              if (Platform.isAndroid &&
+                  recoveryJob['type'] == 'short' &&
+                  recoveryJob['status'] == 'inProgress' &&
+                  savedJobId != null) {
+                foregroundOwnsJob = await AndroidMediaProcessingService.instance
+                    .isRunningForJob(savedJobId);
+                if (!foregroundOwnsJob) {
+                  final latest = await _processingLock.loadJobState();
+                  if (latest != null && latest['jobId'] == savedJobId) {
+                    recoveryJob = latest;
+                  }
+                }
+              }
+
+              switch (resolveShortJobRecovery(
+                savedJob: recoveryJob,
+                foregroundOwnsJob: foregroundOwnsJob,
+              )) {
+                case ShortJobRecoveryAction.reattach:
+                  final filePath = recoveryJob['filePath'] as String?;
+                  if (filePath == null || !await File(filePath).exists()) {
+                    recoveryJob = {...recoveryJob, 'status': 'interrupted'};
+                    await _processingLock.saveJobState(recoveryJob);
+                    scheduleSavedJobRecovery(recoveryJob);
+                    break;
+                  }
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    unawaited(_processFile(filePath, wasResumed: true));
+                  });
+                  break;
+                case ShortJobRecoveryAction.markInterrupted:
+                  recoveryJob = {...recoveryJob, 'status': 'interrupted'};
+                  await _processingLock.saveJobState(recoveryJob);
+                  scheduleSavedJobRecovery(recoveryJob);
+                  break;
+                case ShortJobRecoveryAction.resumeFinalization:
+                  final finalizationState = <String, dynamic>{
+                    ...recoveryJob,
+                    'status': 'finalizing',
+                  };
+                  await _processingLock.saveJobState(finalizationState);
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    unawaited(_resumeShortFinalization(finalizationState));
+                  });
+                  break;
+                case ShortJobRecoveryAction.promptExistingRecovery:
+                  scheduleSavedJobRecovery(recoveryJob);
+                  break;
+              }
+            }
+          """
+          new = new.replace('            ', '')
+          if old not in s:
+              # Fall back to marker slicing to avoid whitespace-only fragility.
+              start = s.find("    if (savedJob != null && mounted) {\n      if (savedJob['status'] == 'inProgress') {")
+              end_marker = "\n    }\n  }\n\n  Future<void> _promptSavedJobRecovery"
+              end = s.find(end_marker, start)
+              if start < 0 or end < 0:
+                  raise SystemExit('saved job recovery block not found')
+              s = s[:start] + new + s[end + len("\n    }"):]
+          else:
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Focused tests
+        working-directory: app
+        run: |
+          flutter test \
+            test/services/android_media_processing_service_test.dart \
+            test/services/background_processing_recovery_test.dart \
+            test/background_processing_foreground_service_regression_test.dart
+      - name: Full tests
+        working-directory: app
+        run: flutter test
+      - name: Analyze
+        working-directory: app
+        run: flutter analyze
+      - name: Debug APK
+        working-directory: app
+        run: flutter build apk --debug
+      - name: Push verified HomeScreen patch
+        working-directory: app
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/screens/home_screen.dart
+          git diff --cached --quiet && exit 0
+          git commit -m 'feat: recover active Android foreground noise jobs'
+          git push origin HEAD:${APP_REF}
