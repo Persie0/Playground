@@ -17,7 +17,7 @@ env:
 jobs:
   apply-test-push:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Validate private checkout token
         env:
@@ -34,7 +34,7 @@ jobs:
           fetch-depth: 0
           path: app
 
-      - name: Patch startup and live-job recovery
+      - name: Patch foreground startup reattach and direct cancel
         working-directory: app
         run: |
           python3 - <<'PY'
@@ -46,45 +46,28 @@ jobs:
                   raise SystemExit(f'{label}: expected exactly one match, found {count}')
               return text.replace(old, new, 1)
 
-          main_path = Path('lib/main.dart')
-          main = main_path.read_text()
-          main = replace_once(
-              main,
-              "import 'package:dpdfnet_flutter/dpdfnet_flutter.dart';\n",
-              "import 'package:dpdfnet_flutter/dpdfnet_flutter.dart';\nimport 'services/android_media_processing_service.dart';\n",
-              'main service import',
-          )
-          main = replace_once(
-              main,
-              "Future<void> main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n  // Render first.",
-              "Future<void> main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n  AndroidMediaProcessingService.initializeCommunicationPort();\n  if (defaultTargetPlatform == TargetPlatform.android) {\n    AndroidMediaProcessingService.instance.initialize();\n  }\n  // Render first.",
-              'main foreground initialization',
-          )
-          main_path.write_text(main)
+          path = Path('lib/screens/home_screen.dart')
+          text = path.read_text()
 
-          home_path = Path('lib/screens/home_screen.dart')
-          home = home_path.read_text()
-          home = replace_once(
-              home,
-              "import '../services/background_processing_task.dart';\n",
-              "import '../services/background_processing_task.dart';\nimport '../services/android_media_processing_service.dart';\nimport '../services/background_processing_recovery.dart';\n",
-              'home foreground imports',
+          old_import = "import '../services/background_processing_task.dart';\n"
+          new_import = (
+              old_import
+              + "import '../services/android_media_processing_events.dart';\n"
+              + "import '../services/android_media_processing_service.dart';\n"
+              + "import '../services/background_processing_recovery.dart';\n"
           )
+          if "../services/android_media_processing_service.dart" not in text:
+              text = replace_once(text, old_import, new_import, 'foreground imports')
 
-          start_marker = "    if (savedJob != null && mounted) {\n      if (savedJob['status'] == 'inProgress') {"
-          end_marker = "\n    }\n  }\n\n  Future<void> _promptSavedJobRecovery"
-          start = home.find(start_marker)
-          if start < 0:
-              raise SystemExit('saved job recovery start marker not found')
-          end = home.find(end_marker, start)
-          if end < 0:
-              raise SystemExit('saved job recovery end marker not found')
-
-          new_block = """    void scheduleSavedJobRecovery(Map<String, dynamic> job) {
+          old_startup = '''    if (savedJob != null && mounted) {
+              if (savedJob['status'] == 'inProgress') {
+                savedJob['status'] = 'interrupted';
+                await _processingLock.saveJobState(savedJob);
+              }
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (mounted) {
                   unawaited(
-                    _promptSavedJobRecovery(job).catchError((
+                    _promptSavedJobRecovery(savedJob).catchError((
                       Object error,
                       StackTrace stackTrace,
                     ) async {
@@ -95,90 +78,357 @@ jobs:
                 }
               });
             }
-
-            if (savedJob != null && mounted) {
+          '''
+          new_startup = '''    if (savedJob != null && mounted) {
               var recoveryJob = savedJob;
-              final savedJobId = recoveryJob['jobId'] as String?;
-              var foregroundOwnsJob = false;
-              if (Platform.isAndroid &&
-                  recoveryJob['type'] == 'short' &&
-                  recoveryJob['status'] == 'inProgress' &&
-                  savedJobId != null) {
-                foregroundOwnsJob = await AndroidMediaProcessingService.instance
-                    .isRunningForJob(savedJobId);
-                if (!foregroundOwnsJob) {
+
+              void scheduleRecoveryPrompt(Map<String, dynamic> job) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) return;
+                  unawaited(
+                    _promptSavedJobRecovery(job).catchError((
+                      Object error,
+                      StackTrace stackTrace,
+                    ) async {
+                      debugPrint('Saved-job recovery prompt failed: $error');
+                      await Sentry.captureException(error, stackTrace: stackTrace);
+                    }),
+                  );
+                });
+              }
+
+              if (recoveryJob['type'] == 'short') {
+                final jobId = recoveryJob['jobId'] as String?;
+                var foregroundOwnsJob = false;
+                if (Platform.isAndroid &&
+                    recoveryJob['status'] == 'inProgress' &&
+                    jobId != null) {
+                  foregroundOwnsJob = await AndroidMediaProcessingService.instance
+                      .isRunningForJob(jobId);
                   final latest = await _processingLock.loadJobState();
-                  if (latest != null && latest['jobId'] == savedJobId) {
+                  if (latest != null && latest['jobId'] == jobId) {
                     recoveryJob = latest;
                   }
                 }
-              }
 
-              final recoveryAction = resolveShortJobRecovery(
-                savedJob: recoveryJob,
-                foregroundOwnsJob: foregroundOwnsJob,
-              );
-              switch (recoveryAction) {
-                case ShortJobRecoveryAction.reattach:
-                  final filePath = recoveryJob['filePath'] as String?;
-                  if (filePath == null || !await File(filePath).exists()) {
+                final recoveryAction = resolveShortJobRecovery(
+                  savedJob: recoveryJob,
+                  foregroundOwnsJob: foregroundOwnsJob,
+                );
+                switch (recoveryAction) {
+                  case ShortJobRecoveryAction.reattach:
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      unawaited(
+                        _reattachShortForegroundJob(recoveryJob).catchError((
+                          Object error,
+                          StackTrace stackTrace,
+                        ) async {
+                          debugPrint('Foreground job reattach failed: $error');
+                          await Sentry.captureException(
+                            error,
+                            stackTrace: stackTrace,
+                          );
+                        }),
+                      );
+                    });
+                    break;
+                  case ShortJobRecoveryAction.markInterrupted:
                     recoveryJob = {...recoveryJob, 'status': 'interrupted'};
                     await _processingLock.saveJobState(recoveryJob);
-                    scheduleSavedJobRecovery(recoveryJob);
+                    scheduleRecoveryPrompt(recoveryJob);
                     break;
-                  }
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    unawaited(
-                      _processFile(filePath, wasResumed: true).catchError((
-                        Object error,
-                        StackTrace stackTrace,
-                      ) async {
-                        debugPrint('Foreground job reattach failed: $error');
-                        await Sentry.captureException(
-                          error,
-                          stackTrace: stackTrace,
-                        );
-                      }),
-                    );
-                  });
-                  break;
-                case ShortJobRecoveryAction.markInterrupted:
+                  case ShortJobRecoveryAction.resumeFinalization:
+                    final finalizationState = {
+                      ...recoveryJob,
+                      'status': 'finalizing',
+                    };
+                    await _processingLock.saveJobState(finalizationState);
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      unawaited(
+                        _resumeShortFinalization(finalizationState).catchError((
+                          Object error,
+                          StackTrace stackTrace,
+                        ) async {
+                          debugPrint('Foreground finalization recovery failed: $error');
+                          await Sentry.captureException(
+                            error,
+                            stackTrace: stackTrace,
+                          );
+                        }),
+                      );
+                    });
+                    break;
+                  case ShortJobRecoveryAction.promptExistingRecovery:
+                    scheduleRecoveryPrompt(recoveryJob);
+                    break;
+                }
+              } else {
+                if (recoveryJob['status'] == 'inProgress') {
                   recoveryJob = {...recoveryJob, 'status': 'interrupted'};
                   await _processingLock.saveJobState(recoveryJob);
-                  scheduleSavedJobRecovery(recoveryJob);
-                  break;
-                case ShortJobRecoveryAction.resumeFinalization:
-                  final finalizationState = {
-                    ...recoveryJob,
-                    'status': 'finalizing',
-                  };
-                  await _processingLock.saveJobState(finalizationState);
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    unawaited(
-                      _resumeShortFinalization(finalizationState).catchError((
-                        Object error,
-                        StackTrace stackTrace,
-                      ) async {
-                        debugPrint('Foreground finalization recovery failed: $error');
-                        await Sentry.captureException(
-                          error,
-                          stackTrace: stackTrace,
-                        );
-                      }),
-                    );
-                  });
-                  break;
-                case ShortJobRecoveryAction.promptExistingRecovery:
-                  scheduleSavedJobRecovery(recoveryJob);
-                  break;
+                }
+                scheduleRecoveryPrompt(recoveryJob);
               }
-            }"""
+            }
+          '''
+          if old_startup in text:
+              text = replace_once(text, old_startup, new_startup, 'startup recovery')
+          elif '_reattachShortForegroundJob(recoveryJob)' not in text:
+              raise SystemExit('startup recovery block changed unexpectedly')
 
-          # Replace only the old if-block; preserve the enclosing _init() close.
-          home = home[:start] + new_block + home[end + len("\n    }"):]
-          home_path.write_text(home)
+          reattach_method = '''
+            Future<void> _reattachShortForegroundJob(
+              Map<String, dynamic> savedJob,
+            ) async {
+              if (!mounted || _isLoading) return;
+              final jobId = savedJob['jobId'] as String?;
+              final originalPath = savedJob['filePath'] as String?;
+              if (jobId == null || jobId.isEmpty || originalPath == null) {
+                await _processingLock.clearJobState();
+                return;
+              }
+
+              final source = File(originalPath);
+              if (!await source.exists()) {
+                await _processingLock.saveJobState({
+                  ...savedJob,
+                  'status': 'interrupted',
+                  'lastError': 'The source file is no longer available.',
+                });
+                if (mounted) {
+                  await _promptSavedJobRecovery(
+                    await _processingLock.loadJobState() ?? savedJob,
+                  );
+                }
+                return;
+              }
+
+              setState(() => _isLoading = true);
+              final l10n = AppLocalizations.of(context)!;
+              final progressNotifier = ValueNotifier<double>(
+                ((savedJob['progress'] as num?)?.toDouble() ?? 0.0)
+                    .clamp(0.0, 1.0)
+                    .toDouble(),
+              );
+              final messageNotifier = ValueNotifier<String>(
+                savedJob['message'] as String? ?? l10n.msgStarting,
+              );
+              final speedNotifier = ValueNotifier<String>('');
+              final cancelRequestedNotifier = ValueNotifier<bool>(false);
+              final terminal = Completer<AndroidMediaProcessingEvent>();
+              var processingScreenPushed = false;
+              late final StreamSubscription<AndroidMediaProcessingEvent> subscription;
+
+              void acceptEvent(AndroidMediaProcessingEvent event) {
+                if (event.jobId != jobId || terminal.isCompleted) return;
+                if (event.type == AndroidMediaProcessingEventType.progress) {
+                  progressNotifier.value =
+                      (event.progress ?? progressNotifier.value)
+                          .clamp(0.0, 1.0)
+                          .toDouble();
+                  if (event.message != null && event.message!.isNotEmpty) {
+                    messageNotifier.value = event.message!;
+                  }
+                  return;
+                }
+                terminal.complete(event);
+              }
+
+              void acceptCheckpoint(Map<String, dynamic>? checkpoint) {
+                if (checkpoint == null ||
+                    checkpoint['jobId'] != jobId ||
+                    terminal.isCompleted) {
+                  return;
+                }
+                final status = checkpoint['status'] as String?;
+                final progress = (checkpoint['progress'] as num?)?.toDouble();
+                final message = checkpoint['message'] as String?;
+                if (progress != null) {
+                  progressNotifier.value = progress.clamp(0.0, 1.0).toDouble();
+                }
+                if (message != null && message.isNotEmpty) {
+                  messageNotifier.value = message;
+                }
+                switch (status) {
+                  case 'completed':
+                    terminal.complete(
+                      AndroidMediaProcessingEvent(
+                        type: AndroidMediaProcessingEventType.completed,
+                        jobId: jobId,
+                        progress: 1.0,
+                        message: message,
+                        finalOutputPath: checkpoint['finalOutputPath'] as String?,
+                      ),
+                    );
+                    break;
+                  case 'cancelled':
+                    terminal.complete(
+                      AndroidMediaProcessingEvent(
+                        type: AndroidMediaProcessingEventType.cancelled,
+                        jobId: jobId,
+                        message: message,
+                        error: checkpoint['lastError'] as String?,
+                      ),
+                    );
+                    break;
+                  case 'failed':
+                    terminal.complete(
+                      AndroidMediaProcessingEvent(
+                        type: AndroidMediaProcessingEventType.failed,
+                        jobId: jobId,
+                        message: message,
+                        error: checkpoint['lastError'] as String?,
+                      ),
+                    );
+                    break;
+                  case 'interrupted':
+                    terminal.complete(
+                      AndroidMediaProcessingEvent(
+                        type: AndroidMediaProcessingEventType.interrupted,
+                        jobId: jobId,
+                        message: message,
+                        error: checkpoint['lastError'] as String?,
+                      ),
+                    );
+                    break;
+                }
+              }
+
+              subscription = AndroidMediaProcessingService.instance.events.listen(
+                acceptEvent,
+              );
+
+              try {
+                final fileSize = await source.length();
+                final fileName =
+                    savedJob['originalFileName'] as String? ?? path.basename(originalPath);
+                final fileExt = path
+                    .extension(originalPath)
+                    .toUpperCase()
+                    .replaceAll('.', '');
+
+                if (!mounted) return;
+                processingScreenPushed = true;
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder:
+                        (context) => ProcessingScreen(
+                          fileName: fileName,
+                          fileSize:
+                              '${(fileSize / (1024 * 1024)).toStringAsFixed(1)} MB',
+                          fileFormat: fileExt,
+                          progressNotifier: progressNotifier,
+                          messageNotifier: messageNotifier,
+                          speedNotifier: speedNotifier,
+                          cancelRequestedNotifier: cancelRequestedNotifier,
+                          showBackgroundInfo: true,
+                          onCancel: () async {
+                            if (cancelRequestedNotifier.value) return;
+                            cancelRequestedNotifier.value = true;
+                            messageNotifier.value = l10n.cancel;
+                            await AndroidMediaProcessingService.instance.cancel();
+                            if (mounted && processingScreenPushed) {
+                              Navigator.pop(context);
+                              processingScreenPushed = false;
+                            }
+                          },
+                        ),
+                  ),
+                );
+
+                final checkpoint = await _processingLock.loadJobState();
+                acceptCheckpoint(checkpoint);
+                if (!terminal.isCompleted &&
+                    !await AndroidMediaProcessingService.instance
+                        .isRunningForJob(jobId)) {
+                  final latest = await _processingLock.loadJobState();
+                  acceptCheckpoint(latest);
+                  if (!terminal.isCompleted) {
+                    final interrupted = {
+                      ...(latest ?? savedJob),
+                      'status': 'interrupted',
+                      'lastError':
+                          'Android foreground processing stopped before completion.',
+                    };
+                    await _processingLock.saveJobState(interrupted);
+                    acceptCheckpoint(interrupted);
+                  }
+                }
+
+                final event = await terminal.future;
+                if (mounted && processingScreenPushed) {
+                  Navigator.pop(context);
+                  processingScreenPushed = false;
+                }
+
+                final latest =
+                    await _processingLock.loadJobState() ?? <String, dynamic>{...savedJob};
+                switch (event.type) {
+                  case AndroidMediaProcessingEventType.completed:
+                    final outputPath =
+                        event.finalOutputPath ?? latest['finalOutputPath'] as String?;
+                    if (outputPath == null || outputPath.isEmpty) {
+                      final failed = {
+                        ...latest,
+                        'status': 'failed',
+                        'lastError':
+                            'Foreground processing completed without an output path.',
+                      };
+                      await _processingLock.saveJobState(failed);
+                      if (mounted) await _promptSavedJobRecovery(failed);
+                      return;
+                    }
+                    final finalizationState = {
+                      ...latest,
+                      'status': 'finalizing',
+                      'finalOutputPath': outputPath,
+                    };
+                    await _processingLock.saveJobState(finalizationState);
+                    if (mounted) {
+                      await _resumeShortFinalization(finalizationState);
+                    }
+                    break;
+                  case AndroidMediaProcessingEventType.cancelled:
+                    await _processingLock.clearJobState();
+                    break;
+                  case AndroidMediaProcessingEventType.failed:
+                  case AndroidMediaProcessingEventType.interrupted:
+                    if (mounted) await _promptSavedJobRecovery(latest);
+                    break;
+                  case AndroidMediaProcessingEventType.progress:
+                    break;
+                }
+              } finally {
+                await subscription.cancel();
+                progressNotifier.dispose();
+                messageNotifier.dispose();
+                speedNotifier.dispose();
+                cancelRequestedNotifier.dispose();
+                if (mounted) setState(() => _isLoading = false);
+              }
+            }
+
+          '''
+          marker = '  Future<void> _promptSavedJobRecovery(Map<String, dynamic> savedJob) async {'
+          if '_reattachShortForegroundJob(' not in text:
+              text = replace_once(text, marker, reattach_method + marker, 'reattach method insertion')
+
+          old_cancel = '''                  messageNotifier?.value = l10n.cancel;
+                            unawaited(cancellationToken.cancel());'''
+          new_cancel = '''                  messageNotifier?.value = l10n.cancel;
+                            if (Platform.isAndroid) {
+                              await AndroidMediaProcessingService.instance.cancel();
+                            }
+                            unawaited(cancellationToken.cancel());'''
+          if old_cancel in text:
+              text = replace_once(text, old_cancel, new_cancel, 'short direct cancel')
+          elif 'await AndroidMediaProcessingService.instance.cancel();' not in text:
+              raise SystemExit('short cancellation block changed unexpectedly')
+
+          path.write_text(text)
           PY
 
       - uses: actions/setup-java@v5
@@ -217,6 +467,6 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add lib/main.dart lib/screens/home_screen.dart
-          git commit -m 'feat: recover active Android foreground noise jobs'
+          git add lib/screens/home_screen.dart
+          git commit -m 'feat: reattach active Android foreground noise jobs'
           git push origin HEAD:${APP_REF}
