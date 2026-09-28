@@ -3,17 +3,18 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_enhancer/services/image_processing_job.dart';
 import 'package:image_enhancer/services/image_processing_job_store.dart';
 import 'package:image_enhancer/services/image_processing_service.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
 const _terminalTimeout = Duration(minutes: 4);
+
+String _joinPath(String directory, String name) =>
+    '$directory${Platform.pathSeparator}$name';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -31,15 +32,15 @@ void main() {
 
       final support = await getApplicationSupportDirectory();
       final work = Directory(
-        path.join(
+        _joinPath(
           support.path,
           'foreground-image-smoke-${DateTime.now().microsecondsSinceEpoch}',
         ),
       );
       await work.create(recursive: true);
-      final inputPath = path.join(work.path, 'input.png');
-      final stagingPath = path.join(work.path, 'upscaled.png.new');
-      final outputPath = path.join(work.path, 'upscaled.png');
+      final inputPath = _joinPath(work.path, 'input.png');
+      final stagingPath = _joinPath(work.path, 'upscaled.png.new');
+      final outputPath = _joinPath(work.path, 'upscaled.png');
 
       try {
         await _writeFixturePng(inputPath, 1408, 1408);
