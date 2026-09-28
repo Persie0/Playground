@@ -1,0 +1,44 @@
+name: Noise Remover baseline regression check
+
+on:
+  push:
+    branches: [background-media-processing-validation-20260928]
+    paths: ['.github/workflows/noise-baseline-regression-check.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout noise remover master
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: master
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Reproduce full-suite failures only
+        working-directory: app
+        run: |
+          flutter test \
+            test/bulk_report_pro_refresh_regression_test.dart \
+            test/localization_integrity_test.dart
