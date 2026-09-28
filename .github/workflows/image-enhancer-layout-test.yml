@@ -16,81 +16,20 @@ jobs:
         env:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: test -n "$PRIVATE_TOKEN"
-      - name: Checkout image enhancer feature branch
+      - name: Checkout committed image enhancer branch
         uses: actions/checkout@v5
         with:
           repository: Persie0/image_enhancer
           ref: ui/keep-model-progress-visible
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: true
+          persist-credentials: false
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-      - name: Apply compact selected-image layout
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('lib/super_resolution_home_page.dart')
-          text = path.read_text()
-
-          replacements = [
-              (
-                  "@visibleForTesting\nbool isBatchSelectionActive(int selectedImageCount) => selectedImageCount > 0;\n\nclass SuperResolutionHomePageState",
-                  "@visibleForTesting\nbool isBatchSelectionActive(int selectedImageCount) => selectedImageCount > 0;\n\n@visibleForTesting\ndouble selectedPreviewHeightForViewport(\n  double viewportHeight, {\n  required bool isProcessing,\n}) {\n  final fraction = isProcessing ? 0.20 : 0.26;\n  final minHeight = isProcessing ? 120.0 : 150.0;\n  final maxHeight = isProcessing ? 180.0 : 220.0;\n  return (viewportHeight * fraction).clamp(minHeight, maxHeight).toDouble();\n}\n\nclass SuperResolutionHomePageState",
-              ),
-              (
-                  "    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);\n\n    return Scaffold(",
-                  "    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);\n    final hasSelectedInput =\n        _selectedImage != null || _selectedImages.isNotEmpty;\n    final selectedPreviewHeight = selectedPreviewHeightForViewport(\n      MediaQuery.sizeOf(context).height,\n      isProcessing: _isProcessing,\n    );\n\n    return Scaffold(",
-              ),
-              (
-                  "                      padding: const EdgeInsets.symmetric(\n                        horizontal: 24,\n                        vertical: 56,\n                      ),",
-                  "                      padding: EdgeInsets.symmetric(\n                        horizontal: 24,\n                        vertical: hasSelectedInput ? 12 : 56,\n                      ),",
-              ),
-              (
-                  "                          : _buildPreviewContent(isDark, textColor, isProUser),",
-                  "                          : _buildPreviewContent(\n                              isDark,\n                              textColor,\n                              isProUser,\n                              previewImageHeight: selectedPreviewHeight,\n                            ),",
-              ),
-              (
-                  "                    padding: const EdgeInsets.only(top: 24, bottom: 8),",
-                  "                    padding: EdgeInsets.only(\n                      top: hasSelectedInput ? 12 : 24,\n                      bottom: 8,\n                    ),",
-              ),
-              (
-                  "  Widget _buildPreviewContent(bool isDark, Color textColor, bool isProUser) {",
-                  "  Widget _buildPreviewContent(\n    bool isDark,\n    Color textColor,\n    bool isProUser, {\n    required double previewImageHeight,\n  }) {",
-              ),
-              (
-                  "                Image.file(\n                  _selectedImage!,\n                  fit: BoxFit.contain,\n                  height: 200,\n                  cacheWidth: 1200,\n                ),",
-                  "                Image.file(\n                  _selectedImage!,\n                  fit: BoxFit.contain,\n                  height: previewImageHeight,\n                  cacheWidth: 1200,\n                ),",
-              ),
-          ]
-
-          for old, new in replacements:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'Expected exactly one match, got {count}: {old[:80]!r}')
-              text = text.replace(old, new)
-
-          path.write_text(text)
-          PY
-          dart format lib/super_resolution_home_page.dart test/home_layout_test.dart
       - name: Install dependencies
         run: flutter pub get
-      - name: Run focused layout test
+      - name: Verify focused layout regression
         run: flutter test test/home_layout_test.dart
-      - name: Run full test suite
+      - name: Verify full test suite
         run: flutter test
-      - name: Commit and push verified layout change
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/super_resolution_home_page.dart test/home_layout_test.dart
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-          git commit -m "ui: keep model and progress visible"
-          git push origin HEAD:ui/keep-model-progress-visible
