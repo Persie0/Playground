@@ -82,15 +82,10 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           working-directory: app
           script: |
-            set -euo pipefail
-            set +e
-            (
-              set -o pipefail
-              flutter test integration_test/foreground_image_processing_test.dart \
-                -d emulator-5554 -r expanded 2>&1 | tee .ci/image-foreground-smoke.log
-            ) &
+            set -eu
+            flutter test integration_test/foreground_image_processing_test.dart \
+              -d emulator-5554 -r expanded > .ci/image-foreground-smoke.log 2>&1 &
             TEST_PID=$!
-            set -e
 
             installed=false
             for _ in $(seq 1 240); do
@@ -103,6 +98,7 @@ jobs:
             if [ "$installed" != true ]; then
               echo 'App was not installed in time.'
               kill $TEST_PID >/dev/null 2>&1 || true
+              cat .ci/image-foreground-smoke.log || true
               exit 1
             fi
 
@@ -122,8 +118,12 @@ jobs:
             done
             if [ "$ready" != true ]; then
               echo 'Image foreground worker never reached the ready marker.'
+              cat .ci/image-foreground-smoke.log || true
+              set +e
               wait $TEST_PID
-              exit $?
+              status=$?
+              set -e
+              exit $status
             fi
 
             adb shell input keyevent KEYCODE_HOME
@@ -158,6 +158,7 @@ jobs:
             wait $TEST_PID
             TEST_STATUS=$?
             set -e
+            cat .ci/image-foreground-smoke.log || true
             adb logcat -d > .ci/image-logcat-final.txt || true
             exit $TEST_STATUS
 
