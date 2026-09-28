@@ -1,0 +1,56 @@
+name: Noise Remover background processing validation
+on:
+  push:
+    branches:
+      - background-media-processing-validation-20260928
+    paths:
+      - '.github/workflows/noise-background-validation.yml'
+permissions:
+  contents: read
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: feature/android-background-media-processing-20260928
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Foreground processing tests
+        working-directory: app
+        run: |
+          flutter test \
+            test/android_foreground_service_manifest_test.dart \
+            test/background_processing_foreground_service_regression_test.dart \
+            test/services/android_media_processing_config_test.dart \
+            test/services/android_media_processing_controller_test.dart \
+            test/services/android_media_processing_service_test.dart \
+            test/services/background_processing_recovery_test.dart \
+            test/services/foreground_processing_state_test.dart
+      - name: Full tests
+        working-directory: app
+        run: flutter test
+      - name: Analyze
+        working-directory: app
+        run: flutter analyze
+      - name: Debug APK
+        working-directory: app
+        run: flutter build apk --debug
