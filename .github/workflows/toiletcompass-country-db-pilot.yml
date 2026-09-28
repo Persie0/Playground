@@ -1,0 +1,34 @@
+name: ToiletCompass country DB pilot
+
+on:
+  push:
+    branches: [toiletcompass-country-pilot-run]
+    paths:
+      - '.github/workflows/toiletcompass-country-db-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout ToiletCompass pilot branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/toiletcompass
+          ref: feat/monthly-country-database-pipeline-pilot2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: toiletcompass
+
+      - name: Run country pipeline contract tests
+        working-directory: toiletcompass
+        run: python3 -m unittest database.tests.test_country_pipeline -v
