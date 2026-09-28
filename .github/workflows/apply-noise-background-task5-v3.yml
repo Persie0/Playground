@@ -1,0 +1,286 @@
+name: Apply Noise Remover background Task 5 v3
+
+on:
+  push:
+    branches: [background-media-processing-validation-20260928]
+    paths: ['.github/workflows/apply-noise-background-task5-v3.yml']
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: feature/android-background-media-processing-20260928
+
+jobs:
+  apply-test-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: app
+
+      - name: Patch HomeScreen foreground reattach
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('lib/screens/home_screen.dart')
+          s = p.read_text()
+
+          def replace_once(source, old, new, label):
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, got {count}')
+              return source.replace(old, new, 1)
+
+          base_import = "import '../services/background_processing_task.dart';\n"
+          if "import '../services/android_media_processing_service.dart';" not in s:
+              s = replace_once(
+                  s,
+                  base_import,
+                  base_import
+                  + "import '../services/android_media_processing_service.dart';\n"
+                  + "import '../services/background_processing_recovery.dart';\n",
+                  'service imports',
+              )
+
+          startup = '''    if (savedJob != null && mounted) {
+              var recoveryJob = savedJob;
+
+              void scheduleRecoveryPrompt(Map<String, dynamic> job) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) return;
+                  unawaited(
+                    _promptSavedJobRecovery(job).catchError((
+                      Object error,
+                      StackTrace stackTrace,
+                    ) async {
+                      debugPrint('Saved-job recovery prompt failed: $error');
+                      await Sentry.captureException(error, stackTrace: stackTrace);
+                    }),
+                  );
+                });
+              }
+
+              if (recoveryJob['type'] == 'short') {
+                final jobId = recoveryJob['jobId'] as String?;
+                var foregroundOwnsJob = false;
+                if (Platform.isAndroid &&
+                    recoveryJob['status'] == 'inProgress' &&
+                    jobId != null) {
+                  foregroundOwnsJob = await AndroidMediaProcessingService.instance
+                      .isRunningForJob(jobId);
+                  final latest = await _processingLock.loadJobState();
+                  if (latest != null && latest['jobId'] == jobId) {
+                    recoveryJob = latest;
+                  }
+                }
+
+                final recoveryAction = resolveShortJobRecovery(
+                  savedJob: recoveryJob,
+                  foregroundOwnsJob: foregroundOwnsJob,
+                );
+                switch (recoveryAction) {
+                  case ShortJobRecoveryAction.reattach:
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      unawaited(
+                        _reattachShortForegroundJob(recoveryJob).catchError((
+                          Object error,
+                          StackTrace stackTrace,
+                        ) async {
+                          debugPrint('Foreground job reattach failed: $error');
+                          await Sentry.captureException(
+                            error,
+                            stackTrace: stackTrace,
+                          );
+                        }),
+                      );
+                    });
+                    break;
+                  case ShortJobRecoveryAction.markInterrupted:
+                    recoveryJob = {...recoveryJob, 'status': 'interrupted'};
+                    await _processingLock.saveJobState(recoveryJob);
+                    scheduleRecoveryPrompt(recoveryJob);
+                    break;
+                  case ShortJobRecoveryAction.resumeFinalization:
+                    final finalizationState = {
+                      ...recoveryJob,
+                      'status': 'finalizing',
+                    };
+                    await _processingLock.saveJobState(finalizationState);
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      unawaited(
+                        _resumeShortFinalization(finalizationState).catchError((
+                          Object error,
+                          StackTrace stackTrace,
+                        ) async {
+                          debugPrint('Foreground finalization recovery failed: $error');
+                          await Sentry.captureException(
+                            error,
+                            stackTrace: stackTrace,
+                          );
+                        }),
+                      );
+                    });
+                    break;
+                  case ShortJobRecoveryAction.promptExistingRecovery:
+                    scheduleRecoveryPrompt(recoveryJob);
+                    break;
+                }
+              } else {
+                if (recoveryJob['status'] == 'inProgress') {
+                  recoveryJob = {...recoveryJob, 'status': 'interrupted'};
+                  await _processingLock.saveJobState(recoveryJob);
+                }
+                scheduleRecoveryPrompt(recoveryJob);
+              }
+            }
+          '''
+          if '_reattachShortForegroundJob(recoveryJob)' not in s:
+              start = s.find("    if (savedJob != null && mounted) {")
+              end_marker = "\n  }\n\n  Future<void> _promptSavedJobRecovery"
+              end = s.find(end_marker, start)
+              if start < 0 or end < 0:
+                  raise SystemExit('startup recovery block not found')
+              s = s[:start] + startup + s[end:]
+
+          method = '''  Future<void> _reattachShortForegroundJob(
+              Map<String, dynamic> savedJob,
+            ) async {
+              final filePath = savedJob['filePath'] as String?;
+              if (filePath == null || filePath.isEmpty) {
+                await _processingLock.clearJobState();
+                return;
+              }
+              await _processFile(
+                filePath,
+                wasResumed: true,
+                foregroundReattach: true,
+              );
+            }
+
+          '''
+          method_marker = '  Future<void> _promptSavedJobRecovery(Map<String, dynamic> savedJob) async {'
+          if 'Future<void> _reattachShortForegroundJob(' not in s:
+              s = replace_once(s, method_marker, method + method_marker, 'reattach method')
+
+          process_start = s.find('  Future<void> _processFile(')
+          if process_start < 0:
+              raise SystemExit('short process method not found')
+          head, tail = s[:process_start], s[process_start:]
+
+          if 'bool foregroundReattach = false,' not in tail:
+              sig_anchor = '    bool wasResumed = false,\n'
+              tail = replace_once(
+                  tail,
+                  sig_anchor,
+                  sig_anchor + '    bool foregroundReattach = false,\n',
+                  'process signature',
+              )
+
+          if 'if (!foregroundReattach) {' not in tail:
+              anchor = 'recoveryState = payload;'
+              anchor_pos = tail.find(anchor)
+              worker_pos = tail.find('workerFuture = runProcessingTask(', anchor_pos)
+              if anchor_pos < 0 or worker_pos < 0:
+                  raise SystemExit('foreground lock handoff markers not found')
+              line_start = tail.rfind('\n', 0, anchor_pos) + 1
+              worker_line_start = tail.rfind('\n', 0, worker_pos) + 1
+              indent = tail[line_start:anchor_pos]
+              segment = tail[line_start:worker_line_start]
+              if '_processingLock.start(jobId: shortJobId, payload: payload)' not in segment:
+                  raise SystemExit('foreground lock handoff segment changed unexpectedly')
+              replacement = (
+                  f'{indent}recoveryState = payload;\n'
+                  f'{indent}if (!foregroundReattach) {{\n'
+                  f'{indent}  await _processingLock.start(jobId: shortJobId, payload: payload);\n'
+                  f'{indent}  processingLockStarted = true;\n'
+                  f'{indent}}}\n\n'
+              )
+              tail = tail[:line_start] + replacement + tail[worker_line_start:]
+
+          short_cancel = tail.find('messageNotifier?.value = l10n.cancel;')
+          if short_cancel < 0:
+              raise SystemExit('short cancel message marker not found')
+          token_cancel = tail.find('unawaited(cancellationToken.cancel());', short_cancel)
+          if token_cancel < 0:
+              raise SystemExit('short cancellation token marker not found')
+          between = tail[short_cancel:token_cancel]
+          if 'AndroidMediaProcessingService.instance.cancel()' not in between:
+              token_line_start = tail.rfind('\n', 0, token_cancel) + 1
+              indent = tail[token_line_start:token_cancel]
+              insertion = (
+                  f'{indent}if (Platform.isAndroid) {{\n'
+                  f'{indent}  await AndroidMediaProcessingService.instance.cancel();\n'
+                  f'{indent}}}\n'
+              )
+              tail = tail[:token_line_start] + insertion + tail[token_line_start:]
+
+          if 'if (isCancelled && foregroundReattach)' not in tail:
+              catch_pos = tail.find("debugPrint('EXCEPTION in _processFile")
+              cancelled_pos = tail.find('if (isCancelled || !mounted) {', catch_pos)
+              if catch_pos < 0 or cancelled_pos < 0:
+                  raise SystemExit('short catch cancellation marker not found')
+              line_end = tail.find('\n', cancelled_pos)
+              indent = tail[tail.rfind('\n', 0, cancelled_pos) + 1:cancelled_pos]
+              insertion = (
+                  f'\n{indent}  if (isCancelled && foregroundReattach) {{\n'
+                  f'{indent}    await _processingLock.clearJobState();\n'
+                  f'{indent}  }}'
+              )
+              tail = tail[:line_end] + insertion + tail[line_end:]
+
+          s = head + tail
+          p.write_text(s)
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Focused foreground tests
+        working-directory: app
+        run: |
+          flutter test \
+            test/background_processing_foreground_service_regression_test.dart \
+            test/services/android_media_processing_service_test.dart \
+            test/services/background_processing_recovery_test.dart \
+            test/services/foreground_processing_state_test.dart
+
+      - name: Analyze foreground integration
+        working-directory: app
+        run: flutter analyze lib/screens/home_screen.dart lib/services/background_processing_task.dart lib/services/android_media_processing_service.dart
+
+      - name: Commit verified patch
+        working-directory: app
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git diff --quiet; then
+            echo 'No patch to push.'
+            exit 0
+          fi
+          git add lib/screens/home_screen.dart
+          git commit -m 'feat: reattach active Android foreground noise jobs'
+          git push origin HEAD:${APP_REF}
