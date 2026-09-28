@@ -1,0 +1,232 @@
+name: Apply Noise Remover background Task 5
+
+on:
+  push:
+    branches:
+      - background-media-processing-validation-20260928
+    paths:
+      - '.github/workflows/apply-noise-background-task5.yml'
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/noise_remover
+  APP_REF: feature/android-background-media-processing-20260928
+
+jobs:
+  apply-test-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: app
+
+      - name: Patch startup and live-job recovery
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              return text.replace(old, new, 1)
+
+          main_path = Path('lib/main.dart')
+          main = main_path.read_text()
+          main = replace_once(
+              main,
+              "import 'package:dpdfnet_flutter/dpdfnet_flutter.dart';\n",
+              "import 'package:dpdfnet_flutter/dpdfnet_flutter.dart';\nimport 'services/android_media_processing_service.dart';\n",
+              'main service import',
+          )
+          main = replace_once(
+              main,
+              "Future<void> main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n  // Render first.",
+              "Future<void> main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n  AndroidMediaProcessingService.initializeCommunicationPort();\n  if (defaultTargetPlatform == TargetPlatform.android) {\n    AndroidMediaProcessingService.instance.initialize();\n  }\n  // Render first.",
+              'main foreground initialization',
+          )
+          main_path.write_text(main)
+
+          home_path = Path('lib/screens/home_screen.dart')
+          home = home_path.read_text()
+          home = replace_once(
+              home,
+              "import '../services/background_processing_task.dart';\n",
+              "import '../services/background_processing_task.dart';\nimport '../services/android_media_processing_service.dart';\nimport '../services/background_processing_recovery.dart';\n",
+              'home foreground imports',
+          )
+
+          old = """    if (savedJob != null && mounted) {
+              if (savedJob['status'] == 'inProgress') {
+                savedJob['status'] = 'interrupted';
+                await _processingLock.saveJobState(savedJob);
+              }
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  unawaited(
+                    _promptSavedJobRecovery(savedJob).catchError((
+                      Object error,
+                      StackTrace stackTrace,
+                    ) async {
+                      debugPrint('Saved-job recovery prompt failed: $error');
+                      await Sentry.captureException(error, stackTrace: stackTrace);
+                    }),
+                  );
+                }
+              });
+            }
+          """
+          new = """    void scheduleSavedJobRecovery(Map<String, dynamic> job) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  unawaited(
+                    _promptSavedJobRecovery(job).catchError((
+                      Object error,
+                      StackTrace stackTrace,
+                    ) async {
+                      debugPrint('Saved-job recovery prompt failed: $error');
+                      await Sentry.captureException(error, stackTrace: stackTrace);
+                    }),
+                  );
+                }
+              });
+            }
+
+            if (savedJob != null && mounted) {
+              var recoveryJob = savedJob;
+              final savedJobId = recoveryJob['jobId'] as String?;
+              var foregroundOwnsJob = false;
+              if (Platform.isAndroid &&
+                  recoveryJob['type'] == 'short' &&
+                  recoveryJob['status'] == 'inProgress' &&
+                  savedJobId != null) {
+                foregroundOwnsJob = await AndroidMediaProcessingService.instance
+                    .isRunningForJob(savedJobId);
+                if (!foregroundOwnsJob) {
+                  final latest = await _processingLock.loadJobState();
+                  if (latest != null && latest['jobId'] == savedJobId) {
+                    recoveryJob = latest;
+                  }
+                }
+              }
+
+              final recoveryAction = resolveShortJobRecovery(
+                savedJob: recoveryJob,
+                foregroundOwnsJob: foregroundOwnsJob,
+              );
+              switch (recoveryAction) {
+                case ShortJobRecoveryAction.reattach:
+                  final filePath = recoveryJob['filePath'] as String?;
+                  if (filePath == null || !await File(filePath).exists()) {
+                    recoveryJob = {...recoveryJob, 'status': 'interrupted'};
+                    await _processingLock.saveJobState(recoveryJob);
+                    scheduleSavedJobRecovery(recoveryJob);
+                    break;
+                  }
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    unawaited(
+                      _processFile(filePath, wasResumed: true).catchError((
+                        Object error,
+                        StackTrace stackTrace,
+                      ) async {
+                        debugPrint('Foreground job reattach failed: $error');
+                        await Sentry.captureException(
+                          error,
+                          stackTrace: stackTrace,
+                        );
+                      }),
+                    );
+                  });
+                  break;
+                case ShortJobRecoveryAction.markInterrupted:
+                  recoveryJob = {...recoveryJob, 'status': 'interrupted'};
+                  await _processingLock.saveJobState(recoveryJob);
+                  scheduleSavedJobRecovery(recoveryJob);
+                  break;
+                case ShortJobRecoveryAction.resumeFinalization:
+                  final finalizationState = {
+                    ...recoveryJob,
+                    'status': 'finalizing',
+                  };
+                  await _processingLock.saveJobState(finalizationState);
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    unawaited(
+                      _resumeShortFinalization(finalizationState).catchError((
+                        Object error,
+                        StackTrace stackTrace,
+                      ) async {
+                        debugPrint('Foreground finalization recovery failed: $error');
+                        await Sentry.captureException(
+                          error,
+                          stackTrace: stackTrace,
+                        );
+                      }),
+                    );
+                  });
+                  break;
+                case ShortJobRecoveryAction.promptExistingRecovery:
+                  scheduleSavedJobRecovery(recoveryJob);
+                  break;
+              }
+            }
+          """
+          home = replace_once(home, old, new, 'saved job recovery block')
+          home_path.write_text(home)
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        working-directory: app
+        run: flutter pub get
+
+      - name: Task 5 focused tests
+        working-directory: app
+        run: |
+          flutter test \
+            test/services/android_media_processing_service_test.dart \
+            test/services/background_processing_recovery_test.dart \
+            test/background_processing_foreground_service_regression_test.dart
+
+      - name: Analyze touched integration
+        working-directory: app
+        run: flutter analyze lib/main.dart lib/screens/home_screen.dart lib/services/background_processing_task.dart lib/services/background_processing_recovery.dart lib/services/android_media_processing_task.dart
+
+      - name: Commit and push verified patch
+        working-directory: app
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo 'No patch to push.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/main.dart lib/screens/home_screen.dart
+          git commit -m 'feat: recover active Android foreground noise jobs'
+          git push origin HEAD:${APP_REF}
