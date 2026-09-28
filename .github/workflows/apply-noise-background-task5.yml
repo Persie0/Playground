@@ -71,27 +71,16 @@ jobs:
               'home foreground imports',
           )
 
-          old = """    if (savedJob != null && mounted) {
-              if (savedJob['status'] == 'inProgress') {
-                savedJob['status'] = 'interrupted';
-                await _processingLock.saveJobState(savedJob);
-              }
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  unawaited(
-                    _promptSavedJobRecovery(savedJob).catchError((
-                      Object error,
-                      StackTrace stackTrace,
-                    ) async {
-                      debugPrint('Saved-job recovery prompt failed: $error');
-                      await Sentry.captureException(error, stackTrace: stackTrace);
-                    }),
-                  );
-                }
-              });
-            }
-          """
-          new = """    void scheduleSavedJobRecovery(Map<String, dynamic> job) {
+          start_marker = "    if (savedJob != null && mounted) {\n      if (savedJob['status'] == 'inProgress') {"
+          end_marker = "\n    }\n  }\n\n  Future<void> _promptSavedJobRecovery"
+          start = home.find(start_marker)
+          if start < 0:
+              raise SystemExit('saved job recovery start marker not found')
+          end = home.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('saved job recovery end marker not found')
+
+          new_block = """    void scheduleSavedJobRecovery(Map<String, dynamic> job) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (mounted) {
                   unawaited(
@@ -185,9 +174,10 @@ jobs:
                   scheduleSavedJobRecovery(recoveryJob);
                   break;
               }
-            }
-          """
-          home = replace_once(home, old, new, 'saved job recovery block')
+            }"""
+
+          # Replace only the old if-block; preserve the enclosing _init() close.
+          home = home[:start] + new_block + home[end + len("\n    }"):]
           home_path.write_text(home)
           PY
 
