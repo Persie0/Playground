@@ -59,14 +59,23 @@ jobs:
         working-directory: app
         run: |
           flutter test \
+            test/android_foreground_service_manifest_test.dart \
             test/background_processing_foreground_service_regression_test.dart \
+            test/services/android_media_processing_config_test.dart \
+            test/services/android_media_processing_controller_test.dart \
             test/services/android_media_processing_service_test.dart \
             test/services/background_processing_recovery_test.dart \
-            test/services/foreground_processing_state_test.dart
+            test/services/foreground_processing_state_test.dart \
+            test/full_error_hardening_regression_test.dart \
+            test/video_media_detection_regression_test.dart
 
       - name: Analyze foreground integration
         working-directory: app
-        run: flutter analyze lib/screens/home_screen.dart lib/services/background_processing_task.dart lib/services/android_media_processing_service.dart
+        run: flutter analyze lib/main.dart lib/screens/home_screen.dart lib/services/background_processing_task.dart lib/services/background_processing_core.dart lib/services/android_media_processing_config.dart lib/services/android_media_processing_controller.dart lib/services/android_media_processing_events.dart lib/services/android_media_processing_service.dart lib/services/android_media_processing_task.dart lib/services/background_processing_recovery.dart lib/services/foreground_processing_state.dart lib/services/processing_lock_service.dart
+
+      - name: Build Android debug APK
+        working-directory: app
+        run: flutter build apk --debug
 
       - name: Commit verified patch
         working-directory: app
