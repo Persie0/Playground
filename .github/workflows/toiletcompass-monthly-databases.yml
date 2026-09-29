@@ -1,6 +1,6 @@
 name: ToiletCompass monthly databases
 
-# Task 2 RED/GREEN runner: production database tests execute from the private feature branch.
+# Task 2 GREEN runner: verify unit behavior plus current Geofabrik country discovery.
 on:
   push:
     branches: [toiletcompass-monthly-db]
@@ -52,3 +52,7 @@ jobs:
       - name: Run Python database tests
         working-directory: app
         run: python3 -m unittest discover -s database/tests -v
+
+      - name: Verify live Geofabrik country discovery
+        working-directory: app
+        run: python3 database/toilet_pipeline.py discover
