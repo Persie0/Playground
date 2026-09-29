@@ -1,0 +1,54 @@
+name: BaseV2 native cleanup
+
+on:
+  push:
+    branches:
+      - basev2-port-validation
+    paths:
+      - ".github/workflows/basev2-native-cleanup.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/traffic-counting-light-main
+          ref: basev2-port-edge-features
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Remove migration wording
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('baseV2/traffic-counting-edge-detection-master/src/detection/traffic_detector.py')
+          source = path.read_text(encoding='utf-8')
+          old = '# Roboflow ByteTrack backend ported from the production edge pipeline.'
+          new = '# Roboflow ByteTrack backend using the configured camera frame rate.'
+          if old not in source:
+              raise SystemExit('Expected migration comment not found')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
+
+          git diff --check
+          git diff -- baseV2/traffic-counting-edge-detection-master/src/detection/traffic_detector.py
+
+      - name: Commit cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add baseV2/traffic-counting-edge-detection-master/src/detection/traffic_detector.py
+          git commit -m 'chore: describe ByteTrack backend natively'
+          git push origin HEAD:basev2-port-edge-features
