@@ -1,5 +1,0 @@
-package com.google.android.gms.fido.fido2.api.common;
-
-/* JADX INFO: loaded from: classes.dex */
-public class COSEAlgorithmIdentifier$UnsupportedAlgorithmIdentifierException extends Exception {
-}
