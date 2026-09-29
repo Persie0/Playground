@@ -61,6 +61,20 @@ jobs:
           set -o pipefail
           flutter build ios --simulator --debug 2>&1 | tee "$RUNNER_TEMP/app-ios-build.log"
 
+      - name: Capture Flutter iOS migration diff
+        if: always()
+        working-directory: source
+        shell: bash
+        run: |
+          git status --short | tee "$RUNNER_TEMP/flutter-ios-migration-status.txt"
+          git diff -- .gitignore ios > "$RUNNER_TEMP/flutter-ios-migration.patch"
+          if [ -s "$RUNNER_TEMP/flutter-ios-migration.patch" ]; then
+            echo 'Flutter changed tracked iOS project files during the build.'
+            cat "$RUNNER_TEMP/flutter-ios-migration.patch"
+          else
+            echo 'No tracked iOS migration diff.'
+          fi
+
       - name: Create minimal iOS plugin harness
         shell: bash
         run: |
@@ -113,5 +127,7 @@ jobs:
             ${{ runner.temp }}/app-ios-build.log
             ${{ runner.temp }}/plugin-ios-build.log
             ${{ runner.temp }}/ios-errors.txt
+            ${{ runner.temp }}/flutter-ios-migration-status.txt
+            ${{ runner.temp }}/flutter-ios-migration.patch
           if-no-files-found: warn
           retention-days: 3
