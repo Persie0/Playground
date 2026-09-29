@@ -1,6 +1,6 @@
 name: ToiletCompass monthly databases
 
-# Temporary mapping audit runner: print all duplicate ISO entries from Geofabrik.
+# Task 3 RED runner: Python pipeline is green; Flutter updater API is intentionally not implemented yet.
 on:
   push:
     branches: [toiletcompass-monthly-db]
@@ -53,23 +53,19 @@ jobs:
         working-directory: app
         run: python3 -m unittest discover -s database/tests -v
 
-      - name: Audit duplicate Geofabrik ISO mappings
+      - name: Verify live Geofabrik country discovery
         working-directory: app
-        run: |
-          python3 - <<'PY'
-          import sys
-          from collections import defaultdict
-          sys.path.insert(0, 'database')
-          from toilet_pipeline import fetch_geofabrik_index
+        run: python3 database/toilet_pipeline.py discover
 
-          grouped = defaultdict(list)
-          for feature in fetch_geofabrik_index().get('features', []):
-              p = feature.get('properties', {})
-              iso = p.get('iso3166-1:alpha2')
-              url = (p.get('urls') or {}).get('pbf')
-              if isinstance(iso, list) and len(iso) == 1 and url:
-                  grouped[str(iso[0]).upper()].append(str(p.get('id')))
-          for iso, ids in sorted(grouped.items()):
-              if len(ids) > 1:
-                  print(f'{iso}: {", ".join(ids)}')
-          PY
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Run Flutter tests
+        working-directory: app
+        run: flutter test
