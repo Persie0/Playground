@@ -12,7 +12,7 @@ import numpy as np
 import benchmark as b
 
 WEIGHTS = {"clean": 0.08, "crossing": 0.18, "occlusion": 0.32, "dense": 0.27, "noisy": 0.15}
-THRESHOLDS = (0.30, 0.35, 0.40, 0.45, 0.50, 0.60)
+THRESHOLDS = (0.30, 0.40, 0.50, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90)
 
 
 def count_closeness(ratio: float) -> float:
@@ -116,9 +116,13 @@ def main() -> None:
         r.update(library="roboflow", spawn_threshold=threshold, confirm_frames=1)
         rows.append(r)
     # Confirmation is an independent anti-flicker lever in Roboflow Trackers.
-    for threshold in (0.40, 0.50, 0.60):
+    for threshold in (0.40, 0.50, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90):
         r = score_factory(lambda t=threshold: RoboflowTuned(t, 2))
         r.update(library="roboflow", spawn_threshold=threshold, confirm_frames=2)
+        rows.append(r)
+    for threshold in (0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90):
+        r = score_factory(lambda t=threshold: RoboflowTuned(t, 3))
+        r.update(library="roboflow", spawn_threshold=threshold, confirm_frames=3)
         rows.append(r)
 
     rows.sort(key=lambda x: x["accuracy_count_score"], reverse=True)
@@ -127,7 +131,7 @@ def main() -> None:
     md = [
         "# ByteTrack spawn-threshold sweep",
         "",
-        "Association stays at the production-style low-confidence setting (`track/high split=0.30`, match threshold `0.80`, buffer `45`). Only the confidence required to create a new identity is raised.",
+        "Association stays at the production-style low-confidence setting (`track/high split=0.30`, match threshold `0.80`, buffer `45`). Only the confidence required to create a new identity and, for Roboflow, the confirmation streak are varied.",
         "",
         "|Rank|Implementation|Spawn threshold|Confirm frames|Accuracy/count score|Dense track/GT|Noisy track/GT|Occlusion IDF1|Occlusion ID survival|Mean ms|P95 ms|",
         "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
