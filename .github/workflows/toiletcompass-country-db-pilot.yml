@@ -29,25 +29,45 @@ jobs:
           persist-credentials: true
           path: toiletcompass
 
-      - name: Apply streamed PBF stdin format fix
+      - name: Use bounded one-country disk processing
         working-directory: toiletcompass
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           path = Path('database/monthly_pipeline.py')
           text = path.read_text()
-          old = '"osmium", "tags-filter", "-",\n'
-          new = '"osmium", "tags-filter", "-F", "pbf", "-",\n'
-          if old in text:
-              path.write_text(text.replace(old, new, 1))
-          elif new not in text:
-              raise SystemExit('expected tags-filter stdin command not found')
+          replacement = '''def _stream_filter_toilets(url: str, output_pbf: Path) -> None:
+    """Download one country, filter it, then immediately delete the large raw PBF."""
+    output_pbf.parent.mkdir(parents=True, exist_ok=True)
+    raw_pbf = output_pbf.parent / "source.osm.pbf"
+    try:
+        subprocess.run([
+            "curl", "-fL", "--retry", "4", "--retry-delay", "3",
+            "--retry-all-errors", "--silent", "--show-error",
+            "-o", str(raw_pbf), url,
+        ], check=True)
+        subprocess.run([
+            "osmium", "tags-filter", str(raw_pbf),
+            "n/amenity=toilets", "w/amenity=toilets", "r/amenity=toilets",
+            "-o", str(output_pbf), "--overwrite",
+        ], check=True)
+    finally:
+        raw_pbf.unlink(missing_ok=True)
+
+
+def _export_geojsonseq'''
+          pattern = r'def _stream_filter_toilets\(url: str, output_pbf: Path\) -> None:.*?\n\ndef _export_geojsonseq'
+          updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit(f'expected one stream helper, replaced {count}')
+          path.write_text(updated)
           PY
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add database/monthly_pipeline.py
-            git commit -m "fix: declare PBF format for streamed osmium input"
+            git commit -m "fix: bound disk usage per country without stdin filtering"
             git push origin HEAD:feat/monthly-country-database-pipeline-pilot2
           fi
 
@@ -61,7 +81,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends osmium-tool
           osmium --version
 
-      - name: Build Austria and Slovenia via monthly streaming path
+      - name: Build Austria then Slovenia sequentially
         working-directory: toiletcompass
         run: |
           rm -rf /tmp/toilet-db-scratch monthly-pilot
@@ -100,13 +120,13 @@ jobs:
               country_total += rows
             else:
               assert rows == country_total
-          print('streaming-pilot=ok')
+          print('bounded-country-pilot=ok')
           PY
 
-      - name: Upload streaming pilot assets
+      - name: Upload pilot assets
         uses: actions/upload-artifact@v4
         with:
-          name: toiletcompass-streaming-country-pilot
+          name: toiletcompass-monthly-country-pilot
           path: toiletcompass/monthly-pilot/release-assets/
           retention-days: 3
           if-no-files-found: error
