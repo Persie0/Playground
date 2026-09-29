@@ -103,34 +103,37 @@ jobs:
 
       - name: Write decompilation metadata
         run: |
-          cat > decompiled/lingq/README.md <<EOF
+          cat > decompiled/lingq/README.md <<'EOF'
           # LingQ decompiled sources
 
-          Source-only JADX output for the two APKs in release `1` of `Persie0/Lingq`.
+          Source-only JADX output from release 1 of Persie0/Lingq.
 
-          ## 6.2.0
-          - Input: `LingQ+_+Learn+Languages_6.2.0_APKPure.xapk` (SHA-256: `e5a18111c7b9399afd6a4434b94a79986e8201f9fb766ca58590a9de1fb5b6f3`)
-          - Decompiled APK: XAPK base APK `com.linguist.apk` (SHA-256: `$LINGQ_620_APK_SHA`)
-          - JADX exit: `$JADX_EXIT_620`
-          - Java files: `$JADX_SOURCES_620`
-          - Mapping: `6.2.0/6.2.0.jobf`
-          - Log: `6.2.0/jadx.log`
-
-          ## 5.5.9
-          - Input: `LingQ.ver.5.5.9.build.424.apk` (SHA-256: `2313cf14a0b8b7b24975f4f9bf16677a80286284160c618db126c17bb7647fef`)
-          - JADX exit: `$JADX_EXIT_559`
-          - Java files: `$JADX_SOURCES_559`
-          - Mapping: `5.5.9/5.5.9.jobf`
-          - Log: `5.5.9/jadx.log`
-
-          JADX `1.5.6` ran with `--deobf`. Automatic deobfuscation can improve generated identifiers but cannot restore original names removed by R8/ProGuard without the original mapping file. Individual methods may also remain imperfectly reconstructed; see each `jadx.log`. Android resources are not included.
+          JADX 1.5.6 ran with automatic deobfuscation enabled. Original identifiers removed by R8/ProGuard cannot be recovered without the original mapping file. Some methods may not be perfectly reconstructed; see each version's jadx.log. Android resources are not included.
           EOF
+
+          {
+            printf '\n## 6.2.0\n\n'
+            printf -- '- Input XAPK: LingQ+_+Learn+Languages_6.2.0_APKPure.xapk\n'
+            printf -- '- Input XAPK SHA-256: e5a18111c7b9399afd6a4434b94a79986e8201f9fb766ca58590a9de1fb5b6f3\n'
+            printf -- '- Main APK SHA-256: %s\n' "$LINGQ_620_APK_SHA"
+            printf -- '- JADX exit code: %s\n' "$JADX_EXIT_620"
+            printf -- '- Decompiled Java files: %s\n' "$JADX_SOURCES_620"
+            printf -- '- Mapping: 6.2.0/6.2.0.jobf\n'
+            printf -- '- Log: 6.2.0/jadx.log\n'
+            printf '\n## 5.5.9\n\n'
+            printf -- '- Input APK: LingQ.ver.5.5.9.build.424.apk\n'
+            printf -- '- Input APK SHA-256: 2313cf14a0b8b7b24975f4f9bf16677a80286284160c618db126c17bb7647fef\n'
+            printf -- '- JADX exit code: %s\n' "$JADX_EXIT_559"
+            printf -- '- Decompiled Java files: %s\n' "$JADX_SOURCES_559"
+            printf -- '- Mapping: 5.5.9/5.5.9.jobf\n'
+            printf -- '- Log: 5.5.9/jadx.log\n'
+          } >> decompiled/lingq/README.md
 
           {
             echo "## LingQ decompilation"
             echo
-            echo "- 6.2.0: $JADX_SOURCES_6.2.0 Java files (JADX exit $JADX_EXIT_6.2.0)"
-            echo "- 5.5.9: $JADX_SOURCES_5.5.9 Java files (JADX exit $JADX_EXIT_5.5.9)"
+            printf -- '- 6.2.0: %s Java files (JADX exit %s)\n' "$JADX_SOURCES_620" "$JADX_EXIT_620"
+            printf -- '- 5.5.9: %s Java files (JADX exit %s)\n' "$JADX_SOURCES_559" "$JADX_EXIT_559"
           } >> "$GITHUB_STEP_SUMMARY"
           du -sh decompiled/lingq
 
