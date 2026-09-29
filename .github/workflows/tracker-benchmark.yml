@@ -69,11 +69,22 @@ jobs:
           out=tracker_benchmark/results-${{ matrix.arch }}
           python tracker_benchmark/benchmark.py --out "$out"
           python tracker_benchmark/postprocess.py "$out/results.json"
+      - name: Sweep ByteTrack identity-spawn threshold
+        if: matrix.arch == 'arm64'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tracker_benchmark
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+          NUMEXPR_NUM_THREADS: '1'
+        run: |
+          python tracker_benchmark/spawn_threshold_sweep.py --out tracker_benchmark/results-arm64
       - name: Job summary
         if: always()
         run: |
           dir=tracker_benchmark/results-${{ matrix.arch }}
           if [ -f "$dir/ranking.md" ]; then cat "$dir/ranking.md" >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f "$dir/spawn-threshold.md" ]; then printf '\n---\n\n' >> "$GITHUB_STEP_SUMMARY"; cat "$dir/spawn-threshold.md" >> "$GITHUB_STEP_SUMMARY"; fi
           if [ -f "$dir/results.md" ]; then printf '\n---\n\n' >> "$GITHUB_STEP_SUMMARY"; cat "$dir/results.md" >> "$GITHUB_STEP_SUMMARY"; fi
       - uses: actions/upload-artifact@v4
         if: always()
