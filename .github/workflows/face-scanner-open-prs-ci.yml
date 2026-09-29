@@ -22,6 +22,7 @@ jobs:
           ref: fix/review-open-prs-20260929
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: face_scanner
+          persist-credentials: true
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -29,9 +30,17 @@ jobs:
       - name: Resolve dependencies
         working-directory: face_scanner
         run: flutter pub get
-      - name: Verify formatting
+      - name: Format and sync consolidated Dart changes
         working-directory: face_scanner
-        run: dart format --output=none --set-exit-if-changed lib/services/image_converter.dart lib/services/appodeal_service.dart lib/main.dart lib/providers/storage_manager.dart lib/providers/settings_provider.dart lib/services/revenue_cat_service.dart lib/face_mesh_detector_painter.dart lib/screens/object3d.dart lib/store/unlock_first.dart test/appodeal_service_test.dart
+        run: |
+          dart format lib/services/image_converter.dart lib/services/appodeal_service.dart lib/main.dart lib/providers/storage_manager.dart lib/providers/settings_provider.dart lib/services/revenue_cat_service.dart lib/face_mesh_detector_painter.dart lib/screens/object3d.dart lib/store/unlock_first.dart test/appodeal_service_test.dart
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/services/image_converter.dart lib/services/appodeal_service.dart lib/main.dart lib/providers/storage_manager.dart lib/providers/settings_provider.dart lib/services/revenue_cat_service.dart lib/face_mesh_detector_painter.dart lib/screens/object3d.dart lib/store/unlock_first.dart test/appodeal_service_test.dart
+          if ! git diff --cached --quiet; then
+            git commit -m "style: format reviewed PR fixes [skip ci]"
+            git push origin HEAD:fix/review-open-prs-20260929
+          fi
       - name: Analyze changed Dart files
         working-directory: face_scanner
         run: flutter analyze lib/services/image_converter.dart lib/services/appodeal_service.dart lib/main.dart lib/providers/storage_manager.dart lib/providers/settings_provider.dart lib/services/revenue_cat_service.dart lib/face_mesh_detector_painter.dart lib/screens/object3d.dart lib/store/unlock_first.dart test/appodeal_service_test.dart
@@ -96,19 +105,17 @@ jobs:
       - name: Resolve dependencies
         working-directory: face_scanner
         run: flutter pub get
-      - name: Sync generated lockfile back to PR branch
+      - name: Format and sync MediaPipe 3.1.0 migration
         working-directory: face_scanner
         run: |
+          dart format lib/face_mesh_compat.dart
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pubspec.lock
+          git add pubspec.lock lib/face_mesh_compat.dart
           if ! git diff --cached --quiet; then
-            git commit -m "chore: resolve MediaPipe 3.1.0 lockfile [skip ci]"
+            git commit -m "chore: finalize MediaPipe 3.1.0 migration [skip ci]"
             git push origin HEAD:jules-14485126674186090172-ac6df43a
           fi
-      - name: Verify MediaPipe wrapper formatting
-        working-directory: face_scanner
-        run: dart format --output=none --set-exit-if-changed lib/face_mesh_compat.dart
       - name: Analyze MediaPipe migration
         working-directory: face_scanner
         run: flutter analyze lib/face_mesh_compat.dart lib/facmesh.dart lib/screens/camera_view.dart lib/face_mesh_detector_painter.dart
