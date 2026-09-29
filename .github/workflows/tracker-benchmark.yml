@@ -1,0 +1,77 @@
+name: Tracker implementation benchmark
+
+on:
+  push:
+    branches: [tracker-benchmark-20260929]
+    paths:
+      - 'tracker_benchmark/**'
+      - '.github/workflows/tracker-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake libeigen3-dev libopencv-dev
+      - name: Install benchmark dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            'numpy>=2.2,<2.5' 'scipy>=1.14,<2' 'psutil>=6,<8' \
+            'trackers==2.6.0' 'supervision==0.27.0' 'trackforge==0.4.0' \
+            'boxmot==25.0.0' \
+            'git+https://github.com/artefactory/bytetrack.git@main'
+      - name: Environment
+        run: |
+          uname -a
+          lscpu
+          python -V
+          python - <<'PY'
+          import platform
+          print('machine:', platform.machine())
+          for pkg in ('trackers','supervision','trackforge','boxmot'):
+              try:
+                  m=__import__(pkg)
+                  print(pkg, getattr(m,'__version__','unknown'))
+              except Exception as e:
+                  print(pkg, 'IMPORT ERROR', e)
+          PY
+      - name: Run benchmark
+        env:
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+          NUMEXPR_NUM_THREADS: '1'
+        run: |
+          python tracker_benchmark/benchmark.py --out tracker_benchmark/results-${{ matrix.arch }}
+      - name: Job summary
+        if: always()
+        run: |
+          f=tracker_benchmark/results-${{ matrix.arch }}/results.md
+          if [ -f "$f" ]; then cat "$f" >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tracker-benchmark-${{ matrix.arch }}
+          path: tracker_benchmark/results-${{ matrix.arch }}/
+          if-no-files-found: warn
