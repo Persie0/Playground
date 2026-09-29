@@ -1,0 +1,145 @@
+name: Decompile LingQ APKs
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/decompile-lingq.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lingq-decompile
+  cancel-in-progress: true
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout Playground
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Download LingQ release 1 assets
+        run: |
+          mkdir -p input
+          curl -fL --retry 3 "https://github.com/Persie0/Lingq/releases/download/1/LingQ%2B_%2BLearn%2BLanguages_6.2.0_APKPure.xapk" -o input/lingq-6.2.0.xapk
+          curl -fL --retry 3 "https://github.com/Persie0/Lingq/releases/download/1/LingQ.ver.5.5.9.build.424.apk" -o input/lingq-5.5.9.apk
+
+          echo "e5a18111c7b9399afd6a4434b94a79986e8201f9fb766ca58590a9de1fb5b6f3  input/lingq-6.2.0.xapk" | sha256sum -c -
+          echo "2313cf14a0b8b7b24975f4f9bf16677a80286284160c618db126c17bb7647fef  input/lingq-5.5.9.apk" | sha256sum -c -
+
+          unzip -p input/lingq-6.2.0.xapk com.linguist.apk > input/lingq-6.2.0.apk
+          test -s input/lingq-6.2.0.apk
+          echo "LINGQ_620_APK_SHA=$(sha256sum input/lingq-6.2.0.apk | awk '{print $1}')" >> "$GITHUB_ENV"
+
+      - name: Download and verify JADX 1.5.6
+        run: |
+          curl -fL --retry 3 "https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip" -o jadx.zip
+          echo "545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974  jadx.zip" | sha256sum -c -
+          mkdir -p .tools/jadx
+          unzip -q jadx.zip -d .tools/jadx
+          .tools/jadx/bin/jadx --version
+
+      - name: Decompile and deobfuscate both versions
+        env:
+          JAVA_OPTS: -Xms512m -Xmx5g -XX:+UseG1GC
+        run: |
+          rm -rf decompiled/lingq
+          mkdir -p decompiled/lingq
+
+          run_jadx() {
+            local version="$1"
+            local apk="$2"
+            local out="decompiled/lingq/$version"
+            mkdir -p "$out"
+
+            set +e
+            .tools/jadx/bin/jadx \
+              --threads-count 1 \
+              --no-res \
+              --show-bad-code \
+              --deobf \
+              --deobf-cfg-file "$out/$version.jobf" \
+              --deobf-cfg-file-mode overwrite \
+              --deobf-res-name-source auto \
+              --use-source-name-as-class-name-alias if-better \
+              --rename-flags "case,valid,printable" \
+              --comments-level info \
+              --log-level progress \
+              --output-dir "$out" \
+              "$apk" 2>&1 | tee "$out/jadx.log"
+            local jadx_exit="${PIPESTATUS[0]}"
+            set -e
+
+            local source_count
+            source_count="$(find "$out/sources" -type f -name '*.java' 2>/dev/null | wc -l)"
+            if [ "$source_count" -eq 0 ]; then
+              echo "JADX produced no Java source files for $version."
+              return "${jadx_exit:-1}"
+            fi
+
+            echo "JADX_EXIT_$version=$jadx_exit" >> "$GITHUB_ENV"
+            echo "JADX_SOURCES_$version=$source_count" >> "$GITHUB_ENV"
+            if [ "$jadx_exit" -ne 0 ]; then
+              echo "::warning::JADX exited with code $jadx_exit for $version but produced $source_count Java files; retaining recoverable output."
+            fi
+          }
+
+          run_jadx "6.2.0" "input/lingq-6.2.0.apk"
+          run_jadx "5.5.9" "input/lingq-5.5.9.apk"
+
+      - name: Write decompilation metadata
+        run: |
+          cat > decompiled/lingq/README.md <<EOF
+          # LingQ decompiled sources
+
+          Source-only JADX output for the two APKs in release `1` of `Persie0/Lingq`.
+
+          ## 6.2.0
+          - Input: `LingQ+_+Learn+Languages_6.2.0_APKPure.xapk` (SHA-256: `e5a18111c7b9399afd6a4434b94a79986e8201f9fb766ca58590a9de1fb5b6f3`)
+          - Decompiled APK: XAPK base APK `com.linguist.apk` (SHA-256: `$LINGQ_620_APK_SHA`)
+          - JADX exit: `$JADX_EXIT_6.2.0`
+          - Java files: `$JADX_SOURCES_6.2.0`
+          - Mapping: `6.2.0/6.2.0.jobf`
+          - Log: `6.2.0/jadx.log`
+
+          ## 5.5.9
+          - Input: `LingQ.ver.5.5.9.build.424.apk` (SHA-256: `2313cf14a0b8b7b24975f4f9bf16677a80286284160c618db126c17bb7647fef`)
+          - JADX exit: `$JADX_EXIT_5.5.9`
+          - Java files: `$JADX_SOURCES_5.5.9`
+          - Mapping: `5.5.9/5.5.9.jobf`
+          - Log: `5.5.9/jadx.log`
+
+          JADX `1.5.6` ran with `--deobf`. Automatic deobfuscation can improve generated identifiers but cannot restore original names removed by R8/ProGuard without the original mapping file. Individual methods may also remain imperfectly reconstructed; see each `jadx.log`. Android resources are not included.
+          EOF
+
+          {
+            echo "## LingQ decompilation"
+            echo
+            echo "- 6.2.0: $JADX_SOURCES_6.2.0 Java files (JADX exit $JADX_EXIT_6.2.0)"
+            echo "- 5.5.9: $JADX_SOURCES_5.5.9 Java files (JADX exit $JADX_EXIT_5.5.9)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          du -sh decompiled/lingq
+
+      - name: Commit generated sources to Playground
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A decompiled/lingq
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit."
+            exit 0
+          fi
+          git commit -m "Decompile LingQ release 1 with JADX 1.5.6"
+          git push origin HEAD:main
