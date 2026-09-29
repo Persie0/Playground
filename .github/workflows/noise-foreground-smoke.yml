@@ -63,9 +63,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .ci/foreground-fixtures
+          # Keep the RNNoise worker active through the host-side HOME + lock
+          # checks. The previous 20 s clip completed before dumpsys could sample
+          # the otherwise-correct foreground service on fast x86 runners.
           ffmpeg -hide_banner -loglevel error -y \
-            -f lavfi -i 'sine=frequency=523.25:sample_rate=48000:duration=20' \
-            -f lavfi -i 'anoisesrc=color=white:sample_rate=48000:duration=20:amplitude=0.02' \
+            -f lavfi -i 'sine=frequency=523.25:sample_rate=48000:duration=300' \
+            -f lavfi -i 'anoisesrc=color=white:sample_rate=48000:duration=300:amplitude=0.02' \
             -filter_complex '[0:a][1:a]amix=inputs=2:normalize=0' \
             -ac 1 -c:a pcm_s16le .ci/foreground-fixtures/foreground.wav
           ffprobe -v error -show_entries format=duration -of default=nw=1 .ci/foreground-fixtures/foreground.wav
