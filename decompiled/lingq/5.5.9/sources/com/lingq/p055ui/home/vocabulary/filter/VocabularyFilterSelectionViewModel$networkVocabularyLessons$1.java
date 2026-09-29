@@ -1,0 +1,71 @@
+package com.lingq.p055ui.home.vocabulary.filter;
+
+import ci.InterfaceC2014g;
+import cm.InterfaceC2056p;
+import com.android.installreferrer.api.InstallReferrerClient;
+import com.kochava.tracker.BuildConfig;
+import kotlin.Metadata;
+import kotlin.coroutines.intrinsics.CoroutineSingletons;
+import kotlin.coroutines.jvm.internal.SuspendLambda;
+import no.InterfaceC7882z;
+import p260m8.C7499b;
+import p464wl.InterfaceC9968c;
+import p490xl.InterfaceC10224c;
+import sl.C9072e;
+
+/* JADX INFO: loaded from: classes2.dex */
+@Metadata(m13364d1 = {"\u0000\n\n\u0002\u0018\u0002\n\u0002\u0018\u0002\n\u0000\u0010\u0002\u001a\u00020\u0001*\u00020\u0000H\u008a@"}, m13365d2 = {"Lno/z;", "Lsl/e;", "<anonymous>"}, m13366k = 3, m13367mv = {1, 8, InstallReferrerClient.InstallReferrerResponse.f10530OK})
+@InterfaceC10224c(m19205c = "com.lingq.ui.home.vocabulary.filter.VocabularyFilterSelectionViewModel$networkVocabularyLessons$1", m19206f = "VocabularyFilterSelectionViewModel.kt", m19207l = {387}, m19208m = "invokeSuspend")
+final class VocabularyFilterSelectionViewModel$networkVocabularyLessons$1 extends SuspendLambda implements InterfaceC2056p<InterfaceC7882z, InterfaceC9968c<? super C9072e>, Object> {
+
+    /* JADX INFO: renamed from: e */
+    public int f26480e;
+
+    /* JADX INFO: renamed from: f */
+    public final /* synthetic */ VocabularyFilterSelectionViewModel f26481f;
+
+    /* JADX WARN: 'super' call moved to the top of the method (can break code semantics) */
+    public VocabularyFilterSelectionViewModel$networkVocabularyLessons$1(VocabularyFilterSelectionViewModel vocabularyFilterSelectionViewModel, InterfaceC9968c<? super VocabularyFilterSelectionViewModel$networkVocabularyLessons$1> interfaceC9968c) {
+        super(2, interfaceC9968c);
+        this.f26481f = vocabularyFilterSelectionViewModel;
+    }
+
+    @Override // kotlin.coroutines.jvm.internal.BaseContinuationImpl
+    /* JADX INFO: renamed from: a */
+    public final InterfaceC9968c<C9072e> mo1336a(Object obj, InterfaceC9968c<?> interfaceC9968c) {
+        return new VocabularyFilterSelectionViewModel$networkVocabularyLessons$1(this.f26481f, interfaceC9968c);
+    }
+
+    @Override // cm.InterfaceC2056p
+    /* JADX INFO: renamed from: m0 */
+    public final Object mo1337m0(InterfaceC7882z interfaceC7882z, InterfaceC9968c<? super C9072e> interfaceC9968c) {
+        return ((VocabularyFilterSelectionViewModel$networkVocabularyLessons$1) mo1336a(interfaceC7882z, interfaceC9968c)).mo1338x(C9072e.f47360a);
+    }
+
+    @Override // kotlin.coroutines.jvm.internal.BaseContinuationImpl
+    /* JADX INFO: renamed from: x */
+    public final Object mo1338x(Object obj) throws Throwable {
+        CoroutineSingletons coroutineSingletons = CoroutineSingletons.COROUTINE_SUSPENDED;
+        int i10 = this.f26480e;
+        VocabularyFilterSelectionViewModel vocabularyFilterSelectionViewModel = this.f26481f;
+        try {
+            if (i10 == 0) {
+                C7499b.m14977z0(obj);
+                InterfaceC2014g interfaceC2014g = vocabularyFilterSelectionViewModel.f26440h;
+                String strMo498E1 = vocabularyFilterSelectionViewModel.mo498E1();
+                this.f26480e = 1;
+                if (interfaceC2014g.mo6064j(strMo498E1, "my_lessons_type=lessons_level=nullsearch", (224 & 4) != 0 ? "" : null, (224 & 8) != 0, (224 & 16) != 0 ? "" : null, (224 & 32) != 0 ? "" : "my_lessons", (224 & 64) != 0 ? "" : null, (224 & BuildConfig.SDK_TRUNCATE_LENGTH) != 0 ? 1 : 0, this) == coroutineSingletons) {
+                    return coroutineSingletons;
+                }
+            } else {
+                if (i10 != 1) {
+                    throw new IllegalStateException("call to 'resume' before 'invoke' with coroutine");
+                }
+                C7499b.m14977z0(obj);
+            }
+            vocabularyFilterSelectionViewModel.f26424I.setValue(Boolean.FALSE);
+        } catch (Exception unused) {
+        }
+        return C9072e.f47360a;
+    }
+}

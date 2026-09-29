@@ -1,0 +1,11 @@
+package com.lingq.core.network.api.result;
+
+import kotlinx.serialization.KSerializer;
+
+/* JADX INFO: renamed from: com.lingq.core.network.api.result.d5 */
+/* JADX INFO: loaded from: classes2.dex */
+public final class C1641d5 {
+    public final KSerializer serializer() {
+        return ValidationMessage$$serializer.INSTANCE;
+    }
+}

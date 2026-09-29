@@ -1,0 +1,58 @@
+package com.lingq.feature.search.fastsearch.components;
+
+import kotlin.AbstractC3193b;
+import kotlin.coroutines.Continuation;
+import kotlin.coroutines.intrinsics.CoroutineSingletons;
+import kotlin.coroutines.jvm.internal.SuspendLambda;
+import p000.c03;
+import p000.c32;
+import p000.eh0;
+import p000.t66;
+import p000.un1;
+import p000.vv9;
+import p000.xfa;
+import p000.zi3;
+
+/* JADX INFO: loaded from: classes2.dex */
+@c32(m4290c = "com.lingq.feature.search.fastsearch.components.FastSearchSearchFieldKt$FastSearchSearchField$1$1", m4291f = "FastSearchSearchField.kt", m4292l = {}, m4293m = "invokeSuspend", m4294v = 2)
+final class FastSearchSearchFieldKt$FastSearchSearchField$1$1 extends SuspendLambda implements zi3 {
+
+    /* JADX INFO: renamed from: a */
+    public final /* synthetic */ c03 f32894a;
+
+    /* JADX INFO: renamed from: b */
+    public final /* synthetic */ t66 f32895b;
+
+    /* JADX WARN: 'super' call moved to the top of the method (can break code semantics) */
+    public FastSearchSearchFieldKt$FastSearchSearchField$1$1(c03 c03Var, t66 t66Var, Continuation continuation) {
+        super(2, continuation);
+        this.f32894a = c03Var;
+        this.f32895b = t66Var;
+    }
+
+    @Override // kotlin.coroutines.jvm.internal.BaseContinuationImpl
+    public final Continuation create(Object obj, Continuation continuation) {
+        return new FastSearchSearchFieldKt$FastSearchSearchField$1$1(this.f32894a, this.f32895b, continuation);
+    }
+
+    @Override // p000.zi3
+    public final Object invoke(Object obj, Object obj2) throws Throwable {
+        FastSearchSearchFieldKt$FastSearchSearchField$1$1 fastSearchSearchFieldKt$FastSearchSearchField$1$1 = (FastSearchSearchFieldKt$FastSearchSearchField$1$1) create((un1) obj, (Continuation) obj2);
+        xfa xfaVar = xfa.f68157a;
+        fastSearchSearchFieldKt$FastSearchSearchField$1$1.invokeSuspend(xfaVar);
+        return xfaVar;
+    }
+
+    @Override // kotlin.coroutines.jvm.internal.BaseContinuationImpl
+    public final Object invokeSuspend(Object obj) throws Throwable {
+        CoroutineSingletons coroutineSingletons = CoroutineSingletons.COROUTINE_SUSPENDED;
+        AbstractC3193b.m15359b(obj);
+        String str = this.f32894a.f9248a;
+        t66 t66Var = this.f32895b;
+        if (!str.equals(((vv9) t66Var.getValue()).f65990a.f54604b)) {
+            int length = str.length();
+            t66Var.setValue(new vv9(str, 4, eh0.m11127g(length, length)));
+        }
+        return xfa.f68157a;
+    }
+}

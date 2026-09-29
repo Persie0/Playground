@@ -1,0 +1,10 @@
+package androidx.browser;
+
+/* JADX INFO: loaded from: classes2.dex */
+public final class R$dimen {
+    public static int browser_actions_context_menu_max_width = 2131165269;
+    public static int browser_actions_context_menu_min_padding = 2131165270;
+
+    private R$dimen() {
+    }
+}

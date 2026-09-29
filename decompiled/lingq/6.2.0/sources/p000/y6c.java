@@ -1,0 +1,38 @@
+package p000;
+
+import com.google.android.gms.internal.mlkit_vision_document_scanner.zzao;
+
+/* JADX INFO: loaded from: classes2.dex */
+public final class y6c implements fp6 {
+
+    /* JADX INFO: renamed from: a */
+    public static final y6c f69388a = new y6c();
+
+    static {
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(1, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(2, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(3, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(4, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(5, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(6, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(7, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(8, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(9, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(10, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(11, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(12, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(13, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(14, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(15, zzao.DEFAULT)));
+        dnb.m10507h(e65.m10876h(omb.class, new zlb(16, zzao.DEFAULT)));
+    }
+
+    @Override // p000.yr2
+    /* JADX INFO: renamed from: a */
+    public final /* synthetic */ void mo24a(Object obj, Object obj2) {
+        if (obj != null) {
+            throw new ClassCastException();
+        }
+        throw null;
+    }
+}

@@ -1,0 +1,33 @@
+package com.lingq.core.datastore;
+
+import kotlin.coroutines.Continuation;
+import kotlin.coroutines.jvm.internal.ContinuationImpl;
+import p000.c32;
+import p000.ti7;
+
+/* JADX INFO: loaded from: classes.dex */
+@c32(m4290c = "com.lingq.core.datastore.PreferenceStoreImpl$special$$inlined$map$23$2", m4291f = "PreferenceStore.kt", m4292l = {50}, m4293m = "emit", m4294v = 2)
+public final class PreferenceStoreImpl$special$$inlined$map$23$2$1 extends ContinuationImpl {
+
+    /* JADX INFO: renamed from: a */
+    public /* synthetic */ Object f17773a;
+
+    /* JADX INFO: renamed from: b */
+    public int f17774b;
+
+    /* JADX INFO: renamed from: c */
+    public final /* synthetic */ ti7 f17775c;
+
+    /* JADX WARN: 'super' call moved to the top of the method (can break code semantics) */
+    public PreferenceStoreImpl$special$$inlined$map$23$2$1(ti7 ti7Var, Continuation continuation) {
+        super(continuation);
+        this.f17775c = ti7Var;
+    }
+
+    @Override // kotlin.coroutines.jvm.internal.BaseContinuationImpl
+    public final Object invokeSuspend(Object obj) {
+        this.f17773a = obj;
+        this.f17774b |= Integer.MIN_VALUE;
+        return this.f17775c.emit(null, this);
+    }
+}

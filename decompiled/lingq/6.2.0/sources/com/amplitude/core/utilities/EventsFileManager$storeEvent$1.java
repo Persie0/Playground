@@ -1,0 +1,41 @@
+package com.amplitude.core.utilities;
+
+import kotlin.coroutines.jvm.internal.ContinuationImpl;
+import p000.c32;
+import p000.c76;
+
+/* JADX INFO: loaded from: classes.dex */
+@c32(m4290c = "com.amplitude.core.utilities.EventsFileManager", m4291f = "EventsFileManager.kt", m4292l = {417}, m4293m = "storeEvent")
+final class EventsFileManager$storeEvent$1 extends ContinuationImpl {
+
+    /* JADX INFO: renamed from: a */
+    public C0913a f11207a;
+
+    /* JADX INFO: renamed from: b */
+    public String f11208b;
+
+    /* JADX INFO: renamed from: c */
+    public c76 f11209c;
+
+    /* JADX INFO: renamed from: d */
+    public /* synthetic */ Object f11210d;
+
+    /* JADX INFO: renamed from: e */
+    public final /* synthetic */ C0913a f11211e;
+
+    /* JADX INFO: renamed from: f */
+    public int f11212f;
+
+    /* JADX WARN: 'super' call moved to the top of the method (can break code semantics) */
+    public EventsFileManager$storeEvent$1(C0913a c0913a, ContinuationImpl continuationImpl) {
+        super(continuationImpl);
+        this.f11211e = c0913a;
+    }
+
+    @Override // kotlin.coroutines.jvm.internal.BaseContinuationImpl
+    public final Object invokeSuspend(Object obj) {
+        this.f11210d = obj;
+        this.f11212f |= Integer.MIN_VALUE;
+        return this.f11211e.m5163k(null, this);
+    }
+}

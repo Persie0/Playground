@@ -1,0 +1,31 @@
+package androidx.compose.foundation.gestures.snapping;
+
+import kotlin.coroutines.jvm.internal.ContinuationImpl;
+import p000.c32;
+
+/* JADX INFO: loaded from: classes.dex */
+@c32(m4290c = "androidx.compose.foundation.gestures.snapping.SnapFlingBehavior", m4291f = "SnapFlingBehavior.kt", m4292l = {100}, m4293m = "performFling", m4294v = 1)
+final class SnapFlingBehavior$performFling$1 extends ContinuationImpl {
+
+    /* JADX INFO: renamed from: a */
+    public /* synthetic */ Object f2326a;
+
+    /* JADX INFO: renamed from: b */
+    public final /* synthetic */ C0112a f2327b;
+
+    /* JADX INFO: renamed from: c */
+    public int f2328c;
+
+    /* JADX WARN: 'super' call moved to the top of the method (can break code semantics) */
+    public SnapFlingBehavior$performFling$1(C0112a c0112a, ContinuationImpl continuationImpl) {
+        super(continuationImpl);
+        this.f2327b = c0112a;
+    }
+
+    @Override // kotlin.coroutines.jvm.internal.BaseContinuationImpl
+    public final Object invokeSuspend(Object obj) {
+        this.f2326a = obj;
+        this.f2328c |= Integer.MIN_VALUE;
+        return this.f2327b.m923d(null, 0.0f, null, this);
+    }
+}

@@ -1,0 +1,118 @@
+package com.lingq.entity;
+
+import androidx.activity.result.C0204c;
+import com.android.installreferrer.api.InstallReferrerClient;
+import com.squareup.moshi.AbstractC4949k;
+import com.squareup.moshi.C4955q;
+import com.squareup.moshi.JsonReader;
+import dm.C5207g;
+import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import kotlin.Metadata;
+import kotlin.collections.EmptySet;
+import p003a2.C0009a;
+import p439vk.C9756b;
+import tk.AbstractC9310n;
+
+/* JADX INFO: loaded from: classes.dex */
+@Metadata(m13364d1 = {"\u0000\u0014\n\u0002\u0018\u0002\n\u0002\u0018\u0002\n\u0002\u0018\u0002\n\u0002\u0018\u0002\n\u0002\b\u0004\u0018\u00002\b\u0012\u0004\u0012\u00020\u00020\u0001B\u000f\u0012\u0006\u0010\u0004\u001a\u00020\u0003¢\u0006\u0004\b\u0005\u0010\u0006¨\u0006\u0007"}, m13365d2 = {"Lcom/lingq/entity/StudyStatsScoresJsonAdapter;", "Lcom/squareup/moshi/k;", "Lcom/lingq/entity/StudyStatsScores;", "Lcom/squareup/moshi/q;", "moshi", "<init>", "(Lcom/squareup/moshi/q;)V", "model_release"}, m13366k = 1, m13367mv = {1, 8, InstallReferrerClient.InstallReferrerResponse.f10530OK})
+public final class StudyStatsScoresJsonAdapter extends AbstractC4949k<StudyStatsScores> {
+
+    /* JADX INFO: renamed from: a */
+    public final JsonReader.C4932a f17488a;
+
+    /* JADX INFO: renamed from: b */
+    public final AbstractC4949k<String> f17489b;
+
+    /* JADX INFO: renamed from: c */
+    public final AbstractC4949k<Integer> f17490c;
+
+    /* JADX INFO: renamed from: d */
+    public final AbstractC4949k<ActivityLevel> f17491d;
+
+    /* JADX INFO: renamed from: e */
+    public volatile Constructor<StudyStatsScores> f17492e;
+
+    public StudyStatsScoresJsonAdapter(C4955q c4955q) {
+        C5207g.m11111f(c4955q, "moshi");
+        this.f17488a = JsonReader.C4932a.m10513a("date", "dayOfWeek", "score", "activityLevel");
+        EmptySet emptySet = EmptySet.f38034a;
+        this.f17489b = c4955q.m10565c(String.class, emptySet, "date");
+        this.f17490c = c4955q.m10565c(Integer.TYPE, emptySet, "score");
+        this.f17491d = c4955q.m10565c(ActivityLevel.class, emptySet, "activityLevel");
+    }
+
+    @Override // com.squareup.moshi.AbstractC4949k
+    /* JADX INFO: renamed from: a */
+    public final StudyStatsScores mo9385a(JsonReader jsonReader) throws IllegalAccessException, NoSuchMethodException, InstantiationException, IOException, InvocationTargetException {
+        Integer numM850i = C0204c.m850i(jsonReader, "reader", 0);
+        String strMo9385a = null;
+        String strMo9385a2 = null;
+        ActivityLevel activityLevelMo9385a = null;
+        int i10 = -1;
+        while (jsonReader.mo10511w()) {
+            int iMo10512y0 = jsonReader.mo10512y0(this.f17488a);
+            if (iMo10512y0 == -1) {
+                jsonReader.mo10496G0();
+                jsonReader.mo10498I0();
+            } else if (iMo10512y0 == 0) {
+                strMo9385a = this.f17489b.mo9385a(jsonReader);
+                i10 &= -2;
+            } else if (iMo10512y0 == 1) {
+                strMo9385a2 = this.f17489b.mo9385a(jsonReader);
+                i10 &= -3;
+            } else if (iMo10512y0 == 2) {
+                numM850i = this.f17490c.mo9385a(jsonReader);
+                if (numM850i == null) {
+                    throw C9756b.m18254m("score", "score", jsonReader);
+                }
+                i10 &= -5;
+            } else if (iMo10512y0 == 3) {
+                activityLevelMo9385a = this.f17491d.mo9385a(jsonReader);
+                i10 &= -9;
+            }
+        }
+        jsonReader.mo10508q();
+        if (i10 == -16) {
+            return new StudyStatsScores(strMo9385a, strMo9385a2, numM850i.intValue(), activityLevelMo9385a);
+        }
+        Constructor<StudyStatsScores> declaredConstructor = this.f17492e;
+        if (declaredConstructor == null) {
+            Class cls = Integer.TYPE;
+            declaredConstructor = StudyStatsScores.class.getDeclaredConstructor(String.class, String.class, cls, ActivityLevel.class, cls, C9756b.f49813c);
+            this.f17492e = declaredConstructor;
+            C5207g.m11110e(declaredConstructor, "StudyStatsScores::class.…his.constructorRef = it }");
+        }
+        StudyStatsScores studyStatsScoresNewInstance = declaredConstructor.newInstance(strMo9385a, strMo9385a2, numM850i, activityLevelMo9385a, Integer.valueOf(i10), null);
+        C5207g.m11110e(studyStatsScoresNewInstance, "localConstructor.newInst…torMarker */ null\n      )");
+        return studyStatsScoresNewInstance;
+    }
+
+    /* JADX WARN: Unreachable blocks removed: 1, instructions: 1 */
+    @Override // com.squareup.moshi.AbstractC4949k
+    /* JADX INFO: renamed from: f */
+    public final void mo9386f(AbstractC9310n abstractC9310n, StudyStatsScores studyStatsScores) throws IOException {
+        StudyStatsScores studyStatsScores2 = studyStatsScores;
+        C5207g.m11111f(abstractC9310n, "writer");
+        if (studyStatsScores2 == null) {
+            throw new NullPointerException("value_ was null! Wrap in .nullSafe() to write nullable values.");
+        }
+        abstractC9310n.mo10556b();
+        abstractC9310n.mo10551C("date");
+        String str = studyStatsScores2.f17484a;
+        AbstractC4949k<String> abstractC4949k = this.f17489b;
+        abstractC4949k.mo9386f(abstractC9310n, str);
+        abstractC9310n.mo10551C("dayOfWeek");
+        abstractC4949k.mo9386f(abstractC9310n, studyStatsScores2.f17485b);
+        abstractC9310n.mo10551C("score");
+        this.f17490c.mo9386f(abstractC9310n, Integer.valueOf(studyStatsScores2.f17486c));
+        abstractC9310n.mo10551C("activityLevel");
+        this.f17491d.mo9386f(abstractC9310n, studyStatsScores2.f17487d);
+        abstractC9310n.mo10560r();
+    }
+
+    public final String toString() {
+        return C0009a.m19g(38, "GeneratedJsonAdapter(StudyStatsScores)", "StringBuilder(capacity).…builderAction).toString()");
+    }
+}

@@ -1,0 +1,8 @@
+package p000;
+
+/* JADX INFO: loaded from: classes3.dex */
+public final class di6 extends bh6 {
+
+    /* JADX INFO: renamed from: a */
+    public static final di6 f35688a = new di6();
+}

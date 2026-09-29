@@ -1,0 +1,75 @@
+package com.lingq.feature.collections;
+
+import kotlin.AbstractC3193b;
+import kotlin.coroutines.Continuation;
+import kotlin.coroutines.intrinsics.CoroutineSingletons;
+import kotlin.coroutines.jvm.internal.SuspendLambda;
+import p000.C3139j9;
+import p000.C3386nv;
+import p000.c32;
+import p000.l91;
+import p000.vi3;
+import p000.xfa;
+
+/* JADX INFO: loaded from: classes2.dex */
+@c32(m4290c = "com.lingq.feature.collections.CollectionViewModel$updateLessonSave$1", m4291f = "CollectionViewModel.kt", m4292l = {672}, m4293m = "invokeSuspend", m4294v = 2)
+final class CollectionViewModel$updateLessonSave$1 extends SuspendLambda implements vi3 {
+
+    /* JADX INFO: renamed from: a */
+    public int f25532a;
+
+    /* JADX INFO: renamed from: b */
+    public final /* synthetic */ C2034d f25533b;
+
+    /* JADX INFO: renamed from: c */
+    public final /* synthetic */ l91 f25534c;
+
+    /* JADX INFO: renamed from: d */
+    public final /* synthetic */ int f25535d;
+
+    /* JADX INFO: renamed from: e */
+    public final /* synthetic */ boolean f25536e;
+
+    /* JADX WARN: 'super' call moved to the top of the method (can break code semantics) */
+    public CollectionViewModel$updateLessonSave$1(C2034d c2034d, l91 l91Var, int i, boolean z, Continuation continuation) {
+        super(1, continuation);
+        this.f25533b = c2034d;
+        this.f25534c = l91Var;
+        this.f25535d = i;
+        this.f25536e = z;
+    }
+
+    @Override // kotlin.coroutines.jvm.internal.BaseContinuationImpl
+    public final Continuation create(Continuation continuation) {
+        return new CollectionViewModel$updateLessonSave$1(this.f25533b, this.f25534c, this.f25535d, this.f25536e, continuation);
+    }
+
+    @Override // p000.vi3
+    public final Object invoke(Object obj) {
+        return ((CollectionViewModel$updateLessonSave$1) create((Continuation) obj)).invokeSuspend(xfa.f68157a);
+    }
+
+    @Override // kotlin.coroutines.jvm.internal.BaseContinuationImpl
+    public final Object invokeSuspend(Object obj) throws Throwable {
+        CoroutineSingletons coroutineSingletons = CoroutineSingletons.COROUTINE_SUSPENDED;
+        int i = this.f25532a;
+        if (i == 0) {
+            AbstractC3193b.m15359b(obj);
+            C3139j9 c3139j9 = this.f25533b.f25548G;
+            l91 l91Var = this.f25534c;
+            int i2 = l91Var.f49325b;
+            String str = l91Var.f49324a;
+            this.f25532a = 1;
+            if (c3139j9.m14347b(i2, this.f25535d, str, this, this.f25536e) == coroutineSingletons) {
+                return coroutineSingletons;
+            }
+        } else {
+            if (i != 1) {
+                C3386nv.m17633t("call to 'resume' before 'invoke' with coroutine");
+                return null;
+            }
+            AbstractC3193b.m15359b(obj);
+        }
+        return xfa.f68157a;
+    }
+}

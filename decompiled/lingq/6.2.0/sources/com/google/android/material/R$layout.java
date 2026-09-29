@@ -1,0 +1,80 @@
+package com.google.android.material;
+
+/* JADX INFO: loaded from: classes2.dex */
+public final class R$layout {
+    public static int design_bottom_navigation_item = 2131624263;
+    public static int design_bottom_sheet_dialog = 2131624264;
+    public static int design_layout_snackbar = 2131624265;
+    public static int design_layout_snackbar_include = 2131624266;
+    public static int design_layout_tab_icon = 2131624267;
+    public static int design_layout_tab_text = 2131624268;
+    public static int design_menu_item_action_area = 2131624269;
+    public static int design_navigation_item = 2131624270;
+    public static int design_navigation_item_header = 2131624271;
+    public static int design_navigation_item_separator = 2131624272;
+    public static int design_navigation_item_subheader = 2131624273;
+    public static int design_navigation_menu = 2131624274;
+    public static int design_navigation_menu_item = 2131624275;
+    public static int design_text_input_end_icon = 2131624276;
+    public static int design_text_input_start_icon = 2131624277;
+    public static int m3_alert_dialog = 2131624774;
+    public static int m3_alert_dialog_actions = 2131624775;
+    public static int m3_alert_dialog_title = 2131624776;
+    public static int m3_auto_complete_simple_item = 2131624777;
+    public static int m3_button_group_overflow_button = 2131624778;
+    public static int m3_navigation_menu_divider = 2131624779;
+    public static int m3_navigation_menu_subheader = 2131624780;
+    public static int m3_overflow_linear_layout_overflow_button = 2131624781;
+    public static int m3_side_sheet_dialog = 2131624782;
+    public static int m3expressive_alert_dialog = 2131624783;
+    public static int m3expressive_alert_dialog_title = 2131624784;
+    public static int material_chip_input_combo = 2131624785;
+    public static int material_clock_display = 2131624786;
+    public static int material_clock_display_divider = 2131624787;
+    public static int material_clock_period_toggle = 2131624788;
+    public static int material_clock_period_toggle_land = 2131624789;
+    public static int material_clockface_textview = 2131624790;
+    public static int material_clockface_view = 2131624791;
+    public static int material_radial_view_group = 2131624792;
+    public static int material_textinput_timepicker = 2131624793;
+    public static int material_time_chip = 2131624794;
+    public static int material_time_input = 2131624795;
+    public static int material_timepicker = 2131624796;
+    public static int material_timepicker_dialog = 2131624797;
+    public static int material_timepicker_textinput_display = 2131624798;
+    public static int mtrl_alert_dialog = 2131624808;
+    public static int mtrl_alert_dialog_actions = 2131624809;
+    public static int mtrl_alert_dialog_title = 2131624810;
+    public static int mtrl_alert_select_dialog_item = 2131624811;
+    public static int mtrl_alert_select_dialog_multichoice = 2131624812;
+    public static int mtrl_alert_select_dialog_singlechoice = 2131624813;
+    public static int mtrl_auto_complete_simple_item = 2131624814;
+    public static int mtrl_calendar_day = 2131624815;
+    public static int mtrl_calendar_day_of_week = 2131624816;
+    public static int mtrl_calendar_days_of_week = 2131624817;
+    public static int mtrl_calendar_horizontal = 2131624818;
+    public static int mtrl_calendar_month = 2131624819;
+    public static int mtrl_calendar_month_labeled = 2131624820;
+    public static int mtrl_calendar_month_navigation = 2131624821;
+    public static int mtrl_calendar_months = 2131624822;
+    public static int mtrl_calendar_vertical = 2131624823;
+    public static int mtrl_calendar_year = 2131624824;
+    public static int mtrl_layout_snackbar = 2131624825;
+    public static int mtrl_layout_snackbar_include = 2131624826;
+    public static int mtrl_navigation_rail_item = 2131624827;
+    public static int mtrl_picker_actions = 2131624828;
+    public static int mtrl_picker_dialog = 2131624829;
+    public static int mtrl_picker_fullscreen = 2131624830;
+    public static int mtrl_picker_header_dialog = 2131624831;
+    public static int mtrl_picker_header_fullscreen = 2131624832;
+    public static int mtrl_picker_header_selection_text = 2131624833;
+    public static int mtrl_picker_header_title_text = 2131624834;
+    public static int mtrl_picker_header_toggle = 2131624835;
+    public static int mtrl_picker_text_input_date = 2131624836;
+    public static int mtrl_picker_text_input_date_range = 2131624837;
+    public static int mtrl_search_bar = 2131624838;
+    public static int mtrl_search_view = 2131624839;
+
+    private R$layout() {
+    }
+}

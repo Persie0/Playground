@@ -1,0 +1,36 @@
+package p000;
+
+import com.google.android.gms.internal.mlkit_vision_text_common.zzcw;
+
+/* JADX INFO: loaded from: classes2.dex */
+public final class nhc implements fp6 {
+
+    /* JADX INFO: renamed from: a */
+    public static final nhc f52745a = new nhc();
+
+    static {
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(1, zzcw.DEFAULT)));
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(2, zzcw.DEFAULT)));
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(3, zzcw.DEFAULT)));
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(4, zzcw.DEFAULT)));
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(5, zzcw.DEFAULT)));
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(6, zzcw.DEFAULT)));
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(7, zzcw.DEFAULT)));
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(8, zzcw.DEFAULT)));
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(9, zzcw.DEFAULT)));
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(10, zzcw.DEFAULT)));
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(11, zzcw.DEFAULT)));
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(12, zzcw.DEFAULT)));
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(13, zzcw.DEFAULT)));
+        dnb.m10507h(dnb.m10506g(kvb.class, new rub(14, zzcw.DEFAULT)));
+    }
+
+    @Override // p000.yr2
+    /* JADX INFO: renamed from: a */
+    public final /* synthetic */ void mo24a(Object obj, Object obj2) {
+        if (obj != null) {
+            throw new ClassCastException();
+        }
+        throw null;
+    }
+}

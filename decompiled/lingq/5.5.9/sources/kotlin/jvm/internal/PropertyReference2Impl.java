@@ -1,0 +1,8 @@
+package kotlin.jvm.internal;
+
+/* JADX INFO: loaded from: classes2.dex */
+public class PropertyReference2Impl extends PropertyReference2 {
+    public PropertyReference2Impl() {
+        super(0);
+    }
+}

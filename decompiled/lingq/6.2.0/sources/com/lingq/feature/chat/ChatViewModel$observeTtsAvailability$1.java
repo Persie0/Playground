@@ -1,0 +1,61 @@
+package com.lingq.feature.chat;
+
+import kotlin.AbstractC3193b;
+import kotlin.coroutines.Continuation;
+import kotlin.coroutines.intrinsics.CoroutineSingletons;
+import kotlin.coroutines.jvm.internal.SuspendLambda;
+import kotlinx.coroutines.flow.C3244l;
+import p000.c32;
+import p000.v94;
+import p000.xfa;
+import p000.zi3;
+
+/* JADX INFO: loaded from: classes2.dex */
+@c32(m4290c = "com.lingq.feature.chat.ChatViewModel$observeTtsAvailability$1", m4291f = "ChatViewModel.kt", m4292l = {}, m4293m = "invokeSuspend", m4294v = 2)
+final class ChatViewModel$observeTtsAvailability$1 extends SuspendLambda implements zi3 {
+
+    /* JADX INFO: renamed from: a */
+    public /* synthetic */ boolean f24992a;
+
+    /* JADX INFO: renamed from: b */
+    public final /* synthetic */ C2009m f24993b;
+
+    /* JADX WARN: 'super' call moved to the top of the method (can break code semantics) */
+    public ChatViewModel$observeTtsAvailability$1(C2009m c2009m, Continuation continuation) {
+        super(2, continuation);
+        this.f24993b = c2009m;
+    }
+
+    @Override // kotlin.coroutines.jvm.internal.BaseContinuationImpl
+    public final Continuation create(Object obj, Continuation continuation) {
+        ChatViewModel$observeTtsAvailability$1 chatViewModel$observeTtsAvailability$1 = new ChatViewModel$observeTtsAvailability$1(this.f24993b, continuation);
+        chatViewModel$observeTtsAvailability$1.f24992a = ((Boolean) obj).booleanValue();
+        return chatViewModel$observeTtsAvailability$1;
+    }
+
+    @Override // p000.zi3
+    public final Object invoke(Object obj, Object obj2) throws Throwable {
+        Boolean bool = (Boolean) obj;
+        bool.booleanValue();
+        ChatViewModel$observeTtsAvailability$1 chatViewModel$observeTtsAvailability$1 = (ChatViewModel$observeTtsAvailability$1) create(bool, (Continuation) obj2);
+        xfa xfaVar = xfa.f68157a;
+        chatViewModel$observeTtsAvailability$1.invokeSuspend(xfaVar);
+        return xfaVar;
+    }
+
+    @Override // kotlin.coroutines.jvm.internal.BaseContinuationImpl
+    public final Object invokeSuspend(Object obj) throws Throwable {
+        boolean z = this.f24992a;
+        CoroutineSingletons coroutineSingletons = CoroutineSingletons.COROUTINE_SUSPENDED;
+        AbstractC3193b.m15359b(obj);
+        C3244l c3244l = this.f24993b.f25281U;
+        while (true) {
+            Object value = c3244l.getValue();
+            boolean z2 = z;
+            if (c3244l.m15570h(value, v94.m23191a((v94) value, null, null, false, false, null, null, 0, null, null, false, false, false, null, null, null, null, null, null, null, null, null, null, null, null, false, null, null, null, null, null, z2, false, null, null, null, false, null, false, null, null, null, Integer.MAX_VALUE, 1023))) {
+                return xfa.f68157a;
+            }
+            z = z2;
+        }
+    }
+}
