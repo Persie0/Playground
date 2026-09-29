@@ -1,0 +1,65 @@
+name: Resistor Scanner iOS migration PR29
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-ios-migration-pr29.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout resistor_scanner iOS branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: feat/ios-vision-support
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: source
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies and check smoke test source
+        working-directory: source
+        run: |
+          flutter pub get
+          dart format --output=none --set-exit-if-changed integration_test/ios_vision_smoke_test.dart
+          flutter analyze integration_test/ios_vision_smoke_test.dart
+
+      - name: Apply Flutter iOS project migration without compiling
+        working-directory: source
+        run: flutter build ios --config-only --debug
+
+      - name: Capture generated migration
+        working-directory: source
+        run: |
+          git status --short | tee "$RUNNER_TEMP/migration-status.txt"
+          git diff -- .gitignore ios pubspec.lock > "$RUNNER_TEMP/migration.patch"
+          cat "$RUNNER_TEMP/migration.patch"
+
+      - name: Upload migration artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-ios-pr29-migration
+          path: |
+            ${{ runner.temp }}/migration-status.txt
+            ${{ runner.temp }}/migration.patch
+          if-no-files-found: error
+          retention-days: 3
