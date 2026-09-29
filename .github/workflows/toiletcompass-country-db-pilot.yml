@@ -26,8 +26,30 @@ jobs:
           repository: Persie0/toiletcompass
           ref: feat/monthly-country-database-pipeline-pilot2
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
+          persist-credentials: true
           path: toiletcompass
+
+      - name: Apply streamed PBF stdin format fix
+        working-directory: toiletcompass
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('database/monthly_pipeline.py')
+          text = path.read_text()
+          old = '"osmium", "tags-filter", "-",\n'
+          new = '"osmium", "tags-filter", "-F", "pbf", "-",\n'
+          if old in text:
+              path.write_text(text.replace(old, new, 1))
+          elif new not in text:
+              raise SystemExit('expected tags-filter stdin command not found')
+          PY
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add database/monthly_pipeline.py
+            git commit -m "fix: declare PBF format for streamed osmium input"
+            git push origin HEAD:feat/monthly-country-database-pipeline-pilot2
+          fi
 
       - name: Run all database pipeline tests
         working-directory: toiletcompass
