@@ -78,4 +78,28 @@ jobs:
 
       - name: Build iOS simulator harness
         working-directory: ${{ runner.temp }}/ios_harness
-        run: flutter build ios --simulator --debug
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build ios --simulator --debug 2>&1 | tee "$RUNNER_TEMP/ios-build.log"
+
+      - name: Summarize iOS build output
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/ios-build.log" ]; then
+            grep -E -i 'error:|fatal error:|failed|exception|could not build|swift compiler error' "$RUNNER_TEMP/ios-build.log" | tail -n 120 | tee "$RUNNER_TEMP/ios-errors.txt" || true
+          else
+            echo 'No iOS build log was produced.' | tee "$RUNNER_TEMP/ios-errors.txt"
+          fi
+
+      - name: Upload iOS build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-ios-pr29-build-log
+          path: |
+            ${{ runner.temp }}/ios-build.log
+            ${{ runner.temp }}/ios-errors.txt
+          if-no-files-found: warn
+          retention-days: 3
