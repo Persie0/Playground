@@ -1,0 +1,119 @@
+name: Background media feature unit tests
+
+on:
+  push:
+    branches: [background-media-processing-validation-20260928]
+    paths:
+      - '.github/workflows/background-feature-unit-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image-feature-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout image enhancer feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_enhancer
+          ref: feature/android-background-media-processing-20260928
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Focused foreground-processing tests
+        run: |
+          flutter test \
+            test/android_foreground_service_manifest_test.dart \
+            test/android_media_processing_config_test.dart \
+            test/background_image_processing_regression_test.dart \
+            test/image_processing_job_test.dart \
+            test/image_processing_notification_throttle_test.dart \
+            test/image_processing_recovery_test.dart \
+            test/image_processing_service_test.dart
+
+      - name: Focused static analysis
+        run: |
+          flutter analyze \
+            lib/services/android_media_processing_config.dart \
+            lib/services/image_processing_job.dart \
+            lib/services/image_processing_job_store.dart \
+            lib/services/image_processing_service.dart \
+            lib/services/image_processing_task.dart \
+            test/android_foreground_service_manifest_test.dart \
+            test/android_media_processing_config_test.dart \
+            test/background_image_processing_regression_test.dart \
+            test/image_processing_job_test.dart \
+            test/image_processing_notification_throttle_test.dart \
+            test/image_processing_recovery_test.dart \
+            test/image_processing_service_test.dart
+
+  noise-feature-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout noise remover feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: feature/android-background-media-processing-20260928
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Focused foreground-processing tests
+        run: |
+          flutter test \
+            test/android_foreground_service_manifest_test.dart \
+            test/services/android_media_processing_config_test.dart \
+            test/services/foreground_processing_state_test.dart \
+            test/services/android_media_processing_controller_test.dart \
+            test/services/android_media_processing_service_test.dart \
+            test/services/background_processing_recovery_test.dart \
+            test/background_processing_foreground_service_regression_test.dart
+
+      - name: Focused static analysis
+        run: |
+          flutter analyze \
+            lib/services/android_media_processing_config.dart \
+            lib/services/foreground_processing_state.dart \
+            lib/services/processing_lock_service.dart \
+            lib/services/android_media_processing_controller.dart \
+            lib/services/android_media_processing_service.dart \
+            lib/services/android_media_processing_task.dart \
+            lib/services/android_media_processing_events.dart \
+            lib/services/background_processing_task.dart \
+            test/android_foreground_service_manifest_test.dart \
+            test/services/android_media_processing_config_test.dart \
+            test/services/foreground_processing_state_test.dart \
+            test/services/android_media_processing_controller_test.dart \
+            test/services/android_media_processing_service_test.dart \
+            test/services/background_processing_recovery_test.dart \
+            test/background_processing_foreground_service_regression_test.dart
