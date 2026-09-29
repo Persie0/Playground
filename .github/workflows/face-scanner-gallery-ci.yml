@@ -1,0 +1,79 @@
+name: Face Scanner gallery save checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/face-scanner-gallery-ci.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out Playground
+        uses: actions/checkout@v4
+      - name: Check out Face Scanner fix
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/face_scanner
+          ref: fix/save-image-to-gallery
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: face_scanner
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Show Flutter version
+        run: flutter --version
+      - name: Resolve dependencies
+        working-directory: face_scanner
+        run: flutter pub get
+      - name: Run gallery save tests
+        working-directory: face_scanner
+        run: flutter test test/services/gallery_image_saver_test.dart
+      - name: Analyze changed Dart files
+        working-directory: face_scanner
+        run: flutter analyze lib/services/gallery_image_saver.dart lib/screens/show2d.dart test/services/gallery_image_saver_test.dart
+      - name: Build Android debug APK
+        working-directory: face_scanner
+        run: flutter build apk --debug
+      - name: Upload regenerated lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: face-scanner-pubspec-lock
+          path: face_scanner/pubspec.lock
+          if-no-files-found: error
+
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out Playground
+        uses: actions/checkout@v4
+      - name: Check out Face Scanner fix
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/face_scanner
+          ref: fix/save-image-to-gallery
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: face_scanner
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        working-directory: face_scanner
+        run: flutter pub get
+      - name: Validate Info.plist
+        run: plutil -lint face_scanner/ios/Runner/Info.plist
+      - name: Run gallery save tests
+        working-directory: face_scanner
+        run: flutter test test/services/gallery_image_saver_test.dart
+      - name: Build iOS without signing
+        working-directory: face_scanner
+        run: flutter build ios --debug --no-codesign
