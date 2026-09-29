@@ -36,22 +36,22 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Resolve dependencies and check smoke test source
+      - name: Resolve dependencies and format smoke test source
         working-directory: source
         run: |
           flutter pub get
-          dart format --output=none --set-exit-if-changed integration_test/ios_vision_smoke_test.dart
+          dart format integration_test/ios_vision_smoke_test.dart
           flutter analyze integration_test/ios_vision_smoke_test.dart
 
       - name: Apply Flutter iOS project migration without compiling
         working-directory: source
         run: flutter build ios --config-only --debug
 
-      - name: Capture generated migration
+      - name: Capture generated changes
         working-directory: source
         run: |
           git status --short | tee "$RUNNER_TEMP/migration-status.txt"
-          git diff -- .gitignore ios pubspec.lock > "$RUNNER_TEMP/migration.patch"
+          git diff -- integration_test/ios_vision_smoke_test.dart .gitignore ios pubspec.lock > "$RUNNER_TEMP/migration.patch"
           cat "$RUNNER_TEMP/migration.patch"
 
       - name: Upload migration artifact
