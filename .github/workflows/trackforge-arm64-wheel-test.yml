@@ -1,0 +1,91 @@
+name: Trackforge ARM64 wheel test
+
+on:
+  push:
+    branches:
+      - trackforge-arm64-wheel-test-20260929
+    paths:
+      - .github/workflows/trackforge-arm64-wheel-test.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trackforge-arm64:
+    name: Trackforge ByteTrack on native ARM64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Show native architecture
+        run: |
+          set -euxo pipefail
+          uname -a
+          test "$(uname -m)" = "aarch64"
+          python --version
+          python -c 'import platform; print("python machine:", platform.machine()); assert platform.machine() == "aarch64"'
+
+      - name: Verify a prebuilt Trackforge ARM64 wheel exists
+        run: |
+          set -euxo pipefail
+          python -m pip install --upgrade pip
+          mkdir -p wheelhouse
+          python -m pip download --only-binary=:all: --no-deps trackforge==0.4.0 --dest wheelhouse
+          ls -lh wheelhouse
+          python - <<'PY'
+          from pathlib import Path
+          wheels = list(Path("wheelhouse").glob("trackforge-0.4.0-*.whl"))
+          assert len(wheels) == 1, f"Expected exactly one Trackforge wheel, got: {wheels}"
+          wheel = wheels[0]
+          print("Downloaded wheel:", wheel.name)
+          assert "aarch64" in wheel.name, f"Expected an aarch64 wheel, got {wheel.name}"
+          print("PREBUILT_AARCH64_WHEEL_OK=1")
+          PY
+
+      - name: Install the downloaded wheel
+        run: |
+          set -euxo pipefail
+          python -m pip install wheelhouse/trackforge-0.4.0-*.whl
+          python -m pip show trackforge
+
+      - name: Run Trackforge ByteTrack smoke test
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import platform
+          import trackforge
+          from trackforge import BYTETRACK
+
+          print("trackforge module:", trackforge.__file__)
+          print("machine:", platform.machine())
+
+          tracker = BYTETRACK(
+              track_thresh=0.30,
+              track_buffer=45,
+              match_thresh=0.80,
+              det_thresh=0.85,
+          )
+
+          observed_ids = []
+          for frame in range(10):
+              x = 40.0 + frame * 2.0
+              detections = [([x, 80.0, 30.0, 16.0], 0.95, 0)]
+              tracks = tracker.update(detections)
+              print(f"frame={frame} tracks={tracks}")
+              if tracks:
+                  observed_ids.append(int(tracks[0][0]))
+
+          assert observed_ids, "ByteTrack produced no tracks"
+          assert len(set(observed_ids)) == 1, f"Track ID was not stable: {observed_ids}"
+          print("BYTETRACK_ARM64_SMOKE_TEST_OK=1")
+          print("stable_track_id=", observed_ids[0])
+          PY
