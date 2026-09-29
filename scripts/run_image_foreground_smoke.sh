@@ -3,12 +3,20 @@ set -euo pipefail
 
 mkdir -p .ci
 
+# flutter test buffers integration-test stdout until the test group finishes.
+# Capture device logcat separately so the app's debugPrint readiness marker is
+# observable while the foreground worker is still running.
+adb logcat -c || true
+adb logcat -v time > .ci/image-logcat-live.txt 2>&1 &
+LOGCAT_PID=$!
+
 flutter test integration_test/foreground_image_processing_test.dart \
   -d emulator-5554 > .ci/image-foreground-smoke.log 2>&1 &
 TEST_PID=$!
 
 cleanup() {
   kill "$TEST_PID" >/dev/null 2>&1 || true
+  kill "$LOGCAT_PID" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -36,12 +44,12 @@ fi
 adb shell pm grant at.persie0.image_enhancer android.permission.POST_NOTIFICATIONS || true
 adb shell appops set at.persie0.image_enhancer POST_NOTIFICATION allow || true
 
-# The real x86 ONNX workload can finish in well under the old 1 s polling
-# interval. Sample the marker at 50 ms so lifecycle checks observe the active
-# foreground worker rather than its normal post-completion shutdown.
+# Synchronize against live Android logcat rather than redirected flutter-test
+# stdout. The latter is group-buffered and only exposed after the worker can
+# already have completed normally.
 ready=false
 for _ in $(seq 1 4800); do
-  if grep -q 'IMAGE_FOREGROUND_SMOKE_READY:' .ci/image-foreground-smoke.log 2>/dev/null; then
+  if grep -q 'IMAGE_FOREGROUND_SMOKE_READY:' .ci/image-logcat-live.txt 2>/dev/null; then
     ready=true
     break
   fi
@@ -51,7 +59,8 @@ for _ in $(seq 1 4800); do
   sleep 0.05
 done
 if [[ "$ready" != true ]]; then
-  echo 'Image foreground worker never reached the ready marker.'
+  echo 'Image foreground worker never reached the live logcat ready marker.'
+  tail -n 200 .ci/image-logcat-live.txt || true
   cat .ci/image-foreground-smoke.log || true
   set +e
   wait "$TEST_PID"
@@ -65,6 +74,7 @@ fi
 adb shell dumpsys activity services at.persie0.image_enhancer > .ci/image-services-ready.txt
 if ! grep -q 'com.pravera.flutter_foreground_task.service.ForegroundService' .ci/image-services-ready.txt; then
   echo 'Image foreground service completed before the host could sample it.'
+  tail -n 200 .ci/image-logcat-live.txt || true
   cat .ci/image-foreground-smoke.log || true
   exit 1
 fi
@@ -115,6 +125,9 @@ set +e
 wait "$TEST_PID"
 TEST_STATUS=$?
 set -e
+
+kill "$LOGCAT_PID" >/dev/null 2>&1 || true
+wait "$LOGCAT_PID" >/dev/null 2>&1 || true
 trap - EXIT
 
 cat .ci/image-foreground-smoke.log || true
