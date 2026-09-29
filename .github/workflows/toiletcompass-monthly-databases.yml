@@ -1,0 +1,53 @@
+name: ToiletCompass monthly databases
+
+on:
+  push:
+    branches: [toiletcompass-monthly-db]
+    paths:
+      - '.github/workflows/toiletcompass-monthly-databases.yml'
+  workflow_dispatch:
+    inputs:
+      app_ref:
+        description: ToiletCompass branch/tag/SHA
+        required: true
+        default: feat/monthly-country-database-pipeline
+        type: string
+      full_build:
+        description: Build and publish all country/continent databases
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toiletcompass-monthly-databases
+  cancel-in-progress: false
+
+env:
+  APP_REPOSITORY: Persie0/toiletcompass
+  APP_REF: ${{ inputs.app_ref || 'feat/monthly-country-database-pipeline' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout ToiletCompass
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Run Python database tests
+        working-directory: app
+        run: python3 -m unittest discover -s database/tests -v
