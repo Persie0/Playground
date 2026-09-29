@@ -42,6 +42,8 @@ jobs:
             'boxmot==25.0.0' \
             'git+https://github.com/artefactory/bytetrack.git@main'
       - name: Environment
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tracker_benchmark
         run: |
           uname -a
           lscpu
@@ -58,17 +60,21 @@ jobs:
           PY
       - name: Run benchmark
         env:
+          PYTHONPATH: ${{ github.workspace }}/tracker_benchmark
           OMP_NUM_THREADS: '1'
           OPENBLAS_NUM_THREADS: '1'
           MKL_NUM_THREADS: '1'
           NUMEXPR_NUM_THREADS: '1'
         run: |
-          python tracker_benchmark/benchmark.py --out tracker_benchmark/results-${{ matrix.arch }}
+          out=tracker_benchmark/results-${{ matrix.arch }}
+          python tracker_benchmark/benchmark.py --out "$out"
+          python tracker_benchmark/postprocess.py "$out/results.json"
       - name: Job summary
         if: always()
         run: |
-          f=tracker_benchmark/results-${{ matrix.arch }}/results.md
-          if [ -f "$f" ]; then cat "$f" >> "$GITHUB_STEP_SUMMARY"; fi
+          dir=tracker_benchmark/results-${{ matrix.arch }}
+          if [ -f "$dir/ranking.md" ]; then cat "$dir/ranking.md" >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f "$dir/results.md" ]; then printf '\n---\n\n' >> "$GITHUB_STEP_SUMMARY"; cat "$dir/results.md" >> "$GITHUB_STEP_SUMMARY"; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
