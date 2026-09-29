@@ -12,8 +12,8 @@ import 'package:integration_test/integration_test.dart';
 import 'package:path_provider/path_provider.dart';
 
 const _terminalTimeout = Duration(minutes: 4);
-const _fixtureWidth = 2816;
-const _fixtureHeight = 2816;
+const _fixtureWidth = 1728;
+const _fixtureHeight = 1728;
 const _scale = 2;
 
 String _joinPath(String directory, String name) =>
@@ -48,8 +48,9 @@ void main() {
       try {
         // Keep the real native upscaler busy long enough for the host harness
         // to press HOME, inspect the foreground service, lock the screen, and
-        // inspect it again. The former 1408x1408 fixture could finish before
-        // the first dumpsys call, making a correct worker look like a failure.
+        // inspect it again. 1728x1728 at 2x stays just below the production
+        // 12,000,000-output-pixel safety limit while being materially larger
+        // than the original 1408x1408 fixture.
         await _writeFixturePng(inputPath, _fixtureWidth, _fixtureHeight);
         final now = DateTime.now().toUtc();
         final job = ImageProcessingJob(
