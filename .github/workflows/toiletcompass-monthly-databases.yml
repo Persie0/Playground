@@ -94,10 +94,17 @@ jobs:
           python3 database/monthly_country_pipeline.py validate-all \
             --output /tmp/toiletcompass-db-pilot
           test ! -e /tmp/toiletcompass-db-pilot/.scratch
-          sqlite3 /tmp/toiletcompass-db-pilot/countries/LU.db 'SELECT COUNT(*) FROM toilets;'
-          sqlite3 /tmp/toiletcompass-db-pilot/countries/BH.db 'SELECT COUNT(*) FROM toilets;'
-          sqlite3 /tmp/toiletcompass-db-pilot/continents/europe.db 'SELECT COUNT(*) FROM toilets;'
-          sqlite3 /tmp/toiletcompass-db-pilot/continents/asia.db 'SELECT COUNT(*) FROM toilets;'
+          LU_COUNTRY="$(sqlite3 /tmp/toiletcompass-db-pilot/countries/LU.db 'SELECT COUNT(*) FROM toilets;')"
+          BH_COUNTRY="$(sqlite3 /tmp/toiletcompass-db-pilot/countries/BH.db 'SELECT COUNT(*) FROM toilets;')"
+          EUROPE="$(sqlite3 /tmp/toiletcompass-db-pilot/continents/europe.db 'SELECT COUNT(*) FROM toilets;')"
+          ASIA="$(sqlite3 /tmp/toiletcompass-db-pilot/continents/asia.db 'SELECT COUNT(*) FROM toilets;')"
+          AFRICA="$(sqlite3 /tmp/toiletcompass-db-pilot/continents/africa.db 'SELECT COUNT(*) FROM toilets;')"
+          test "$LU_COUNTRY" -gt 0
+          test "$BH_COUNTRY" -gt 0
+          test "$EUROPE" -eq "$LU_COUNTRY"
+          test "$ASIA" -eq "$BH_COUNTRY"
+          test "$AFRICA" -eq 0
+          echo "LU=$LU_COUNTRY -> Europe=$EUROPE; BH=$BH_COUNTRY -> Asia=$ASIA; Africa=$AFRICA"
 
       - name: Decide full build
         id: full
