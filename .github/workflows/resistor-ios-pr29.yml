@@ -32,6 +32,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.47.5'
           channel: stable
           cache: true
 
@@ -52,6 +53,13 @@ jobs:
         run: |
           flutter pub get
           flutter test test/ios_flutter_vision_test.dart
+
+      - name: Build full resistor_scanner iOS simulator app
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build ios --simulator --debug 2>&1 | tee "$RUNNER_TEMP/app-ios-build.log"
 
       - name: Create minimal iOS plugin harness
         shell: bash
@@ -81,17 +89,20 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          flutter build ios --simulator --debug 2>&1 | tee "$RUNNER_TEMP/ios-build.log"
+          flutter build ios --simulator --debug 2>&1 | tee "$RUNNER_TEMP/plugin-ios-build.log"
 
       - name: Summarize iOS build output
         if: always()
         shell: bash
         run: |
-          if [ -f "$RUNNER_TEMP/ios-build.log" ]; then
-            grep -E -i 'error:|fatal error:|failed|exception|could not build|swift compiler error' "$RUNNER_TEMP/ios-build.log" | tail -n 120 | tee "$RUNNER_TEMP/ios-errors.txt" || true
-          else
-            echo 'No iOS build log was produced.' | tee "$RUNNER_TEMP/ios-errors.txt"
-          fi
+          : > "$RUNNER_TEMP/ios-errors.txt"
+          for log in "$RUNNER_TEMP/app-ios-build.log" "$RUNNER_TEMP/plugin-ios-build.log"; do
+            if [ -f "$log" ]; then
+              echo "===== $(basename "$log") =====" >> "$RUNNER_TEMP/ios-errors.txt"
+              grep -E -i 'error:|fatal error:|failed|exception|could not build|swift compiler error' "$log" | tail -n 120 >> "$RUNNER_TEMP/ios-errors.txt" || true
+            fi
+          done
+          cat "$RUNNER_TEMP/ios-errors.txt"
 
       - name: Upload iOS build diagnostics
         if: always()
@@ -99,7 +110,8 @@ jobs:
         with:
           name: resistor-ios-pr29-build-log
           path: |
-            ${{ runner.temp }}/ios-build.log
+            ${{ runner.temp }}/app-ios-build.log
+            ${{ runner.temp }}/plugin-ios-build.log
             ${{ runner.temp }}/ios-errors.txt
           if-no-files-found: warn
           retention-days: 3
