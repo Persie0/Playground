@@ -646,9 +646,9 @@ public final class C2260f implements InterfaceC2256b {
     /* JADX WARN: Code duplicated, block: B:218:0x0566 A[Catch: all -> 0x0558, TRY_LEAVE, TryCatch #14 {all -> 0x0558, blocks: (B:207:0x0542, B:209:0x054d, B:208:0x0547, B:218:0x0566), top: B:295:0x0542 }] */
     /* JADX WARN: Code duplicated, block: B:237:0x0643 A[DONT_INVERT] */
     /* JADX WARN: Code duplicated, block: B:238:0x0645 A[DONT_GENERATE] */
-    /* JADX WARN: Code duplicated, block: B:242:0x064e A[Catch: all -> 0x073d, TRY_LEAVE, TryCatch #19 {all -> 0x073d, blocks: (B:240:0x0648, B:242:0x064e, B:245:0x065c, B:247:0x0668, B:252:0x06d0, B:261:0x0737, B:262:0x073c, B:249:0x066d, B:251:0x06b0), top: B:304:0x0648, inners: #11 }] */
-    /* JADX WARN: Code duplicated, block: B:245:0x065c A[Catch: all -> 0x073d, TRY_ENTER, TryCatch #19 {all -> 0x073d, blocks: (B:240:0x0648, B:242:0x064e, B:245:0x065c, B:247:0x0668, B:252:0x06d0, B:261:0x0737, B:262:0x073c, B:249:0x066d, B:251:0x06b0), top: B:304:0x0648, inners: #11 }] */
-    /* JADX WARN: Code duplicated, block: B:247:0x0668 A[Catch: all -> 0x073d, TRY_LEAVE, TryCatch #19 {all -> 0x073d, blocks: (B:240:0x0648, B:242:0x064e, B:245:0x065c, B:247:0x0668, B:252:0x06d0, B:261:0x0737, B:262:0x073c, B:249:0x066d, B:251:0x06b0), top: B:304:0x0648, inners: #11 }] */
+    /* JADX WARN: Code duplicated, block: B:242:0x064e A[Catch: all -> 0x073d, TRY_LEAVE, TryCatch #19 {, blocks: (B:240:0x0648, B:242:0x064e, B:245:0x065c, B:247:0x0668, B:252:0x06d0, B:261:0x0737, B:262:0x073c, B:249:0x066d, B:251:0x06b0), top: B:304:0x0648, inners: #11 }] */
+    /* JADX WARN: Code duplicated, block: B:245:0x065c A[Catch: all -> 0x073d, TRY_ENTER, TryCatch #19 {, blocks: (B:240:0x0648, B:242:0x064e, B:245:0x065c, B:247:0x0668, B:252:0x06d0, B:261:0x0737, B:262:0x073c, B:249:0x066d, B:251:0x06b0), top: B:304:0x0648, inners: #11 }] */
+    /* JADX WARN: Code duplicated, block: B:247:0x0668 A[Catch: all -> 0x073d, TRY_LEAVE, TryCatch #19 {, blocks: (B:240:0x0648, B:242:0x064e, B:245:0x065c, B:247:0x0668, B:252:0x06d0, B:261:0x0737, B:262:0x073c, B:249:0x066d, B:251:0x06b0), top: B:304:0x0648, inners: #11 }] */
     /* JADX WARN: Code duplicated, block: B:256:0x06e6  */
     /* JADX WARN: Code duplicated, block: B:258:0x070e  */
     /* JADX WARN: Code duplicated, block: B:274:0x04f5 A[EXC_TOP_SPLITTER, SYNTHETIC] */
@@ -1028,38 +1028,34 @@ public final class C2260f implements InterfaceC2256b {
                         C2181a.m6458k("Storing Push Notification..." + string2 + " - with ttl - " + string13);
                         synchronized (dBAdapterMo6479b) {
                             if (string2 == null) {
-                                try {
-                                    if (dBAdapterMo6479b.m6464a()) {
-                                        name = DBAdapter.Table.PUSH_NOTIFICATIONS.getName();
-                                        if (jCurrentTimeMillis <= 0) {
-                                            jCurrentTimeMillis = System.currentTimeMillis() + 345600000;
-                                        }
-                                        try {
-                                            try {
-                                                SQLiteDatabase writableDatabase = dBAdapterMo6479b.f11040b.getWritableDatabase();
-                                                ContentValues contentValues = new ContentValues();
-                                                contentValues.put("data", string2);
-                                                contentValues.put("created_at", Long.valueOf(jCurrentTimeMillis));
-                                                contentValues.put("isRead", (Integer) 0);
-                                                writableDatabase.insert(name, null, contentValues);
-                                                dBAdapterMo6479b.f11041c = true;
-                                                C2181a.m6455h("Stored PN - " + string2 + " with TTL - " + jCurrentTimeMillis);
-                                            } catch (Throwable th7) {
-                                                dBAdapterMo6479b.f11040b.close();
-                                                throw th7;
-                                            }
-                                        } catch (SQLiteException unused6) {
-                                            dBAdapterMo6479b.m6470g().getClass();
-                                            C2181a.m6458k("Error adding data to table " + name + " Recreating DB");
-                                            dBAdapterMo6479b.f11040b.m6477a();
-                                        }
-                                        dBAdapterMo6479b.f11040b.close();
-                                    } else {
-                                        dBAdapterMo6479b.m6470g().getClass();
-                                        C2181a.m6458k("There is not enough space left on the device to store data, data discarded");
+                                if (dBAdapterMo6479b.m6464a()) {
+                                    name = DBAdapter.Table.PUSH_NOTIFICATIONS.getName();
+                                    if (jCurrentTimeMillis <= 0) {
+                                        jCurrentTimeMillis = System.currentTimeMillis() + 345600000;
                                     }
-                                } catch (Throwable th8) {
-                                    throw th8;
+                                    try {
+                                        try {
+                                            SQLiteDatabase writableDatabase = dBAdapterMo6479b.f11040b.getWritableDatabase();
+                                            ContentValues contentValues = new ContentValues();
+                                            contentValues.put("data", string2);
+                                            contentValues.put("created_at", Long.valueOf(jCurrentTimeMillis));
+                                            contentValues.put("isRead", (Integer) 0);
+                                            writableDatabase.insert(name, null, contentValues);
+                                            dBAdapterMo6479b.f11041c = true;
+                                            C2181a.m6455h("Stored PN - " + string2 + " with TTL - " + jCurrentTimeMillis);
+                                        } catch (Throwable th7) {
+                                            dBAdapterMo6479b.f11040b.close();
+                                            throw th7;
+                                        }
+                                    } catch (SQLiteException unused6) {
+                                        dBAdapterMo6479b.m6470g().getClass();
+                                        C2181a.m6458k("Error adding data to table " + name + " Recreating DB");
+                                        dBAdapterMo6479b.f11040b.m6477a();
+                                    }
+                                    dBAdapterMo6479b.f11040b.close();
+                                } else {
+                                    dBAdapterMo6479b.m6470g().getClass();
+                                    C2181a.m6458k("There is not enough space left on the device to store data, data discarded");
                                 }
                             }
                             if (!"true".equals(bundle.getString("wzrk_rnv", ""))) {
@@ -1143,13 +1139,13 @@ public final class C2260f implements InterfaceC2256b {
                                         notificationManager = notificationManager;
                                         try {
                                             identifier2 = context.getResources().getIdentifier(strOptString6, "drawable", context.getPackageName());
-                                        } catch (Throwable th9) {
-                                            th = th9;
+                                        } catch (Throwable th8) {
+                                            th = th8;
                                             C2181a.m6449a("unable to add notification action icon: " + th.getLocalizedMessage());
                                             identifier2 = 0;
                                         }
-                                    } catch (Throwable th10) {
-                                        th = th10;
+                                    } catch (Throwable th9) {
+                                        th = th9;
                                         notificationManager = notificationManager;
                                     }
                                     if (Build.VERSION.SDK_INT >= 31 && zOptBoolean2 && z10) {
@@ -1185,8 +1181,8 @@ public final class C2260f implements InterfaceC2256b {
                                             str2 = str4;
                                             intent = new Intent(str2, Uri.parse(strOptString5));
                                             C7979r0.m15843j(context, intent);
-                                        } catch (Throwable th11) {
-                                            th = th11;
+                                        } catch (Throwable th10) {
+                                            th = th10;
                                             str2 = str4;
                                             str3 = str14;
                                             C2181a.m6449a("error adding notification action : " + th.getLocalizedMessage());
@@ -1207,8 +1203,8 @@ public final class C2260f implements InterfaceC2256b {
                                             intent.putExtra("wzrk_c2a", strOptString7);
                                             intent.putExtra("notificationId", i14);
                                             intent.setFlags(603979776);
-                                        } catch (Throwable th12) {
-                                            th = th12;
+                                        } catch (Throwable th11) {
+                                            th = th11;
                                             str3 = str14;
                                             C2181a.m6449a("error adding notification action : " + th.getLocalizedMessage());
                                             i12++;
@@ -1224,8 +1220,8 @@ public final class C2260f implements InterfaceC2256b {
                                     if (z12) {
                                         try {
                                             activity = PendingIntent.getService(context, iCurrentTimeMillis, intent, 201326592);
-                                        } catch (Throwable th13) {
-                                            th = th13;
+                                        } catch (Throwable th12) {
+                                            th = th12;
                                             C2181a.m6449a("error adding notification action : " + th.getLocalizedMessage());
                                         }
                                     } else {
@@ -1240,8 +1236,8 @@ public final class C2260f implements InterfaceC2256b {
                                     activity = PendingIntent.getActivity(context, iCurrentTimeMillis, intent, 201326592);
                                 }
                                 c7236o2.f40642b.add(new C7233l(identifier2, strOptString, activity));
-                            } catch (Throwable th14) {
-                                th = th14;
+                            } catch (Throwable th13) {
+                                th = th13;
                                 C2181a.m6449a("error adding notification action : " + th.getLocalizedMessage());
                                 i12++;
                                 str14 = str3;
@@ -1290,8 +1286,8 @@ public final class C2260f implements InterfaceC2256b {
                                 intent.setFlags(603979776);
                             }
                             str3 = str14;
-                        } catch (Throwable th15) {
-                            th = th15;
+                        } catch (Throwable th14) {
+                            th = th14;
                             str3 = str14;
                             str2 = str4;
                             C2181a.m6449a("error adding notification action : " + th.getLocalizedMessage());

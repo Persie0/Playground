@@ -32,8 +32,8 @@ public final class C2727k4 {
         context.getContentResolver().registerContentObserver(C2615c4.f14080a, true, c2713j4);
     }
 
-    /* JADX WARN: Code duplicated, block: B:32:0x0065 A[Catch: all -> 0x00b2, TryCatch #1 {, blocks: (B:9:0x0014, B:11:0x0019, B:16:0x0024, B:18:0x0028, B:19:0x0035, B:35:0x006c, B:37:0x0071, B:22:0x003c, B:24:0x0043, B:32:0x0065, B:29:0x0052), top: B:65:0x0014, inners: #5 }] */
-    /* JADX WARN: Code duplicated, block: B:35:0x006c A[Catch: all -> 0x00b2, TryCatch #1 {, blocks: (B:9:0x0014, B:11:0x0019, B:16:0x0024, B:18:0x0028, B:19:0x0035, B:35:0x006c, B:37:0x0071, B:22:0x003c, B:24:0x0043, B:32:0x0065, B:29:0x0052), top: B:65:0x0014, inners: #5 }] */
+    /* JADX WARN: Code duplicated, block: B:32:0x0065 A[Catch: all -> 0x00b2, TryCatch #1 {all -> 0x00b2, blocks: (B:9:0x0014, B:11:0x0019, B:16:0x0024, B:18:0x0028, B:19:0x0035, B:35:0x006c, B:37:0x0071, B:22:0x003c, B:24:0x0043, B:32:0x0065, B:29:0x0052), top: B:65:0x0014, inners: #5 }] */
+    /* JADX WARN: Code duplicated, block: B:35:0x006c A[Catch: all -> 0x00b2, TryCatch #1 {all -> 0x00b2, blocks: (B:9:0x0014, B:11:0x0019, B:16:0x0024, B:18:0x0028, B:19:0x0035, B:35:0x006c, B:37:0x0071, B:22:0x003c, B:24:0x0043, B:32:0x0065, B:29:0x0052), top: B:65:0x0014, inners: #5 }] */
     /* JADX WARN: Code duplicated, block: B:39:0x0074  */
     /* JADX INFO: renamed from: a */
     public final String m7918a(String str) {
@@ -44,29 +44,41 @@ public final class C2727k4 {
             boolean z11 = false;
             if (!C2629d4.f14150b) {
                 synchronized (C2629d4.class) {
-                    if (!C2629d4.f14150b) {
-                        int i10 = 1;
-                        while (true) {
-                            if (i10 <= 2) {
-                                if (C2629d4.f14149a == null) {
-                                    C2629d4.f14149a = (UserManager) context.getSystemService(UserManager.class);
-                                }
-                                UserManager userManager = C2629d4.f14149a;
-                                if (userManager == null) {
-                                    z10 = true;
-                                } else {
-                                    try {
-                                        if (userManager.isUserUnlocked() || !userManager.isUserRunning(Process.myUserHandle())) {
-                                            z10 = true;
-                                        }
-                                        if (z10) {
-                                            C2629d4.f14149a = null;
-                                        }
-                                    } catch (NullPointerException e10) {
-                                        Log.w("DirectBootUtils", "Failed to check if user is unlocked.", e10);
-                                        C2629d4.f14149a = null;
-                                        i10++;
+                    try {
+                        if (!C2629d4.f14150b) {
+                            int i10 = 1;
+                            while (true) {
+                                if (i10 <= 2) {
+                                    if (C2629d4.f14149a == null) {
+                                        C2629d4.f14149a = (UserManager) context.getSystemService(UserManager.class);
                                     }
+                                    UserManager userManager = C2629d4.f14149a;
+                                    if (userManager == null) {
+                                        z10 = true;
+                                    } else {
+                                        try {
+                                            if (userManager.isUserUnlocked() || !userManager.isUserRunning(Process.myUserHandle())) {
+                                                z10 = true;
+                                            }
+                                            if (z10) {
+                                                C2629d4.f14149a = null;
+                                            }
+                                        } catch (NullPointerException e10) {
+                                            Log.w("DirectBootUtils", "Failed to check if user is unlocked.", e10);
+                                            C2629d4.f14149a = null;
+                                            i10++;
+                                        }
+                                    }
+                                    if (z10) {
+                                        C2629d4.f14150b = true;
+                                    }
+                                    if (!z10) {
+                                        z11 = true;
+                                    }
+                                }
+                                z10 = false;
+                                if (z10) {
+                                    C2629d4.f14149a = null;
                                 }
                                 if (z10) {
                                     C2629d4.f14150b = true;
@@ -75,17 +87,9 @@ public final class C2727k4 {
                                     z11 = true;
                                 }
                             }
-                            z10 = false;
-                            if (z10) {
-                                C2629d4.f14149a = null;
-                            }
-                            if (z10) {
-                                C2629d4.f14150b = true;
-                            }
-                            if (!z10) {
-                                z11 = true;
-                            }
                         }
+                    } catch (Throwable th2) {
+                        throw th2;
                     }
                 }
             }
@@ -100,9 +104,9 @@ public final class C2727k4 {
                             try {
                                 objM15819g = c7968m.m15819g();
                                 Binder.restoreCallingIdentity(jClearCallingIdentity);
-                            } catch (Throwable th2) {
+                            } catch (Throwable th3) {
                                 Binder.restoreCallingIdentity(jClearCallingIdentity);
-                                throw th2;
+                                throw th3;
                             }
                         }
                         return (String) objM15819g;

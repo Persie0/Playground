@@ -163,7 +163,6 @@ public final class v48 {
         }
     }
 
-    /* JADX WARN: Bottom block not found for handler: all -> 0x006d */
     /* JADX WARN: Bottom block not found for handler: all -> 0x00a8 */
     /* JADX INFO: renamed from: e */
     /*
@@ -180,36 +179,41 @@ public final class v48 {
         int i = 5;
         if (x66Var2.f67832c != 0) {
             Trace.beginSection("Compose:onForgotten");
-            o66 o66Var = (o66) this.f64852i;
-            int i2 = x66Var2.f67832c;
-            while (true) {
-                i2--;
-                if (-1 >= i2) {
-                    break;
-                }
-                Object obj = x66Var2.f67830a[i2];
-                try {
-                    if (obj instanceof xj3) {
-                        x48 x48Var = ((xj3) obj).f68286a;
-                        set.remove(x48Var);
-                        x48Var.mo1246f();
+            try {
+                o66 o66Var = (o66) this.f64852i;
+                int i2 = x66Var2.f67832c;
+                while (true) {
+                    i2--;
+                    if (-1 >= i2) {
+                        break;
                     }
-                    if (obj instanceof oe1) {
-                        if (o66Var == null || !o66Var.m723a(obj)) {
-                            ((oe1) obj).mo1497b();
-                        } else {
-                            ((oe1) obj).mo1496a();
+                    Object obj = x66Var2.f67830a[i2];
+                    try {
+                        if (obj instanceof xj3) {
+                            x48 x48Var = ((xj3) obj).f68286a;
+                            set.remove(x48Var);
+                            x48Var.mo1246f();
                         }
+                        if (obj instanceof oe1) {
+                            if (o66Var == null || !o66Var.m723a(obj)) {
+                                ((oe1) obj).mo1497b();
+                            } else {
+                                ((oe1) obj).mo1496a();
+                            }
+                        }
+                    } catch (Throwable th) {
+                        nf1 nf1Var = (nf1) this.f64846c;
+                        if (nf1Var != null) {
+                            bna.m3988z0(th, new C3006fm(i, nf1Var, obj));
+                        }
+                        throw th;
                     }
-                } catch (Throwable th) {
-                    nf1 nf1Var = (nf1) this.f64846c;
-                    if (nf1Var != null) {
-                        bna.m3988z0(th, new C3006fm(i, nf1Var, obj));
-                    }
-                    throw th;
                 }
+                Trace.endSection();
+            } catch (Throwable th2) {
+                Trace.endSection();
+                throw th2;
             }
-            Trace.endSection();
         }
         if (x66Var.f67832c != 0) {
             Trace.beginSection("Compose:onRemembered");
@@ -223,12 +227,12 @@ public final class v48 {
                     set2.remove(x48Var2);
                     try {
                         x48Var2.mo1247g();
-                    } catch (Throwable th2) {
+                    } catch (Throwable th3) {
                         nf1 nf1Var2 = (nf1) this.f64846c;
                         if (nf1Var2 != null) {
-                            bna.m3988z0(th2, new C3006fm(i, nf1Var2, xj3Var));
+                            bna.m3988z0(th3, new C3006fm(i, nf1Var2, xj3Var));
                         }
-                        throw th2;
+                        throw th3;
                     }
                 }
             }

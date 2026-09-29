@@ -274,31 +274,27 @@ public class C2499p implements InterfaceC7522w {
                 return;
             }
             synchronized (this) {
-                try {
-                    if (this.f13423p == 0) {
-                        z12 = j11 > this.f13428u;
-                    } else {
-                        synchronized (this) {
-                            long jMax = Math.max(this.f13428u, m7395m(this.f13426s));
-                            if (jMax >= j11) {
-                                z12 = false;
-                            } else {
-                                int i17 = this.f13423p;
-                                int iM7396n = m7396n(i17 - 1);
-                                while (i17 > this.f13426s && this.f13421n[iM7396n] >= j11) {
-                                    i17--;
-                                    iM7396n--;
-                                    if (iM7396n == -1) {
-                                        iM7396n = this.f13416i - 1;
-                                    }
+                if (this.f13423p == 0) {
+                    z12 = j11 > this.f13428u;
+                } else {
+                    synchronized (this) {
+                        long jMax = Math.max(this.f13428u, m7395m(this.f13426s));
+                        if (jMax >= j11) {
+                            z12 = false;
+                        } else {
+                            int i17 = this.f13423p;
+                            int iM7396n = m7396n(i17 - 1);
+                            while (i17 > this.f13426s && this.f13421n[iM7396n] >= j11) {
+                                i17--;
+                                iM7396n--;
+                                if (iM7396n == -1) {
+                                    iM7396n = this.f13416i - 1;
                                 }
-                                m7392j(this.f13424q + i17);
-                                z12 = true;
                             }
+                            m7392j(this.f13424q + i17);
+                            z12 = true;
                         }
                     }
-                } catch (Throwable th2) {
-                    throw th2;
                 }
             }
             if (!z12) {

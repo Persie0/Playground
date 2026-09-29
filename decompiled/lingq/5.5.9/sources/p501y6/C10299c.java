@@ -134,16 +134,20 @@ public final class C10299c {
     /* JADX INFO: renamed from: d */
     public final synchronized int m19289d() {
         int i10;
-        String str = this.f51812d.get("rc_n");
         try {
-            i10 = !TextUtils.isEmpty(str) ? (int) Double.parseDouble(str) : 5;
-        } catch (Exception e10) {
-            e10.printStackTrace();
-            C2181a c2181aM6433b = this.f51809a.m6433b();
-            String strM14908I = C7499b.m14908I(this.f51809a);
-            String str2 = "GetNoOfCallsInAllowedWindow failed: " + e10.getLocalizedMessage();
-            c2181aM6433b.getClass();
-            C2181a.m6460m(strM14908I, str2);
+            String str = this.f51812d.get("rc_n");
+            try {
+                i10 = !TextUtils.isEmpty(str) ? (int) Double.parseDouble(str) : 5;
+            } catch (Exception e10) {
+                e10.printStackTrace();
+                C2181a c2181aM6433b = this.f51809a.m6433b();
+                String strM14908I = C7499b.m14908I(this.f51809a);
+                String str2 = "GetNoOfCallsInAllowedWindow failed: " + e10.getLocalizedMessage();
+                c2181aM6433b.getClass();
+                C2181a.m6460m(strM14908I, str2);
+            }
+        } catch (Throwable th2) {
+            throw th2;
         }
         return i10;
     }

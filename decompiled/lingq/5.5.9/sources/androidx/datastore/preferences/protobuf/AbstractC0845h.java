@@ -895,11 +895,14 @@ public abstract class AbstractC0845h {
                     } else {
                         i17 += (int) jSkip;
                     }
-                } finally {
+                } catch (Throwable th2) {
                     this.f5874k += i17;
                     m3290G();
+                    throw th2;
                 }
             }
+            this.f5874k += i17;
+            m3290G();
             if (i17 >= i10) {
                 return;
             }

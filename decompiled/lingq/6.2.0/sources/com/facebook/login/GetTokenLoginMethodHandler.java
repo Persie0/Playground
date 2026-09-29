@@ -59,9 +59,9 @@ public final class GetTokenLoginMethodHandler extends LoginMethodHandler {
     }
 
     /* JADX WARN: Code duplicated, block: B:23:0x0054 A[DONT_GENERATE] */
-    /* JADX WARN: Code duplicated, block: B:25:0x0056 A[Catch: all -> 0x0095, TRY_ENTER, TryCatch #0 {, blocks: (B:8:0x0024, B:13:0x002d, B:25:0x0056, B:28:0x0060, B:19:0x004d, B:16:0x003d), top: B:47:0x0024, inners: #1 }] */
+    /* JADX WARN: Code duplicated, block: B:25:0x0056 A[Catch: all -> 0x0095, TRY_ENTER, TryCatch #0 {all -> 0x0095, blocks: (B:8:0x0024, B:13:0x002d, B:25:0x0056, B:28:0x0060, B:19:0x004d, B:16:0x003d), top: B:47:0x0024, inners: #1 }] */
     /* JADX WARN: Code duplicated, block: B:27:0x005e  */
-    /* JADX WARN: Code duplicated, block: B:28:0x0060 A[Catch: all -> 0x0095, TRY_LEAVE, TryCatch #0 {, blocks: (B:8:0x0024, B:13:0x002d, B:25:0x0056, B:28:0x0060, B:19:0x004d, B:16:0x003d), top: B:47:0x0024, inners: #1 }] */
+    /* JADX WARN: Code duplicated, block: B:28:0x0060 A[Catch: all -> 0x0095, TRY_LEAVE, TryCatch #0 {all -> 0x0095, blocks: (B:8:0x0024, B:13:0x002d, B:25:0x0056, B:28:0x0060, B:19:0x004d, B:16:0x003d), top: B:47:0x0024, inners: #1 }] */
     @Override // com.facebook.login.LoginMethodHandler
     /* JADX INFO: renamed from: k */
     public final int mo5201k(LoginClient.Request request) {
@@ -76,41 +76,45 @@ public final class GetTokenLoginMethodHandler extends LoginMethodHandler {
         C0930d c0930d = new C0930d(contextM5221e, request.f11467d, String.valueOf(request.f11468e), request.f11460L);
         this.f11439c = c0930d;
         synchronized (c0930d) {
-            if (!c0930d.f38679d) {
-                int i2 = c0930d.f38685j;
-                s76 s76Var = s76.f60467a;
-                if (lp1.f49971a.contains(s76.class)) {
-                    i = 0;
-                    if (i == -1) {
-                        intentM21136d = s76.m21136d(c0930d.f38676a);
-                        if (intentM21136d == null) {
-                            z = false;
-                        } else {
-                            c0930d.f38679d = true;
-                            c0930d.f38676a.bindService(intentM21136d, c0930d, 1);
-                            z = true;
-                        }
-                    }
-                } else {
-                    try {
-                        i = s76.f60467a.m21146g(s76.f60468b, new int[]{i2}).f34342b;
-                    } catch (Throwable th) {
-                        lp1.m16420a(s76.class, th);
+            try {
+                if (!c0930d.f38679d) {
+                    int i2 = c0930d.f38685j;
+                    s76 s76Var = s76.f60467a;
+                    if (lp1.f49971a.contains(s76.class)) {
                         i = 0;
-                    }
-                    if (i == -1) {
-                        intentM21136d = s76.m21136d(c0930d.f38676a);
-                        if (intentM21136d == null) {
-                            z = false;
-                        } else {
-                            c0930d.f38679d = true;
-                            c0930d.f38676a.bindService(intentM21136d, c0930d, 1);
-                            z = true;
+                        if (i == -1) {
+                            intentM21136d = s76.m21136d(c0930d.f38676a);
+                            if (intentM21136d == null) {
+                                z = false;
+                            } else {
+                                c0930d.f38679d = true;
+                                c0930d.f38676a.bindService(intentM21136d, c0930d, 1);
+                                z = true;
+                            }
+                        }
+                    } else {
+                        try {
+                            i = s76.f60467a.m21146g(s76.f60468b, new int[]{i2}).f34342b;
+                        } catch (Throwable th) {
+                            lp1.m16420a(s76.class, th);
+                            i = 0;
+                        }
+                        if (i == -1) {
+                            intentM21136d = s76.m21136d(c0930d.f38676a);
+                            if (intentM21136d == null) {
+                                z = false;
+                            } else {
+                                c0930d.f38679d = true;
+                                c0930d.f38676a.bindService(intentM21136d, c0930d, 1);
+                                z = true;
+                            }
                         }
                     }
                 }
+                z = false;
+            } catch (Throwable th2) {
+                throw th2;
             }
-            z = false;
         }
         if (!z) {
             return 0;

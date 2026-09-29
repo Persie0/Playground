@@ -63,7 +63,6 @@ public final class C5173a extends AbstractC10357a {
         this.f33185L = c5791a;
     }
 
-    /* JADX WARN: Bottom block not found for handler: all -> 0x017c */
     /* JADX WARN: Bottom block not found for handler: all -> 0x0184 */
     /* JADX WARN: Unreachable blocks removed: 3, instructions: 3 */
     @Override // p509yf.AbstractC10357a
@@ -128,13 +127,17 @@ public final class C5173a extends AbstractC10357a {
             }
             C5177e c5177eM12184j = c5793a.m12184j();
             synchronized (c5177eM12184j) {
-                C6326a c6326a2 = c5177eM12184j.f33205a;
-                synchronized (c6326a2) {
-                    try {
-                        j12 = c6326a2.f36555a.getLong("last_remove_time_millis", 0L);
-                    } catch (Throwable th3) {
-                        throw th3;
+                try {
+                    C6326a c6326a2 = c5177eM12184j.f33205a;
+                    synchronized (c6326a2) {
+                        try {
+                            j12 = c6326a2.f36555a.getLong("last_remove_time_millis", 0L);
+                        } catch (Throwable th3) {
+                            throw th3;
+                        }
                     }
+                } catch (Throwable th4) {
+                    throw th4;
                 }
             }
             if (m10948x("IdentityLink", j12)) {

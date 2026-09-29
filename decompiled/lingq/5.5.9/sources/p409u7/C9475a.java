@@ -68,53 +68,49 @@ public final class C9475a {
     /* JADX WARN: Unreachable blocks removed: 1, instructions: 1 */
     /* JADX INFO: renamed from: a */
     public final synchronized void m17896a() {
+        if (C6205a.m12742b(this)) {
+            return;
+        }
         try {
-            if (C6205a.m12742b(this)) {
-                return;
-            }
-            try {
-                FetchedAppSettingsManager fetchedAppSettingsManager = FetchedAppSettingsManager.f11550a;
-                C5074n c5074nM6673f = FetchedAppSettingsManager.m6673f(C8004n.m15872b(), false);
-                if (c5074nM6673f != null) {
-                    String str = c5074nM6673f.f32981o;
-                    if (str != null) {
-                        if (str.length() > 0) {
-                            JSONObject jSONObject = new JSONObject(str);
-                            f48581c.clear();
-                            Iterator<String> itKeys = jSONObject.keys();
-                            loop0: while (true) {
-                                while (true) {
-                                    if (!itKeys.hasNext()) {
-                                        break loop0;
-                                    }
-                                    String next = itKeys.next();
-                                    JSONObject jSONObject2 = jSONObject.getJSONObject(next);
-                                    if (jSONObject2 != null) {
-                                        if (jSONObject2.optBoolean("is_deprecated_event")) {
-                                            HashSet hashSet = f48582d;
-                                            C5207g.m11110e(next, "key");
-                                            hashSet.add(next);
-                                        } else {
-                                            JSONArray jSONArrayOptJSONArray = jSONObject2.optJSONArray("deprecated_param");
-                                            C5207g.m11110e(next, "key");
-                                            a aVar = new a(new ArrayList(), next);
-                                            if (jSONArrayOptJSONArray != null) {
-                                                aVar.f48584b = C5086z.m10822g(jSONArrayOptJSONArray);
-                                            }
-                                            f48581c.add(aVar);
+            FetchedAppSettingsManager fetchedAppSettingsManager = FetchedAppSettingsManager.f11550a;
+            C5074n c5074nM6673f = FetchedAppSettingsManager.m6673f(C8004n.m15872b(), false);
+            if (c5074nM6673f != null) {
+                String str = c5074nM6673f.f32981o;
+                if (str != null) {
+                    if (str.length() > 0) {
+                        JSONObject jSONObject = new JSONObject(str);
+                        f48581c.clear();
+                        Iterator<String> itKeys = jSONObject.keys();
+                        loop0: while (true) {
+                            while (true) {
+                                if (!itKeys.hasNext()) {
+                                    break loop0;
+                                }
+                                String next = itKeys.next();
+                                JSONObject jSONObject2 = jSONObject.getJSONObject(next);
+                                if (jSONObject2 != null) {
+                                    if (jSONObject2.optBoolean("is_deprecated_event")) {
+                                        HashSet hashSet = f48582d;
+                                        C5207g.m11110e(next, "key");
+                                        hashSet.add(next);
+                                    } else {
+                                        JSONArray jSONArrayOptJSONArray = jSONObject2.optJSONArray("deprecated_param");
+                                        C5207g.m11110e(next, "key");
+                                        a aVar = new a(new ArrayList(), next);
+                                        if (jSONArrayOptJSONArray != null) {
+                                            aVar.f48584b = C5086z.m10822g(jSONArrayOptJSONArray);
                                         }
+                                        f48581c.add(aVar);
                                     }
                                 }
                             }
                         }
                     }
                 }
-            } catch (Exception unused) {
-            } catch (Throwable th2) {
-                C6205a.m12741a(this, th2);
             }
-        } catch (Throwable th3) {
-            throw th3;
+        } catch (Exception unused) {
+        } catch (Throwable th2) {
+            C6205a.m12741a(this, th2);
         }
     }
 }

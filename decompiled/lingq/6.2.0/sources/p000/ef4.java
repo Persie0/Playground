@@ -49,38 +49,34 @@ public final class ef4 implements ff4 {
             return true;
         }
         if (obj != null) {
-            try {
-                if (ef4.class == obj.getClass()) {
-                    ef4 ef4Var = (ef4) obj;
-                    if (m11093f() != ef4Var.m11093f()) {
-                        return false;
-                    }
-                    if (m11093f() == 0) {
-                        return true;
-                    }
-                    for (int i = 0; i < m11093f(); i++) {
-                        Object objM11089a = m11089a(i);
-                        if (objM11089a != null) {
-                            synchronized (ef4Var) {
-                                try {
-                                    Object objM11089a2 = ef4Var.m11089a(i);
-                                    if (objM11089a instanceof rf4) {
-                                        objM11089a2 = rf4.m20645e(objM11089a2);
-                                    }
-                                    zM3254v = b34.m3254v(objM11089a, objM11089a2);
-                                } catch (Throwable th) {
-                                    throw th;
-                                }
-                            }
-                            if (zM3254v) {
-                            }
-                        }
-                        return false;
-                    }
+            if (ef4.class == obj.getClass()) {
+                ef4 ef4Var = (ef4) obj;
+                if (m11093f() != ef4Var.m11093f()) {
+                    return false;
+                }
+                if (m11093f() == 0) {
                     return true;
                 }
-            } catch (Throwable th2) {
-                throw th2;
+                for (int i = 0; i < m11093f(); i++) {
+                    Object objM11089a = m11089a(i);
+                    if (objM11089a != null) {
+                        synchronized (ef4Var) {
+                            try {
+                                Object objM11089a2 = ef4Var.m11089a(i);
+                                if (objM11089a instanceof rf4) {
+                                    objM11089a2 = rf4.m20645e(objM11089a2);
+                                }
+                                zM3254v = b34.m3254v(objM11089a, objM11089a2);
+                            } catch (Throwable th) {
+                                throw th;
+                            }
+                        }
+                        if (zM3254v) {
+                        }
+                    }
+                    return false;
+                }
+                return true;
             }
         }
         return false;

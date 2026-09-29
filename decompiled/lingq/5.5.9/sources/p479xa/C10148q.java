@@ -637,10 +637,14 @@ public final class C10148q {
                             i12 = i10;
                             break;
                         }
-                        if (bArr[i12] == 0 && bArr[i12 + 1] == 0 && bArr[i12 + 2] == 3) {
-                            break;
+                        try {
+                            if (bArr[i12] == 0 && bArr[i12 + 1] == 0 && bArr[i12 + 2] == 3) {
+                                break;
+                            }
+                            i12++;
+                        } catch (Throwable th2) {
+                            throw th2;
                         }
-                        i12++;
                     }
                     if (i12 < i10) {
                         int[] iArr = f51405d;
@@ -651,7 +655,7 @@ public final class C10148q {
                         i12 += 3;
                         i13++;
                     }
-                    throw th;
+                    throw th2;
                 }
             }
             i11 = i10 - i13;

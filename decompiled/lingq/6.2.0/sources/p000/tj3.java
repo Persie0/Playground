@@ -241,18 +241,14 @@ public final class tj3 implements ye1 {
                                         } else {
                                             pf1 pf1Var = tj3Var2.f62394h;
                                             synchronized (pf1Var.f56041d) {
+                                                pf1Var.m19100p();
+                                                n66 n66Var = pf1Var.f56028I;
+                                                pf1Var.f56028I = fa4.m11654p();
                                                 try {
-                                                    pf1Var.m19100p();
-                                                    n66 n66Var = pf1Var.f56028I;
-                                                    pf1Var.f56028I = fa4.m11654p();
-                                                    try {
-                                                        pf1Var.f56036Q.m22125i0(n66Var);
-                                                    } catch (Throwable th) {
-                                                        pf1Var.f56028I = n66Var;
-                                                        throw th;
-                                                    }
-                                                } catch (Throwable th2) {
-                                                    throw th2;
+                                                    pf1Var.f56036Q.m22125i0(n66Var);
+                                                } catch (Throwable th) {
+                                                    pf1Var.f56028I = n66Var;
+                                                    throw th;
                                                 }
                                             }
                                             tt0 tt0Var = new tt0();
@@ -281,8 +277,8 @@ public final class tj3 implements ye1 {
                                                                 }
                                                                 ze1Var.f71431b = tt0Var2;
                                                                 bb9Var.m3559c();
-                                                            } catch (Throwable th3) {
-                                                                th = th3;
+                                                            } catch (Throwable th2) {
+                                                                th = th2;
                                                                 ze1Var.f71431b = tt0Var2;
                                                                 throw th;
                                                             }
@@ -291,18 +287,18 @@ public final class tj3 implements ye1 {
                                                         }
                                                         ze1Var.f71431b = tt0Var2;
                                                         bb9Var.m3559c();
-                                                    } catch (Throwable th4) {
-                                                        th = th4;
+                                                    } catch (Throwable th3) {
+                                                        th = th3;
                                                         bb9Var.m3559c();
                                                         throw th;
                                                     }
                                                     i5 = 0;
-                                                } catch (Throwable th5) {
-                                                    th = th5;
+                                                } catch (Throwable th4) {
+                                                    th = th4;
                                                     bb9Var = bb9VarM4491g;
                                                 }
-                                            } catch (Throwable th6) {
-                                                th = th6;
+                                            } catch (Throwable th5) {
+                                                th = th5;
                                                 bb9Var = bb9VarM4491g;
                                             }
                                         }

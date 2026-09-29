@@ -31,25 +31,29 @@ public final class dh2 extends sr9 {
             case 0:
                 gh2 gh2Var = (gh2) this.f35646f;
                 synchronized (gh2Var) {
-                    if (gh2Var.f40799H && !gh2Var.f40800I) {
-                        try {
-                            gh2Var.m12643A();
-                        } catch (IOException unused) {
-                            gh2Var.f40801J = true;
-                        }
-                        try {
-                            if (gh2Var.m12649p()) {
-                                gh2Var.m12653x();
-                                gh2Var.f40815j = 0;
+                    try {
+                        if (gh2Var.f40799H && !gh2Var.f40800I) {
+                            try {
+                                gh2Var.m12643A();
+                            } catch (IOException unused) {
+                                gh2Var.f40801J = true;
                             }
-                        } catch (IOException unused2) {
-                            gh2Var.f40802K = true;
-                            d18 d18Var = gh2Var.f40813h;
-                            if (d18Var != null) {
-                                icb.m13766b(d18Var);
+                            try {
+                                if (gh2Var.m12649p()) {
+                                    gh2Var.m12653x();
+                                    gh2Var.f40815j = 0;
+                                }
+                            } catch (IOException unused2) {
+                                gh2Var.f40802K = true;
+                                d18 d18Var = gh2Var.f40813h;
+                                if (d18Var != null) {
+                                    icb.m13766b(d18Var);
+                                }
+                                gh2Var.f40813h = new d18(new id0());
                             }
-                            gh2Var.f40813h = new d18(new id0());
                         }
+                    } catch (Throwable th) {
+                        throw th;
                     }
                     break;
                 }

@@ -63,51 +63,47 @@ public final class C8967b {
         public final Boolean call() throws Exception {
             Boolean bool;
             synchronized (this) {
+                C2181a c2181aM17193c = C8967b.this.m17193c();
+                String strM17194d = C8967b.this.m17194d();
+                c2181aM17193c.getClass();
+                C2181a.m6460m(strM17194d, "Feature flags init is called");
+                String str = C8967b.this.m17192b() + "/ff_cache.json";
                 try {
-                    C2181a c2181aM17193c = C8967b.this.m17193c();
-                    String strM17194d = C8967b.this.m17194d();
-                    c2181aM17193c.getClass();
-                    C2181a.m6460m(strM17194d, "Feature flags init is called");
-                    String str = C8967b.this.m17192b() + "/ff_cache.json";
-                    try {
-                        C8967b.this.f46981g.clear();
-                        String strM10728b = C8967b.this.f46980f.m10728b(str);
-                        if (TextUtils.isEmpty(strM10728b)) {
-                            C2181a c2181aM17193c2 = C8967b.this.m17193c();
-                            c2181aM17193c2.getClass();
-                            C2181a.m6460m(C8967b.this.m17194d(), "Feature flags file is empty-" + str);
-                        } else {
-                            JSONArray jSONArray = new JSONObject(strM10728b).getJSONArray("kv");
-                            if (jSONArray != null && jSONArray.length() > 0) {
-                                for (int i10 = 0; i10 < jSONArray.length(); i10++) {
-                                    JSONObject jSONObject = (JSONObject) jSONArray.get(i10);
-                                    if (jSONObject != null) {
-                                        String string = jSONObject.getString("n");
-                                        String string2 = jSONObject.getString("v");
-                                        if (!TextUtils.isEmpty(string)) {
-                                            C8967b.this.f46981g.put(string, Boolean.valueOf(Boolean.parseBoolean(string2)));
-                                        }
+                    C8967b.this.f46981g.clear();
+                    String strM10728b = C8967b.this.f46980f.m10728b(str);
+                    if (TextUtils.isEmpty(strM10728b)) {
+                        C2181a c2181aM17193c2 = C8967b.this.m17193c();
+                        c2181aM17193c2.getClass();
+                        C2181a.m6460m(C8967b.this.m17194d(), "Feature flags file is empty-" + str);
+                    } else {
+                        JSONArray jSONArray = new JSONObject(strM10728b).getJSONArray("kv");
+                        if (jSONArray != null && jSONArray.length() > 0) {
+                            for (int i10 = 0; i10 < jSONArray.length(); i10++) {
+                                JSONObject jSONObject = (JSONObject) jSONArray.get(i10);
+                                if (jSONObject != null) {
+                                    String string = jSONObject.getString("n");
+                                    String string2 = jSONObject.getString("v");
+                                    if (!TextUtils.isEmpty(string)) {
+                                        C8967b.this.f46981g.put(string, Boolean.valueOf(Boolean.parseBoolean(string2)));
                                     }
                                 }
                             }
-                            C2181a c2181aM17193c3 = C8967b.this.m17193c();
-                            String strM17194d2 = C8967b.this.m17194d();
-                            String str2 = "Feature flags initialized from file " + str + " with configs  " + C8967b.this.f46981g;
-                            c2181aM17193c3.getClass();
-                            C2181a.m6460m(strM17194d2, str2);
                         }
-                        bool = Boolean.TRUE;
-                    } catch (Exception e10) {
-                        e10.printStackTrace();
-                        C2181a c2181aM17193c4 = C8967b.this.m17193c();
-                        String strM17194d3 = C8967b.this.m17194d();
-                        String str3 = "UnArchiveData failed file- " + str + " " + e10.getLocalizedMessage();
-                        c2181aM17193c4.getClass();
-                        C2181a.m6460m(strM17194d3, str3);
-                        bool = Boolean.FALSE;
+                        C2181a c2181aM17193c3 = C8967b.this.m17193c();
+                        String strM17194d2 = C8967b.this.m17194d();
+                        String str2 = "Feature flags initialized from file " + str + " with configs  " + C8967b.this.f46981g;
+                        c2181aM17193c3.getClass();
+                        C2181a.m6460m(strM17194d2, str2);
                     }
-                } catch (Throwable th2) {
-                    throw th2;
+                    bool = Boolean.TRUE;
+                } catch (Exception e10) {
+                    e10.printStackTrace();
+                    C2181a c2181aM17193c4 = C8967b.this.m17193c();
+                    String strM17194d3 = C8967b.this.m17194d();
+                    String str3 = "UnArchiveData failed file- " + str + " " + e10.getLocalizedMessage();
+                    c2181aM17193c4.getClass();
+                    C2181a.m6460m(strM17194d3, str3);
+                    bool = Boolean.FALSE;
                 }
             }
             return bool;

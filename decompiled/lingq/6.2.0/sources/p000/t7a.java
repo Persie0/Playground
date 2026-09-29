@@ -91,14 +91,10 @@ public final class t7a {
         this.f61961g = z;
     }
 
-    /* JADX WARN: Bottom block not found for handler: all -> 0x0105 */
     /* JADX WARN: Code duplicated, block: B:32:0x008b A[Catch: IOException -> 0x0062, TryCatch #2 {IOException -> 0x0062, blocks: (B:15:0x002b, B:32:0x008b, B:34:0x0093, B:20:0x003c, B:22:0x0044, B:24:0x004f, B:27:0x0065, B:29:0x006d, B:31:0x0078), top: B:88:0x002b }] */
     /* JADX WARN: Code duplicated, block: B:34:0x0093 A[Catch: IOException -> 0x0062, TRY_LEAVE, TryCatch #2 {IOException -> 0x0062, blocks: (B:15:0x002b, B:32:0x008b, B:34:0x0093, B:20:0x003c, B:22:0x0044, B:24:0x004f, B:27:0x0065, B:29:0x006d, B:31:0x0078), top: B:88:0x002b }] */
     /* JADX WARN: Instruction removed from duplicated block: B:34:0x0093, please report this as an issue */
     /* JADX INFO: renamed from: e */
-    /*
-        Code decompiled incorrectly, please refer to instructions dump.
-    */
     public final boolean m21892e() throws IOException {
         n7a n7aVarM20436a;
         while (true) {
@@ -135,16 +131,20 @@ public final class t7a {
                 }
                 r7a r7aVar = this.f61962h;
                 synchronized (r7aVar) {
-                    w41 w41Var = r7aVar.f58861a;
-                    String str3 = n7aVarM20436a.f52467c;
-                    synchronized (((ArrayDeque) w41Var.f66368d)) {
-                        try {
-                            if (((ArrayDeque) w41Var.f66368d).remove(str3)) {
-                                ((ScheduledThreadPoolExecutor) w41Var.f66369e).execute(new mt6(w41Var, 7));
+                    try {
+                        w41 w41Var = r7aVar.f58861a;
+                        String str3 = n7aVarM20436a.f52467c;
+                        synchronized (((ArrayDeque) w41Var.f66368d)) {
+                            try {
+                                if (((ArrayDeque) w41Var.f66368d).remove(str3)) {
+                                    ((ScheduledThreadPoolExecutor) w41Var.f66369e).execute(new mt6(w41Var, 7));
+                                }
+                            } catch (Throwable th2) {
+                                throw th2;
                             }
-                        } catch (Throwable th2) {
-                            throw th2;
                         }
+                    } catch (Throwable th3) {
+                        throw th3;
                     }
                 }
                 synchronized (this.f61959e) {
@@ -160,8 +160,8 @@ public final class t7a {
                                 this.f61959e.remove(str4);
                             }
                         }
-                    } catch (Throwable th3) {
-                        throw th3;
+                    } catch (Throwable th4) {
+                        throw th4;
                     }
                 }
             } catch (IOException e) {

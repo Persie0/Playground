@@ -183,7 +183,11 @@ public final class wk8 {
         return m24023c(vh0VarM24023c, b04Var.f7721b, m32Var.f50503h, b04Var.f7720a);
     }
 
+    /* JADX WARN: Bottom block not found for handler: all -> 0x0040 */
     /* JADX INFO: renamed from: a */
+    /*
+        Code decompiled incorrectly, please refer to instructions dump.
+    */
     public final void m24026a(long j) {
         vh0 vh0Var;
         if (j == -1) {
@@ -197,23 +201,19 @@ public final class wk8 {
             gv5 gv5Var = this.f66975a;
             C3830ze c3830ze = (C3830ze) vh0Var.f65367c;
             synchronized (gv5Var) {
-                try {
-                    u42 u42Var = ((h72) gv5Var.f41394d).f41860c;
-                    synchronized (u42Var) {
-                        try {
-                            C3830ze[] c3830zeArr = u42Var.f63384f;
-                            int i = u42Var.f63383e;
-                            u42Var.f63383e = i + 1;
-                            c3830zeArr[i] = c3830ze;
-                            u42Var.f63382d--;
-                        } catch (Throwable th) {
-                            throw th;
-                        }
+                u42 u42Var = ((h72) gv5Var.f41394d).f41860c;
+                synchronized (u42Var) {
+                    try {
+                        C3830ze[] c3830zeArr = u42Var.f63384f;
+                        int i = u42Var.f63383e;
+                        u42Var.f63383e = i + 1;
+                        c3830zeArr[i] = c3830ze;
+                        u42Var.f63382d--;
+                    } catch (Throwable th) {
+                        throw th;
                     }
-                    gv5Var.m12881K(c3830ze);
-                } catch (Throwable th2) {
-                    throw th2;
                 }
+                gv5Var.m12881K(c3830ze);
             }
             vh0 vh0Var2 = this.f66978d;
             vh0Var2.f65367c = null;
