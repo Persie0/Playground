@@ -82,18 +82,20 @@ jobs:
             local jadx_exit="${PIPESTATUS[0]}"
             set -e
 
+            local version_key="${version//./}"
             local source_count
             source_count="$(find "$out/sources" -type f -name '*.java' 2>/dev/null | wc -l)"
             if [ "$source_count" -eq 0 ]; then
               echo "JADX produced no Java source files for $version."
-              return "${jadx_exit:-1}"
+              return 1
             fi
 
-            echo "JADX_EXIT_$version=$jadx_exit" >> "$GITHUB_ENV"
-            echo "JADX_SOURCES_$version=$source_count" >> "$GITHUB_ENV"
+            echo "JADX_EXIT_${version_key}=$jadx_exit" >> "$GITHUB_ENV"
+            echo "JADX_SOURCES_${version_key}=$source_count" >> "$GITHUB_ENV"
             if [ "$jadx_exit" -ne 0 ]; then
               echo "::warning::JADX exited with code $jadx_exit for $version but produced $source_count Java files; retaining recoverable output."
             fi
+            return 0
           }
 
           run_jadx "6.2.0" "input/lingq-6.2.0.apk"
@@ -109,15 +111,15 @@ jobs:
           ## 6.2.0
           - Input: `LingQ+_+Learn+Languages_6.2.0_APKPure.xapk` (SHA-256: `e5a18111c7b9399afd6a4434b94a79986e8201f9fb766ca58590a9de1fb5b6f3`)
           - Decompiled APK: XAPK base APK `com.linguist.apk` (SHA-256: `$LINGQ_620_APK_SHA`)
-          - JADX exit: `$JADX_EXIT_6.2.0`
-          - Java files: `$JADX_SOURCES_6.2.0`
+          - JADX exit: `$JADX_EXIT_620`
+          - Java files: `$JADX_SOURCES_620`
           - Mapping: `6.2.0/6.2.0.jobf`
           - Log: `6.2.0/jadx.log`
 
           ## 5.5.9
           - Input: `LingQ.ver.5.5.9.build.424.apk` (SHA-256: `2313cf14a0b8b7b24975f4f9bf16677a80286284160c618db126c17bb7647fef`)
-          - JADX exit: `$JADX_EXIT_5.5.9`
-          - Java files: `$JADX_SOURCES_5.5.9`
+          - JADX exit: `$JADX_EXIT_559`
+          - Java files: `$JADX_SOURCES_559`
           - Mapping: `5.5.9/5.5.9.jobf`
           - Log: `5.5.9/jadx.log`
 
