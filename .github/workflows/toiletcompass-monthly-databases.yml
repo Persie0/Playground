@@ -63,6 +63,12 @@ jobs:
           python3 database/monthly_country_pipeline.py discover | tee /tmp/toilet-sources.json
           test "$(python3 -c 'import json; print(json.load(open("/tmp/toilet-sources.json"))["count"])')" -eq 249
           test "$(python3 -c 'import json; print(len(json.load(open("/tmp/toilet-sources.json"))["unresolved"]))')" -eq 0
+          python3 - <<'PY'
+          import json
+          data = json.load(open('/tmp/toilet-sources.json'))
+          fallbacks = set(data['fallbacks'])
+          assert {'ID', 'IE', 'MY'} <= fallbacks, fallbacks
+          PY
 
       - uses: subosito/flutter-action@v2
         with:
@@ -94,18 +100,19 @@ jobs:
           python3 database/monthly_country_pipeline.py build-all \
             --output /tmp/toiletcompass-db-pilot \
             --version pilot-${{ github.run_number }} \
-            --countries LU,BH,AS
+            --countries LU,BH,AS,BQ
           python3 database/monthly_country_pipeline.py validate-all \
             --output /tmp/toiletcompass-db-pilot
           test ! -e /tmp/toiletcompass-db-pilot/.scratch
           LU_COUNTRY="$(sqlite3 /tmp/toiletcompass-db-pilot/countries/LU.db 'SELECT COUNT(*) FROM toilets;')"
           BH_COUNTRY="$(sqlite3 /tmp/toiletcompass-db-pilot/countries/BH.db 'SELECT COUNT(*) FROM toilets;')"
           AS_COUNTRY="$(sqlite3 /tmp/toiletcompass-db-pilot/countries/AS.db 'SELECT COUNT(*) FROM toilets;')"
+          BQ_COUNTRY="$(sqlite3 /tmp/toiletcompass-db-pilot/countries/BQ.db 'SELECT COUNT(*) FROM toilets;')"
           EUROPE="$(sqlite3 /tmp/toiletcompass-db-pilot/continents/europe.db 'SELECT COUNT(*) FROM toilets;')"
           test "$LU_COUNTRY" -gt 0
           test "$BH_COUNTRY" -gt 0
           test "$EUROPE" -gt 0
-          echo "LU=$LU_COUNTRY; BH=$BH_COUNTRY; AS=$AS_COUNTRY; Europe=$EUROPE"
+          echo "LU=$LU_COUNTRY; BH=$BH_COUNTRY; AS=$AS_COUNTRY; BQ=$BQ_COUNTRY; Europe=$EUROPE"
 
       - name: Decide full build
         id: full
@@ -219,7 +226,7 @@ jobs:
         run: |
           gh release view "$DB_RELEASE_VERSION" --repo Persie0/OnnxModels --json assets \
             --jq '.assets[].name' > /tmp/published-assets.txt
-          for name in AS.db BH.db SA.db IL.db PS.db africa.db antarctica.db asia.db australia-oceania.db central-america.db europe.db north-america.db south-america.db manifest.json SHA256SUMS; do
+          for name in AS.db BQ.db BH.db ID.db IE.db MY.db SA.db IL.db PS.db africa.db antarctica.db asia.db australia-oceania.db central-america.db europe.db north-america.db south-america.db manifest.json SHA256SUMS; do
             grep -Fx "$name" /tmp/published-assets.txt >/dev/null
           done
           gh release view toilets-latest --repo Persie0/OnnxModels --json assets \
