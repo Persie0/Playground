@@ -1,6 +1,6 @@
 name: ToiletCompass monthly databases
 
-# Task 2 GREEN rerun: verify all live Geofabrik country mappings.
+# Temporary mapping audit runner: print all duplicate ISO entries from Geofabrik.
 on:
   push:
     branches: [toiletcompass-monthly-db]
@@ -53,6 +53,23 @@ jobs:
         working-directory: app
         run: python3 -m unittest discover -s database/tests -v
 
-      - name: Verify live Geofabrik country discovery
+      - name: Audit duplicate Geofabrik ISO mappings
         working-directory: app
-        run: python3 database/toilet_pipeline.py discover
+        run: |
+          python3 - <<'PY'
+          import sys
+          from collections import defaultdict
+          sys.path.insert(0, 'database')
+          from toilet_pipeline import fetch_geofabrik_index
+
+          grouped = defaultdict(list)
+          for feature in fetch_geofabrik_index().get('features', []):
+              p = feature.get('properties', {})
+              iso = p.get('iso3166-1:alpha2')
+              url = (p.get('urls') or {}).get('pbf')
+              if isinstance(iso, list) and len(iso) == 1 and url:
+                  grouped[str(iso[0]).upper()].append(str(p.get('id')))
+          for iso, ids in sorted(grouped.items()):
+              if len(ids) > 1:
+                  print(f'{iso}: {", ".join(ids)}')
+          PY
