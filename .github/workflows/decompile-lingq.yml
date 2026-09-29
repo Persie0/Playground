@@ -7,7 +7,7 @@ on:
       - ".github/workflows/decompile-lingq.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: lingq-decompile
@@ -137,31 +137,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           du -sh decompiled/lingq
 
-      - name: Commit generated sources to Playground
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A decompiled/lingq
-          if git diff --cached --quiet; then
-            echo "No generated changes to commit."
-            exit 0
-          fi
-          git commit -m "Decompile LingQ release 1 with JADX 1.5.6"
-
-          for attempt in 1 2 3 4 5; do
-            git fetch --no-tags --unshallow origin main 2>/dev/null || git fetch --no-tags origin main
-            if git rebase origin/main; then
-              if git push origin HEAD:main; then
-                exit 0
-              fi
-            else
-              git rebase --abort || true
-              echo "Rebase conflict while syncing generated LingQ sources." >&2
-              exit 1
-            fi
-            echo "Push raced another Playground commit; retry $attempt/5."
-            sleep "$((attempt * 2))"
-          done
-
-          echo "Unable to push the generated sources after five retries." >&2
-          exit 1
+      - name: Upload decompiled sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: lingq-jadx-sources
+          path: decompiled/lingq/
+          if-no-files-found: error
+          retention-days: 90
