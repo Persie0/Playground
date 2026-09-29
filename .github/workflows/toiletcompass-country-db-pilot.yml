@@ -20,40 +20,18 @@ jobs:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: test -n "$PRIVATE_TOKEN"
 
-      - name: Checkout ToiletCompass pilot branch
+      - name: Checkout ToiletCompass feature branch
         uses: actions/checkout@v5
         with:
           repository: Persie0/toiletcompass
           ref: feat/monthly-country-database-pipeline-pilot2
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: true
+          persist-credentials: false
           path: toiletcompass
 
-      - name: Apply confirmed osmium attribute fix to source branch
+      - name: Run all database pipeline tests
         working-directory: toiletcompass
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('database/country_pipeline.py')
-          text = path.read_text()
-          old = '_run(["osmium", "export", str(filtered), "-f", "geojsonseq", "-o", str(exported), "--overwrite"])'
-          new = '_run(["osmium", "export", str(filtered), "-a", "id,type", "-f", "geojsonseq", "-o", str(exported), "--overwrite"])'
-          if old in text:
-              path.write_text(text.replace(old, new, 1))
-          elif new not in text:
-              raise SystemExit('expected osmium export command not found')
-          PY
-          if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add database/country_pipeline.py
-            git commit -m "fix: export OSM ids for country databases"
-            git push origin HEAD:feat/monthly-country-database-pipeline-pilot2
-          fi
-
-      - name: Run country pipeline contract tests
-        working-directory: toiletcompass
-        run: python3 -m unittest database.tests.test_country_pipeline -v
+        run: python3 -m unittest discover -s database/tests -v
 
       - name: Install OSM tooling
         run: |
@@ -61,72 +39,52 @@ jobs:
           sudo apt-get install -y --no-install-recommends osmium-tool
           osmium --version
 
-      - name: Build Austria then Slovenia in one sequential job
+      - name: Build Austria and Slovenia via monthly streaming path
         working-directory: toiletcompass
         run: |
-          rm -rf /tmp/toilet-db-scratch pilot-output
-          mkdir -p /tmp/toilet-db-scratch pilot-output
-          python3 database/country_pipeline.py \
-            --config database/countries.pilot.json \
-            --output-dir pilot-output \
-            --scratch-dir /tmp/toilet-db-scratch
-          echo 'Scratch after complete run:'
-          du -ah /tmp/toilet-db-scratch || true
+          rm -rf /tmp/toilet-db-scratch monthly-pilot
+          python3 database/monthly_pipeline.py \
+            --output-root monthly-pilot \
+            --scratch-dir /tmp/toilet-db-scratch \
+            --countries AT,SI \
+            --release-tag toiletdb-pilot \
+            --public-repo Persie0/OnnxModels
           test -z "$(find /tmp/toilet-db-scratch -type f -print -quit)"
 
-      - name: Independently inspect generated app databases
+      - name: Verify generated release assets
         working-directory: toiletcompass
         run: |
-          set -o pipefail
-          python3 - <<'PY' | tee pilot-output/pilot-report.txt
-          import hashlib
-          import sqlite3
+          python3 - <<'PY'
+          import json, sqlite3
           from pathlib import Path
-
-          expected = [
-              'id','osm_id','name','lat','lon','fee','wheelchair','opening_hours',
-              'access','changing_table','toilets_position','toilets_disposal',
-              'toilets_handwashing','drinking_water','level','location','gender'
-          ]
-          counts = {}
-          for name in ('AT.db', 'SI.db', 'europe.db'):
-              path = Path('pilot-output') / name
-              assert path.exists(), name
-              assert not Path(str(path) + '-wal').exists()
-              assert not Path(str(path) + '-shm').exists()
-              con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
-              integrity = con.execute('PRAGMA integrity_check').fetchone()[0]
-              columns = [r[1] for r in con.execute('PRAGMA table_info(toilets)')]
-              indexes = {r[1] for r in con.execute('PRAGMA index_list(toilets)')}
-              count = con.execute('SELECT COUNT(*) FROM toilets').fetchone()[0]
-              bad_coords = con.execute('SELECT COUNT(*) FROM toilets WHERE lat IS NULL OR lon IS NULL OR lat < -90 OR lat > 90 OR lon < -180 OR lon > 180').fetchone()[0]
-              null_osm = con.execute('SELECT COUNT(*) FROM toilets WHERE osm_id IS NULL').fetchone()[0]
-              sample = con.execute('SELECT osm_id,name,lat,lon FROM toilets ORDER BY id LIMIT 3').fetchall()
-              con.close()
-              assert integrity == 'ok'
-              assert columns == expected, (name, columns)
-              assert {'idx_lat','idx_lon','idx_osm_id'} <= indexes
-              assert bad_coords == 0
-              assert null_osm == 0
-              assert count > 0
-              counts[name] = count
-              digest = hashlib.sha256(path.read_bytes()).hexdigest()
-              print(f'{name}: rows={count} bytes={path.stat().st_size} sha256={digest}')
-              print(f'  columns={columns}')
-              print(f'  indexes={sorted(indexes)}')
-              print(f'  sample={sample}')
-          assert counts['europe.db'] == counts['AT.db'] + counts['SI.db'], counts
-          print(f"merge-count-check=ok ({counts['europe.db']} == {counts['AT.db']} + {counts['SI.db']})")
+          root = Path('monthly-pilot/release-assets')
+          expected = ['id','osm_id','name','lat','lon','fee','wheelchair','opening_hours','access','changing_table','toilets_position','toilets_disposal','toilets_handwashing','drinking_water','level','location','gender']
+          manifest = json.loads((root / 'manifest.json').read_text())
+          assert set(manifest['countries']) == {'AT', 'SI'}
+          assert set(manifest['continents']) == {'africa','antarctica','asia','australia-oceania','central-america','europe','north-america','south-america'}
+          country_total = 0
+          for name in ('AT.db','SI.db','europe.db'):
+            path = root / name
+            con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+            assert con.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+            assert [r[1] for r in con.execute('PRAGMA table_info(toilets)')] == expected
+            assert {'idx_lat','idx_lon','idx_osm_id'} <= {r[1] for r in con.execute('PRAGMA index_list(toilets)')}
+            rows = con.execute('SELECT COUNT(*) FROM toilets').fetchone()[0]
+            assert con.execute('SELECT COUNT(*) FROM toilets WHERE osm_id IS NULL OR lat IS NULL OR lon IS NULL').fetchone()[0] == 0
+            con.close()
+            assert rows > 0
+            print(name, rows)
+            if name in ('AT.db','SI.db'):
+              country_total += rows
+            else:
+              assert rows == country_total
+          print('streaming-pilot=ok')
           PY
 
-      - name: Upload pilot app-format databases
+      - name: Upload streaming pilot assets
         uses: actions/upload-artifact@v4
         with:
-          name: toiletcompass-country-db-pilot
-          path: |
-            toiletcompass/pilot-output/AT.db
-            toiletcompass/pilot-output/SI.db
-            toiletcompass/pilot-output/europe.db
-            toiletcompass/pilot-output/pilot-report.txt
+          name: toiletcompass-streaming-country-pilot
+          path: toiletcompass/monthly-pilot/release-assets/
           retention-days: 3
           if-no-files-found: error
