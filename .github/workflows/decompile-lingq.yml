@@ -147,4 +147,21 @@ jobs:
             exit 0
           fi
           git commit -m "Decompile LingQ release 1 with JADX 1.5.6"
-          git push origin HEAD:main
+
+          for attempt in 1 2 3 4 5; do
+            git fetch --no-tags --unshallow origin main 2>/dev/null || git fetch --no-tags origin main
+            if git rebase origin/main; then
+              if git push origin HEAD:main; then
+                exit 0
+              fi
+            else
+              git rebase --abort || true
+              echo "Rebase conflict while syncing generated LingQ sources." >&2
+              exit 1
+            fi
+            echo "Push raced another Playground commit; retry $attempt/5."
+            sleep "$((attempt * 2))"
+          done
+
+          echo "Unable to push the generated sources after five retries." >&2
+          exit 1
