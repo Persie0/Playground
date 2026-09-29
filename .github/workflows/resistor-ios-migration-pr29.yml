@@ -13,7 +13,7 @@ permissions:
 jobs:
   migrate:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Validate private checkout token
         env:
@@ -26,7 +26,7 @@ jobs:
           repository: Persie0/resistor_scanner
           ref: feat/ios-vision-support
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
+          persist-credentials: true
           path: source
 
       - name: Set up Flutter
@@ -36,30 +36,58 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Resolve dependencies and format smoke test source
+      - name: Fix, resolve, format and analyze smoke test
         working-directory: source
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('integration_test/ios_vision_smoke_test.dart')
+          text = path.read_text()
+          text = text.replace("import 'dart:typed_data';\n", '')
+          path.write_text(text)
+          PY
           flutter pub get
           dart format integration_test/ios_vision_smoke_test.dart
-          flutter analyze integration_test/ios_vision_smoke_test.dart
+          flutter analyze lib/services/camera_runtime.dart integration_test/ios_vision_smoke_test.dart
 
-      - name: Apply Flutter iOS project migration without compiling
+      - name: Build full app and apply Flutter iOS migration
         working-directory: source
-        run: flutter build ios --config-only --debug
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build ios --simulator --debug 2>&1 | tee "$RUNNER_TEMP/app-ios-build.log"
 
-      - name: Capture generated changes
+      - name: Review generated state
         working-directory: source
+        shell: bash
         run: |
           git status --short | tee "$RUNNER_TEMP/migration-status.txt"
+          git diff --check
           git diff -- integration_test/ios_vision_smoke_test.dart .gitignore ios pubspec.lock > "$RUNNER_TEMP/migration.patch"
           cat "$RUNNER_TEMP/migration.patch"
 
-      - name: Upload migration artifact
+      - name: Commit generated iOS state back to PR branch
+        working-directory: source
+        shell: bash
+        run: |
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add .gitignore pubspec.lock integration_test/ios_vision_smoke_test.dart ios
+          if git diff --cached --quiet; then
+            echo 'No generated changes to commit.'
+          else
+            git commit -m 'chore: apply Flutter iOS migration [skip ci]'
+            git push origin HEAD:feat/ios-vision-support
+          fi
+
+      - name: Upload migration diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: resistor-ios-pr29-migration
           path: |
+            ${{ runner.temp }}/app-ios-build.log
             ${{ runner.temp }}/migration-status.txt
             ${{ runner.temp }}/migration.patch
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 3
