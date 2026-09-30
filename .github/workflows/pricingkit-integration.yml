@@ -40,6 +40,12 @@ jobs:
           set -euo pipefail
           git config user.name "Persie0 Playground CI"
           git config user.email "actions@users.noreply.github.com"
+
+          if git log --format='%s' -n 20 | grep -Fq 'feat: update Google Play region currency resolution and display in bulk pricing modal'; then
+            echo 'Persie0 changes already applied; skipping cherry-picks.'
+            exit 0
+          fi
+
           for sha in \
             3713780cf7561c25b1d577637c1ce3a25f8f35a3 \
             884e0e277e45087a5d5768dc60b18706f523494a \
@@ -89,9 +95,25 @@ jobs:
             exit 1
           done
 
+      - name: Push integrated branch
+        working-directory: PricingKit
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          git remote set-url origin "https://x-access-token:${PRIVATE_TOKEN}@github.com/${TARGET_REPOSITORY}.git"
+          git push origin "HEAD:${TARGET_BRANCH}"
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Install dependencies
         working-directory: PricingKit
-        run: npm install --no-audit --no-fund
+        run: |
+          npm --version
+          npm install --no-audit --no-fund
 
       - name: Run tests
         working-directory: PricingKit
@@ -100,12 +122,3 @@ jobs:
       - name: Build
         working-directory: PricingKit
         run: npm run build
-
-      - name: Push verified integration branch
-        working-directory: PricingKit
-        env:
-          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        run: |
-          set -euo pipefail
-          git remote set-url origin "https://x-access-token:${PRIVATE_TOKEN}@github.com/${TARGET_REPOSITORY}.git"
-          git push origin "HEAD:${TARGET_BRANCH}"
