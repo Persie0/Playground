@@ -84,6 +84,36 @@ jobs:
           fi
           test -z "$(git diff --name-only --diff-filter=U)"
 
+      - name: Remove legacy hard-coded release URLs
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('database/toilet_pipeline.py')
+          text = path.read_text()
+          text = text.replace(
+              '    version: str,\n    public_repo: str = "Persie0/OnnxModels",\n) -> dict[str, Any]:',
+              '    version: str,\n) -> dict[str, Any]:',
+          )
+          text = text.replace(
+              '        manifest["continents"][path.stem] = {\n'
+              '            "file": path.name,\n'
+              '            "url": f"https://github.com/{public_repo}/releases/download/{version}/{path.name}",\n'
+              '            **metadata,\n'
+              '        }',
+              '        manifest["continents"][path.stem] = {\n'
+              '            "file": path.name,\n'
+              '            **metadata,\n'
+              '        }',
+          )
+          if 'Persie0/OnnxModels' in text or 'public_repo: str' in text:
+              raise SystemExit('legacy release URL removal did not apply completely')
+          path.write_text(text)
+          PY
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -98,6 +128,7 @@ jobs:
           dart format lib/database_manifest.dart lib/database_release_client.dart lib/database_auto_updater.dart lib/toilet_service.dart test/database_manifest_test.dart test/database_release_client_test.dart test/database_update_test.dart
           flutter analyze --no-fatal-infos --no-fatal-warnings
           flutter test
+          ! grep -R "Persie0/OnnxModels\|toilets-latest" database lib --exclude-dir=__pycache__
 
       - name: Commit and push merge
         working-directory: app
