@@ -1,0 +1,176 @@
+name: Sync Image Enhancer feature with main
+
+on:
+  push:
+    branches: [background-media-processing-validation-20260928]
+    paths:
+      - '.github/workflows/image-sync-main.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Image Enhancer feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_enhancer
+          ref: feature/android-background-media-processing-20260928
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Merge main and preserve both UI and foreground-processing changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+
+          set +e
+          git merge --no-commit --no-ff origin/main
+          merge_status=$?
+          set -e
+
+          if [[ $merge_status -ne 0 ]]; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            if [[ "$conflicts" != 'lib/super_resolution_home_page.dart' ]]; then
+              echo "Unexpected merge conflicts:"
+              printf '%s\n' "$conflicts"
+              exit 1
+            fi
+
+            git checkout --ours -- lib/super_resolution_home_page.dart
+            python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('lib/super_resolution_home_page.dart')
+          s = path.read_text()
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global s
+              if old not in s:
+                  raise SystemExit(f'missing expected {label} pattern')
+              s = s.replace(old, new, 1)
+
+          helper_anchor = """@visibleForTesting
+          bool isBatchSelectionActive(int selectedImageCount) => selectedImageCount > 0;
+          """
+          helper = helper_anchor + """
+          @visibleForTesting
+          double selectedPreviewHeightForViewport(
+            double viewportHeight, {
+            required bool isProcessing,
+          }) {
+            final fraction = isProcessing ? 0.20 : 0.26;
+            final minHeight = isProcessing ? 120.0 : 150.0;
+            final maxHeight = isProcessing ? 180.0 : 220.0;
+            return (viewportHeight * fraction).clamp(minHeight, maxHeight).toDouble();
+          }
+          """
+          replace_once(helper_anchor, helper, 'preview-height helper anchor')
+
+          replace_once(
+              """    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+          """,
+              """    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+              final hasSelectedInput =
+                  _selectedImage != null || _selectedImages.isNotEmpty;
+              final selectedPreviewHeight = selectedPreviewHeightForViewport(
+                MediaQuery.sizeOf(context).height,
+                isProcessing: _isProcessing,
+              );
+          """,
+              'build layout state',
+          )
+
+          replace_once(
+              """                      padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 56,
+                              ),
+          """,
+              """                      padding: EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: hasSelectedInput ? 12 : 56,
+                              ),
+          """,
+              'selected input padding',
+          )
+
+          replace_once(
+              """                          : _buildPreviewContent(isDark, textColor, isProUser),
+          """,
+              """                          : _buildPreviewContent(
+                                  isDark,
+                                  textColor,
+                                  isProUser,
+                                  previewImageHeight: selectedPreviewHeight,
+                                ),
+          """,
+              'preview call',
+          )
+
+          replace_once(
+              """                  Padding(
+                            padding: const EdgeInsets.only(top: 24, bottom: 8),
+          """,
+              """                  Padding(
+                            padding: EdgeInsets.only(
+                              top: hasSelectedInput ? 12 : 24,
+                              bottom: 8,
+                            ),
+          """,
+              'settings padding',
+          )
+
+          replace_once(
+              """  Widget _buildPreviewContent(bool isDark, Color textColor, bool isProUser) {
+          """,
+              """  Widget _buildPreviewContent(
+              bool isDark,
+              Color textColor,
+              bool isProUser, {
+              required double previewImageHeight,
+            }) {
+          """,
+              'preview signature',
+          )
+
+          replace_once(
+              """                Image.file(
+                          _selectedImage!,
+                          fit: BoxFit.contain,
+                          height: 200,
+                          cacheWidth: 1200,
+                        ),
+          """,
+              """                Image.file(
+                          _selectedImage!,
+                          fit: BoxFit.contain,
+                          height: previewImageHeight,
+                          cacheWidth: 1200,
+                        ),
+          """,
+              'selected image height',
+          )
+
+          path.write_text(s)
+          PY
+            git add lib/super_resolution_home_page.dart
+          fi
+
+          test -f test/home_layout_test.dart
+          grep -q 'selectedPreviewHeightForViewport' lib/super_resolution_home_page.dart
+          grep -q 'previewImageHeight: selectedPreviewHeight' lib/super_resolution_home_page.dart
+          grep -q 'ImageProcessingService' lib/super_resolution_home_page.dart
+          git diff --check
+
+          git add test/home_layout_test.dart
+          git status --short
+          git commit -m 'merge: sync main UI changes into background processing branch'
+          git push origin HEAD:feature/android-background-media-processing-20260928
