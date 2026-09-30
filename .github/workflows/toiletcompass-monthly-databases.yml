@@ -2,10 +2,8 @@ name: ToiletCompass monthly databases
 
 # Public runner for the private ToiletCompass database pipeline.
 # Source priority: Geofabrik -> published ISO PBF -> ISO-scoped Overpass fallback.
-# Full publication trigger after verified LU/BH/AS/BQ pilot.
 on:
   schedule:
-    # Monthly, early on the first day of the month (UTC).
     - cron: '17 3 1 * *'
   push:
     branches: [toiletcompass-monthly-db]
@@ -34,6 +32,7 @@ concurrency:
 env:
   APP_REPOSITORY: Persie0/toiletcompass
   APP_REF: ${{ github.event_name == 'push' && 'feat/monthly-country-database-pipeline' || inputs.app_ref || 'main' }}
+  RELEASE_REPOSITORY: Persie0/toilets
 
 jobs:
   build:
@@ -133,9 +132,7 @@ jobs:
         if: steps.full.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        run: |
-          test "$(gh api repos/Persie0/toiletcompass --jq '.permissions.push')" = "true"
-          test "$(gh api repos/Persie0/OnnxModels --jq '.permissions.push')" = "true"
+        run: test "$(gh api repos/$RELEASE_REPOSITORY --jq '.permissions.push')" = "true"
 
       - name: Choose collision-safe release version
         if: steps.full.outputs.enabled == 'true'
@@ -145,7 +142,7 @@ jobs:
         run: |
           BASE="toiletdb-$(date -u +%F)"
           VERSION="$BASE"
-          if gh release view "$VERSION" --repo Persie0/OnnxModels >/dev/null 2>&1; then
+          if gh release view "$VERSION" --repo "$RELEASE_REPOSITORY" >/dev/null 2>&1; then
             VERSION="${BASE}-run${GITHUB_RUN_NUMBER}"
           fi
           echo "DB_RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
@@ -161,9 +158,8 @@ jobs:
             --version "$DB_RELEASE_VERSION"
           python3 database/monthly_country_pipeline.py validate-all --output release
           test ! -e release/.scratch
-          cp release/manifest.json release/latest.json
 
-      - name: Publish dated private ToiletCompass release
+      - name: Publish public ToiletCompass database release
         if: steps.full.outputs.enabled == 'true'
         working-directory: app
         env:
@@ -175,60 +171,19 @@ jobs:
             release/continents/*.db \
             release/manifest.json \
             release/SHA256SUMS \
-            --repo Persie0/toiletcompass \
+            --repo "$RELEASE_REPOSITORY" \
             --title "Toilet database $DB_RELEASE_VERSION" \
-            --notes "Monthly country-by-country OpenStreetMap toilet database build. Country and continent SQLite files use the ToiletCompass app schema."
+            --notes "Public monthly ToiletCompass OpenStreetMap database release."
 
-      - name: Publish dated public mirror
-        if: steps.full.outputs.enabled == 'true'
-        working-directory: app
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        shell: bash
-        run: |
-          gh release create "$DB_RELEASE_VERSION" \
-            release/countries/*.db \
-            release/continents/*.db \
-            release/manifest.json \
-            release/SHA256SUMS \
-            --repo Persie0/OnnxModels \
-            --title "Toilet database $DB_RELEASE_VERSION" \
-            --notes "Public mirror for ToiletCompass database downloads."
-
-      - name: Update stable public latest manifest
-        if: steps.full.outputs.enabled == 'true'
-        working-directory: app
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        shell: bash
-        run: |
-          if gh release view toilets-latest --repo Persie0/OnnxModels >/dev/null 2>&1; then
-            gh release upload toilets-latest \
-              release/latest.json \
-              release/manifest.json \
-              release/SHA256SUMS \
-              --repo Persie0/OnnxModels \
-              --clobber
-          else
-            gh release create toilets-latest \
-              release/latest.json \
-              release/manifest.json \
-              release/SHA256SUMS \
-              --repo Persie0/OnnxModels \
-              --title "Latest ToiletCompass databases" \
-              --notes "Stable metadata pointer for the newest completely published ToiletCompass database release."
-          fi
-
-      - name: Verify stable manifest resolves to published assets
+      - name: Verify published release assets
         if: steps.full.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         shell: bash
         run: |
-          gh release view "$DB_RELEASE_VERSION" --repo Persie0/OnnxModels --json assets \
+          gh release view "$DB_RELEASE_VERSION" --repo "$RELEASE_REPOSITORY" --json assets \
             --jq '.assets[].name' > /tmp/published-assets.txt
-          for name in AS.db BQ.db BH.db ID.db IE.db MY.db SA.db IL.db PS.db africa.db antarctica.db asia.db australia-oceania.db central-america.db europe.db north-america.db south-america.db manifest.json SHA256SUMS; do
+          for name in africa.db antarctica.db asia.db australia-oceania.db central-america.db europe.db north-america.db south-america.db manifest.json SHA256SUMS; do
             grep -Fx "$name" /tmp/published-assets.txt >/dev/null
           done
-          gh release view toilets-latest --repo Persie0/OnnxModels --json assets \
-            --jq '.assets[].name' | grep -Fx latest.json >/dev/null
+          test "$(grep -Ec '^[A-Z]{2}\.db$' /tmp/published-assets.txt)" -eq 249
