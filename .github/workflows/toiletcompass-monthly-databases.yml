@@ -1,0 +1,234 @@
+name: ToiletCompass monthly databases
+
+# Public runner for the private ToiletCompass database pipeline.
+# Source priority: Geofabrik -> published ISO PBF -> ISO-scoped Overpass fallback.
+# Full publication trigger after verified LU/BH/AS/BQ pilot.
+on:
+  schedule:
+    # Monthly, early on the first day of the month (UTC).
+    - cron: '17 3 1 * *'
+  push:
+    branches: [toiletcompass-monthly-db]
+    paths:
+      - '.github/workflows/toiletcompass-monthly-databases.yml'
+  workflow_dispatch:
+    inputs:
+      app_ref:
+        description: Branch/tag/SHA in Persie0/toiletcompass
+        required: true
+        default: main
+        type: string
+      full_build:
+        description: Build and publish every country/continent database
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toiletcompass-monthly-databases
+  cancel-in-progress: false
+
+env:
+  APP_REPOSITORY: Persie0/toiletcompass
+  APP_REF: ${{ github.event_name == 'push' && 'feat/monthly-country-database-pipeline' || inputs.app_ref || 'main' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Validate cross-repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout ToiletCompass
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Run Python database tests
+        working-directory: app
+        run: python3 -m unittest discover -s database/tests -v
+
+      - name: Verify complete live country source coverage
+        working-directory: app
+        run: |
+          python3 database/monthly_country_pipeline.py discover | tee /tmp/toilet-sources.json
+          test "$(python3 -c 'import json; print(json.load(open("/tmp/toilet-sources.json"))["count"])')" -eq 249
+          test "$(python3 -c 'import json; print(len(json.load(open("/tmp/toilet-sources.json"))["unresolved"]))')" -eq 0
+          python3 - <<'PY'
+          import json
+          data = json.load(open('/tmp/toilet-sources.json'))
+          fallbacks = set(data['fallbacks'])
+          assert {'ID', 'IE', 'MY'} <= fallbacks, fallbacks
+          PY
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze Flutter app
+        working-directory: app
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Run Flutter tests
+        working-directory: app
+        run: flutter test
+
+      - name: Install database build dependency
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends osmium-tool sqlite3
+
+      - name: Real-data Geofabrik, PBF fallback, and Overpass pilot
+        if: github.event_name == 'push' && !contains(github.event.head_commit.message, '[full-db]')
+        working-directory: app
+        run: |
+          rm -rf /tmp/toiletcompass-db-pilot
+          python3 database/monthly_country_pipeline.py build-all \
+            --output /tmp/toiletcompass-db-pilot \
+            --version pilot-${{ github.run_number }} \
+            --countries LU,BH,AS,BQ
+          python3 database/monthly_country_pipeline.py validate-all \
+            --output /tmp/toiletcompass-db-pilot
+          test ! -e /tmp/toiletcompass-db-pilot/.scratch
+          LU_COUNTRY="$(sqlite3 /tmp/toiletcompass-db-pilot/countries/LU.db 'SELECT COUNT(*) FROM toilets;')"
+          BH_COUNTRY="$(sqlite3 /tmp/toiletcompass-db-pilot/countries/BH.db 'SELECT COUNT(*) FROM toilets;')"
+          AS_COUNTRY="$(sqlite3 /tmp/toiletcompass-db-pilot/countries/AS.db 'SELECT COUNT(*) FROM toilets;')"
+          BQ_COUNTRY="$(sqlite3 /tmp/toiletcompass-db-pilot/countries/BQ.db 'SELECT COUNT(*) FROM toilets;')"
+          EUROPE="$(sqlite3 /tmp/toiletcompass-db-pilot/continents/europe.db 'SELECT COUNT(*) FROM toilets;')"
+          test "$LU_COUNTRY" -gt 0
+          test "$BH_COUNTRY" -gt 0
+          test "$EUROPE" -gt 0
+          echo "LU=$LU_COUNTRY; BH=$BH_COUNTRY; AS=$AS_COUNTRY; BQ=$BQ_COUNTRY; Europe=$EUROPE"
+
+      - name: Decide full build
+        id: full
+        shell: bash
+        run: |
+          FULL=false
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            FULL=true
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_build }}" == "true" ]]; then
+            FULL=true
+          elif [[ "${{ github.event_name }}" == "push" && "${{ contains(github.event.head_commit.message, '[full-db]') }}" == "true" ]]; then
+            FULL=true
+          fi
+          echo "enabled=$FULL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release token permissions
+        if: steps.full.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          test "$(gh api repos/Persie0/toiletcompass --jq '.permissions.push')" = "true"
+          test "$(gh api repos/Persie0/OnnxModels --jq '.permissions.push')" = "true"
+
+      - name: Choose collision-safe release version
+        if: steps.full.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          BASE="toiletdb-$(date -u +%F)"
+          VERSION="$BASE"
+          if gh release view "$VERSION" --repo Persie0/OnnxModels >/dev/null 2>&1; then
+            VERSION="${BASE}-run${GITHUB_RUN_NUMBER}"
+          fi
+          echo "DB_RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Database release: $VERSION"
+
+      - name: Build all country and continent databases sequentially
+        if: steps.full.outputs.enabled == 'true'
+        working-directory: app
+        run: |
+          rm -rf release
+          python3 database/monthly_country_pipeline.py build-all \
+            --output release \
+            --version "$DB_RELEASE_VERSION"
+          python3 database/monthly_country_pipeline.py validate-all --output release
+          test ! -e release/.scratch
+          cp release/manifest.json release/latest.json
+
+      - name: Publish dated private ToiletCompass release
+        if: steps.full.outputs.enabled == 'true'
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          gh release create "$DB_RELEASE_VERSION" \
+            release/countries/*.db \
+            release/continents/*.db \
+            release/manifest.json \
+            release/SHA256SUMS \
+            --repo Persie0/toiletcompass \
+            --title "Toilet database $DB_RELEASE_VERSION" \
+            --notes "Monthly country-by-country OpenStreetMap toilet database build. Country and continent SQLite files use the ToiletCompass app schema."
+
+      - name: Publish dated public mirror
+        if: steps.full.outputs.enabled == 'true'
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          gh release create "$DB_RELEASE_VERSION" \
+            release/countries/*.db \
+            release/continents/*.db \
+            release/manifest.json \
+            release/SHA256SUMS \
+            --repo Persie0/OnnxModels \
+            --title "Toilet database $DB_RELEASE_VERSION" \
+            --notes "Public mirror for ToiletCompass database downloads."
+
+      - name: Update stable public latest manifest
+        if: steps.full.outputs.enabled == 'true'
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          if gh release view toilets-latest --repo Persie0/OnnxModels >/dev/null 2>&1; then
+            gh release upload toilets-latest \
+              release/latest.json \
+              release/manifest.json \
+              release/SHA256SUMS \
+              --repo Persie0/OnnxModels \
+              --clobber
+          else
+            gh release create toilets-latest \
+              release/latest.json \
+              release/manifest.json \
+              release/SHA256SUMS \
+              --repo Persie0/OnnxModels \
+              --title "Latest ToiletCompass databases" \
+              --notes "Stable metadata pointer for the newest completely published ToiletCompass database release."
+          fi
+
+      - name: Verify stable manifest resolves to published assets
+        if: steps.full.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          gh release view "$DB_RELEASE_VERSION" --repo Persie0/OnnxModels --json assets \
+            --jq '.assets[].name' > /tmp/published-assets.txt
+          for name in AS.db BQ.db BH.db ID.db IE.db MY.db SA.db IL.db PS.db africa.db antarctica.db asia.db australia-oceania.db central-america.db europe.db north-america.db south-america.db manifest.json SHA256SUMS; do
+            grep -Fx "$name" /tmp/published-assets.txt >/dev/null
+          done
+          gh release view toilets-latest --repo Persie0/OnnxModels --json assets \
+            --jq '.assets[].name' | grep -Fx latest.json >/dev/null
