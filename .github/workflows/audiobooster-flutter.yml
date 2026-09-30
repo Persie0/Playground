@@ -9,7 +9,7 @@ on:
       audio_ref:
         description: AudioBooster branch, tag, or commit to validate
         required: false
-        default: main
+        default: design/modern-audio-engine
 permissions:
   contents: read
 jobs:
@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/Audiobooster
-          ref: ${{ inputs.audio_ref || 'main' }}
+          ref: ${{ inputs.audio_ref || 'design/modern-audio-engine' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: audiobooster
       - uses: subosito/flutter-action@v2
@@ -44,6 +44,9 @@ jobs:
       - name: Generate Android project and install native audio bridge
         working-directory: audiobooster
         run: bash tool/bootstrap_android.sh
+      - name: Run Android unit tests
+        working-directory: audiobooster/android
+        run: ./gradlew testDebugUnitTest
       - name: Build debug APK
         working-directory: audiobooster
         run: flutter build apk --debug
