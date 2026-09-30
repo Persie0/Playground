@@ -1,0 +1,108 @@
+name: Merge ToiletCompass main into PR8
+
+on:
+  push:
+    branches: [toiletcompass-pr8-merge-main]
+    paths:
+      - '.github/workflows/toiletcompass-pr8-merge-main.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate private repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/toiletcompass
+          ref: feat/monthly-country-database-pipeline
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: app
+
+      - name: Merge main and resolve the known ToiletService conflict
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          set +e
+          git merge --no-commit --no-ff origin/main
+          merge_status=$?
+          set -e
+          if [[ "$merge_status" -ne 0 ]]; then
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            printf 'Conflicts: %s\n' "${conflicts[*]}"
+            test "${#conflicts[@]}" -eq 1
+            test "${conflicts[0]}" = 'lib/toilet_service.dart'
+            git checkout --ours lib/toilet_service.dart
+            python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          path = Path('lib/toilet_service.dart')
+          ours = path.read_text()
+          main = subprocess.check_output(
+              ['git', 'show', 'origin/main:lib/toilet_service.dart'],
+              text=True,
+          )
+          needle = '  static String localizedContinentName('
+          if needle not in ours:
+              start = main.index(needle)
+              brace = main.index('{', start)
+              depth = 0
+              end = None
+              for index in range(brace, len(main)):
+                  char = main[index]
+                  if char == '{':
+                      depth += 1
+                  elif char == '}':
+                      depth -= 1
+                      if depth == 0:
+                          end = index + 1
+                          break
+              if end is None:
+                  raise SystemExit('Could not extract localizedContinentName from main')
+              method = main[start:end]
+              map_start = ours.index('  static const Map<String, String> continentNames = {')
+              map_end = ours.index('\n  };', map_start) + len('\n  };')
+              ours = ours[:map_end] + '\n\n' + method + ours[map_end:]
+              path.write_text(ours)
+          PY
+            git add lib/toilet_service.dart
+          fi
+          test -z "$(git diff --name-only --diff-filter=U)"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Verify merged branch
+        working-directory: app
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s database/tests -v
+          flutter pub get
+          dart format --output=none --set-exit-if-changed lib/database_manifest.dart lib/database_release_client.dart lib/database_auto_updater.dart lib/toilet_service.dart test/database_manifest_test.dart test/database_release_client_test.dart test/database_update_test.dart
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test
+
+      - name: Commit and push merge
+        working-directory: app
+        run: |
+          set -euo pipefail
+          git add -A
+          git commit -m 'Merge main into monthly database pipeline'
+          git push origin HEAD:feat/monthly-country-database-pipeline
