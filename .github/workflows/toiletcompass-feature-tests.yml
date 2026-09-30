@@ -82,3 +82,37 @@ jobs:
       - name: Run Flutter tests
         working-directory: app
         run: flutter test
+
+      - name: Install real-data pilot dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends osmium-tool sqlite3
+
+      - name: Run LU/BH/AS/BQ real-data pilot
+        working-directory: app
+        run: |
+          rm -rf /tmp/toiletcompass-country-pilot
+          python3 database/monthly_country_pipeline.py build-all \
+            --output /tmp/toiletcompass-country-pilot \
+            --version pilot-${{ github.run_number }} \
+            --countries LU,BH,AS,BQ
+          python3 database/monthly_country_pipeline.py validate-all \
+            --output /tmp/toiletcompass-country-pilot
+          test ! -e /tmp/toiletcompass-country-pilot/.scratch
+          python3 - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+          root = Path('/tmp/toiletcompass-country-pilot')
+          manifest = json.load(open(root / 'manifest.json'))
+          assert set(manifest['countries']) == {'LU', 'BH', 'AS', 'BQ'}
+          for iso in ('LU', 'BH', 'AS', 'BQ'):
+              item = manifest['countries'][iso]
+              assert isinstance(item.get('continents'), list), (iso, item)
+              with sqlite3.connect(root / 'countries' / f'{iso}.db') as db:
+                  count = db.execute('SELECT COUNT(*) FROM toilets').fetchone()[0]
+              if iso in {'LU', 'BH'}:
+                  assert count > 0, (iso, count)
+              print(f'{iso}={count}; coverage={item["continents"]}')
+          assert manifest['countries']['LU']['continents'] == ['europe']
+          PY
