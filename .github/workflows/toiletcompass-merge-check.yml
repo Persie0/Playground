@@ -1,0 +1,53 @@
+name: ToiletCompass main merge check
+
+on:
+  push:
+    branches: [toiletcompass-monthly-db]
+    paths:
+      - '.github/workflows/toiletcompass-merge-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toiletcompass-main-merge-check
+  cancel-in-progress: true
+
+jobs:
+  merge-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout ToiletCompass feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/toiletcompass
+          ref: feat/monthly-country-database-pipeline
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Dry-run merge current main
+        shell: bash
+        run: |
+          set +e
+          git fetch origin main
+          git merge --no-commit --no-ff origin/main
+          status=$?
+          echo "FEATURE_HEAD=$(git rev-parse HEAD)"
+          echo "MAIN_HEAD=$(git rev-parse origin/main)"
+          if [[ $status -ne 0 ]]; then
+            echo 'MERGE_CONFLICTS:'
+            git diff --name-only --diff-filter=U
+            echo '--- status ---'
+            git status --short
+            exit $status
+          fi
+          echo 'DRY_MERGE_CLEAN=true'
+          git merge --abort
