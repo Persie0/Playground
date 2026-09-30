@@ -1,0 +1,185 @@
+name: ToiletCompass reconcile main
+
+on:
+  push:
+    branches: [toiletcompass-monthly-db]
+    paths:
+      - '.github/workflows/toiletcompass-reconcile-main.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toiletcompass-reconcile-main
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout ToiletCompass feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/toiletcompass
+          ref: feat/monthly-country-database-pipeline
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Merge current main and resolve known feature conflicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+
+          FEATURE_HEAD="$(git rev-parse HEAD)"
+          MAIN_HEAD="$(git rev-parse origin/main)"
+          echo "FEATURE_HEAD=$FEATURE_HEAD"
+          echo "MAIN_HEAD=$MAIN_HEAD"
+
+          set +e
+          git merge --no-commit --no-ff origin/main
+          merge_status=$?
+          set -e
+
+          if [[ $merge_status -ne 0 ]]; then
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            printf 'Conflicts: %s\n' "${conflicts[*]}"
+            expected=(lib/onboarding_screen.dart lib/toilet_service.dart)
+            if [[ "${conflicts[*]}" != "${expected[*]}" ]]; then
+              echo "::error::Unexpected conflict set"
+              exit 1
+            fi
+
+            # Preserve the richer feature selector while keeping all non-conflicting
+            # changes already merged from main. Replace only the conflicted selector
+            # function with the feature version and apply main's localization keys.
+            git show :2:lib/onboarding_screen.dart > /tmp/onboarding-ours.dart
+            python3 - <<'PY'
+          from pathlib import Path
+
+          merged_path = Path('lib/onboarding_screen.dart')
+          merged = merged_path.read_text()
+          ours = Path('/tmp/onboarding-ours.dart').read_text()
+
+          start_marker = '  Widget _buildContinentSelectionView({bool shrinkWrap = false}) {'
+          end_marker = '  Widget _buildFallbackContinentSelector() {'
+
+          ours_start = ours.index(start_marker)
+          ours_end = ours.index(end_marker, ours_start)
+          selector = ours[ours_start:ours_end]
+          selector = selector.replace(
+              "'Select Regions'",
+              'AppLocalizations.of(context)!.selectRegions',
+          )
+          selector = selector.replace(
+              "'Download whole continents or only the countries you need.'",
+              'AppLocalizations.of(context)!.selectRegionsDesc',
+          )
+          selector = selector.replace(
+              "'Please select at least one continent or country to continue.'",
+              'AppLocalizations.of(context)!.selectAtLeastOneRegion',
+          )
+          selector = selector.replace(
+              "        Text(\n          'Continents',",
+              "        Text(\n          AppLocalizations.of(context)!.regions,",
+          )
+          selector = selector.replace(
+              "title: Text(ToiletService.continentNames[key] ?? key),",
+              "title: Text(ToiletService.localizedContinentName(\n                key,\n                AppLocalizations.of(context)!,\n              )),",
+          )
+
+          info_anchor = '          const SizedBox(height: 16),\n          if (selection == null)'
+          info_block = '''          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: theme.dividerColor, width: 1),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.explore, color: theme.colorScheme.primary),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      AppLocalizations.of(context)!.localRegionsAutoChecked,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.secondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (selection == null)'''
+          if info_anchor not in selector:
+              raise SystemExit('selector info anchor missing')
+          selector = selector.replace(info_anchor, info_block, 1)
+
+          merged_start = merged.index(start_marker)
+          merged_end = merged.index(end_marker, merged_start)
+          merged = merged[:merged_start] + selector + merged[merged_end:]
+          merged_path.write_text(merged)
+          PY
+
+            # The ToiletService conflict contains two additive changes: the feature
+            # release-manifest size comment and main's localized continent helper.
+            # Keep both sides of this one conflict.
+            python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          path = Path('lib/toilet_service.dart')
+          text = path.read_text()
+          pattern = re.compile(
+              r'<<<<<<< HEAD\n(?P<ours>.*?)=======\n(?P<theirs>.*?)>>>>>>> origin/main\n',
+              re.S,
+          )
+          matches = list(pattern.finditer(text))
+          if len(matches) != 1:
+              raise SystemExit(f'expected exactly one ToiletService conflict, found {len(matches)}')
+          match = matches[0]
+          resolved = match.group('ours') + match.group('theirs')
+          text = text[:match.start()] + resolved + text[match.end():]
+          path.write_text(text)
+          PY
+
+            git add lib/onboarding_screen.dart lib/toilet_service.dart
+          fi
+
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "::error::Unresolved merge conflicts remain"
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+          if grep -R -n -E '^(<<<<<<<|=======|>>>>>>>)' lib/onboarding_screen.dart lib/toilet_service.dart; then
+            echo "::error::Conflict markers remain"
+            exit 1
+          fi
+
+          # These were temporary migration helpers; their changes are now in source.
+          rm -f \
+            tools/apply_country_selection_changes.py \
+            tools/apply_country_selection_ui_changes.py \
+            tools/apply_pbf_retry.py
+          git add -A
+
+          git commit -m "Merge main into monthly country database pipeline"
+          git push origin HEAD:feat/monthly-country-database-pipeline
+          echo "RECONCILED_HEAD=$(git rev-parse HEAD)"
