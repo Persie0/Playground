@@ -1,0 +1,179 @@
+name: ToiletCompass full publish once
+
+on:
+  push:
+    branches: [toiletcompass-monthly-db]
+    paths:
+      - 'tools/toiletcompass-full-publish-trigger.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toiletcompass-full-publish-once
+  cancel-in-progress: false
+
+env:
+  APP_REPOSITORY: Persie0/toiletcompass
+  APP_REF: feat/monthly-country-database-pipeline
+  PRIVATE_RELEASE_REPOSITORY: Persie0/toiletcompass
+  PUBLIC_RELEASE_REPOSITORY: Persie0/toilets
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Validate cross-repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout ToiletCompass feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Record immutable app head
+        working-directory: app
+        run: echo "APP_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Run Python database tests
+        working-directory: app
+        run: python3 -m unittest discover -s database/tests -v
+
+      - name: Verify complete live country source coverage
+        working-directory: app
+        run: |
+          python3 database/monthly_country_pipeline.py discover | tee /tmp/toilet-sources.json
+          test "$(python3 -c 'import json; print(json.load(open("/tmp/toilet-sources.json"))["count"])')" -eq 249
+          test "$(python3 -c 'import json; print(len(json.load(open("/tmp/toilet-sources.json"))["unresolved"]))')" -eq 0
+          python3 - <<'PY'
+          import json
+          data = json.load(open('/tmp/toilet-sources.json'))
+          assert {'ID', 'IE', 'MY'} <= set(data['fallbacks'])
+          PY
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze Flutter app
+        working-directory: app
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Run Flutter tests
+        working-directory: app
+        run: flutter test
+
+      - name: Install database build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends osmium-tool sqlite3
+
+      - name: Verify release token permissions
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          test "$(gh api repos/Persie0/toiletcompass --jq '.permissions.push')" = "true"
+          test "$(gh api repos/Persie0/toilets --jq '.permissions.push')" = "true"
+
+      - name: Choose collision-safe release version
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          BASE="toiletdb-$(date -u +%F)"
+          VERSION="$BASE"
+          if gh release view "$VERSION" --repo "$PRIVATE_RELEASE_REPOSITORY" >/dev/null 2>&1 || \
+             gh release view "$VERSION" --repo "$PUBLIC_RELEASE_REPOSITORY" >/dev/null 2>&1; then
+            VERSION="${BASE}-run${GITHUB_RUN_NUMBER}"
+          fi
+          SUFFIX=2
+          while gh release view "$VERSION" --repo "$PRIVATE_RELEASE_REPOSITORY" >/dev/null 2>&1 || \
+                gh release view "$VERSION" --repo "$PUBLIC_RELEASE_REPOSITORY" >/dev/null 2>&1; do
+            VERSION="${BASE}-run${GITHUB_RUN_NUMBER}-${SUFFIX}"
+            SUFFIX=$((SUFFIX + 1))
+          done
+          echo "DB_RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Database release: $VERSION from app head $APP_HEAD"
+
+      - name: Build all country and continent databases sequentially
+        working-directory: app
+        run: |
+          rm -rf release
+          python3 database/monthly_country_pipeline.py build-all \
+            --output release \
+            --version "$DB_RELEASE_VERSION"
+          python3 database/monthly_country_pipeline.py validate-all --output release
+          test ! -e release/.scratch
+          python3 - <<'PY'
+          import json
+          manifest = json.load(open('release/manifest.json'))
+          assert len(manifest['countries']) == 249, len(manifest['countries'])
+          assert len(manifest['continents']) == 8, len(manifest['continents'])
+          for iso, country in manifest['countries'].items():
+              assert len(iso) == 2 and iso == iso.upper(), iso
+              assert isinstance(country.get('continents'), list), (iso, country)
+          assert manifest['countries']['AT']['continents'] == ['europe']
+          PY
+
+      - name: Publish dated private ToiletCompass release
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh release create "$DB_RELEASE_VERSION" \
+            release/countries/*.db \
+            release/continents/*.db \
+            release/manifest.json \
+            release/SHA256SUMS \
+            --repo "$PRIVATE_RELEASE_REPOSITORY" \
+            --title "Toilet database $DB_RELEASE_VERSION" \
+            --notes "Country/continent ToiletCompass database build from app head $APP_HEAD."
+
+      - name: Publish dated public toilets release
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh release create "$DB_RELEASE_VERSION" \
+            release/countries/*.db \
+            release/continents/*.db \
+            release/manifest.json \
+            release/SHA256SUMS \
+            --repo "$PUBLIC_RELEASE_REPOSITORY" \
+            --title "Toilet database $DB_RELEASE_VERSION" \
+            --notes "Public ToiletCompass database release from app head $APP_HEAD."
+
+      - name: Verify public release and latest pointer
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh release view "$DB_RELEASE_VERSION" --repo "$PUBLIC_RELEASE_REPOSITORY" --json assets \
+            --jq '.assets[].name' > /tmp/published-assets.txt
+          test "$(grep -Ec '^[A-Z]{2}\.db$' /tmp/published-assets.txt)" -eq 249
+          for name in AS.db BQ.db BH.db ID.db IE.db MY.db africa.db antarctica.db asia.db australia-oceania.db central-america.db europe.db north-america.db south-america.db manifest.json SHA256SUMS; do
+            grep -Fx "$name" /tmp/published-assets.txt >/dev/null
+          done
+          python3 - <<'PY'
+          import json
+          manifest = json.load(open('release/manifest.json'))
+          published = set(open('/tmp/published-assets.txt').read().splitlines())
+          expected = ({item['file'] for item in manifest['countries'].values()} |
+                      {item['file'] for item in manifest['continents'].values()} |
+                      {'manifest.json', 'SHA256SUMS'})
+          missing = expected - published
+          assert not missing, sorted(missing)
+          PY
+          test "$(gh api repos/Persie0/toilets/releases/latest --jq '.tag_name')" = "$DB_RELEASE_VERSION"
