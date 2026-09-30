@@ -29,7 +29,6 @@ concurrency:
 env:
   APP_REPOSITORY: Persie0/toiletcompass
   APP_REF: ${{ inputs.app_ref || 'main' }}
-  PRIVATE_RELEASE_REPOSITORY: Persie0/toiletcompass
   PUBLIC_RELEASE_REPOSITORY: Persie0/toilets
 
 jobs:
@@ -128,9 +127,7 @@ jobs:
         if: steps.full.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        run: |
-          test "$(gh api repos/Persie0/toiletcompass --jq '.permissions.push')" = "true"
-          test "$(gh api repos/Persie0/toilets --jq '.permissions.push')" = "true"
+        run: test "$(gh api repos/Persie0/toilets --jq '.permissions.push')" = "true"
 
       - name: Choose collision-safe release version
         if: steps.full.outputs.enabled == 'true'
@@ -140,13 +137,11 @@ jobs:
         run: |
           BASE="toiletdb-$(date -u +%F)"
           VERSION="$BASE"
-          if gh release view "$VERSION" --repo Persie0/toiletcompass >/dev/null 2>&1 || \
-             gh release view "$VERSION" --repo Persie0/toilets >/dev/null 2>&1; then
+          if gh release view "$VERSION" --repo Persie0/toilets >/dev/null 2>&1; then
             VERSION="${BASE}-run${GITHUB_RUN_NUMBER}"
           fi
           SUFFIX=2
-          while gh release view "$VERSION" --repo Persie0/toiletcompass >/dev/null 2>&1 || \
-                gh release view "$VERSION" --repo Persie0/toilets >/dev/null 2>&1; do
+          while gh release view "$VERSION" --repo Persie0/toilets >/dev/null 2>&1; do
             VERSION="${BASE}-run${GITHUB_RUN_NUMBER}-${SUFFIX}"
             SUFFIX=$((SUFFIX + 1))
           done
@@ -174,22 +169,6 @@ jobs:
           assert manifest['countries']['AT']['continents'] == ['europe']
           PY
 
-      - name: Publish dated private ToiletCompass release
-        if: steps.full.outputs.enabled == 'true'
-        working-directory: app
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        shell: bash
-        run: |
-          gh release create "$DB_RELEASE_VERSION" \
-            release/countries/*.db \
-            release/continents/*.db \
-            release/manifest.json \
-            release/SHA256SUMS \
-            --repo "$PRIVATE_RELEASE_REPOSITORY" \
-            --title "Toilet database $DB_RELEASE_VERSION" \
-            --notes "Monthly country-by-country OpenStreetMap toilet database build. Country and continent SQLite files use the ToiletCompass app schema."
-
       - name: Publish dated public toilets release
         if: steps.full.outputs.enabled == 'true'
         working-directory: app
@@ -206,7 +185,7 @@ jobs:
             --title "Toilet database $DB_RELEASE_VERSION" \
             --notes "Public monthly ToiletCompass OpenStreetMap database release."
 
-      - name: Verify published release and latest pointer
+      - name: Verify published release is latest
         if: steps.full.outputs.enabled == 'true'
         working-directory: app
         env:
