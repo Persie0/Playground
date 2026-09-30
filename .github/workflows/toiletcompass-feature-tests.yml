@@ -59,38 +59,24 @@ jobs:
 
           path = Path('lib/toilet_service.dart')
           source = path.read_text()
-          old = """  static Future<Map<String, dynamic>> getDatabaseStats() async {
-              try {
-                final List<String> downloaded = await getDownloadedContinents();
-          """
-          new = """  static Future<Map<String, dynamic>> getDatabaseStats() async {
-              try {
-                final downloaded = await getDownloadedArtifacts();
-          """
-          if old in source:
-              source = source.replace(old, new, 1)
-          elif new not in source:
-              raise SystemExit('getDatabaseStats download enumeration contract not found')
-
-          old = """      for (final continent in downloaded) {
-                try {
-                  final db = await getDatabaseForContinent(continent);
-          """
-          new = """      for (final id in downloaded) {
-                try {
-                  final db = await getDatabaseForArtifact(id);
-          """
-          if old in source:
-              source = source.replace(old, new, 1)
-          elif new not in source:
-              raise SystemExit('getDatabaseStats artifact loop contract not found')
-
-          old = "developer.log('Error getting stats for $continent: $e');"
-          new = "developer.log('Error getting stats for $id: $e');"
-          if old in source:
-              source = source.replace(old, new, 1)
-          elif new not in source:
-              raise SystemExit('getDatabaseStats log contract not found')
+          replacements = [
+              ('final List<String> downloaded = await getDownloadedContinents();',
+               'final downloaded = await getDownloadedArtifacts();'),
+              ('for (final continent in downloaded) {',
+               'for (final id in downloaded) {'),
+              ('final db = await getDatabaseForContinent(continent);',
+               'final db = await getDatabaseForArtifact(id);'),
+              ("developer.log('Error getting stats for $continent: $e');",
+               "developer.log('Error getting stats for $id: $e');"),
+          ]
+          for old, new in replacements:
+              count = source.count(old)
+              if count == 1:
+                  source = source.replace(old, new, 1)
+              elif count == 0 and source.count(new) == 1:
+                  pass
+              else:
+                  raise SystemExit(f'unexpected stats patch match count for {old!r}: {count}')
           path.write_text(source)
           PY
           if ! git diff --quiet; then
