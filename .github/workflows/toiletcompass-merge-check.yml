@@ -47,6 +47,10 @@ jobs:
           if [[ $status -ne 0 ]]; then
             echo 'MERGE_CONFLICTS:'
             git diff --name-only --diff-filter=U
+            for file in $(git diff --name-only --diff-filter=U); do
+              echo "===== CONFLICT DIFF: $file ====="
+              git diff --cc -- "$file"
+            done
             echo '--- status ---'
             git status --short
             exit $status
