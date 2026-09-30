@@ -1,0 +1,78 @@
+name: PricingKit integration
+
+on:
+  push:
+    branches: [pricingkit-integration-run]
+    paths:
+      - '.github/workflows/pricingkit-integration.yml'
+      - 'pricingkit/trigger.txt'
+
+permissions:
+  contents: read
+
+env:
+  TARGET_REPOSITORY: Persie0/PricingKit
+  TARGET_BRANCH: integrate-oskar-smart-pricing
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Validate cross-repo token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout PricingKit integration branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.TARGET_REPOSITORY }}
+          ref: ${{ env.TARGET_BRANCH }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: PricingKit
+
+      - name: Reapply Persie0 changes on Oskar head
+        working-directory: PricingKit
+        run: |
+          set -euo pipefail
+          git config user.name "Persie0 Playground CI"
+          git config user.email "actions@users.noreply.github.com"
+          for sha in \
+            3713780cf7561c25b1d577637c1ce3a25f8f35a3 \
+            884e0e277e45087a5d5768dc60b18706f523494a \
+            f5ab63f389e9f1e2e81378f13001f9484b8a3ae4 \
+            ef3a7298b17cd2899d245652bf8490fa0e5c9270 \
+            38737f1d91f5c26121825034b86449afa09962af
+          do
+            git cherry-pick "$sha" || {
+              echo "::error::Cherry-pick failed for $sha"
+              git status --short
+              git diff --name-only --diff-filter=U
+              git diff
+              exit 1
+            }
+          done
+
+      - name: Install dependencies
+        working-directory: PricingKit
+        run: npm install --no-audit --no-fund
+
+      - name: Run tests
+        working-directory: PricingKit
+        run: npm test
+
+      - name: Build
+        working-directory: PricingKit
+        run: npm run build
+
+      - name: Push verified integration branch
+        working-directory: PricingKit
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          git remote set-url origin "https://x-access-token:${PRIVATE_TOKEN}@github.com/${TARGET_REPOSITORY}.git"
+          git push origin "HEAD:${TARGET_BRANCH}"
