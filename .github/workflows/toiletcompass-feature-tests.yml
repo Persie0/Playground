@@ -1,0 +1,70 @@
+name: ToiletCompass feature tests
+
+on:
+  push:
+    branches: [toiletcompass-monthly-db]
+    paths:
+      - 'tools/toiletcompass-feature-trigger.txt'
+      - '.github/workflows/toiletcompass-feature-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toiletcompass-feature-tests
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate cross-repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout ToiletCompass feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/toiletcompass
+          ref: feat/monthly-country-database-pipeline
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          path: app
+
+      - name: Apply private feature patch if present
+        working-directory: app
+        run: |
+          if [[ -f tools/apply_country_selection_changes.py ]]; then
+            python3 tools/apply_country_selection_changes.py
+            if ! git diff --quiet; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add -A
+              git commit -m "feat: implement country database selection"
+              git push origin HEAD:feat/monthly-country-database-pipeline
+            fi
+          fi
+
+      - name: Run Python database tests
+        working-directory: app
+        run: python3 -m unittest discover -s database/tests -v
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze Flutter app
+        working-directory: app
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Run Flutter tests
+        working-directory: app
+        run: flutter test
