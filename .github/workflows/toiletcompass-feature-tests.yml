@@ -5,7 +5,9 @@ on:
     branches: [toiletcompass-monthly-db]
     paths:
       - 'tools/toiletcompass-feature-trigger.txt'
+      - 'tools/test_toiletcompass_monthly_workflow.py'
       - '.github/workflows/toiletcompass-feature-tests.yml'
+      - '.github/workflows/toiletcompass-monthly-databases.yml'
   workflow_dispatch:
 
 permissions:
@@ -20,6 +22,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Checkout Playground workflow contract
+        uses: actions/checkout@v5
+        with:
+          ref: toiletcompass-monthly-db
+          path: playground
+
+      - name: Validate monthly workflow contract
+        working-directory: playground
+        run: python3 tools/test_toiletcompass_monthly_workflow.py
+
       - name: Validate cross-repository token
         env:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
