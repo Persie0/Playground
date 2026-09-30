@@ -1,6 +1,19 @@
-"""Compatibility shim for BoxMOT 25's TrackerSpec-only create_tracker API."""
+"""Compatibility shims for the MOT17 benchmark dependencies."""
 from __future__ import annotations
 
+# TrackEval still uses NumPy aliases removed in modern NumPy releases.
+try:
+    import numpy as np
+
+    if not hasattr(np, "float"):
+        np.float = float  # type: ignore[attr-defined]
+    if not hasattr(np, "int"):
+        np.int = int  # type: ignore[attr-defined]
+except Exception:
+    pass
+
+# BoxMOT 25 exposes create_tracker through TrackerSpec rather than the older
+# string + keyword API used by the existing benchmark adapter.
 try:
     import boxmot
     from boxmot.trackers import TrackerSpec
