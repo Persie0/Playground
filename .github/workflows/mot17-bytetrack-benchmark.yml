@@ -1,0 +1,136 @@
+name: MOT17 ByteTrack implementation benchmark
+
+on:
+  push:
+    branches: [mot17-bytetrack-benchmark-20260930]
+    paths:
+      - 'mot17_benchmark/**'
+      - '.github/workflows/mot17-bytetrack-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mot17-bytetrack:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Native dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends build-essential cmake libeigen3-dev libopencv-dev unzip curl
+
+      - name: Install tracker dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install \
+            'numpy>=2.2,<2.5' 'scipy>=1.14,<2' 'pytest>=8,<9' \
+            'opencv-python-headless>=4.10' 'lap>=0.5' 'cython-bbox>=0.1.5' \
+            'trackers==2.6.0' 'supervision==0.27.0' 'trackforge==0.4.0' \
+            'boxmot==25.0.0' \
+            'git+https://github.com/artefactory/bytetrack.git@main'
+
+      - name: Prepare original FoundationVision ByteTrack reference
+        run: |
+          mkdir -p original_bytetrack/yolox/tracker
+          touch original_bytetrack/yolox/__init__.py original_bytetrack/yolox/tracker/__init__.py
+          base='https://raw.githubusercontent.com/FoundationVision/ByteTrack/main/yolox/tracker'
+          for f in basetrack.py byte_tracker.py kalman_filter.py matching.py; do
+            curl -fsSL --retry 3 "$base/$f" -o "original_bytetrack/yolox/tracker/$f"
+          done
+          # The reference byte_tracker imports torch only for the detector-output
+          # tensor branch. This benchmark deliberately feeds Nx5 NumPy public
+          # detections, so remove the unused imports instead of pulling in PyTorch.
+          sed -i '/^import torch$/d;/^import torch.nn.functional as F$/d' original_bytetrack/yolox/tracker/byte_tracker.py
+
+      - name: Unit tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/mot17_benchmark
+        run: pytest -q mot17_benchmark/test_benchmark.py
+
+      - name: Download MOT17 labels and public detections
+        run: |
+          mkdir -p mot17data/MOT17
+          curl -fL --retry 5 --retry-delay 2 \
+            https://motchallenge.net/data/MOT17Labels.zip \
+            -o mot17data/MOT17Labels.zip
+          unzip -q mot17data/MOT17Labels.zip -d mot17data/MOT17
+          echo 'MOT17 label archive size:'
+          du -h mot17data/MOT17Labels.zip
+          find mot17data/MOT17 -path '*MOT17-02-FRCNN/det/det.txt' -o -path '*MOT17-02-FRCNN/gt/gt.txt'
+
+      - name: Clone official TrackEval
+        run: git clone --depth 1 https://github.com/JonathonLuiten/TrackEval.git TrackEval
+
+      - name: Environment
+        run: |
+          uname -m
+          python -V
+          python - <<'PY'
+          import platform
+          print('machine:', platform.machine())
+          for pkg in ('trackers','supervision','trackforge','boxmot'):
+              m=__import__(pkg)
+              print(pkg, getattr(m,'__version__','unknown'))
+          PY
+
+      - name: Generate MOT17 tracker outputs and measure runtime
+        env:
+          PYTHONPATH: ${{ github.workspace }}/mot17_benchmark:${{ github.workspace }}/original_bytetrack
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+          NUMEXPR_NUM_THREADS: '1'
+        run: |
+          python mot17_benchmark/benchmark.py \
+            --dataset-root mot17data/MOT17 \
+            --out mot17_eval
+          cat mot17_eval/runtime.md
+
+      - name: Evaluate all successful trackers with official TrackEval
+        env:
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python TrackEval/scripts/run_mot_challenge.py \
+            --BENCHMARK MOT17 \
+            --SPLIT_TO_EVAL train \
+            --GT_FOLDER "${{ github.workspace }}/mot17_eval/gt" \
+            --TRACKERS_FOLDER "${{ github.workspace }}/mot17_eval/trackers" \
+            --SEQMAP_FILE "${{ github.workspace }}/mot17_eval/MOT17-FRCNN-train.txt" \
+            --TRACKER_SUB_FOLDER data \
+            --OUTPUT_SUB_FOLDER eval \
+            --CLASSES_TO_EVAL pedestrian \
+            --METRICS HOTA CLEAR Identity \
+            --DO_PREPROC True \
+            --USE_PARALLEL True \
+            --NUM_PARALLEL_CORES 4 \
+            --PLOT_CURVES False
+
+      - name: Collect final table
+        run: |
+          python mot17_benchmark/collect_results.py mot17_eval
+          cat mot17_eval/FINAL_RESULTS.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mot17-bytetrack-arm64
+          path: |
+            mot17_eval/runtime.json
+            mot17_eval/runtime.csv
+            mot17_eval/runtime.md
+            mot17_eval/final_results.json
+            mot17_eval/final_results.csv
+            mot17_eval/FINAL_RESULTS.md
+            mot17_eval/trackers/**/eval/*
+          if-no-files-found: warn
