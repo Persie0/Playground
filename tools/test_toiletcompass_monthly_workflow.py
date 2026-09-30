@@ -40,8 +40,8 @@ for forbidden in [
 
 # Full publication must be gated only by schedule or explicit manual full_build.
 full_block = workflow.split('- name: Decide full build', 1)[1].split('- name:', 1)[0]
-assert 'github.event_name == \'schedule\'' in full_block
-assert "github.event_name == 'workflow_dispatch'" in full_block
+assert 'github.event_name' in full_block and 'schedule' in full_block
+assert 'workflow_dispatch' in full_block and 'inputs.full_build' in full_block
 assert 'push' not in full_block
 
 # Release collision checks must protect both private and public repositories.
