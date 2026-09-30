@@ -50,40 +50,20 @@ jobs:
         working-directory: app
         run: |
           shopt -s nullglob
-          scripts=(tools/apply_country_selection_*.py tools/apply_pbf_retry.py)
+          scripts=(
+            tools/apply_country_selection_*.py
+            tools/apply_pbf_retry.py
+            tools/apply_stats_country_support.py
+          )
           for script in "${scripts[@]}"; do
+            [[ -e "$script" ]] || continue
             python3 "$script"
           done
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('lib/toilet_service.dart')
-          source = path.read_text()
-          replacements = [
-              ('final List<String> downloaded = await getDownloadedContinents();',
-               'final downloaded = await getDownloadedArtifacts();'),
-              ('for (final continent in downloaded) {',
-               'for (final id in downloaded) {'),
-              ('final db = await getDatabaseForContinent(continent);',
-               'final db = await getDatabaseForArtifact(id);'),
-              ("developer.log('Error getting stats for $continent: $e');",
-               "developer.log('Error getting stats for $id: $e');"),
-          ]
-          for old, new in replacements:
-              count = source.count(old)
-              if count == 1:
-                  source = source.replace(old, new, 1)
-              elif count == 0 and source.count(new) == 1:
-                  pass
-              else:
-                  raise SystemExit(f'unexpected stats patch match count for {old!r}: {count}')
-          path.write_text(source)
-          PY
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add -A
-            git commit -m "fix: include country databases in stats"
+            git commit -m "fix: apply ToiletCompass feature migrations"
             git push origin HEAD:feat/monthly-country-database-pipeline
           fi
 
