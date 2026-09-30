@@ -1,0 +1,43 @@
+name: Image Enhancer full validation
+
+on:
+  push:
+    branches: [background-media-processing-validation-20260928]
+    paths:
+      - '.github/workflows/image-full-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout image enhancer feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_enhancer
+          ref: feature/android-background-media-processing-20260928
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Full test suite
+        run: flutter test
+
+      - name: Full static analysis
+        run: flutter analyze
