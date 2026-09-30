@@ -47,13 +47,46 @@ jobs:
             ef3a7298b17cd2899d245652bf8490fa0e5c9270 \
             38737f1d91f5c26121825034b86449afa09962af
           do
-            git cherry-pick "$sha" || {
-              echo "::error::Cherry-pick failed for $sha"
-              git status --short
-              git diff --name-only --diff-filter=U
-              git diff
-              exit 1
-            }
+            if git cherry-pick "$sha"; then
+              continue
+            fi
+
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            if [[ "$sha" == "3713780cf7561c25b1d577637c1ce3a25f8f35a3" && "$conflicts" == "src/lib/google-play/currency.ts" ]]; then
+              python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('src/lib/google-play/currency.ts')
+          text = path.read_text()
+          pattern = re.compile(
+              r"<<<<<<< HEAD\n"
+              r"export type PricingStrategy = 'direct' \| 'smart' \| 'ppp' \| 'bigmac' \| 'netflix' \| 'custom';\n"
+              r"export type RoundingMode = 'nearest-tier' \| 'nearest-99' \| 'round-up' \| 'none';\n"
+              r"=======\n"
+              r"export type PricingStrategy = 'direct' \| 'ppp' \| 'bigmac' \| 'netflix' \| 'custom';\n"
+              r"export type RoundingMode = 'nearest-tier' \| 'nearest-99' \| 'round-up' \| 'nearest-x9' \| 'round-up-x9' \| 'none';\n"
+              r">>>>>>> .*?\n"
+          )
+          replacement = (
+              "export type PricingStrategy = 'direct' | 'smart' | 'ppp' | 'bigmac' | 'netflix' | 'custom';\n"
+              "export type RoundingMode = 'nearest-tier' | 'nearest-99' | 'round-up' | 'nearest-x9' | 'round-up-x9' | 'none';\n"
+          )
+          updated, count = pattern.subn(replacement, text)
+          if count != 1:
+              raise SystemExit(f'Expected one currency type conflict, found {count}')
+          path.write_text(updated)
+          PY
+              git add src/lib/google-play/currency.ts
+              GIT_EDITOR=true git cherry-pick --continue
+              continue
+            fi
+
+            echo "::error::Unhandled cherry-pick conflict for $sha"
+            git status --short
+            git diff --name-only --diff-filter=U
+            git diff
+            exit 1
           done
 
       - name: Install dependencies
