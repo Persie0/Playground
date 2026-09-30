@@ -1,0 +1,103 @@
+name: ToiletCompass legacy manifest compatibility
+
+on:
+  push:
+    branches: [toiletcompass-monthly-db]
+    paths:
+      - '.github/workflows/toiletcompass-legacy-manifest-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout ToiletCompass feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/toiletcompass
+          ref: feat/monthly-country-database-pipeline
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+
+      - name: Apply legacy manifest compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('lib/database_manifest.dart')
+          text = path.read_text()
+          old = '''    final rawCoverage = json['continents'];
+              if (rawCoverage is! List) {
+                throw FormatException('Country $iso2 is missing continent coverage');
+              }
+              final coverage = <String>[];
+              final seen = <String>{};
+              for (final raw in rawCoverage) {
+                if (raw is! String || !knownContinents.contains(raw)) {
+                  throw FormatException('Country $iso2 has invalid continent coverage');
+                }
+                if (!seen.add(raw)) {
+                  throw FormatException('Country $iso2 has duplicate continent coverage');
+                }
+                coverage.add(raw);
+              }
+          '''
+          new = '''    final rawCoverage = json['continents'];
+              final coverage = <String>[];
+              final seen = <String>{};
+              // Releases published before country coverage metadata are still valid.
+              // Missing coverage means unknown coverage; malformed present coverage is rejected.
+              if (rawCoverage != null) {
+                if (rawCoverage is! List) {
+                  throw FormatException('Country $iso2 has invalid continent coverage');
+                }
+                for (final raw in rawCoverage) {
+                  if (raw is! String || !knownContinents.contains(raw)) {
+                    throw FormatException('Country $iso2 has invalid continent coverage');
+                  }
+                  if (!seen.add(raw)) {
+                    throw FormatException('Country $iso2 has duplicate continent coverage');
+                  }
+                  coverage.add(raw);
+                }
+              }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one legacy coverage parser block, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Format and verify targeted regression
+        run: |
+          set -euo pipefail
+          dart format lib/database_manifest.dart test/database_manifest_legacy_release_test.dart
+          git diff --check
+          flutter pub get
+          flutter test test/database_manifest_legacy_release_test.dart
+
+      - name: Commit compatibility fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/database_manifest.dart test/database_manifest_legacy_release_test.dart
+          git commit -m "fix: accept legacy release manifests without country coverage"
+          git push origin HEAD:feat/monthly-country-database-pipeline
+          echo "FIXED_HEAD=$(git rev-parse HEAD)"
