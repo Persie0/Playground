@@ -1,0 +1,126 @@
+name: ToiletCompass PR8 apply release patches
+
+on:
+  push:
+    branches: [toiletcompass-pr8-validation]
+    paths:
+      - '.github/workflows/toiletcompass-pr8-apply-patches.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ToiletCompass PR branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/toiletcompass
+          ref: feat/monthly-country-database-pipeline
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          persist-credentials: true
+          path: app
+
+      - name: Apply targeted release migration patches
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              text = Path(path).read_text()
+              if old not in text:
+                  raise SystemExit(f'missing expected block in {path}: {old[:80]!r}')
+              Path(path).write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'database/toilet_pipeline.py',
+              '''def write_release_metadata(\n    release_root: str | os.PathLike[str],\n    *,\n    countries: Iterable[CountrySource],\n    version: str,\n    public_repo: str = "Persie0/OnnxModels",\n) -> dict[str, Any]:''',
+              '''def write_release_metadata(\n    release_root: str | os.PathLike[str],\n    *,\n    countries: Iterable[CountrySource],\n    version: str,\n) -> dict[str, Any]:''',
+          )
+          replace_once(
+              'database/toilet_pipeline.py',
+              '''        manifest["continents"][path.stem] = {\n            "file": path.name,\n            "url": f"https://github.com/{public_repo}/releases/download/{version}/{path.name}",\n            **metadata,\n        }''',
+              '''        manifest["continents"][path.stem] = {\n            "file": path.name,\n            **metadata,\n        }''',
+          )
+
+          service = Path('lib/toilet_service.dart')
+          text = service.read_text()
+          if "import 'database_release_client.dart';" not in text:
+              text = text.replace(
+                  "import 'database_manifest.dart';\n",
+                  "import 'database_manifest.dart';\nimport 'database_release_client.dart';\n",
+                  1,
+              )
+          text = text.replace(
+              '  static Future<void> _closeDatabaseHandle(String continent) async {',
+              '  static Future<void> closeDatabaseForReplacement(String continent) async {',
+              1,
+          )
+          old_fetch = '''  static Future<DatabaseReleaseManifest> _fetchLatestManifest() async {\n    final response = await http\n        .get(Uri.parse(kLatestDatabaseManifestUrl))\n        .timeout(const Duration(seconds: 20));\n    if (response.statusCode != 200) {\n      throw HttpException(\n        'Database manifest request failed: HTTP ${response.statusCode}',\n        uri: Uri.parse(kLatestDatabaseManifestUrl),\n      );\n    }\n    final decoded = jsonDecode(response.body);\n    if (decoded is! Map) {\n      throw const FormatException('Database manifest root must be an object');\n    }\n    return DatabaseReleaseManifest.fromJson(\n      Map<String, dynamic>.from(decoded),\n    );\n  }'''
+          new_fetch = '''  static Future<DatabaseReleaseSnapshot> _fetchLatestRelease() {\n    return DatabaseReleaseClient.fetchLatest();\n  }'''
+          if old_fetch not in text:
+              raise SystemExit('missing old _fetchLatestManifest block')
+          text = text.replace(old_fetch, new_fetch, 1)
+          text = text.replace(
+              '    DatabaseReleaseManifest? manifest,\n',
+              '    DatabaseReleaseSnapshot? snapshot,\n',
+              1,
+          )
+          old_start = '''    final releaseManifest = manifest ?? await _fetchLatestManifest();\n    final artifact = releaseManifest.continents[continent];'''
+          new_start = '''    final releaseSnapshot = snapshot ?? await _fetchLatestRelease();\n    final releaseManifest = releaseSnapshot.manifest;\n    final artifact = releaseManifest.continents[continent];'''
+          if old_start not in text:
+              raise SystemExit('missing download manifest start block')
+          text = text.replace(old_start, new_start, 1)
+          text = text.replace(
+              "    if (artifact == null) {\n      throw StateError('No database artifact published for $continent');\n    }\n\n    final databasesPath",
+              "    if (artifact == null) {\n      throw StateError('No database artifact published for $continent');\n    }\n    final releaseAsset = releaseSnapshot.assetForContinent(continent);\n\n    final databasesPath",
+              1,
+          )
+          text = text.replace(
+              "      final request = http.Request('GET', artifact.url);",
+              "      final request = http.Request('GET', releaseAsset.browserDownloadUrl);",
+              1,
+          )
+          text = text.replace(
+              "          uri: artifact.url,",
+              "          uri: releaseAsset.browserDownloadUrl,",
+              1,
+          )
+          text = text.replace(
+              '      closeCurrent: () => _closeDatabaseHandle(continent),',
+              '      closeCurrent: () => closeDatabaseForReplacement(continent),',
+              1,
+          )
+          text = text.replace(
+              '      final manifest = await _fetchLatestManifest();',
+              '      final snapshot = await _fetchLatestRelease();',
+              1,
+          )
+          text = text.replace(
+              '          manifest: manifest,',
+              '          snapshot: snapshot,',
+              1,
+          )
+          service.write_text(text)
+          PY
+
+      - name: Format and verify focused tests
+        working-directory: app
+        run: |
+          dart format lib/database_manifest.dart lib/database_release_client.dart lib/database_auto_updater.dart lib/toilet_service.dart test/database_manifest_test.dart
+          python3 -m unittest database.tests.test_toilet_pipeline -v
+
+      - name: Commit and push PR branch
+        working-directory: app
+        run: |
+          git config user.name Persie0
+          git config user.email 76871553+Persie0@users.noreply.github.com
+          git add database/toilet_pipeline.py lib/toilet_service.dart
+          if git diff --cached --quiet; then
+            echo 'No patch changes to commit'
+          else
+            git commit -m 'fix: use public toilet release snapshot end to end [skip ci]'
+            git push origin HEAD:feat/monthly-country-database-pipeline
+          fi
