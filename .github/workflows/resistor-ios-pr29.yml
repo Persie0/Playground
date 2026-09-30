@@ -61,6 +61,13 @@ jobs:
           set -o pipefail
           flutter build ios --simulator --debug 2>&1 | tee "$RUNNER_TEMP/app-ios-build.log"
 
+      - name: Build full resistor_scanner iOS release app without signing
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build ios --release --no-codesign 2>&1 | tee "$RUNNER_TEMP/app-ios-release-build.log"
+
       - name: Capture Flutter iOS migration diff
         if: always()
         working-directory: source
@@ -110,7 +117,7 @@ jobs:
         shell: bash
         run: |
           : > "$RUNNER_TEMP/ios-errors.txt"
-          for log in "$RUNNER_TEMP/app-ios-build.log" "$RUNNER_TEMP/plugin-ios-build.log"; do
+          for log in "$RUNNER_TEMP/app-ios-build.log" "$RUNNER_TEMP/app-ios-release-build.log" "$RUNNER_TEMP/plugin-ios-build.log"; do
             if [ -f "$log" ]; then
               echo "===== $(basename "$log") =====" >> "$RUNNER_TEMP/ios-errors.txt"
               grep -E -i 'error:|fatal error:|failed|exception|could not build|swift compiler error' "$log" | tail -n 120 >> "$RUNNER_TEMP/ios-errors.txt" || true
@@ -125,6 +132,7 @@ jobs:
           name: resistor-ios-pr29-build-log
           path: |
             ${{ runner.temp }}/app-ios-build.log
+            ${{ runner.temp }}/app-ios-release-build.log
             ${{ runner.temp }}/plugin-ios-build.log
             ${{ runner.temp }}/ios-errors.txt
             ${{ runner.temp }}/flutter-ios-migration-status.txt
@@ -132,4 +140,4 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
-# Manual retrigger: 2026-09-30 full-app iOS validation
+# Manual retrigger: 2026-10-01 release iOS validation
