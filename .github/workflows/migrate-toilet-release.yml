@@ -1,0 +1,81 @@
+name: Migrate ToiletCompass release
+
+on:
+  push:
+    branches: [toilet-db-release-migration]
+    paths:
+      - '.github/workflows/migrate-toilet-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_REPOSITORY: Persie0/OnnxModels
+      TARGET_REPOSITORY: Persie0/toilets
+      RELEASE_TAG: toiletdb-2026-09-29-run21
+    steps:
+      - name: Validate migration token
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN"
+          test "$(gh api repos/$TARGET_REPOSITORY --jq '.permissions.push')" = "true"
+
+      - name: Download existing complete release
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          mkdir migration
+          gh release download "$RELEASE_TAG" \
+            --repo "$SOURCE_REPOSITORY" \
+            --dir migration
+
+      - name: Make manifest repository independent
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('migration/manifest.json')
+          data = json.loads(path.read_text())
+          if data.get('version') != 'toiletdb-2026-09-29-run21':
+              raise SystemExit(f"unexpected manifest version: {data.get('version')}")
+          for artifact in data.get('continents', {}).values():
+              artifact.pop('url', None)
+          path.write_text(json.dumps(data, indent=2, sort_keys=True) + '\n')
+          PY
+          rm -f migration/latest.json migration/SHA256SUMS
+          (
+            cd migration
+            sha256sum *.db manifest.json > SHA256SUMS
+          )
+
+      - name: Publish migrated public release
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$TARGET_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists; refusing to overwrite it."
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            migration/*.db \
+            migration/manifest.json \
+            migration/SHA256SUMS \
+            --repo "$TARGET_REPOSITORY" \
+            --title "Toilet database $RELEASE_TAG" \
+            --notes "Public ToiletCompass database release migrated from the previous public mirror."
+
+      - name: Verify migrated release
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh release view "$RELEASE_TAG" --repo "$TARGET_REPOSITORY" --json assets \
+            --jq '.assets[].name' > /tmp/assets.txt
+          test "$(grep -Ec '^[A-Z]{2}\.db$' /tmp/assets.txt)" -eq 249
+          for name in africa.db antarctica.db asia.db australia-oceania.db central-america.db europe.db north-america.db south-america.db manifest.json SHA256SUMS; do
+            grep -Fx "$name" /tmp/assets.txt >/dev/null
+          done
