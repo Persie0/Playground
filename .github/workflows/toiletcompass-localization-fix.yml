@@ -1,0 +1,78 @@
+name: ToiletCompass fallback localization fix
+
+on:
+  push:
+    branches: [toiletcompass-monthly-db]
+    paths:
+      - '.github/workflows/toiletcompass-localization-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout ToiletCompass feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/toiletcompass
+          ref: feat/monthly-country-database-pipeline
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Localize fallback selector and format
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('lib/onboarding_screen.dart')
+          text = path.read_text()
+          replacements = [
+              (
+                  "        Text(\n          'Continents',",
+                  "        Text(\n          AppLocalizations.of(context)!.regions,",
+              ),
+              (
+                  "              title: Text(ToiletService.continentNames[key] ?? key),",
+                  "              title: Text(\n                ToiletService.localizedContinentName(\n                  key,\n                  AppLocalizations.of(context)!,\n                ),\n              ),",
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one localization anchor for {old!r}, got {count}')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          dart format lib/onboarding_screen.dart
+          git diff --check
+
+      - name: Commit private branch fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo '::error::Expected localization patch produced no diff'
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/onboarding_screen.dart
+          git commit -m "fix: localize fallback database selector"
+          git push origin HEAD:feat/monthly-country-database-pipeline
+          echo "PATCHED_HEAD=$(git rev-parse HEAD)"
