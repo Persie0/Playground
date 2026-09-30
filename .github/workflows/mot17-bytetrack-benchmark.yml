@@ -101,12 +101,20 @@ jobs:
           OPENBLAS_NUM_THREADS: '1'
           MKL_NUM_THREADS: '1'
         run: |
+          SUCCESSFUL_TRACKERS=$(python - <<'PY'
+          import json
+          p=json.load(open('mot17_eval/runtime.json'))
+          print(' '.join(r['tracker'] for r in p['results']))
+          PY
+          )
+          echo "TrackEval trackers: $SUCCESSFUL_TRACKERS"
           python TrackEval/scripts/run_mot_challenge.py \
             --BENCHMARK MOT17 \
             --SPLIT_TO_EVAL train \
             --GT_FOLDER "${{ github.workspace }}/mot17_eval/gt" \
             --TRACKERS_FOLDER "${{ github.workspace }}/mot17_eval/trackers" \
-            --SEQMAP_FILE "${{ github.workspace }}/mot17_eval/MOT17-FRCNN-train.txt" \
+            --TRACKERS_TO_EVAL $SUCCESSFUL_TRACKERS \
+            --SEQ_INFO MOT17-02-FRCNN MOT17-04-FRCNN MOT17-05-FRCNN MOT17-09-FRCNN MOT17-10-FRCNN MOT17-11-FRCNN MOT17-13-FRCNN \
             --TRACKER_SUB_FOLDER data \
             --OUTPUT_SUB_FOLDER eval \
             --CLASSES_TO_EVAL pedestrian \
