@@ -1,0 +1,46 @@
+name: ToiletCompass current release check
+
+on:
+  push:
+    branches: [toiletcompass-monthly-db]
+    paths:
+      - '.github/workflows/toiletcompass-current-release-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate latest public release manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import urllib.request
+
+          api = 'https://api.github.com/repos/Persie0/toilets/releases/latest'
+          request = urllib.request.Request(api, headers={'User-Agent': 'toiletcompass-release-check'})
+          release = json.load(urllib.request.urlopen(request))
+          assets = {item['name']: item['browser_download_url'] for item in release['assets']}
+          manifest_url = assets['manifest.json']
+          request = urllib.request.Request(manifest_url, headers={'User-Agent': 'toiletcompass-release-check'})
+          manifest = json.load(urllib.request.urlopen(request))
+
+          countries = manifest.get('countries', {})
+          missing = [iso for iso, item in countries.items() if not isinstance(item.get('continents'), list)]
+          print(f"tag={release['tag_name']}")
+          print(f"manifest_version={manifest.get('version')}")
+          print(f"countries={len(countries)}")
+          print(f"continents={len(manifest.get('continents', {}))}")
+          print(f"missing_country_continents={len(missing)}")
+          print(f"AT_continents={countries.get('AT', {}).get('continents')}")
+          assert manifest.get('version') == release['tag_name']
+          assert len(countries) == 249
+          assert len(manifest.get('continents', {})) == 8
+          assert not missing, missing[:20]
+          PY
