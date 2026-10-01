@@ -15,22 +15,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Download YOLOv8 export
+      - name: Download private YOLOv8 export
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: |
-          set -euxo pipefail
+          set -euo pipefail
+          test -n "$PRIVATE_TOKEN"
           curl --fail --location --retry 3 --retry-delay 2 \
-            https://raw.githubusercontent.com/Persie0/resistor_scanner/tflite/rres.v4i.yolov8.zip \
+            -H "Authorization: Bearer $PRIVATE_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/Persie0/resistor_scanner/contents/rres.v4i.yolov8.zip?ref=tflite" \
             -o /tmp/rres-yolo.zip
           ls -lh /tmp/rres-yolo.zip
           unzip -q /tmp/rres-yolo.zip -d /tmp/rres
 
       - name: Inspect layout and annotations
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           echo '=== top-level files ==='
-          find /tmp/rres -maxdepth 3 -type f | sort | head -100
+          find /tmp/rres -maxdepth 3 -type f | sort | head -100 || true
           echo '=== yaml ==='
           find /tmp/rres -maxdepth 3 \( -name 'data.yaml' -o -name 'dataset.yaml' \) -print -exec cat {} \;
           echo '=== dataset statistics ==='
