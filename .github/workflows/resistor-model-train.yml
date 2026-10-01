@@ -1,0 +1,169 @@
+name: Train resistor band model
+
+on:
+  push:
+    branches: [resistor-dataset-train]
+    paths:
+      - .github/workflows/resistor-model-train.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Checkout resistor_model
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_model
+          ref: feat/training-stack
+          path: resistor_model
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install CPU training dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          python -m pip install numpy opencv-python Pillow PyYAML pytest
+          python -m pip install -e ./resistor_model --no-deps
+
+      - name: Download private YOLOv8 resistor annotations
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_TOKEN"
+          curl --fail --location --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $PRIVATE_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/Persie0/resistor_scanner/contents/rres.v4i.yolov8.zip?ref=tflite" \
+            -o /tmp/rres-yolo.zip
+          mkdir -p /tmp/rres
+          unzip -q /tmp/rres-yolo.zip -d /tmp/rres
+
+      - name: Import and make leakage-resistant split
+        run: |
+          set -euo pipefail
+          python -m resistor_model.tools.import_roboflow_yolo \
+            --root /tmp/rres \
+            --output /tmp/rres/manifest.jsonl \
+            --min-bands 3 \
+            --max-bands 6 | tee /tmp/import-report.json
+          python -m resistor_model.tools.make_splits \
+            --manifest /tmp/rres/manifest.jsonl \
+            --output /tmp/rres/splits.json \
+            --ratios 0.70 0.15 0.15 \
+            --seed 42
+
+      - name: Create training config
+        run: |
+          python - <<'PY'
+          import yaml
+          cfg = {
+              'seed': 42,
+              'data': {
+                  'manifest': '/tmp/rres/manifest.jsonl',
+                  'image_root': '/tmp/rres',
+                  'splits_file': '/tmp/rres/splits.json',
+                  'output_size': [96, 512],
+                  'sequence_bins': 192,
+                  'num_workers': 4,
+                  'group_session': False,
+                  'split_ratios': [0.70, 0.15, 0.15],
+              },
+              'model': {
+                  'num_colors': 12,
+                  'max_bands': 6,
+                  'base_channels': 24,
+                  'd_model': 128,
+                  'transformer_layers': 2,
+                  'transformer_heads': 4,
+                  'slot_decoder_layers': 1,
+                  'dropout': 0.10,
+                  'use_chromatic_branch': True,
+              },
+              'train': {
+                  'epochs': 12,
+                  'batch_size': 16,
+                  'lr': 0.0005,
+                  'weight_decay': 0.04,
+                  'warmup_epochs': 1,
+                  'grad_clip': 1.0,
+                  'amp': False,
+                  'ema_decay': 0.995,
+                  'output_dir': '/tmp/runs/rres-v4',
+                  'resume': None,
+              },
+              'loss': {
+                  'dense': 1.0,
+                  'color': 2.0,
+                  'exist': 0.5,
+                  'center': 1.0,
+                  'width': 0.5,
+                  'order': 0.2,
+                  'count': 0.2,
+                  'consistency': 0.05,
+                  'body_class_weight': 0.25,
+              },
+          }
+          with open('/tmp/rres-train.yaml', 'w') as f:
+              yaml.safe_dump(cfg, f, sort_keys=False)
+          PY
+
+      - name: Train 12 epochs
+        run: |
+          set -euo pipefail
+          python -m resistor_model.train --config /tmp/rres-train.yaml | tee /tmp/train.log
+
+      - name: Evaluate best checkpoint on held-out test split
+        run: |
+          set -euo pipefail
+          python -m resistor_model.evaluate \
+            --config /tmp/rres-train.yaml \
+            --checkpoint /tmp/runs/rres-v4/best.pt \
+            --split test | tee /tmp/test-metrics.json
+
+      - name: Summarize learning curve
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('/tmp/runs/rres-v4/metrics.jsonl').read_text().splitlines() if x.strip()]
+          best=max(rows, key=lambda r: (r['val']['exact_sequence_accuracy'], r['val']['macro_f1']))
+          summary={
+              'epochs': len(rows),
+              'first': rows[0]['val'],
+              'last': rows[-1]['val'],
+              'best_epoch': best['epoch'],
+              'best_val': best['val'],
+          }
+          Path('/tmp/training-summary.json').write_text(json.dumps(summary, indent=2))
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload trained model and reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-bandnet-rres-v4-${{ github.run_id }}
+          path: |
+            /tmp/runs/rres-v4/best.pt
+            /tmp/runs/rres-v4/last.pt
+            /tmp/runs/rres-v4/metrics.jsonl
+            /tmp/runs/rres-v4/splits.json
+            /tmp/import-report.json
+            /tmp/test-metrics.json
+            /tmp/training-summary.json
+            /tmp/rres-train.yaml
+          if-no-files-found: error
+          retention-days: 30
