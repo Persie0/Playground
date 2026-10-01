@@ -13,7 +13,7 @@ permissions:
 jobs:
   tflite-to-coreml-parity:
     runs-on: macos-latest
-    timeout-minutes: 55
+    timeout-minutes: 60
     steps:
       - name: Validate private checkout token
         env:
@@ -29,60 +29,56 @@ jobs:
           persist-credentials: false
           path: source
 
-      - name: Set up Python 3.12
+      - name: Set up Python 3.11 for exact TFLite to ONNX conversion
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
 
-      - name: Install conversion toolchain
+      - name: Install known-good TFLite to ONNX toolchain
+        shell: bash
         run: |
+          python -m venv "$RUNNER_TEMP/tflite-onnx-venv"
+          source "$RUNNER_TEMP/tflite-onnx-venv/bin/activate"
           python -m pip install --upgrade pip
           python -m pip install \
-            'onnx2tf[tensorflow]==2.6.8' \
-            'coremltools==9.0' \
+            'numpy<2' \
+            'tensorflow==2.15.1' \
+            'tf2onnx==1.16.1' \
+            'onnxruntime==1.23.1' \
             'pillow>=10,<13'
 
-      - name: Reverse exact production TFLite to SavedModel
+      - name: Convert exact production TFLite to ONNX
         shell: bash
         run: |
           set -o pipefail
-          onnx2tf \
-            -it source/assets/model1225.tflite \
-            -o "$RUNNER_TEMP/model1225_tf" \
-            -tb flatbuffer_direct \
-            -fdosm \
-            -osd \
-            2>&1 | tee "$RUNNER_TEMP/tflite-to-savedmodel.log"
-          test -f "$RUNNER_TEMP/model1225_tf/saved_model.pb"
+          source "$RUNNER_TEMP/tflite-onnx-venv/bin/activate"
+          python -m tf2onnx.convert \
+            --opset 17 \
+            --tflite source/assets/model1225.tflite \
+            --output "$RUNNER_TEMP/model1225.onnx" \
+            2>&1 | tee "$RUNNER_TEMP/tflite-to-onnx.log"
+          test -f "$RUNNER_TEMP/model1225.onnx"
 
-      - name: Compare TFLite and SavedModel numerically
+      - name: Gate TFLite to ONNX numerical parity
         shell: bash
         run: |
-          python - <<'PY' | tee "$RUNNER_TEMP/tflite-savedmodel-parity.txt"
+          source "$RUNNER_TEMP/tflite-onnx-venv/bin/activate"
+          python - <<'PY' | tee "$RUNNER_TEMP/tflite-onnx-parity.txt"
           import json
           import os
           import numpy as np
+          import onnxruntime as ort
           import tensorflow as tf
           from PIL import Image
 
           tflite_path = 'source/assets/model1225.tflite'
-          saved_path = os.path.join(os.environ['RUNNER_TEMP'], 'model1225_tf')
-
+          onnx_path = os.path.join(os.environ['RUNNER_TEMP'], 'model1225.onnx')
           interpreter = tf.lite.Interpreter(model_path=tflite_path, num_threads=1)
           interpreter.allocate_tensors()
           tin = interpreter.get_input_details()[0]
           tout = interpreter.get_output_details()[0]
-
-          model = tf.saved_model.load(saved_path)
-          signature = model.signatures['serving_default']
-          input_map = signature.structured_input_signature[1]
-          output_map = signature.structured_outputs
-          if len(input_map) != 1 or len(output_map) != 1:
-              raise SystemExit(f'unexpected SavedModel signature: inputs={list(input_map)} outputs={list(output_map)}')
-          input_name = next(iter(input_map))
-          output_name = next(iter(output_map))
-          print('savedmodel_input=', input_name, input_map[input_name])
-          print('savedmodel_output=', output_name, output_map[output_name])
+          session = ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider'])
+          oin = session.get_inputs()[0]
 
           shape = tuple(int(x) for x in tin['shape'])
           rng = np.random.default_rng(1225)
@@ -97,28 +93,125 @@ jobs:
               values = values.astype(np.float32)
               interpreter.set_tensor(tin['index'], values)
               interpreter.invoke()
-              tflite = interpreter.get_tensor(tout['index']).astype(np.float32)
-              saved = signature(**{input_name: tf.convert_to_tensor(values)})[output_name].numpy().astype(np.float32)
-              if saved.shape != tflite.shape:
-                  if saved.ndim == 3 and np.transpose(saved, (0, 2, 1)).shape == tflite.shape:
-                      saved = np.transpose(saved, (0, 2, 1))
+              expected = interpreter.get_tensor(tout['index']).astype(np.float32)
+              feed = values
+              onnx_shape = tuple(oin.shape)
+              if tuple(feed.shape) != onnx_shape:
+                  nchw = np.transpose(feed, (0, 3, 1, 2))
+                  if tuple(nchw.shape) == onnx_shape:
+                      feed = nchw
+              actual = session.run(None, {oin.name: feed})[0].astype(np.float32)
+              if actual.shape != expected.shape:
+                  if actual.ndim == 3 and np.transpose(actual, (0, 2, 1)).shape == expected.shape:
+                      actual = np.transpose(actual, (0, 2, 1))
                   else:
-                      raise SystemExit(f'{name}: output shape mismatch {tflite.shape} vs {saved.shape}')
-              diff = np.abs(tflite - saved)
-              result = {
+                      raise SystemExit(f'{name}: ONNX output shape mismatch {expected.shape} vs {actual.shape}')
+              diff = np.abs(expected - actual)
+              row = {
                   'case': name,
-                  'shape': list(tflite.shape),
+                  'shape': list(expected.shape),
                   'max_abs': float(diff.max(initial=0.0)),
                   'mean_abs': float(diff.mean()),
                   'p99_abs': float(np.quantile(diff, 0.99)),
-                  'allclose_1e-3': bool(np.allclose(tflite, saved, rtol=1e-3, atol=1e-3)),
+                  'allclose_1e-4': bool(np.allclose(expected, actual, rtol=1e-4, atol=1e-4)),
               }
-              print(json.dumps(result, sort_keys=True))
-              if not result['allclose_1e-3']:
+              print(json.dumps(row, sort_keys=True))
+              if not row['allclose_1e-4']:
+                  raise SystemExit('TFLite -> ONNX exceeded 1e-4 parity gate')
+          PY
+
+      - name: Set up Python 3.12 for ONNX to TensorFlow and Core ML
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ONNX to TensorFlow and Core ML toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            'onnx2tf[tensorflow]==2.6.8' \
+            'coremltools==9.0' \
+            'pillow>=10,<13'
+
+      - name: Convert parity-checked ONNX to SavedModel
+        shell: bash
+        run: |
+          set -o pipefail
+          onnx2tf \
+            -i "$RUNNER_TEMP/model1225.onnx" \
+            -o "$RUNNER_TEMP/model1225_tf" \
+            -osd \
+            2>&1 | tee "$RUNNER_TEMP/onnx-to-savedmodel.log"
+          test -f "$RUNNER_TEMP/model1225_tf/saved_model.pb"
+
+      - name: Gate TFLite to SavedModel numerical parity
+        shell: bash
+        run: |
+          python - <<'PY' | tee "$RUNNER_TEMP/tflite-savedmodel-parity.txt"
+          import json
+          import os
+          import numpy as np
+          import tensorflow as tf
+          from PIL import Image
+
+          interpreter = tf.lite.Interpreter(model_path='source/assets/model1225.tflite', num_threads=1)
+          interpreter.allocate_tensors()
+          tin = interpreter.get_input_details()[0]
+          tout = interpreter.get_output_details()[0]
+          shape = tuple(int(x) for x in tin['shape'])
+
+          loaded = tf.saved_model.load(os.path.join(os.environ['RUNNER_TEMP'], 'model1225_tf'))
+          signature = loaded.signatures['serving_default']
+          inputs = signature.structured_input_signature[1]
+          outputs = signature.structured_outputs
+          if len(inputs) != 1 or len(outputs) != 1:
+              raise SystemExit(f'unexpected SavedModel signature: inputs={list(inputs)} outputs={list(outputs)}')
+          input_name = next(iter(inputs))
+          output_name = next(iter(outputs))
+          saved_shape = tuple(int(x) for x in inputs[input_name].shape)
+          print('savedmodel_input=', input_name, saved_shape)
+          print('savedmodel_output=', output_name, tuple(int(x) for x in outputs[output_name].shape))
+
+          rng = np.random.default_rng(1225)
+          cases = [('random', rng.random(shape, dtype=np.float32))]
+          image_path = 'source/assets/resistor.jpeg'
+          if os.path.exists(image_path):
+              image = Image.open(image_path).convert('RGB').resize((shape[2], shape[1]))
+              cases.append(('resistor', (np.asarray(image, dtype=np.float32) / 255.0)[None, ...]))
+
+          for name, values in cases:
+              values = values.astype(np.float32)
+              interpreter.set_tensor(tin['index'], values)
+              interpreter.invoke()
+              expected = interpreter.get_tensor(tout['index']).astype(np.float32)
+              feed = values
+              if tuple(feed.shape) != saved_shape:
+                  nchw = np.transpose(feed, (0, 3, 1, 2))
+                  if tuple(nchw.shape) == saved_shape:
+                      feed = nchw
+                  else:
+                      raise SystemExit(f'{name}: cannot adapt TFLite input {feed.shape} to SavedModel {saved_shape}')
+              actual = signature(**{input_name: tf.convert_to_tensor(feed)})[output_name].numpy().astype(np.float32)
+              if actual.shape != expected.shape:
+                  if actual.ndim == 3 and np.transpose(actual, (0, 2, 1)).shape == expected.shape:
+                      actual = np.transpose(actual, (0, 2, 1))
+                  else:
+                      raise SystemExit(f'{name}: SavedModel output shape mismatch {expected.shape} vs {actual.shape}')
+              diff = np.abs(expected - actual)
+              row = {
+                  'case': name,
+                  'shape': list(expected.shape),
+                  'max_abs': float(diff.max(initial=0.0)),
+                  'mean_abs': float(diff.mean()),
+                  'p99_abs': float(np.quantile(diff, 0.99)),
+                  'allclose_1e-3': bool(np.allclose(expected, actual, rtol=1e-3, atol=1e-3)),
+              }
+              print(json.dumps(row, sort_keys=True))
+              if not row['allclose_1e-3']:
                   raise SystemExit('TFLite -> SavedModel exceeded 1e-3 parity gate')
           PY
 
-      - name: Convert SavedModel to iOS 15 MLProgram
+      - name: Convert parity-checked SavedModel to iOS 15 MLProgram
         shell: bash
         run: |
           python - <<'PY' 2>&1 | tee "$RUNNER_TEMP/savedmodel-to-coreml.log"
@@ -132,18 +225,18 @@ jobs:
           output = os.path.join(os.environ['RUNNER_TEMP'], 'model1225.mlpackage')
           loaded = tf.saved_model.load(source)
           signature = loaded.signatures['serving_default']
-          input_map = signature.structured_input_signature[1]
-          output_map = signature.structured_outputs
-          if len(input_map) != 1 or len(output_map) != 1:
-              raise SystemExit(f'unexpected SavedModel signature: inputs={list(input_map)} outputs={list(output_map)}')
-          input_name = next(iter(input_map))
-          output_name = next(iter(output_map))
-          input_shape = tuple(int(x) for x in input_map[input_name].shape)
-          output_shape = tuple(int(x) for x in output_map[output_name].shape)
-          if input_shape != (1, 640, 640, 3):
+          inputs = signature.structured_input_signature[1]
+          outputs = signature.structured_outputs
+          input_name = next(iter(inputs))
+          output_name = next(iter(outputs))
+          input_shape = tuple(int(x) for x in inputs[input_name].shape)
+          output_shape = tuple(int(x) for x in outputs[output_name].shape)
+          if input_shape not in ((1, 640, 640, 3), (1, 3, 640, 640)):
               raise SystemExit(f'unexpected input shape: {input_shape}')
           if output_shape not in ((1, 16, 8400), (1, 8400, 16)):
               raise SystemExit(f'unexpected output shape: {output_shape}')
+          if input_shape != (1, 640, 640, 3):
+              raise SystemExit(f'Core ML image conversion requires NHWC SavedModel input, got {input_shape}')
 
           model = ct.convert(
               model=source,
@@ -155,7 +248,6 @@ jobs:
                   color_layout=ct.colorlayout.RGB,
                   scale=1.0 / 255.0,
               )],
-              outputs=[ct.TensorType(name=output_name, dtype=np.float32)],
               minimum_deployment_target=ct.target.iOS15,
               compute_precision=ct.precision.FLOAT16,
           )
@@ -169,13 +261,15 @@ jobs:
               ct.utils.rename_feature(spec, coreml_output, 'predictions')
           model = ct.models.MLModel(spec, weights_dir=model.weights_dir)
           model.user_defined_metadata['resistor_scanner.output_contract'] = 'normalized_xywh_class_scores_v1'
-          model.user_defined_metadata['resistor_scanner.source'] = 'model1225.tflite parity-checked reverse conversion'
+          model.user_defined_metadata['resistor_scanner.source'] = 'model1225.tflite via parity-checked ONNX and SavedModel'
           model.save(output)
 
           final_spec = model.get_spec()
           description = {
-              'inputs': [(item.name, str(item.type)) for item in final_spec.description.input],
-              'outputs': [(item.name, str(item.type)) for item in final_spec.description.output],
+              'inputs': [item.name for item in final_spec.description.input],
+              'outputs': [item.name for item in final_spec.description.output],
+              'input_shape': list(input_shape),
+              'savedmodel_output_shape': list(output_shape),
               'compute_precision': 'FLOAT16',
               'deployment_target': 'iOS15',
           }
@@ -203,7 +297,6 @@ jobs:
           gradient[..., 2] = 127
           Image.fromarray(gradient, 'RGB').save(os.path.join(root, 'gradient.png'))
           PY
-          find "$RUNNER_TEMP/parity-images" -maxdepth 1 -type f -print
 
       - name: Verify exact TFLite to Core ML parity
         working-directory: source
@@ -222,7 +315,7 @@ jobs:
             --report "$RUNNER_TEMP/tflite-coreml-parity.json" \
             2>&1 | tee "$RUNNER_TEMP/tflite-coreml-parity.log"
 
-      - name: Run stricter raw numerical parity report
+      - name: Run strict raw numerical parity report
         shell: bash
         run: |
           python - <<'PY' | tee "$RUNNER_TEMP/tflite-coreml-raw-parity.txt"
@@ -233,37 +326,35 @@ jobs:
           import coremltools as ct
           from PIL import Image
 
-          tflite_path = 'source/assets/model1225.tflite'
-          coreml_path = os.path.join(os.environ['RUNNER_TEMP'], 'model1225.mlpackage')
-          image_root = os.path.join(os.environ['RUNNER_TEMP'], 'parity-images')
-          interpreter = tf.lite.Interpreter(model_path=tflite_path, num_threads=1)
+          interpreter = tf.lite.Interpreter(model_path='source/assets/model1225.tflite', num_threads=1)
           interpreter.allocate_tensors()
           tin = interpreter.get_input_details()[0]
           tout = interpreter.get_output_details()[0]
-          model = ct.models.MLModel(coreml_path)
+          model = ct.models.MLModel(os.path.join(os.environ['RUNNER_TEMP'], 'model1225.mlpackage'))
+          root = os.path.join(os.environ['RUNNER_TEMP'], 'parity-images')
 
-          for filename in sorted(os.listdir(image_root)):
-              path = os.path.join(image_root, filename)
-              image = Image.open(path).convert('RGB').resize((640, 640))
+          for filename in sorted(os.listdir(root)):
+              image = Image.open(os.path.join(root, filename)).convert('RGB').resize((640, 640))
               values = np.asarray(image, dtype=np.float32) / 255.0
               interpreter.set_tensor(tin['index'], values[None, ...])
               interpreter.invoke()
-              a = interpreter.get_tensor(tout['index']).astype(np.float32)
-              b = np.asarray(model.predict({'image': image})['predictions'], dtype=np.float32)
-              if b.shape != a.shape and b.ndim == 3 and np.transpose(b, (0, 2, 1)).shape == a.shape:
-                  b = np.transpose(b, (0, 2, 1))
-              if a.shape != b.shape:
-                  raise SystemExit(f'{filename}: shape mismatch {a.shape} vs {b.shape}')
-              diff = np.abs(a - b)
+              expected = interpreter.get_tensor(tout['index']).astype(np.float32)
+              actual = np.asarray(model.predict({'image': image})['predictions'], dtype=np.float32)
+              if actual.shape != expected.shape:
+                  if actual.ndim == 3 and np.transpose(actual, (0, 2, 1)).shape == expected.shape:
+                      actual = np.transpose(actual, (0, 2, 1))
+                  else:
+                      raise SystemExit(f'{filename}: Core ML shape mismatch {expected.shape} vs {actual.shape}')
+              diff = np.abs(expected - actual)
               row = {
                   'image': filename,
                   'max_abs': float(diff.max(initial=0.0)),
                   'mean_abs': float(diff.mean()),
                   'p99_abs': float(np.quantile(diff, 0.99)),
-                  'allclose_atol_0.03_rtol_0.02': bool(np.allclose(a, b, atol=0.03, rtol=0.02)),
+                  'passes_production_gate': bool(np.allclose(expected, actual, atol=0.03, rtol=0.02)),
               }
               print(json.dumps(row, sort_keys=True))
-              if not row['allclose_atol_0.03_rtol_0.02']:
+              if not row['passes_production_gate']:
                   raise SystemExit('Core ML raw output exceeded production parity gate')
           PY
 
@@ -273,7 +364,9 @@ jobs:
         with:
           name: resistor-tflite-coreml-probe-logs
           path: |
-            ${{ runner.temp }}/tflite-to-savedmodel.log
+            ${{ runner.temp }}/tflite-to-onnx.log
+            ${{ runner.temp }}/tflite-onnx-parity.txt
+            ${{ runner.temp }}/onnx-to-savedmodel.log
             ${{ runner.temp }}/tflite-savedmodel-parity.txt
             ${{ runner.temp }}/savedmodel-to-coreml.log
             ${{ runner.temp }}/tflite-coreml-parity.log
