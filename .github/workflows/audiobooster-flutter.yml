@@ -58,27 +58,54 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          manifest = Path('android/app/src/main/AndroidManifest.xml').read_text()
-          gradle_path = Path('android/app/build.gradle.kts')
-          if not gradle_path.exists():
-              gradle_path = Path('android/app/build.gradle')
-          gradle = gradle_path.read_text()
-          for value in [
+          import xml.etree.ElementTree as ET
+
+          manifest_path = Path('android/app/src/main/AndroidManifest.xml')
+          root = ET.parse(manifest_path).getroot()
+          android_name = '{http://schemas.android.com/apk/res/android}name'
+
+          permissions = [
+              node.get(android_name)
+              for node in root.findall('uses-permission')
+          ]
+          services = [
+              node.get(android_name)
+              for node in root.findall('./application/service')
+          ]
+
+          for permission in [
               'android.permission.MODIFY_AUDIO_SETTINGS',
               'android.permission.FOREGROUND_SERVICE',
               'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
               'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION',
               'android.permission.DUMP',
               'android.permission.RECORD_AUDIO',
+          ]:
+              count = permissions.count(permission)
+              if count != 1:
+                  raise SystemExit(
+                      f'{permission}: expected exactly once, found {count}'
+                  )
+
+          for service in [
               'com.persie0.audiobooster.audio.AudioBoostService',
               'com.persie0.audiobooster.audio.MediaNotificationListenerService',
           ]:
-              count = manifest.count(value)
+              count = services.count(service)
               if count != 1:
-                  raise SystemExit(f'{value}: expected exactly once, found {count}')
+                  raise SystemExit(
+                      f'{service}: expected exactly once, found {count}'
+                  )
+
+          gradle_path = Path('android/app/build.gradle.kts')
+          if not gradle_path.exists():
+              gradle_path = Path('android/app/build.gradle')
+          gradle = gradle_path.read_text()
           junit = 'junit:junit:4.13.2'
           if gradle.count(junit) != 1:
-              raise SystemExit(f'{junit}: expected exactly once, found {gradle.count(junit)}')
+              raise SystemExit(
+                  f'{junit}: expected exactly once, found {gradle.count(junit)}'
+              )
           PY
       - name: Run Android unit tests
         working-directory: audiobooster/android
