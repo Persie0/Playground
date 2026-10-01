@@ -32,10 +32,10 @@ jobs:
           cache: pip
           cache-dependency-path: resistor_model/pyproject.toml
 
-      - name: Install training stack
+      - name: Install training and export stack
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e './resistor_model[dev]'
+          python -m pip install -e './resistor_model[dev,export]'
 
       - name: Download private annotated dataset
         env:
@@ -230,6 +230,22 @@ jobs:
           ls -lh /tmp/runs/rres-v4-smoke
           cat /tmp/runs/rres-v4-smoke/metrics.jsonl
 
+      - name: Exercise evaluator and ONNX export
+        run: |
+          set -euo pipefail
+          python -m resistor_model.evaluate \
+            --checkpoint /tmp/runs/rres-v4-smoke/best.pt \
+            --manifest /tmp/rres/manifest.jsonl \
+            --image-root /tmp/rres \
+            --split test \
+            --batch-size 16 | tee /tmp/evaluate-report.txt
+          resistor-export \
+            --checkpoint /tmp/runs/rres-v4-smoke/best.pt \
+            --output /tmp/runs/rres-v4-smoke/resistor_bandnet.onnx
+          test -s /tmp/runs/rres-v4-smoke/resistor_bandnet.onnx
+          test -s /tmp/runs/rres-v4-smoke/resistor_bandnet.onnx.json
+          ls -lh /tmp/runs/rres-v4-smoke/resistor_bandnet.onnx*
+
       - name: Upload smoke diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -240,7 +256,10 @@ jobs:
             /tmp/audit-report.json
             /tmp/geometry-report.json
             /tmp/split-report.json
+            /tmp/evaluate-report.txt
             /tmp/rres/splits.json
             /tmp/runs/rres-v4-smoke/metrics.jsonl
+            /tmp/runs/rres-v4-smoke/resistor_bandnet.onnx
+            /tmp/runs/rres-v4-smoke/resistor_bandnet.onnx.json
           if-no-files-found: warn
           retention-days: 7
