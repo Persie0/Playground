@@ -51,9 +51,11 @@ jobs:
           mkdir -p /tmp/rres
           unzip -q /tmp/rres-yolo.zip -d /tmp/rres
 
-      - name: Run unit tests
+      - name: Run full unit suite and compile check
         working-directory: resistor_model
-        run: pytest -q
+        run: |
+          pytest -q
+          python -m compileall -q src
 
       - name: Import and audit real annotations
         run: |
@@ -70,7 +72,61 @@ jobs:
             --manifest /tmp/rres/manifest.jsonl \
             --output /tmp/rres/splits.json \
             --ratios 0.70 0.15 0.15 \
-            --seed 42
+            --seed 42 \
+            --group-session
+
+      - name: Verify split isolation and coverage
+        run: |
+          python - <<'PY' | tee /tmp/split-report.json
+          from collections import Counter, defaultdict
+          import json
+          from pathlib import Path
+
+          rows = [json.loads(x) for x in Path('/tmp/rres/manifest.jsonl').read_text().splitlines() if x.strip()]
+          splits = json.loads(Path('/tmp/rres/splits.json').read_text())
+          id_to_split = {}
+          for split, ids in splits.items():
+              for rid in ids:
+                  if rid in id_to_split:
+                      raise AssertionError(f'resistor id appears in multiple splits: {rid}')
+                  id_to_split[rid] = split
+
+          session_splits = defaultdict(set)
+          report = {s: {'resistor_ids': len(splits[s]), 'samples': 0, 'sessions': set(), 'colors': Counter(), 'band_counts': Counter()} for s in ('train','val','test')}
+          for row in rows:
+              for resistor in row['resistors']:
+                  split = id_to_split.get(resistor['id'])
+                  if split is None:
+                      raise AssertionError(f'missing split for {resistor["id"]}')
+                  report[split]['samples'] += 1
+                  if row.get('session_id'):
+                      session_splits[row['session_id']].add(split)
+                      report[split]['sessions'].add(row['session_id'])
+                  report[split]['band_counts'][len(resistor['bands'])] += 1
+                  report[split]['colors'].update(b['color'] for b in resistor['bands'])
+
+          leaked = {k: sorted(v) for k, v in session_splits.items() if len(v) > 1}
+          if leaked:
+              raise AssertionError(f'session/capture-group leakage: {list(leaked.items())[:10]}')
+          for split in ('train','val','test'):
+              if report[split]['samples'] == 0:
+                  raise AssertionError(f'empty {split} split')
+              # Every held-out split should cover all colors that have enough data for meaningful evaluation.
+              missing_common = [c for c in ('black','brown','red','orange','yellow','green','blue','violet','gray','gold') if report[split]['colors'][c] == 0]
+              if missing_common:
+                  raise AssertionError(f'{split} missing common colors: {missing_common}')
+
+          serializable = {}
+          for split, r in report.items():
+              serializable[split] = {
+                  'resistor_ids': r['resistor_ids'],
+                  'samples': r['samples'],
+                  'sessions': len(r['sessions']),
+                  'colors': dict(sorted(r['colors'].items())),
+                  'band_counts': {str(k): v for k, v in sorted(r['band_counts'].items())},
+              }
+          print(json.dumps(serializable, indent=2, sort_keys=True))
+          PY
 
       - name: Create real-data smoke config
         run: |
@@ -85,6 +141,7 @@ jobs:
                   'output_size': [96, 512],
                   'sequence_bins': 192,
                   'num_workers': 2,
+                  'group_session': True,
               },
               'model': {
                   'num_colors': 12,
@@ -133,6 +190,7 @@ jobs:
           path: |
             /tmp/import-report.json
             /tmp/audit-report.json
+            /tmp/split-report.json
             /tmp/rres/splits.json
             /tmp/runs/rres-v4-smoke/metrics.jsonl
           if-no-files-found: warn
