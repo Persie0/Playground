@@ -2,12 +2,6 @@ name: ImagePdfScaler private Flutter CI
 
 on:
   workflow_dispatch:
-    inputs:
-      ref:
-        description: Branch/tag/SHA in Persie0/ImagePdfScaler
-        required: true
-        default: main
-        type: string
   push:
     branches: [main]
     paths:
@@ -18,12 +12,12 @@ permissions:
 
 env:
   APP_REPOSITORY: Persie0/ImagePdfScaler
-  APP_REF: ${{ inputs.ref || 'review/editor-logic-20261002' }}
+  APP_REF: review/editor-logic-20261002
 
 jobs:
   flutter-android:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 15
     steps:
       - name: Validate private checkout token
         env:
@@ -37,34 +31,13 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: private-app
-      - name: Checkout private CI harness
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ env.APP_REPOSITORY }}
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
-          path: private-ci
-          sparse-checkout: .github/playground
-          sparse-checkout-cone-mode: false
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-      - name: Run private test/build harness
-        run: bash private-ci/.github/playground/private-ci.sh private-app
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: imagepdfscaler-debug-apk
-          path: private-app/build/app/outputs/flutter-apk/app-debug.apk
-          if-no-files-found: error
-      - name: Upload release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: imagepdfscaler-release-apk
-          path: private-app/build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
+      - name: Resolve dependencies
+        working-directory: private-app
+        run: flutter pub get >/dev/null
+      - name: Run editor orchestration tests
+        working-directory: private-app
+        run: flutter test --reporter=expanded test/editor_page_logic_test.dart
