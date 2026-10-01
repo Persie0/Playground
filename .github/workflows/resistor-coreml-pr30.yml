@@ -1,0 +1,162 @@
+name: Resistor Scanner Core ML PR30
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-coreml-pr30.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: macos-latest
+    timeout-minutes: 55
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout Resistor Scanner Core ML branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: coreml-ios
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: source
+
+      - name: Checkout legacy PyTorch checkpoint for exporter smoke test
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: pytorch
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          sparse-checkout: |
+            assets/model10.pt
+            assets/labels10.txt
+            assets/resistor.jpeg
+          sparse-checkout-cone-mode: false
+          path: legacy
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+
+      - name: Show Apple and Flutter toolchains
+        run: |
+          flutter --version
+          xcodebuild -version
+          pod --version
+          python3 --version
+
+      - name: Resolve app dependencies
+        working-directory: source
+        run: flutter pub get
+
+      - name: Run Core ML app-side Dart tests
+        working-directory: source
+        run: |
+          flutter test test/provider/settings_coreml_model_test.dart test/services/model_cache_ios_test.dart
+
+      - name: Run flutter_vision Dart tests
+        working-directory: source/flutter_vision
+        run: |
+          flutter pub get
+          flutter test test/ios_flutter_vision_test.dart
+
+      - name: Run Core ML export metadata tests
+        working-directory: source
+        run: python3 -m unittest test/scripts/test_coreml_export_metadata.py
+
+      - name: Analyze touched Dart runtime files
+        working-directory: source
+        run: |
+          flutter analyze \
+            lib/services/model_cache.dart \
+            flutter_vision/lib/src/flutter_vision_base.dart \
+            flutter_vision/lib/src/plugin/ios.dart
+
+      - name: Build full iOS simulator app
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build ios --simulator --debug 2>&1 | tee "$RUNNER_TEMP/coreml-ios-build.log"
+
+      - name: Assert CocoaPods no longer resolves TensorFlow Lite on iOS
+        working-directory: source
+        shell: bash
+        run: |
+          test -f ios/Podfile.lock
+          if grep -nE 'TensorFlowLite|TensorFlowLiteSwift|TensorFlowLiteMetal' ios/Podfile.lock; then
+            echo 'Unexpected TensorFlow Lite iOS dependency remains in Podfile.lock.' >&2
+            exit 1
+          fi
+          grep -n -A5 -B2 'flutter_vision' ios/Podfile.lock || true
+
+      - name: Capture generated iOS dependency changes
+        if: always()
+        working-directory: source
+        shell: bash
+        run: |
+          git status --short | tee "$RUNNER_TEMP/coreml-git-status.txt"
+          git diff -- ios/Podfile.lock ios/Runner.xcodeproj/project.pbxproj > "$RUNNER_TEMP/coreml-ios-generated.patch"
+          cat "$RUNNER_TEMP/coreml-ios-generated.patch"
+
+      - name: Export and execute legacy checkpoint through Core ML
+        id: exporter_smoke
+        continue-on-error: true
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m venv "$RUNNER_TEMP/coreml-venv"
+          source "$RUNNER_TEMP/coreml-venv/bin/activate"
+          python -m pip install --upgrade pip
+          python -m pip install coremltools ultralytics pillow
+          python scripts/export_yolo11_coreml.py \
+            "$GITHUB_WORKSPACE/legacy/assets/model10.pt" \
+            --labels "$GITHUB_WORKSPACE/legacy/assets/labels10.txt" \
+            --output "$RUNNER_TEMP/model10.mlpackage" \
+            --imgsz 640 \
+            2>&1 | tee "$RUNNER_TEMP/coreml-export-smoke.log"
+          python scripts/verify_yolo11_coreml.py \
+            --checkpoint "$GITHUB_WORKSPACE/legacy/assets/model10.pt" \
+            "$RUNNER_TEMP/model10.mlpackage" \
+            "$GITHUB_WORKSPACE/legacy/assets/resistor.jpeg" \
+            --labels "$GITHUB_WORKSPACE/legacy/assets/labels10.txt" \
+            --imgsz 640 \
+            --report "$RUNNER_TEMP/coreml-export-parity.json" \
+            2>&1 | tee "$RUNNER_TEMP/coreml-parity-smoke.log"
+
+      - name: Report exporter smoke-test status
+        if: always()
+        shell: bash
+        run: |
+          echo "Legacy exporter smoke outcome: ${{ steps.exporter_smoke.outcome }}"
+          if [ -f "$RUNNER_TEMP/coreml-export-parity.json" ]; then
+            cat "$RUNNER_TEMP/coreml-export-parity.json"
+          fi
+
+      - name: Upload non-sensitive validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-coreml-pr30-validation
+          path: |
+            ${{ runner.temp }}/coreml-ios-build.log
+            ${{ runner.temp }}/coreml-git-status.txt
+            ${{ runner.temp }}/coreml-ios-generated.patch
+            ${{ runner.temp }}/coreml-export-smoke.log
+            ${{ runner.temp }}/coreml-parity-smoke.log
+            ${{ runner.temp }}/coreml-export-parity.json
+          if-no-files-found: warn
+          retention-days: 3
