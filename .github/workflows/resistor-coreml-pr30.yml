@@ -50,12 +50,34 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Set up stable Python for Core ML tooling
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: source/scripts/requirements-coreml.txt
+
       - name: Show Apple and Flutter toolchains
         run: |
           flutter --version
           xcodebuild -version
           pod --version
           python3 --version
+
+      - name: Inspect production model archive and bundle state
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            echo '===== model1225.zip ====='
+            ls -lh assets/model1225.zip assets/model1225.tflite
+            file assets/model1225.zip
+            unzip -l assets/model1225.zip
+            echo
+            echo '===== Core ML resource directory ====='
+            find flutter_vision/ios/Resources -maxdepth 2 -type f -print 2>/dev/null | sort || true
+          } | tee "$RUNNER_TEMP/model1225-archive.txt"
 
       - name: Resolve app dependencies
         working-directory: source
@@ -74,7 +96,7 @@ jobs:
 
       - name: Run Core ML export metadata tests
         working-directory: source
-        run: python3 -m unittest test/scripts/test_coreml_export_metadata.py
+        run: python3 test/scripts/test_coreml_export_metadata.py
 
       - name: Analyze touched Dart runtime files
         working-directory: source
@@ -121,7 +143,7 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/coreml-venv"
           source "$RUNNER_TEMP/coreml-venv/bin/activate"
           python -m pip install --upgrade pip
-          python -m pip install coremltools ultralytics pillow
+          python -m pip install -r scripts/requirements-coreml.txt pillow
           python scripts/export_yolo11_coreml.py \
             "$GITHUB_WORKSPACE/legacy/assets/model10.pt" \
             --labels "$GITHUB_WORKSPACE/legacy/assets/labels10.txt" \
@@ -152,6 +174,7 @@ jobs:
         with:
           name: resistor-coreml-pr30-validation
           path: |
+            ${{ runner.temp }}/model1225-archive.txt
             ${{ runner.temp }}/coreml-ios-build.log
             ${{ runner.temp }}/coreml-git-status.txt
             ${{ runner.temp }}/coreml-ios-generated.patch
