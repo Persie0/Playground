@@ -67,7 +67,21 @@ jobs:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: test -n "$PRIVATE_TOKEN"
 
-      - name: Checkout resistor_scanner
+      - name: Checkout resistor_scanner model package only
+        if: env.MODE == 'unit'
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+          sparse-checkout: |
+            ml/resistor_model
+          sparse-checkout-cone-mode: true
+
+      - name: Checkout complete resistor_scanner for smoke/full
+        if: env.MODE == 'smoke' || env.MODE == 'full'
         uses: actions/checkout@v5
         with:
           repository: ${{ env.APP_REPOSITORY }}
