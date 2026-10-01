@@ -1,0 +1,283 @@
+name: Resistor TFLite to Core ML Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-tflite-coreml-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tflite-to-coreml-parity:
+    runs-on: macos-latest
+    timeout-minutes: 55
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout Resistor Scanner source
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: coreml-ios
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: source
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install conversion toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            'onnx2tf[tensorflow]==2.6.8' \
+            'coremltools==9.0' \
+            'pillow>=10,<13'
+
+      - name: Reverse exact production TFLite to SavedModel
+        shell: bash
+        run: |
+          set -o pipefail
+          onnx2tf \
+            -it source/assets/model1225.tflite \
+            -o "$RUNNER_TEMP/model1225_tf" \
+            -tb flatbuffer_direct \
+            -fdosm \
+            -osd \
+            2>&1 | tee "$RUNNER_TEMP/tflite-to-savedmodel.log"
+          test -f "$RUNNER_TEMP/model1225_tf/saved_model.pb"
+
+      - name: Compare TFLite and SavedModel numerically
+        shell: bash
+        run: |
+          python - <<'PY' | tee "$RUNNER_TEMP/tflite-savedmodel-parity.txt"
+          import json
+          import os
+          import numpy as np
+          import tensorflow as tf
+          from PIL import Image
+
+          tflite_path = 'source/assets/model1225.tflite'
+          saved_path = os.path.join(os.environ['RUNNER_TEMP'], 'model1225_tf')
+
+          interpreter = tf.lite.Interpreter(model_path=tflite_path, num_threads=1)
+          interpreter.allocate_tensors()
+          tin = interpreter.get_input_details()[0]
+          tout = interpreter.get_output_details()[0]
+
+          model = tf.saved_model.load(saved_path)
+          signature = model.signatures['serving_default']
+          input_map = signature.structured_input_signature[1]
+          output_map = signature.structured_outputs
+          if len(input_map) != 1 or len(output_map) != 1:
+              raise SystemExit(f'unexpected SavedModel signature: inputs={list(input_map)} outputs={list(output_map)}')
+          input_name = next(iter(input_map))
+          output_name = next(iter(output_map))
+          print('savedmodel_input=', input_name, input_map[input_name])
+          print('savedmodel_output=', output_name, output_map[output_name])
+
+          shape = tuple(int(x) for x in tin['shape'])
+          rng = np.random.default_rng(1225)
+          cases = [('random', rng.random(shape, dtype=np.float32))]
+          image_path = 'source/assets/resistor.jpeg'
+          if os.path.exists(image_path):
+              h, w = shape[1], shape[2]
+              image = Image.open(image_path).convert('RGB').resize((w, h))
+              cases.append(('resistor', (np.asarray(image, dtype=np.float32) / 255.0)[None, ...]))
+
+          for name, values in cases:
+              values = values.astype(np.float32)
+              interpreter.set_tensor(tin['index'], values)
+              interpreter.invoke()
+              tflite = interpreter.get_tensor(tout['index']).astype(np.float32)
+              saved = signature(**{input_name: tf.convert_to_tensor(values)})[output_name].numpy().astype(np.float32)
+              if saved.shape != tflite.shape:
+                  if saved.ndim == 3 and np.transpose(saved, (0, 2, 1)).shape == tflite.shape:
+                      saved = np.transpose(saved, (0, 2, 1))
+                  else:
+                      raise SystemExit(f'{name}: output shape mismatch {tflite.shape} vs {saved.shape}')
+              diff = np.abs(tflite - saved)
+              result = {
+                  'case': name,
+                  'shape': list(tflite.shape),
+                  'max_abs': float(diff.max(initial=0.0)),
+                  'mean_abs': float(diff.mean()),
+                  'p99_abs': float(np.quantile(diff, 0.99)),
+                  'allclose_1e-3': bool(np.allclose(tflite, saved, rtol=1e-3, atol=1e-3)),
+              }
+              print(json.dumps(result, sort_keys=True))
+              if not result['allclose_1e-3']:
+                  raise SystemExit('TFLite -> SavedModel exceeded 1e-3 parity gate')
+          PY
+
+      - name: Convert SavedModel to iOS 15 MLProgram
+        shell: bash
+        run: |
+          python - <<'PY' 2>&1 | tee "$RUNNER_TEMP/savedmodel-to-coreml.log"
+          import json
+          import os
+          import numpy as np
+          import tensorflow as tf
+          import coremltools as ct
+
+          source = os.path.join(os.environ['RUNNER_TEMP'], 'model1225_tf')
+          output = os.path.join(os.environ['RUNNER_TEMP'], 'model1225.mlpackage')
+          loaded = tf.saved_model.load(source)
+          signature = loaded.signatures['serving_default']
+          input_map = signature.structured_input_signature[1]
+          output_map = signature.structured_outputs
+          if len(input_map) != 1 or len(output_map) != 1:
+              raise SystemExit(f'unexpected SavedModel signature: inputs={list(input_map)} outputs={list(output_map)}')
+          input_name = next(iter(input_map))
+          output_name = next(iter(output_map))
+          input_shape = tuple(int(x) for x in input_map[input_name].shape)
+          output_shape = tuple(int(x) for x in output_map[output_name].shape)
+          if input_shape != (1, 640, 640, 3):
+              raise SystemExit(f'unexpected input shape: {input_shape}')
+          if output_shape not in ((1, 16, 8400), (1, 8400, 16)):
+              raise SystemExit(f'unexpected output shape: {output_shape}')
+
+          model = ct.convert(
+              model=source,
+              source='tensorflow',
+              convert_to='mlprogram',
+              inputs=[ct.ImageType(
+                  name=input_name,
+                  shape=input_shape,
+                  color_layout=ct.colorlayout.RGB,
+                  scale=1.0 / 255.0,
+              )],
+              outputs=[ct.TensorType(name=output_name, dtype=np.float32)],
+              minimum_deployment_target=ct.target.iOS15,
+              compute_precision=ct.precision.FLOAT16,
+          )
+
+          spec = model.get_spec()
+          coreml_input = spec.description.input[0].name
+          coreml_output = spec.description.output[0].name
+          if coreml_input != 'image':
+              ct.utils.rename_feature(spec, coreml_input, 'image')
+          if coreml_output != 'predictions':
+              ct.utils.rename_feature(spec, coreml_output, 'predictions')
+          model = ct.models.MLModel(spec, weights_dir=model.weights_dir)
+          model.user_defined_metadata['resistor_scanner.output_contract'] = 'normalized_xywh_class_scores_v1'
+          model.user_defined_metadata['resistor_scanner.source'] = 'model1225.tflite parity-checked reverse conversion'
+          model.save(output)
+
+          final_spec = model.get_spec()
+          description = {
+              'inputs': [(item.name, str(item.type)) for item in final_spec.description.input],
+              'outputs': [(item.name, str(item.type)) for item in final_spec.description.output],
+              'compute_precision': 'FLOAT16',
+              'deployment_target': 'iOS15',
+          }
+          print(json.dumps(description, indent=2))
+          PY
+          test -d "$RUNNER_TEMP/model1225.mlpackage"
+
+      - name: Build deterministic parity image set
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/parity-images"
+          if [ -f source/assets/resistor.jpeg ]; then
+            cp source/assets/resistor.jpeg "$RUNNER_TEMP/parity-images/resistor.jpeg"
+          fi
+          python - <<'PY'
+          import os
+          import numpy as np
+          from PIL import Image
+          root = os.path.join(os.environ['RUNNER_TEMP'], 'parity-images')
+          rng = np.random.default_rng(1225)
+          Image.fromarray(rng.integers(0, 256, size=(640, 640, 3), dtype=np.uint8), 'RGB').save(os.path.join(root, 'random.png'))
+          gradient = np.zeros((640, 640, 3), dtype=np.uint8)
+          gradient[..., 0] = np.arange(640, dtype=np.uint16)[None, :] * 255 // 639
+          gradient[..., 1] = np.arange(640, dtype=np.uint16)[:, None] * 255 // 639
+          gradient[..., 2] = 127
+          Image.fromarray(gradient, 'RGB').save(os.path.join(root, 'gradient.png'))
+          PY
+          find "$RUNNER_TEMP/parity-images" -maxdepth 1 -type f -print
+
+      - name: Verify exact TFLite to Core ML parity
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          PYTHONPATH=. python scripts/verify_yolo11_coreml.py \
+            --tflite assets/model1225.tflite \
+            "$RUNNER_TEMP/model1225.mlpackage" \
+            "$RUNNER_TEMP/parity-images" \
+            --labels assets/labels10.txt \
+            --imgsz 640 \
+            --raw-atol 0.03 \
+            --min-match-iou 0.90 \
+            --max-score-delta 0.03 \
+            --report "$RUNNER_TEMP/tflite-coreml-parity.json" \
+            2>&1 | tee "$RUNNER_TEMP/tflite-coreml-parity.log"
+
+      - name: Run stricter raw numerical parity report
+        shell: bash
+        run: |
+          python - <<'PY' | tee "$RUNNER_TEMP/tflite-coreml-raw-parity.txt"
+          import json
+          import os
+          import numpy as np
+          import tensorflow as tf
+          import coremltools as ct
+          from PIL import Image
+
+          tflite_path = 'source/assets/model1225.tflite'
+          coreml_path = os.path.join(os.environ['RUNNER_TEMP'], 'model1225.mlpackage')
+          image_root = os.path.join(os.environ['RUNNER_TEMP'], 'parity-images')
+          interpreter = tf.lite.Interpreter(model_path=tflite_path, num_threads=1)
+          interpreter.allocate_tensors()
+          tin = interpreter.get_input_details()[0]
+          tout = interpreter.get_output_details()[0]
+          model = ct.models.MLModel(coreml_path)
+
+          for filename in sorted(os.listdir(image_root)):
+              path = os.path.join(image_root, filename)
+              image = Image.open(path).convert('RGB').resize((640, 640))
+              values = np.asarray(image, dtype=np.float32) / 255.0
+              interpreter.set_tensor(tin['index'], values[None, ...])
+              interpreter.invoke()
+              a = interpreter.get_tensor(tout['index']).astype(np.float32)
+              b = np.asarray(model.predict({'image': image})['predictions'], dtype=np.float32)
+              if b.shape != a.shape and b.ndim == 3 and np.transpose(b, (0, 2, 1)).shape == a.shape:
+                  b = np.transpose(b, (0, 2, 1))
+              if a.shape != b.shape:
+                  raise SystemExit(f'{filename}: shape mismatch {a.shape} vs {b.shape}')
+              diff = np.abs(a - b)
+              row = {
+                  'image': filename,
+                  'max_abs': float(diff.max(initial=0.0)),
+                  'mean_abs': float(diff.mean()),
+                  'p99_abs': float(np.quantile(diff, 0.99)),
+                  'allclose_atol_0.03_rtol_0.02': bool(np.allclose(a, b, atol=0.03, rtol=0.02)),
+              }
+              print(json.dumps(row, sort_keys=True))
+              if not row['allclose_atol_0.03_rtol_0.02']:
+                  raise SystemExit('Core ML raw output exceeded production parity gate')
+          PY
+
+      - name: Upload non-sensitive logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-tflite-coreml-probe-logs
+          path: |
+            ${{ runner.temp }}/tflite-to-savedmodel.log
+            ${{ runner.temp }}/tflite-savedmodel-parity.txt
+            ${{ runner.temp }}/savedmodel-to-coreml.log
+            ${{ runner.temp }}/tflite-coreml-parity.log
+            ${{ runner.temp }}/tflite-coreml-parity.json
+            ${{ runner.temp }}/tflite-coreml-raw-parity.txt
+          if-no-files-found: warn
+          retention-days: 3
