@@ -1,0 +1,324 @@
+name: Resistor Production TFLite to Core ML
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-tflite-torch-coreml.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  convert-verify-and-stage:
+    runs-on: macos-latest
+    timeout-minutes: 75
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout Resistor Scanner Core ML branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: coreml-ios
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          path: source
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build exact ONNX from production TFLite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/tflite-onnx"
+          source "$RUNNER_TEMP/tflite-onnx/bin/activate"
+          python -m pip install --upgrade pip
+          python -m pip install \
+            'numpy<2' \
+            'tensorflow==2.15.1' \
+            'tf2onnx==1.16.1' \
+            'onnx==1.17.0' \
+            'onnxruntime==1.23.1' \
+            'pillow>=10,<13'
+          python -m tf2onnx.convert \
+            --opset 17 \
+            --tflite source/assets/model1225.tflite \
+            --output "$RUNNER_TEMP/model1225.onnx" \
+            2>&1 | tee "$RUNNER_TEMP/tflite-to-onnx.log"
+
+      - name: Verify TFLite to ONNX and inspect Resize nodes
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/tflite-onnx/bin/activate"
+          python - <<'PY' | tee "$RUNNER_TEMP/tflite-onnx-parity.txt"
+          import json, os
+          import numpy as np
+          import onnx
+          import onnxruntime as ort
+          import tensorflow as tf
+          from PIL import Image
+
+          model = onnx.load(os.path.join(os.environ['RUNNER_TEMP'], 'model1225.onnx'))
+          onnx.checker.check_model(model)
+          for node in model.graph.node:
+              if node.op_type == 'Resize':
+                  attrs = {a.name: onnx.helper.get_attribute_value(a) for a in node.attribute}
+                  attrs = {k: (v.decode() if isinstance(v, bytes) else v) for k, v in attrs.items()}
+                  print('resize=', node.name, attrs)
+
+          interpreter = tf.lite.Interpreter(model_path='source/assets/model1225.tflite', num_threads=1)
+          interpreter.allocate_tensors()
+          tin = interpreter.get_input_details()[0]
+          tout = interpreter.get_output_details()[0]
+          session = ort.InferenceSession(os.path.join(os.environ['RUNNER_TEMP'], 'model1225.onnx'), providers=['CPUExecutionProvider'])
+          oin = session.get_inputs()[0]
+          print('onnx_input=', oin.name, oin.shape)
+          print('onnx_output=', session.get_outputs()[0].name, session.get_outputs()[0].shape)
+
+          shape = tuple(int(x) for x in tin['shape'])
+          rng = np.random.default_rng(1225)
+          cases = [('random', rng.random(shape, dtype=np.float32))]
+          if os.path.exists('source/assets/resistor.jpeg'):
+              img = Image.open('source/assets/resistor.jpeg').convert('RGB').resize((shape[2], shape[1]))
+              cases.append(('resistor', (np.asarray(img, dtype=np.float32) / 255.0)[None, ...]))
+
+          for name, x in cases:
+              interpreter.set_tensor(tin['index'], x.astype(np.float32))
+              interpreter.invoke()
+              a = interpreter.get_tensor(tout['index']).astype(np.float32)
+              feed = x.astype(np.float32)
+              if tuple(feed.shape) != tuple(oin.shape):
+                  candidate = np.transpose(feed, (0, 3, 1, 2))
+                  if tuple(candidate.shape) == tuple(oin.shape):
+                      feed = candidate
+              b = session.run(None, {oin.name: feed})[0].astype(np.float32)
+              if b.shape != a.shape and b.ndim == 3 and np.transpose(b, (0, 2, 1)).shape == a.shape:
+                  b = np.transpose(b, (0, 2, 1))
+              if a.shape != b.shape:
+                  raise SystemExit(f'{name}: output shape mismatch {a.shape} vs {b.shape}')
+              diff = np.abs(a - b)
+              row = {'case': name, 'max_abs': float(diff.max()), 'mean_abs': float(diff.mean()), 'p99_abs': float(np.quantile(diff, .99))}
+              print(json.dumps(row, sort_keys=True))
+              if not np.allclose(a, b, rtol=1e-4, atol=1e-4):
+                  raise SystemExit(f'{name}: TFLite -> ONNX parity failed')
+          PY
+
+      - name: Install ONNX to Torch and Core ML toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/torch-coreml"
+          source "$RUNNER_TEMP/torch-coreml/bin/activate"
+          python -m pip install --upgrade pip
+          python -m pip install \
+            'numpy<2' \
+            'torch==2.7.0' \
+            'torchvision==0.22.0' \
+            'onnx==1.17.0' \
+            'onnxruntime==1.23.1' \
+            'onnx2torch==1.5.15' \
+            'coremltools==9.0' \
+            'ai-edge-litert==2.1.2' \
+            'pillow>=10,<13'
+
+      - name: Convert ONNX to TorchScript with numerical parity gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/torch-coreml/bin/activate"
+          python - <<'PY' | tee "$RUNNER_TEMP/onnx-torch-parity.txt"
+          import json, os
+          import numpy as np
+          import onnx
+          import onnxruntime as ort
+          import torch
+          from onnx2torch import convert
+
+          onnx_path = os.path.join(os.environ['RUNNER_TEMP'], 'model1225.onnx')
+          model_proto = onnx.load(onnx_path)
+          session = ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider'])
+          oin = session.get_inputs()[0]
+          in_shape = tuple(int(x) for x in oin.shape)
+          base = convert(model_proto).eval()
+
+          class CoreMLInputWrapper(torch.nn.Module):
+              def __init__(self, inner, target_shape):
+                  super().__init__()
+                  self.inner = inner
+                  self.target_shape = target_shape
+              def forward(self, x):
+                  if self.target_shape == (1, 640, 640, 3):
+                      x = x.permute(0, 2, 3, 1)
+                  return self.inner(x)
+
+          wrapper = CoreMLInputWrapper(base, in_shape).eval()
+          rng = np.random.default_rng(1225)
+          raw = rng.integers(0, 256, size=(1, 3, 640, 640), dtype=np.uint8)
+          x_nchw = raw.astype(np.float32) / 255.0
+          onnx_x = np.transpose(x_nchw, (0, 2, 3, 1)) if in_shape == (1, 640, 640, 3) else x_nchw
+          expected = session.run(None, {oin.name: onnx_x})[0].astype(np.float32)
+          with torch.no_grad():
+              actual_t = wrapper(torch.from_numpy(x_nchw))
+          if isinstance(actual_t, (tuple, list)):
+              if len(actual_t) != 1:
+                  raise SystemExit(f'Unexpected Torch output count: {len(actual_t)}')
+              actual_t = actual_t[0]
+          actual = actual_t.detach().cpu().numpy().astype(np.float32)
+          if actual.shape != expected.shape and actual.ndim == 3 and np.transpose(actual, (0, 2, 1)).shape == expected.shape:
+              actual = np.transpose(actual, (0, 2, 1))
+          if actual.shape != expected.shape:
+              raise SystemExit(f'ONNX/Torch output shape mismatch {expected.shape} vs {actual.shape}')
+          diff = np.abs(expected - actual)
+          row = {'max_abs': float(diff.max()), 'mean_abs': float(diff.mean()), 'p99_abs': float(np.quantile(diff, .99))}
+          print(json.dumps(row, sort_keys=True))
+          if not np.allclose(expected, actual, rtol=1e-4, atol=1e-4):
+              raise SystemExit('ONNX -> Torch parity failed')
+
+          example = torch.from_numpy(x_nchw)
+          with torch.no_grad():
+              traced = torch.jit.trace(wrapper, example, strict=False)
+              traced_out = traced(example)
+          if isinstance(traced_out, (tuple, list)):
+              traced_out = traced_out[0]
+          traced_np = traced_out.detach().cpu().numpy().astype(np.float32)
+          eager_np = actual_t.detach().cpu().numpy().astype(np.float32)
+          if not np.allclose(eager_np, traced_np, rtol=1e-5, atol=1e-5):
+              raise SystemExit('Torch eager -> TorchScript parity failed')
+          traced.save(os.path.join(os.environ['RUNNER_TEMP'], 'model1225.torchscript.pt'))
+          PY
+
+      - name: Convert TorchScript to Core ML MLProgram
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/torch-coreml/bin/activate"
+          python - <<'PY' 2>&1 | tee "$RUNNER_TEMP/torch-to-coreml.log"
+          import json, os
+          import coremltools as ct
+          import torch
+
+          traced = torch.jit.load(os.path.join(os.environ['RUNNER_TEMP'], 'model1225.torchscript.pt')).eval()
+          model = ct.convert(
+              traced,
+              convert_to='mlprogram',
+              inputs=[ct.ImageType(
+                  name='image',
+                  shape=(1, 3, 640, 640),
+                  color_layout=ct.colorlayout.RGB,
+                  scale=1.0 / 255.0,
+              )],
+              minimum_deployment_target=ct.target.iOS15,
+              compute_precision=ct.precision.FLOAT32,
+          )
+          spec = model.get_spec()
+          if len(spec.description.output) != 1:
+              raise SystemExit(f'Expected one Core ML output, got {len(spec.description.output)}')
+          old_output = spec.description.output[0].name
+          if old_output != 'predictions':
+              ct.utils.rename_feature(spec, old_output, 'predictions')
+          model = ct.models.MLModel(spec, weights_dir=model.weights_dir)
+          model.user_defined_metadata['resistor_scanner.output_contract'] = 'normalized_xywh_class_scores_v1'
+          model.user_defined_metadata['resistor_scanner.source'] = 'model1225.tflite via parity-checked ONNX and TorchScript'
+          model.user_defined_metadata['resistor_scanner.labels'] = '12'
+          output = os.path.join(os.environ['RUNNER_TEMP'], 'model1225.mlpackage')
+          model.save(output)
+          final = model.get_spec()
+          print(json.dumps({
+              'input': final.description.input[0].name,
+              'output': final.description.output[0].name,
+              'minimum_target': 'iOS15',
+              'precision': 'FLOAT32',
+          }, sort_keys=True))
+          PY
+          test -d "$RUNNER_TEMP/model1225.mlpackage"
+
+      - name: Verify exact production TFLite against Core ML
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/torch-coreml/bin/activate"
+          mkdir -p "$RUNNER_TEMP/parity-images"
+          cp assets/resistor.jpeg "$RUNNER_TEMP/parity-images/resistor.jpeg"
+          python - <<'PY'
+          import os, numpy as np
+          from PIL import Image
+          root = os.path.join(os.environ['RUNNER_TEMP'], 'parity-images')
+          rng = np.random.default_rng(1225)
+          Image.fromarray(rng.integers(0, 256, (640, 640, 3), dtype=np.uint8), 'RGB').save(os.path.join(root, 'random.png'))
+          g = np.zeros((640,640,3), dtype=np.uint8)
+          g[...,0] = np.arange(640, dtype=np.uint16)[None,:] * 255 // 639
+          g[...,1] = np.arange(640, dtype=np.uint16)[:,None] * 255 // 639
+          g[...,2] = 127
+          Image.fromarray(g, 'RGB').save(os.path.join(root, 'gradient.png'))
+          PY
+          PYTHONPATH=. python scripts/verify_yolo11_coreml.py \
+            --tflite assets/model1225.tflite \
+            "$RUNNER_TEMP/model1225.mlpackage" \
+            "$RUNNER_TEMP/parity-images" \
+            --labels assets/labels10.txt \
+            --imgsz 640 \
+            --raw-atol 0.01 \
+            --min-match-iou 0.95 \
+            --max-score-delta 0.01 \
+            --report "$RUNNER_TEMP/tflite-coreml-parity.json" \
+            2>&1 | tee "$RUNNER_TEMP/tflite-coreml-parity.log"
+
+      - name: Stage model in private branch and build iOS simulator app
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf flutter_vision/ios/Resources/model1225.mlpackage
+          cp -R "$RUNNER_TEMP/model1225.mlpackage" flutter_vision/ios/Resources/model1225.mlpackage
+          flutter pub get
+          flutter build ios --simulator --debug 2>&1 | tee "$RUNNER_TEMP/coreml-production-ios-build.log"
+          echo 'Bundled Core ML files:'
+          find build/ios/iphonesimulator/Runner.app -iname 'model1225*' -print | tee "$RUNNER_TEMP/bundled-coreml-files.txt"
+          test -s "$RUNNER_TEMP/bundled-coreml-files.txt"
+          if find build/ios/iphonesimulator/Runner.app -iname '*tensorflowlite*' -print | grep -q .; then
+            echo 'Unexpected TensorFlow Lite payload remains in iOS app.' >&2
+            exit 1
+          fi
+
+      - name: Commit verified production Core ML package to private branch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add flutter_vision/ios/Resources/model1225.mlpackage pubspec.lock ios/Podfile.lock
+          git status --short
+          if git diff --cached --quiet; then
+            echo 'No Core ML artifact changes to commit.'
+            exit 0
+          fi
+          git commit -m 'feat: bundle parity-verified production Core ML model [skip ci]'
+          git push origin HEAD:coreml-ios
+
+      - name: Upload logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-production-coreml-logs
+          path: |
+            ${{ runner.temp }}/tflite-to-onnx.log
+            ${{ runner.temp }}/tflite-onnx-parity.txt
+            ${{ runner.temp }}/onnx-torch-parity.txt
+            ${{ runner.temp }}/torch-to-coreml.log
+            ${{ runner.temp }}/tflite-coreml-parity.log
+            ${{ runner.temp }}/tflite-coreml-parity.json
+            ${{ runner.temp }}/coreml-production-ios-build.log
+            ${{ runner.temp }}/bundled-coreml-files.txt
+          if-no-files-found: warn
+          retention-days: 3
