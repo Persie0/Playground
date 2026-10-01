@@ -94,11 +94,11 @@ jobs:
                   'use_chromatic_branch': True,
               },
               'train': {
-                  'epochs': 12,
+                  'epochs': 24,
                   'batch_size': 16,
                   'lr': 0.0005,
                   'weight_decay': 0.04,
-                  'warmup_epochs': 1,
+                  'warmup_epochs': 2,
                   'grad_clip': 1.0,
                   'amp': False,
                   'ema_decay': 0.995,
@@ -121,25 +121,44 @@ jobs:
               yaml.safe_dump(cfg, f, sort_keys=False)
           PY
 
-      - name: Train 12 epochs
+      - name: Train 24 epochs
         run: |
           set -euo pipefail
           python -m resistor_model.train --config /tmp/rres-train.yaml | tee /tmp/train.log
+
+      - name: Upload trained checkpoints immediately
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-bandnet-rres-v4-weights-${{ github.run_id }}
+          path: |
+            /tmp/runs/rres-v4/best.pt
+            /tmp/runs/rres-v4/last.pt
+            /tmp/runs/rres-v4/metrics.jsonl
+            /tmp/runs/rres-v4/splits.json
+            /tmp/import-report.json
+            /tmp/rres-train.yaml
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Evaluate best checkpoint on held-out test split
         run: |
           set -euo pipefail
           python -m resistor_model.evaluate \
-            --config /tmp/rres-train.yaml \
             --checkpoint /tmp/runs/rres-v4/best.pt \
-            --split test | tee /tmp/test-metrics.json
+            --manifest /tmp/rres/manifest.jsonl \
+            --image-root /tmp/rres \
+            --split test | tee /tmp/test-metrics.txt
 
       - name: Summarize learning curve
+        if: always()
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
-          rows=[json.loads(x) for x in Path('/tmp/runs/rres-v4/metrics.jsonl').read_text().splitlines() if x.strip()]
+          p=Path('/tmp/runs/rres-v4/metrics.jsonl')
+          if not p.exists():
+              raise SystemExit('metrics.jsonl missing')
+          rows=[json.loads(x) for x in p.read_text().splitlines() if x.strip()]
           best=max(rows, key=lambda r: (r['val']['exact_sequence_accuracy'], r['val']['macro_f1']))
           summary={
               'epochs': len(rows),
@@ -152,18 +171,14 @@ jobs:
           print(json.dumps(summary, indent=2))
           PY
 
-      - name: Upload trained model and reports
+      - name: Upload evaluation reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: resistor-bandnet-rres-v4-${{ github.run_id }}
+          name: resistor-bandnet-rres-v4-reports-${{ github.run_id }}
           path: |
-            /tmp/runs/rres-v4/best.pt
-            /tmp/runs/rres-v4/last.pt
-            /tmp/runs/rres-v4/metrics.jsonl
-            /tmp/runs/rres-v4/splits.json
-            /tmp/import-report.json
-            /tmp/test-metrics.json
+            /tmp/test-metrics.txt
             /tmp/training-summary.json
-            /tmp/rres-train.yaml
-          if-no-files-found: error
+            /tmp/train.log
+          if-no-files-found: warn
           retention-days: 30
