@@ -1,4 +1,4 @@
-name: Resistor model progress TDD check
+name: Resistor model progress merge gate
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - name: Checkout resistor_model progress branch
@@ -32,6 +32,70 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e './resistor_model[dev]'
-      - name: Progress tests
+      - name: Full tests and compile
         working-directory: resistor_model
-        run: pytest -q tests/test_progress.py
+        run: |
+          pytest -q
+          python -m compileall -q src
+      - name: Download private annotated dataset
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_TOKEN"
+          curl --fail --location --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $PRIVATE_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/Persie0/resistor_scanner/contents/rres.v4i.yolov8.zip?ref=tflite" \
+            -o /tmp/rres-yolo.zip
+          mkdir -p /tmp/rres
+          unzip -q /tmp/rres-yolo.zip -d /tmp/rres
+      - name: Import and split
+        run: |
+          python -m resistor_model.tools.import_roboflow_yolo \
+            --root /tmp/rres \
+            --output /tmp/rres/manifest.jsonl \
+            --min-bands 3 --max-bands 6
+          python -m resistor_model.tools.make_splits \
+            --manifest /tmp/rres/manifest.jsonl \
+            --output /tmp/rres/splits.json \
+            --ratios 0.70 0.15 0.15 --seed 42 --group-session
+      - name: Real-data progress smoke
+        run: |
+          python - <<'PY'
+          import yaml
+          cfg = {
+            'seed': 42,
+            'data': {
+              'manifest': '/tmp/rres/manifest.jsonl', 'image_root': '/tmp/rres',
+              'splits_file': '/tmp/rres/splits.json', 'output_size': [64, 384],
+              'sequence_bins': 96, 'group_session': True,
+              'split_ratios': [0.70, 0.15, 0.15], 'num_workers': 2,
+            },
+            'model': {
+              'num_colors': 12, 'max_bands': 6, 'base_channels': 16,
+              'd_model': 64, 'transformer_layers': 1, 'transformer_heads': 4,
+              'slot_decoder_layers': 1, 'dropout': 0.10, 'use_chromatic_branch': True,
+            },
+            'train': {
+              'epochs': 1, 'batch_size': 8, 'lr': 3e-4, 'weight_decay': 0.05,
+              'warmup_epochs': 0, 'grad_clip': 1.0, 'amp': False,
+              'ema_decay': 0.99, 'output_dir': '/tmp/runs/progress-smoke', 'resume': None,
+            },
+            'loss': {
+              'dense': 1.0, 'color': 2.0, 'exist': 0.5, 'center': 1.0,
+              'width': 0.5, 'order': 0.2, 'count': 0.2,
+              'consistency': 0.05, 'body_class_weight': 0.25,
+            },
+          }
+          with open('/tmp/progress-smoke.yaml', 'w') as f:
+              yaml.safe_dump(cfg, f, sort_keys=False)
+          PY
+          set -o pipefail
+          python -u -m resistor_model.train --config /tmp/progress-smoke.yaml --smoke | tee /tmp/progress.log
+          grep -F '[epoch 1/1] start' /tmp/progress.log
+          grep -F '[train]' /tmp/progress.log
+          grep -F '[val]' /tmp/progress.log
+          grep -F '100.0%' /tmp/progress.log
+          grep -F 'lr 3.000e-04' /tmp/progress.log
+          grep -F 'eta 00:00' /tmp/progress.log
