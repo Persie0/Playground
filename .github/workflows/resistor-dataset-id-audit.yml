@@ -1,0 +1,84 @@
+name: Audit resistor physical IDs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [resistor-dataset-train]
+    paths:
+      - .github/workflows/resistor-dataset-id-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download private YOLO export
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_TOKEN"
+          curl --fail --location --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $PRIVATE_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/Persie0/resistor_scanner/contents/rres.v4i.yolov8.zip?ref=tflite" \
+            -o /tmp/rres.zip
+          unzip -q /tmp/rres.zip -d /tmp/rres
+      - name: Analyze source filename identity structure
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from collections import Counter, defaultdict
+          import json, re
+
+          root=Path('/tmp/rres')
+          rf=re.compile(r'\.rf\.[0-9a-f]+$', re.I)
+          stamped=re.compile(r'^(?P<prefix>.+?)_(?P<ts>20\d{12})_(?P<tail>\d+)$')
+          stems=[]
+          split_by_source=defaultdict(set)
+          for split in ('train','valid','val','test'):
+              idir=root/split/'images'
+              if not idir.exists(): continue
+              for p in idir.iterdir():
+                  if p.suffix.lower() not in {'.jpg','.jpeg','.png','.webp','.bmp'}: continue
+                  s=rf.sub('',p.stem)
+                  stems.append(s)
+                  split_by_source[s].add(split)
+
+          kinds=Counter(); prefix_count=Counter(); prefix_sources=defaultdict(set); examples=defaultdict(list)
+          for s in stems:
+              m=stamped.match(s)
+              if m:
+                  prefix=m.group('prefix').rstrip('_- ')
+                  if prefix.lower()=='batch':
+                      kinds['batch_timestamped']+=1
+                  else:
+                      kinds['named_timestamped']+=1
+                      prefix_count[prefix]+=1
+                      prefix_sources[prefix].add(s)
+                      if len(examples[prefix])<4: examples[prefix].append(s)
+              elif s.lower().startswith('batch_'):
+                  kinds['batch_other']+=1
+              else:
+                  kinds['other']+=1
+
+          repeated={k: sorted(v) for k,v in prefix_sources.items() if len(v)>1}
+          out={
+              'images':len(stems),
+              'unique_source_stems':len(set(stems)),
+              'source_stems_present_in_multiple_export_splits':sum(len(v)>1 for v in split_by_source.values()),
+              'filename_kinds':dict(kinds),
+              'named_physical_prefixes':len(prefix_sources),
+              'named_prefixes_with_multiple_capture_stems':len(repeated),
+              'capture_stems_in_repeated_named_prefixes':sum(len(v) for v in repeated.values()),
+              'top_repeated_prefixes':[
+                  {'prefix':k,'captures':len(v),'examples':examples[k]}
+                  for k,v in sorted(repeated.items(), key=lambda kv:(-len(kv[1]),kv[0]))[:50]
+              ],
+          }
+          print('ID_AUDIT='+json.dumps(out,sort_keys=True))
+          PY
