@@ -1,0 +1,139 @@
+name: Validate resistor model on real dataset
+
+on:
+  push:
+    branches: [resistor-dataset-train]
+    paths:
+      - .github/workflows/resistor-model-realdata-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Checkout resistor_model training branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_model
+          ref: feat/training-stack
+          path: resistor_model
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: resistor_model/pyproject.toml
+
+      - name: Install training stack
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './resistor_model[dev]'
+
+      - name: Download private annotated dataset
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_TOKEN"
+          curl --fail --location --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $PRIVATE_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/Persie0/resistor_scanner/contents/rres.v4i.yolov8.zip?ref=tflite" \
+            -o /tmp/rres-yolo.zip
+          mkdir -p /tmp/rres
+          unzip -q /tmp/rres-yolo.zip -d /tmp/rres
+
+      - name: Run unit tests
+        working-directory: resistor_model
+        run: pytest -q
+
+      - name: Import and audit real annotations
+        run: |
+          set -euo pipefail
+          python -m resistor_model.tools.import_roboflow_yolo \
+            --root /tmp/rres \
+            --output /tmp/rres/manifest.jsonl \
+            --min-bands 3 \
+            --max-bands 6 | tee /tmp/import-report.json
+          python -m resistor_model.tools.audit_dataset \
+            --manifest /tmp/rres/manifest.jsonl \
+            --image-root /tmp/rres | tee /tmp/audit-report.json
+          python -m resistor_model.tools.make_splits \
+            --manifest /tmp/rres/manifest.jsonl \
+            --output /tmp/rres/splits.json \
+            --ratios 0.70 0.15 0.15 \
+            --seed 42
+
+      - name: Create real-data smoke config
+        run: |
+          python - <<'PY'
+          import yaml
+          cfg = {
+              'seed': 42,
+              'data': {
+                  'manifest': '/tmp/rres/manifest.jsonl',
+                  'image_root': '/tmp/rres',
+                  'splits_file': '/tmp/rres/splits.json',
+                  'output_size': [96, 512],
+                  'sequence_bins': 192,
+                  'num_workers': 2,
+              },
+              'model': {
+                  'num_colors': 12,
+                  'max_bands': 6,
+                  'base_channels': 24,
+                  'd_model': 128,
+                  'transformer_layers': 2,
+                  'transformer_heads': 4,
+                  'slot_decoder_layers': 1,
+                  'dropout': 0.10,
+                  'use_chromatic_branch': True,
+              },
+              'train': {
+                  'epochs': 1,
+                  'batch_size': 8,
+                  'lr': 3e-4,
+                  'weight_decay': 0.05,
+                  'warmup_epochs': 0,
+                  'grad_clip': 1.0,
+                  'amp': False,
+                  'ema_decay': 0.999,
+                  'output_dir': '/tmp/runs/rres-v4-smoke',
+                  'resume': None,
+              },
+              'loss': {
+                  'dense': 1.0, 'color': 2.0, 'exist': 0.5, 'center': 1.0,
+                  'width': 0.5, 'order': 0.2, 'count': 0.2,
+                  'consistency': 0.1, 'body_class_weight': 0.25,
+              },
+          }
+          with open('/tmp/rres-smoke.yaml', 'w') as f:
+              yaml.safe_dump(cfg, f, sort_keys=False)
+          PY
+
+      - name: Train one real batch and validate one real batch
+        run: |
+          python -m resistor_model.train --config /tmp/rres-smoke.yaml --smoke
+          ls -lh /tmp/runs/rres-v4-smoke
+          cat /tmp/runs/rres-v4-smoke/metrics.jsonl
+
+      - name: Upload smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-realdata-smoke-${{ github.run_id }}
+          path: |
+            /tmp/import-report.json
+            /tmp/audit-report.json
+            /tmp/rres/splits.json
+            /tmp/runs/rres-v4-smoke/metrics.jsonl
+          if-no-files-found: warn
+          retention-days: 7
