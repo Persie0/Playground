@@ -1,0 +1,62 @@
+name: Inspect private resistor dataset authenticated
+
+on:
+  push:
+    branches: [resistor-dataset-train]
+    paths:
+      - .github/workflows/resistor-dataset-inspect-auth.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download private YOLOv8 export
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_TOKEN"
+          curl --fail --location --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $PRIVATE_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/Persie0/resistor_scanner/contents/rres.v4i.yolov8.zip?ref=tflite" \
+            -o /tmp/rres-yolo.zip
+          ls -lh /tmp/rres-yolo.zip
+          unzip -q /tmp/rres-yolo.zip -d /tmp/rres
+      - name: Inspect layout and annotations
+        run: |
+          set -euo pipefail
+          echo '=== yaml ==='
+          find /tmp/rres -maxdepth 3 \( -name 'data.yaml' -o -name 'dataset.yaml' \) -print -exec cat {} \;
+          python3 - <<'PY'
+          from pathlib import Path
+          from collections import Counter
+          import json
+          root = Path('/tmp/rres')
+          image_ext = {'.jpg','.jpeg','.png','.webp','.bmp'}
+          stats = {}; ids = Counter(); lengths = Counter(); names=[]
+          for split in ('train','valid','val','test'):
+              base=root/split
+              if not base.exists(): continue
+              images=[p for p in (base/'images').glob('*') if p.suffix.lower() in image_ext] if (base/'images').exists() else []
+              labels=list((base/'labels').glob('*.txt')) if (base/'labels').exists() else []
+              boxes=0
+              for p in labels:
+                  lines=[x.strip() for x in p.read_text(errors='replace').splitlines() if x.strip()]
+                  lengths[len(lines)]+=1; boxes+=len(lines)
+                  if len(names)<12 and lines: names.append((str(p.relative_to(root)), lines[:8]))
+                  for line in lines:
+                      try: ids[int(float(line.split()[0]))]+=1
+                      except Exception: pass
+              stats[split]={'images':len(images),'labels':len(labels),'boxes':boxes}
+          print('DATASET_STATS='+json.dumps({'splits':stats,'class_id_counts':dict(sorted(ids.items())),'boxes_per_image':dict(sorted(lengths.items()))},sort_keys=True))
+          print('SAMPLE_LABELS')
+          for path, lines in names:
+              print(path); print('\n'.join(lines))
+          PY
