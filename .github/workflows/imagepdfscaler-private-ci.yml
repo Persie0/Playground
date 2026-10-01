@@ -15,9 +15,17 @@ env:
   APP_REF: review/editor-logic-20261002
 
 jobs:
-  flutter-android:
+  editor-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        test_name:
+          - loading a project repairs invalid margins and constrains images
+          - selection rotate lock duplicate and delete update editor state
+          - multi-select alignment and exact-gap distribution mutate positions
+          - auto arrange removes overlap and orientation keeps items on paper
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 8
     steps:
       - name: Validate private checkout token
         env:
@@ -38,8 +46,8 @@ jobs:
       - name: Resolve dependencies
         working-directory: private-app
         run: flutter pub get >/dev/null
-      - name: Run editor orchestration tests
+      - name: Run one editor flow
         working-directory: private-app
-        run: |
-          echo "Review branch settle ordering fix"
-          flutter test --reporter=expanded test/editor_page_logic_test.dart
+        env:
+          TEST_NAME: ${{ matrix.test_name }}
+        run: timeout 45s flutter test --reporter=expanded --plain-name "$TEST_NAME" test/editor_page_logic_test.dart
