@@ -1,0 +1,143 @@
+name: Resistor Core ML Runtime PR30
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-coreml-runtime-pr30.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-runtime:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout Core ML branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: coreml-ios
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: source
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+
+      - name: Resolve and run targeted checks
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter pub get
+          flutter test test/provider/settings_coreml_model_test.dart test/services/model_cache_ios_test.dart
+          (cd flutter_vision && flutter pub get && flutter test test/ios_flutter_vision_test.dart)
+          flutter analyze lib/services/model_cache.dart integration_test/ios_vision_smoke_test.dart
+
+      - name: Build debug iOS simulator app
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build ios --simulator --debug 2>&1 | tee "$RUNNER_TEMP/coreml-debug-build.log"
+          find build/ios/iphonesimulator/Runner.app -iname 'model1225*' -print | tee "$RUNNER_TEMP/coreml-bundled-model.txt"
+          test -s "$RUNNER_TEMP/coreml-bundled-model.txt"
+          if find build/ios/iphonesimulator/Runner.app -iname '*tensorflowlite*' -print | grep -q .; then
+            echo 'Unexpected TensorFlow Lite payload remains in the iOS app.' >&2
+            exit 1
+          fi
+
+      - name: Select and boot iPhone simulator
+        id: simulator
+        shell: bash
+        run: |
+          UDID="$(python3 - <<'PY'
+          import json, subprocess
+          data = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))
+          for runtime, devices in data.get('devices', {}).items():
+              if 'iOS' not in runtime:
+                  continue
+              for device in devices:
+                  if device.get('isAvailable') and device.get('name', '').startswith('iPhone'):
+                      print(device['udid'])
+                      raise SystemExit(0)
+          raise SystemExit('No available iPhone simulator found')
+          PY
+          )"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Run CPU-only Core ML integration smoke test
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter test integration_test/ios_vision_smoke_test.dart \
+            -d "${{ steps.simulator.outputs.udid }}" \
+            2>&1 | tee "$RUNNER_TEMP/coreml-cpu-integration.log"
+
+      - name: Run accelerated Core ML integration smoke test
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          cp integration_test/ios_vision_smoke_test.dart "$RUNNER_TEMP/ios_vision_smoke_test.dart"
+          trap 'cp "$RUNNER_TEMP/ios_vision_smoke_test.dart" integration_test/ios_vision_smoke_test.dart' EXIT
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('integration_test/ios_vision_smoke_test.dart')
+          text = path.read_text()
+          old = '        useGpu: false,\n'
+          new = '        useGpu: true,\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected one CPU load flag, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          flutter test integration_test/ios_vision_smoke_test.dart \
+            -d "${{ steps.simulator.outputs.udid }}" \
+            2>&1 | tee "$RUNNER_TEMP/coreml-accelerated-integration.log"
+
+      - name: Build iOS release without signing
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build ios --release --no-codesign 2>&1 | tee "$RUNNER_TEMP/coreml-release-build.log"
+
+      - name: Verify no unexpected tracked generation changes
+        working-directory: source
+        shell: bash
+        run: |
+          git diff --check
+          git status --short | tee "$RUNNER_TEMP/coreml-runtime-status.txt"
+          git diff -- ios pubspec.lock > "$RUNNER_TEMP/coreml-runtime-generated.patch"
+          cat "$RUNNER_TEMP/coreml-runtime-generated.patch"
+
+      - name: Upload non-sensitive diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-coreml-runtime-pr30
+          path: |
+            ${{ runner.temp }}/coreml-debug-build.log
+            ${{ runner.temp }}/coreml-bundled-model.txt
+            ${{ runner.temp }}/coreml-cpu-integration.log
+            ${{ runner.temp }}/coreml-accelerated-integration.log
+            ${{ runner.temp }}/coreml-release-build.log
+            ${{ runner.temp }}/coreml-runtime-status.txt
+            ${{ runner.temp }}/coreml-runtime-generated.patch
+          if-no-files-found: warn
+          retention-days: 3
