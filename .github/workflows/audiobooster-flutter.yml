@@ -1,5 +1,4 @@
 name: AudioBooster Flutter checks
-# TDD red: route and on-device validation gates
 on:
   push:
     branches: [main]
@@ -37,7 +36,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: audiobooster-gradle-${{ runner.os }}-v1
+          key: audiobooster-gradle-${{ runner.os }}-v2
       - name: Show Flutter version
         run: flutter --version
       - name: Install Flutter dependencies
@@ -65,14 +64,8 @@ jobs:
           root = ET.parse(manifest_path).getroot()
           android_name = '{http://schemas.android.com/apk/res/android}name'
 
-          permissions = [
-              node.get(android_name)
-              for node in root.findall('uses-permission')
-          ]
-          services = [
-              node.get(android_name)
-              for node in root.findall('./application/service')
-          ]
+          permissions = [node.get(android_name) for node in root.findall('uses-permission')]
+          services = [node.get(android_name) for node in root.findall('./application/service')]
 
           for permission in [
               'android.permission.MODIFY_AUDIO_SETTINGS',
@@ -84,9 +77,7 @@ jobs:
           ]:
               count = permissions.count(permission)
               if count != 1:
-                  raise SystemExit(
-                      f'{permission}: expected exactly once, found {count}'
-                  )
+                  raise SystemExit(f'{permission}: expected exactly once, found {count}')
 
           for service in [
               'com.persie0.audiobooster.audio.AudioBoostService',
@@ -94,29 +85,186 @@ jobs:
           ]:
               count = services.count(service)
               if count != 1:
-                  raise SystemExit(
-                      f'{service}: expected exactly once, found {count}'
-                  )
+                  raise SystemExit(f'{service}: expected exactly once, found {count}')
 
           gradle_path = Path('android/app/build.gradle.kts')
           if not gradle_path.exists():
               gradle_path = Path('android/app/build.gradle')
           gradle = gradle_path.read_text()
-          junit = 'junit:junit:4.13.2'
-          if gradle.count(junit) != 1:
-              raise SystemExit(
-                  f'{junit}: expected exactly once, found {gradle.count(junit)}'
-              )
+          for needle in [
+              'junit:junit:4.13.2',
+              'androidx.test:runner:1.6.2',
+              'androidx.test.ext:junit:1.2.1',
+              'androidx.test.runner.AndroidJUnitRunner',
+          ]:
+              count = gradle.count(needle)
+              if count != 1:
+                  raise SystemExit(f'{needle}: expected exactly once, found {count}')
           PY
-      - name: Run Android unit tests
+      - name: Run Android unit tests and compile instrumentation tests
         working-directory: audiobooster/android
-        run: ./gradlew :app:testDebugUnitTest
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebugAndroidTest
       - name: Build debug APK
         working-directory: audiobooster
         run: flutter build apk --debug
+      - name: Prepare device-test APKs
+        working-directory: audiobooster
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p device-test-out
+          cp build/app/outputs/flutter-apk/app-debug.apk device-test-out/app-debug.apk
+          TEST_APK="$(find build android -type f -name '*androidTest*.apk' | head -n1)"
+          if [ -z "$TEST_APK" ] || [ ! -f "$TEST_APK" ]; then
+            echo '::error::Instrumentation APK was not produced.'
+            find build android -type f -name '*.apk' -print || true
+            exit 1
+          fi
+          cp "$TEST_APK" device-test-out/app-debug-androidTest.apk
+          ls -lh device-test-out
+      - name: Upload device-test APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: audiobooster-device-tests
+          path: audiobooster/device-test-out/*.apk
+          if-no-files-found: error
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: audiobooster-modern-debug-apk
           path: audiobooster/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
+
+  emulator-validation:
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [29, 34, 35]
+    steps:
+      - name: Download device-test APKs
+        uses: actions/download-artifact@v4
+        with:
+          name: audiobooster-device-tests
+          path: device-test
+      - name: Run instrumentation on Android ${{ matrix.api }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r device-test/app-debug.apk
+            adb install -r device-test/app-debug-androidTest.apk
+            echo '=== Android / audio route inventory ==='
+            adb shell getprop ro.build.version.release
+            adb shell dumpsys audio | grep -E 'STREAM_MUSIC|DevicesForAttributes|mCommunicationDevice' | head -n 80 || true
+            adb shell am instrument -w -r com.persie0.audiobooster.test/androidx.test.runner.AndroidJUnitRunner
+
+  firebase-physical-validation:
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+    steps:
+      - name: Check Firebase Test Lab credentials
+        id: gcp
+        shell: bash
+        run: |
+          if [ -n "$GCP_CREDENTIALS" ]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            echo 'Firebase Test Lab credentials are configured.'
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'Firebase Test Lab credentials are not configured in Playground; physical-device validation is unavailable here.'
+          fi
+      - name: Download device-test APKs
+        if: steps.gcp.outputs.available == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: audiobooster-device-tests
+          path: device-test
+      - name: Authenticate to Google Cloud
+        if: steps.gcp.outputs.available == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+      - name: Set up Cloud SDK
+        if: steps.gcp.outputs.available == 'true'
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Select available physical Android devices
+        if: steps.gcp.outputs.available == 'true'
+        id: devices
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud firebase test android models list --format=json > models.json
+          python3 - <<'PY'
+          import json
+          import os
+
+          models = json.load(open('models.json', encoding='utf-8'))
+          physical = [m for m in models if str(m.get('form', '')).upper() == 'PHYSICAL']
+          preferred = []
+          used = set()
+          needles = [
+              ('google', ('pixel', 'google')),
+              ('samsung', ('samsung', 'galaxy')),
+              ('xiaomi', ('xiaomi', 'redmi', 'poco')),
+          ]
+          for label, words in needles:
+              for model in physical:
+                  text = ' '.join(str(model.get(k, '')) for k in ('id', 'name', 'brand', 'manufacturer')).lower()
+                  if not any(word in text for word in words):
+                      continue
+                  versions = [str(v) for v in model.get('supportedVersionIds', [])]
+                  compatible = [v for v in versions if v in {'29', '30', '33', '34', '35', '36'}]
+                  if not compatible:
+                      continue
+                  version = sorted(compatible, key=int)[-1]
+                  key = (str(model.get('id')), version)
+                  if key not in used:
+                      preferred.append((label, key[0], version, str(model.get('name', key[0]))))
+                      used.add(key)
+                      break
+          if not preferred:
+              for model in physical:
+                  versions = [str(v) for v in model.get('supportedVersionIds', [])]
+                  compatible = [v for v in versions if v in {'29', '30', '33', '34', '35', '36'}]
+                  if compatible:
+                      preferred.append(('physical', str(model.get('id')), sorted(compatible, key=int)[-1], str(model.get('name', model.get('id')))))
+                      if len(preferred) == 2:
+                          break
+          preferred = preferred[:3]
+          print('Selected physical devices:')
+          for row in preferred:
+              print(' | '.join(row))
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write('matrix=' + ';'.join(f'{model},{version},{label}' for label, model, version, _ in preferred) + '\n')
+          PY
+      - name: Run Firebase instrumentation tests on physical devices
+        if: steps.gcp.outputs.available == 'true' && steps.devices.outputs.matrix != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFS=';' read -ra DEVICES <<< "${{ steps.devices.outputs.matrix }}"
+          for item in "${DEVICES[@]}"; do
+            IFS=',' read -r model version label <<< "$item"
+            echo "=== Firebase physical validation: $label / $model / Android API $version ==="
+            gcloud firebase test android run \
+              --type=instrumentation \
+              --app=device-test/app-debug.apk \
+              --test=device-test/app-debug-androidTest.apk \
+              --device="model=$model,version=$version,locale=en,orientation=portrait" \
+              --timeout=8m \
+              --no-auto-google-login
+          done
+      - name: Record unavoidable physical-device limitation
+        if: steps.gcp.outputs.available != 'true'
+        run: echo 'Physical OEM execution skipped because Playground has no GCP_CREDENTIALS secret; emulator and native regression gates still run.'
