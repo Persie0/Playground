@@ -1,16 +1,21 @@
 name: AudioBooster Flutter checks
-# TDD: Task 9 red rerun - bootstrap and documentation
 on:
   push:
     branches: [main]
     paths:
       - .github/workflows/audiobooster-flutter.yml
+  workflow_dispatch:
+    inputs:
+      audio_ref:
+        description: AudioBooster branch, tag, or commit to validate
+        required: false
+        default: design/modern-audio-engine
 permissions:
   contents: read
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Check out Playground
         uses: actions/checkout@v4
@@ -18,16 +23,72 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/Audiobooster
-          ref: design/modern-audio-engine
+          ref: ${{ inputs.audio_ref || 'design/modern-audio-engine' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: audiobooster
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: audiobooster-gradle-${{ runner.os }}-v1
+      - name: Show Flutter version
+        run: flutter --version
       - name: Install Flutter dependencies
         working-directory: audiobooster
         run: flutter pub get
-      - name: Run Task 9 red checks
+      - name: Run Flutter tests
         working-directory: audiobooster
-        run: flutter test test/bootstrap_android_source_test.dart test/native_bridge_source_test.dart
+        run: flutter test
+      - name: Analyze Dart sources
+        working-directory: audiobooster
+        run: flutter analyze
+      - name: Bootstrap Android host twice
+        working-directory: audiobooster
+        run: |
+          bash tool/bootstrap_android.sh
+          bash tool/bootstrap_android.sh
+      - name: Verify bootstrap idempotence
+        working-directory: audiobooster
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path('android/app/src/main/AndroidManifest.xml').read_text()
+          gradle_path = Path('android/app/build.gradle.kts')
+          if not gradle_path.exists():
+              gradle_path = Path('android/app/build.gradle')
+          gradle = gradle_path.read_text()
+          for value in [
+              'android.permission.MODIFY_AUDIO_SETTINGS',
+              'android.permission.FOREGROUND_SERVICE',
+              'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+              'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION',
+              'android.permission.DUMP',
+              'android.permission.RECORD_AUDIO',
+              'com.persie0.audiobooster.audio.AudioBoostService',
+              'com.persie0.audiobooster.audio.MediaNotificationListenerService',
+          ]:
+              count = manifest.count(value)
+              if count != 1:
+                  raise SystemExit(f'{value}: expected exactly once, found {count}')
+          junit = 'junit:junit:4.13.2'
+          if gradle.count(junit) != 1:
+              raise SystemExit(f'{junit}: expected exactly once, found {gradle.count(junit)}')
+          PY
+      - name: Run Android unit tests
+        working-directory: audiobooster/android
+        run: ./gradlew :app:testDebugUnitTest
+      - name: Build debug APK
+        working-directory: audiobooster
+        run: flutter build apk --debug
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: audiobooster-modern-debug-apk
+          path: audiobooster/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
