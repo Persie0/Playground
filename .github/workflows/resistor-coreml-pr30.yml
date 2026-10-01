@@ -43,6 +43,18 @@ jobs:
           sparse-checkout-cone-mode: false
           path: legacy
 
+      - name: Checkout production model introduction archive
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: 85c15059ff156b1d025261bd6ccfea796219f5f5
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          sparse-checkout: |
+            assets/model1225.zip
+          sparse-checkout-cone-mode: false
+          path: model-history
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -61,20 +73,23 @@ jobs:
           xcodebuild -version
           pod --version
           python3 --version
+          git -C source log -1 --oneline
 
       - name: Inspect production model archive and bundle state
-        working-directory: source
         shell: bash
         run: |
           set -o pipefail
           {
-            echo '===== model1225.zip ====='
-            ls -lh assets/model1225.zip assets/model1225.tflite
-            file assets/model1225.zip
-            unzip -l assets/model1225.zip
+            echo '===== current production TFLite ====='
+            ls -lh source/assets/model1225.tflite
             echo
-            echo '===== Core ML resource directory ====='
-            find flutter_vision/ios/Resources -maxdepth 2 -type f -print 2>/dev/null | sort || true
+            echo '===== historical model1225.zip ====='
+            ls -lh model-history/assets/model1225.zip
+            file model-history/assets/model1225.zip
+            unzip -l model-history/assets/model1225.zip
+            echo
+            echo '===== current Core ML resource directory ====='
+            find source/flutter_vision/ios/Resources -maxdepth 2 -type f -print 2>/dev/null | sort || true
           } | tee "$RUNNER_TEMP/model1225-archive.txt"
 
       - name: Resolve app dependencies
