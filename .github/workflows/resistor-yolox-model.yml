@@ -189,3 +189,27 @@ jobs:
           path: app/ml/resistor_model/artifacts
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Commit finalized full result to resistor_scanner
+        if: env.MODE == 'full'
+        shell: bash
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd app
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/model_reports
+          git add pubspec.yaml lib/provider/settings_provider.dart
+          if [[ -f assets/model_yolox_v1.tflite.enc ]]; then
+            git add assets/model_yolox_v1.tflite.enc
+          fi
+          if git diff --cached --quiet; then
+            echo "No finalized model/report changes to commit"
+            exit 0
+          fi
+          git commit -m "model: record full YOLOX resistor comparison"
+          auth="$(printf 'x-access-token:%s' "$PRIVATE_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
+            push origin "HEAD:refs/heads/$APP_REF"
