@@ -1,0 +1,72 @@
+name: Inspect resistor training dataset
+
+on:
+  push:
+    branches: [resistor-dataset-train]
+    paths:
+      - .github/workflows/resistor-dataset-inspect.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download YOLOv8 export
+        run: |
+          set -euxo pipefail
+          curl --fail --location --retry 3 --retry-delay 2 \
+            https://raw.githubusercontent.com/Persie0/resistor_scanner/tflite/rres.v4i.yolov8.zip \
+            -o /tmp/rres-yolo.zip
+          ls -lh /tmp/rres-yolo.zip
+          unzip -q /tmp/rres-yolo.zip -d /tmp/rres
+
+      - name: Inspect layout and annotations
+        run: |
+          set -euxo pipefail
+          echo '=== top-level files ==='
+          find /tmp/rres -maxdepth 3 -type f | sort | head -100
+          echo '=== yaml ==='
+          find /tmp/rres -maxdepth 3 \( -name 'data.yaml' -o -name 'dataset.yaml' \) -print -exec cat {} \;
+          echo '=== dataset statistics ==='
+          python3 - <<'PY'
+          from pathlib import Path
+          from collections import Counter
+          import json
+
+          root = Path('/tmp/rres')
+          image_ext = {'.jpg','.jpeg','.png','.webp','.bmp'}
+          stats = {}
+          ids = Counter()
+          label_lengths = Counter()
+          examples = []
+          for split in ('train','valid','val','test'):
+              base = root / split
+              if not base.exists():
+                  continue
+              images = [p for p in (base/'images').glob('*') if p.suffix.lower() in image_ext] if (base/'images').exists() else []
+              labels = list((base/'labels').glob('*.txt')) if (base/'labels').exists() else []
+              boxes = 0
+              for p in labels:
+                  lines = [x.strip() for x in p.read_text(errors='replace').splitlines() if x.strip()]
+                  label_lengths[len(lines)] += 1
+                  boxes += len(lines)
+                  for line in lines:
+                      parts = line.split()
+                      if parts:
+                          try: ids[int(float(parts[0]))] += 1
+                          except ValueError: pass
+                  if len(examples) < 8 and lines:
+                      examples.append((str(p.relative_to(root)), lines[:8]))
+              stats[split] = {'images': len(images), 'labels': len(labels), 'boxes': boxes}
+          print(json.dumps({'splits':stats,'class_id_counts':dict(sorted(ids.items())),'bands_per_image':dict(sorted(label_lengths.items()))}, indent=2))
+          print('=== representative labels ===')
+          for path, lines in examples:
+              print(path)
+              print('\n'.join(lines))
+          PY
