@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
-      - name: Download private YOLOv8 export
+      - name: Download private YOLOv8 and COCO exports
         env:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: |
@@ -27,36 +27,104 @@ jobs:
             -H "Accept: application/vnd.github.raw+json" \
             "https://api.github.com/repos/Persie0/resistor_scanner/contents/rres.v4i.yolov8.zip?ref=tflite" \
             -o /tmp/rres-yolo.zip
-          ls -lh /tmp/rres-yolo.zip
-          unzip -q /tmp/rres-yolo.zip -d /tmp/rres
-      - name: Inspect layout and annotations
+          curl --fail --location --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $PRIVATE_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/Persie0/resistor_scanner/contents/rres.v4i.coco.zip?ref=tflite" \
+            -o /tmp/rres-coco.zip
+          unzip -q /tmp/rres-yolo.zip -d /tmp/rres-yolo
+          unzip -q /tmp/rres-coco.zip -d /tmp/rres-coco
+      - name: Analyze whole-resistor annotations
         run: |
-          set -euo pipefail
-          echo '=== yaml ==='
-          find /tmp/rres -maxdepth 3 \( -name 'data.yaml' -o -name 'dataset.yaml' \) -print -exec cat {} \;
           python3 - <<'PY'
           from pathlib import Path
           from collections import Counter
-          import json
-          root = Path('/tmp/rres')
-          image_ext = {'.jpg','.jpeg','.png','.webp','.bmp'}
-          stats = {}; ids = Counter(); lengths = Counter(); names=[]
+          import ast, json, re, statistics
+
+          root=Path('/tmp/rres-yolo')
+          yaml_path=next(root.glob('**/data.yaml'))
+          txt=yaml_path.read_text()
+          names=ast.literal_eval(re.search(r'^names:\s*(\[.*\])$',txt,re.M).group(1))
+          names=[str(x).strip().lower().replace('grey','gray') for x in names]
+          body_id=names.index('resistor symbol')
+
+          def bbox(fields):
+              if len(fields)==4:
+                  xc,yc,w,h=fields; return [xc-w/2,yc-h/2,xc+w/2,yc+h/2]
+              pts=list(zip(fields[0::2],fields[1::2]))
+              xs=[p[0] for p in pts]; ys=[p[1] for p in pts]
+              return [min(xs),min(ys),max(xs),max(ys)]
+          def inside(pt,b): return b[0]<=pt[0]<=b[2] and b[1]<=pt[1]<=b[3]
+          def inter_frac(a,b):
+              x1=max(a[0],b[0]); y1=max(a[1],b[1]); x2=min(a[2],b[2]); y2=min(a[3],b[3])
+              if x2<=x1 or y2<=y1: return 0.0
+              return (x2-x1)*(y2-y1)/max((a[2]-a[0])*(a[3]-a[1]),1e-12)
+          def q(vals,p):
+              if not vals:return None
+              s=sorted(vals); i=(len(s)-1)*p; lo=int(i); hi=min(lo+1,len(s)-1); f=i-lo
+              return s[lo]*(1-f)+s[hi]*f
+          def summ(vals): return {k:round(q(vals,p),4) if vals else None for k,p in [('p10',.1),('median',.5),('p90',.9)]}
+
+          raw_types=Counter(); vertices=Counter(); body_per_image=Counter(); body_aspect=[]; body_area=[]
+          single=[]; total_images=0
           for split in ('train','valid','val','test'):
-              base=root/split
-              if not base.exists(): continue
-              images=[p for p in (base/'images').glob('*') if p.suffix.lower() in image_ext] if (base/'images').exists() else []
-              labels=list((base/'labels').glob('*.txt')) if (base/'labels').exists() else []
-              boxes=0
-              for p in labels:
-                  lines=[x.strip() for x in p.read_text(errors='replace').splitlines() if x.strip()]
-                  lengths[len(lines)]+=1; boxes+=len(lines)
-                  if len(names)<12 and lines: names.append((str(p.relative_to(root)), lines[:8]))
-                  for line in lines:
-                      try: ids[int(float(line.split()[0]))]+=1
-                      except Exception: pass
-              stats[split]={'images':len(images),'labels':len(labels),'boxes':boxes}
-          print('DATASET_STATS='+json.dumps({'splits':stats,'class_id_counts':dict(sorted(ids.items())),'boxes_per_image':dict(sorted(lengths.items()))},sort_keys=True))
-          print('SAMPLE_LABELS')
-          for path, lines in names:
-              print(path); print('\n'.join(lines))
+              ldir=root/split/'labels'
+              if not ldir.exists(): continue
+              for lp in ldir.glob('*.txt'):
+                  total_images+=1; bodies=[]; bands=[]
+                  for line in lp.read_text().splitlines():
+                      if not line.strip(): continue
+                      parts=line.split(); cid=int(float(parts[0])); f=[float(x) for x in parts[1:]]
+                      typ='box' if len(f)==4 else ('polygon' if len(f)>=6 and len(f)%2==0 else 'other')
+                      bb=bbox(f)
+                      if cid==body_id:
+                          raw_types[typ]+=1
+                          if typ=='polygon': vertices[len(f)//2]+=1
+                          bodies.append((bb,typ))
+                          w=bb[2]-bb[0]; h=bb[3]-bb[1]
+                          body_aspect.append(max(w,h)/max(min(w,h),1e-12)); body_area.append(w*h)
+                      else: bands.append(bb)
+                  body_per_image[len(bodies)]+=1
+                  if len(bodies)==1 and 3<=len(bands)<=6: single.append((bodies[0],bands))
+
+          band_cov=[]; centers=[]; all_centers=[]; all95=[]; area_ratio=[]; long_ratio=[]; short_ratio=[]
+          for (body,typ),bands in single:
+              cov=[inter_frac(b,body) for b in bands]; ins=[inside(((b[0]+b[2])/2,(b[1]+b[3])/2),body) for b in bands]
+              band_cov+=cov; centers+=ins; all_centers.append(all(ins)); all95.append(all(v>=.95 for v in cov))
+              ux1=min(b[0] for b in bands); uy1=min(b[1] for b in bands); ux2=max(b[2] for b in bands); uy2=max(b[3] for b in bands)
+              bw,bh=body[2]-body[0],body[3]-body[1]; uw,uh=ux2-ux1,uy2-uy1
+              area_ratio.append((bw*bh)/max(uw*uh,1e-12))
+              if bw>=bh: long_ratio.append(bw/max(uw,1e-12)); short_ratio.append(bh/max(uh,1e-12))
+              else: long_ratio.append(bh/max(uh,1e-12)); short_ratio.append(bw/max(uw,1e-12))
+
+          coco=Counter(); coco_vertices=Counter()
+          for jf in Path('/tmp/rres-coco').glob('**/_annotations.coco.json'):
+              d=json.loads(jf.read_text()); cats={c['id']:str(c['name']).strip().lower() for c in d.get('categories',[])}
+              bids={k for k,v in cats.items() if v=='resistor symbol'}
+              for a in d.get('annotations',[]):
+                  if a.get('category_id') not in bids: continue
+                  coco['body_annotations']+=1
+                  if len(a.get('bbox',[]))==4: coco['with_bbox']+=1
+                  seg=a.get('segmentation')
+                  if isinstance(seg,list) and seg:
+                      coco['with_polygon_segmentation']+=1
+                      for poly in seg:
+                          if isinstance(poly,list) and len(poly)>=6: coco_vertices[len(poly)//2]+=1
+                  elif isinstance(seg,dict): coco['with_rle_segmentation']+=1
+
+          out={
+            'classes':names,'body_class_id':body_id,'images':total_images,
+            'body_annotations_total':sum(raw_types.values()),'body_annotation_types':dict(raw_types),
+            'body_polygon_vertices':dict(sorted(vertices.items())),'body_count_per_image':dict(sorted(body_per_image.items())),
+            'body_bbox_aspect_ratio':summ(body_aspect),'body_bbox_area_fraction_of_image':summ(body_area),
+            'single_body_images_with_3_to_6_bands':len(single),
+            'band_bbox_fraction_inside_body_bbox':summ(band_cov),
+            'band_centers_inside_body_fraction':round(sum(centers)/max(len(centers),1),4),
+            'images_all_band_centers_inside_body_fraction':round(sum(all_centers)/max(len(all_centers),1),4),
+            'images_all_band_boxes_95pct_inside_body_fraction':round(sum(all95)/max(len(all95),1),4),
+            'body_area_div_band_union_area':summ(area_ratio),
+            'body_long_span_div_band_union_span':summ(long_ratio),'body_short_span_div_band_union_span':summ(short_ratio),
+            'coco_body':dict(coco),'coco_polygon_vertices':dict(sorted(coco_vertices.items()))
+          }
+          print('BODY_ANALYSIS='+json.dumps(out,sort_keys=True))
           PY
