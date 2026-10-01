@@ -75,6 +75,55 @@ jobs:
             --seed 42 \
             --group-session
 
+      - name: Audit orientation supervision
+        run: |
+          python - <<'PY' | tee /tmp/geometry-report.json
+          import json, math
+          from pathlib import Path
+          import numpy as np
+
+          rows = [json.loads(x) for x in Path('/tmp/rres/manifest.jsonl').read_text().splitlines() if x.strip()]
+          box_diffs, polygon_diffs = [], []
+
+          def axis(points):
+              p = np.asarray(points, dtype=np.float64)
+              p = p - p.mean(axis=0, keepdims=True)
+              _, _, vt = np.linalg.svd(p, full_matrices=False)
+              u = vt[0]
+              return u / max(np.linalg.norm(u), 1e-12)
+
+          def diff_deg(a, b):
+              return math.degrees(math.acos(float(np.clip(abs(np.dot(a, b)), 0.0, 1.0))))
+
+          for row in rows:
+              for r in row['resistors']:
+                  centers = [[(b['bbox'][0] + b['bbox'][2]) * 0.5, (b['bbox'][1] + b['bbox'][3]) * 0.5] for b in r['bands']]
+                  if len(centers) < 2:
+                      continue
+                  band_axis = axis(centers)
+                  if r.get('body_annotation_type') == 'polygon' and r.get('polygon'):
+                      polygon_diffs.append(diff_deg(axis(r['polygon']), band_axis))
+                  elif r.get('bbox'):
+                      x1, y1, x2, y2 = r['bbox']
+                      box_axis = np.array([1.0, 0.0]) if (x2-x1) >= (y2-y1) else np.array([0.0, 1.0])
+                      box_diffs.append(diff_deg(box_axis, band_axis))
+
+          def summary(values):
+              a = np.asarray(values, dtype=np.float64)
+              if not len(a): return {'n': 0}
+              return {
+                  'n': int(len(a)),
+                  'median_deg': float(np.median(a)),
+                  'p90_deg': float(np.quantile(a, .90)),
+                  'p95_deg': float(np.quantile(a, .95)),
+                  'max_deg': float(a.max()),
+                  'fraction_gt_10deg': float(np.mean(a > 10)),
+                  'fraction_gt_20deg': float(np.mean(a > 20)),
+                  'fraction_gt_30deg': float(np.mean(a > 30)),
+              }
+          print(json.dumps({'box_axis_vs_band_pca': summary(box_diffs), 'polygon_axis_vs_band_pca': summary(polygon_diffs)}, indent=2, sort_keys=True))
+          PY
+
       - name: Verify split isolation and coverage
         run: |
           python - <<'PY' | tee /tmp/split-report.json
@@ -111,7 +160,6 @@ jobs:
           for split in ('train','val','test'):
               if report[split]['samples'] == 0:
                   raise AssertionError(f'empty {split} split')
-              # Every held-out split should cover all colors that have enough data for meaningful evaluation.
               missing_common = [c for c in ('black','brown','red','orange','yellow','green','blue','violet','gray','gold') if report[split]['colors'][c] == 0]
               if missing_common:
                   raise AssertionError(f'{split} missing common colors: {missing_common}')
@@ -190,6 +238,7 @@ jobs:
           path: |
             /tmp/import-report.json
             /tmp/audit-report.json
+            /tmp/geometry-report.json
             /tmp/split-report.json
             /tmp/rres/splits.json
             /tmp/runs/rres-v4-smoke/metrics.jsonl
