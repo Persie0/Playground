@@ -37,7 +37,7 @@ jobs:
 
           root=Path('/tmp/rres')
           rf=re.compile(r'\.rf\.[0-9a-f]+$', re.I)
-          stamped=re.compile(r'^(?P<prefix>.+?)_(?P<ts>20\d{12})_(?P<tail>\d+)$')
+          stamped=re.compile(r'^(?P<prefix>.+?)_(?P<ts>20\d{12})_(?P<tail>\d+)(?:_(?:jpg|jpeg|png|webp|bmp))?$', re.I)
           stems=[]
           split_by_source=defaultdict(set)
           for split in ('train','valid','val','test'):
@@ -49,7 +49,7 @@ jobs:
                   stems.append(s)
                   split_by_source[s].add(split)
 
-          kinds=Counter(); prefix_count=Counter(); prefix_sources=defaultdict(set); examples=defaultdict(list)
+          kinds=Counter(); prefix_sources=defaultdict(set); examples=defaultdict(list); other_examples=[]
           for s in stems:
               m=stamped.match(s)
               if m:
@@ -58,13 +58,13 @@ jobs:
                       kinds['batch_timestamped']+=1
                   else:
                       kinds['named_timestamped']+=1
-                      prefix_count[prefix]+=1
                       prefix_sources[prefix].add(s)
                       if len(examples[prefix])<4: examples[prefix].append(s)
               elif s.lower().startswith('batch_'):
                   kinds['batch_other']+=1
               else:
                   kinds['other']+=1
+                  if len(other_examples)<40: other_examples.append(s)
 
           repeated={k: sorted(v) for k,v in prefix_sources.items() if len(v)>1}
           out={
@@ -79,6 +79,7 @@ jobs:
                   {'prefix':k,'captures':len(v),'examples':examples[k]}
                   for k,v in sorted(repeated.items(), key=lambda kv:(-len(kv[1]),kv[0]))[:50]
               ],
+              'other_examples':other_examples,
           }
           print('ID_AUDIT='+json.dumps(out,sort_keys=True))
           PY
