@@ -13,18 +13,18 @@ permissions:
 jobs:
   ios:
     runs-on: macos-latest
-    timeout-minutes: 50
+    timeout-minutes: 55
     steps:
       - name: Validate private checkout token
         env:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: test -n "$PRIVATE_TOKEN"
 
-      - name: Checkout resistor_scanner iOS branch
+      - name: Checkout merged resistor_scanner default branch
         uses: actions/checkout@v5
         with:
           repository: Persie0/resistor_scanner
-          ref: feat/ios-vision-support
+          ref: tflite
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: source
@@ -61,11 +61,10 @@ jobs:
           set -o pipefail
           flutter build ios --simulator --debug 2>&1 | tee "$RUNNER_TEMP/app-ios-build.log"
 
-      - name: Run real YOLO11 iOS simulator smoke test
-        working-directory: source
+      - name: Select iPhone simulator
+        id: simulator
         shell: bash
         run: |
-          set -o pipefail
           UDID="$(python3 - <<'PY'
           import json, subprocess
           data = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))
@@ -79,10 +78,35 @@ jobs:
           raise SystemExit('No available iPhone simulator found')
           PY
           )"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           echo "Using iOS simulator $UDID"
           xcrun simctl boot "$UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$UDID" -b
-          flutter test integration_test/ios_vision_smoke_test.dart -d "$UDID" 2>&1 | tee "$RUNNER_TEMP/ios-integration-test.log"
+
+      - name: Run real YOLO11 iOS CPU simulator smoke test
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter test integration_test/ios_vision_smoke_test.dart -d "${{ steps.simulator.outputs.udid }}" 2>&1 | tee "$RUNNER_TEMP/ios-integration-cpu-test.log"
+
+      - name: Run real YOLO11 iOS Metal simulator smoke test
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          trap 'git restore integration_test/ios_vision_smoke_test.dart' EXIT
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('integration_test/ios_vision_smoke_test.dart')
+          text = path.read_text()
+          old = '        useGpu: false,\n'
+          new = '        useGpu: true,\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one CPU load flag, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          flutter test integration_test/ios_vision_smoke_test.dart -d "${{ steps.simulator.outputs.udid }}" 2>&1 | tee "$RUNNER_TEMP/ios-integration-metal-test.log"
 
       - name: Build full resistor_scanner iOS release app without signing
         working-directory: source
@@ -140,7 +164,7 @@ jobs:
         shell: bash
         run: |
           : > "$RUNNER_TEMP/ios-errors.txt"
-          for log in "$RUNNER_TEMP/app-ios-build.log" "$RUNNER_TEMP/ios-integration-test.log" "$RUNNER_TEMP/app-ios-release-build.log" "$RUNNER_TEMP/plugin-ios-build.log"; do
+          for log in "$RUNNER_TEMP/app-ios-build.log" "$RUNNER_TEMP/ios-integration-cpu-test.log" "$RUNNER_TEMP/ios-integration-metal-test.log" "$RUNNER_TEMP/app-ios-release-build.log" "$RUNNER_TEMP/plugin-ios-build.log"; do
             if [ -f "$log" ]; then
               echo "===== $(basename "$log") =====" >> "$RUNNER_TEMP/ios-errors.txt"
               grep -E -i 'error:|fatal error:|failed|exception|could not build|swift compiler error|test failed' "$log" | tail -n 160 >> "$RUNNER_TEMP/ios-errors.txt" || true
@@ -155,7 +179,8 @@ jobs:
           name: resistor-ios-pr29-build-log
           path: |
             ${{ runner.temp }}/app-ios-build.log
-            ${{ runner.temp }}/ios-integration-test.log
+            ${{ runner.temp }}/ios-integration-cpu-test.log
+            ${{ runner.temp }}/ios-integration-metal-test.log
             ${{ runner.temp }}/app-ios-release-build.log
             ${{ runner.temp }}/plugin-ios-build.log
             ${{ runner.temp }}/ios-errors.txt
@@ -164,4 +189,4 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
-# Verified real-model iOS simulator inference on 2026-10-01
+# Post-merge validation against tflite, including CPU and Metal inference paths.
