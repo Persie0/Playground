@@ -1,0 +1,211 @@
+name: Resistor TFLite Reverse Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-tflite-reverse.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tflite-to-onnx-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout production scanner model only
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: coreml-ios
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          sparse-checkout: |
+            assets/model1225.tflite
+            assets/labels10.txt
+            assets/resistor.jpeg
+          sparse-checkout-cone-mode: false
+          path: source
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install conversion and inference tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            'numpy<2' \
+            'tensorflow-cpu==2.15.1' \
+            'tf2onnx==1.16.1' \
+            'onnxruntime==1.23.1' \
+            'pillow>=10,<13'
+
+      - name: Inspect exact TFLite contract
+        shell: bash
+        run: |
+          python - <<'PY' | tee "$RUNNER_TEMP/tflite-contract.txt"
+          import json
+          import tensorflow as tf
+
+          path = 'source/assets/model1225.tflite'
+          interpreter = tf.lite.Interpreter(model_path=path)
+          interpreter.allocate_tensors()
+          print('inputs=')
+          for item in interpreter.get_input_details():
+              print(json.dumps({
+                  'name': item['name'],
+                  'shape': item['shape'].tolist(),
+                  'dtype': str(item['dtype']),
+                  'quantization': list(item['quantization']),
+              }, sort_keys=True))
+          print('outputs=')
+          for item in interpreter.get_output_details():
+              print(json.dumps({
+                  'name': item['name'],
+                  'shape': item['shape'].tolist(),
+                  'dtype': str(item['dtype']),
+                  'quantization': list(item['quantization']),
+              }, sort_keys=True))
+          ops = interpreter._get_ops_details()
+          print('operator_count=', len(ops))
+          print('operator_names=', sorted({op['op_name'] for op in ops}))
+          PY
+
+      - name: Convert TFLite to ONNX
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m tf2onnx.convert \
+            --opset 17 \
+            --tflite source/assets/model1225.tflite \
+            --output "$RUNNER_TEMP/model1225.onnx" \
+            2>&1 | tee "$RUNNER_TEMP/tflite-to-onnx.log"
+
+      - name: Check ONNX model
+        shell: bash
+        run: |
+          python - <<'PY' | tee "$RUNNER_TEMP/onnx-contract.txt"
+          import onnx
+          from onnx import shape_inference
+
+          path = __import__('os').environ['RUNNER_TEMP'] + '/model1225.onnx'
+          model = onnx.load(path)
+          onnx.checker.check_model(model)
+          inferred = shape_inference.infer_shapes(model)
+          print('ir_version=', inferred.ir_version)
+          print('opsets=', [(x.domain, x.version) for x in inferred.opset_import])
+          print('node_count=', len(inferred.graph.node))
+          print('operator_names=', sorted({node.op_type for node in inferred.graph.node}))
+          for value in inferred.graph.input:
+              dims = [d.dim_value if d.HasField('dim_value') else d.dim_param for d in value.type.tensor_type.shape.dim]
+              print('input=', value.name, dims, value.type.tensor_type.elem_type)
+          for value in inferred.graph.output:
+              dims = [d.dim_value if d.HasField('dim_value') else d.dim_param for d in value.type.tensor_type.shape.dim]
+              print('output=', value.name, dims, value.type.tensor_type.elem_type)
+          PY
+
+      - name: Compare TFLite and ONNX numerically
+        shell: bash
+        run: |
+          python - <<'PY' | tee "$RUNNER_TEMP/tflite-onnx-parity.txt"
+          import json
+          import os
+          import numpy as np
+          import onnxruntime as ort
+          import tensorflow as tf
+          from PIL import Image
+
+          tflite_path = 'source/assets/model1225.tflite'
+          onnx_path = os.path.join(os.environ['RUNNER_TEMP'], 'model1225.onnx')
+
+          interpreter = tf.lite.Interpreter(model_path=tflite_path)
+          interpreter.allocate_tensors()
+          tin = interpreter.get_input_details()[0]
+          touts = interpreter.get_output_details()
+          session = ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider'])
+          oin = session.get_inputs()[0]
+
+          shape = tuple(int(x) for x in tin['shape'])
+          rng = np.random.default_rng(1225)
+          cases = [('random', rng.random(shape, dtype=np.float32))]
+
+          image_path = 'source/assets/resistor.jpeg'
+          if os.path.exists(image_path) and len(shape) == 4:
+              h, w = (shape[1], shape[2]) if shape[-1] == 3 else (shape[2], shape[3])
+              image = Image.open(image_path).convert('RGB').resize((w, h))
+              arr = np.asarray(image, dtype=np.float32) / 255.0
+              if shape[-1] == 3:
+                  arr = arr[None, ...]
+              else:
+                  arr = np.transpose(arr, (2, 0, 1))[None, ...]
+              cases.append(('resistor', arr.astype(np.float32)))
+
+          report = []
+          for case_name, data in cases:
+              interpreter.set_tensor(tin['index'], data.astype(tin['dtype']))
+              interpreter.invoke()
+              tf_outputs = [interpreter.get_tensor(o['index']).astype(np.float32) for o in touts]
+
+              ort_data = data
+              expected = tuple(x if isinstance(x, int) else None for x in oin.shape)
+              if len(shape) == 4 and tuple(data.shape) != expected:
+                  nchw = np.transpose(data, (0, 3, 1, 2))
+                  if tuple(nchw.shape) == expected:
+                      ort_data = nchw
+              onnx_outputs = [x.astype(np.float32) for x in session.run(None, {oin.name: ort_data})]
+
+              if len(tf_outputs) != len(onnx_outputs):
+                  raise SystemExit(f'output count mismatch: {len(tf_outputs)} vs {len(onnx_outputs)}')
+              for idx, (a, b) in enumerate(zip(tf_outputs, onnx_outputs)):
+                  if a.shape != b.shape:
+                      # tf2onnx can transpose externally visible tensors; permit only a strict shape transpose match.
+                      candidates = []
+                      if a.ndim == 3:
+                          candidates.extend([np.transpose(b, (0, 2, 1))])
+                      if a.ndim == 4:
+                          candidates.extend([np.transpose(b, (0, 2, 3, 1)), np.transpose(b, (0, 3, 1, 2))])
+                      matched = next((x for x in candidates if x.shape == a.shape), None)
+                      if matched is None:
+                          raise SystemExit(f'output {idx} shape mismatch: {a.shape} vs {b.shape}')
+                      b = matched
+                  diff = np.abs(a - b)
+                  metrics = {
+                      'case': case_name,
+                      'output': idx,
+                      'shape': list(a.shape),
+                      'max_abs': float(diff.max(initial=0.0)),
+                      'mean_abs': float(diff.mean()),
+                      'p99_abs': float(np.quantile(diff, 0.99)),
+                      'allclose_1e-4': bool(np.allclose(a, b, rtol=1e-4, atol=1e-4)),
+                      'allclose_1e-3': bool(np.allclose(a, b, rtol=1e-3, atol=1e-3)),
+                  }
+                  report.append(metrics)
+                  print(json.dumps(metrics, sort_keys=True))
+
+          if not report:
+              raise SystemExit('no parity outputs compared')
+          if any(not row['allclose_1e-3'] for row in report):
+              raise SystemExit('TFLite -> ONNX exceeded 1e-3 numerical parity gate')
+          PY
+
+      - name: Upload logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-tflite-reverse-probe
+          path: |
+            ${{ runner.temp }}/tflite-contract.txt
+            ${{ runner.temp }}/tflite-to-onnx.log
+            ${{ runner.temp }}/onnx-contract.txt
+            ${{ runner.temp }}/tflite-onnx-parity.txt
+          if-no-files-found: warn
+          retention-days: 3
