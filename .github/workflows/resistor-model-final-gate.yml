@@ -73,7 +73,7 @@ jobs:
             --ratios 0.70 0.15 0.15 \
             --seed 42 --group-session
 
-      - name: Verify split isolation coverage and decoder ambiguity
+      - name: Verify split isolation coverage decoder ambiguity and rectification
         run: |
           python - <<'PY'
           import json
@@ -97,6 +97,7 @@ jobs:
           session_splits = defaultdict(set)
           colors = {name: Counter() for name in ('train', 'val', 'test')}
           counts = {name: Counter() for name in ('train', 'val', 'test')}
+          original_counts = []
           for row in rows:
               row_splits = set()
               for resistor in row['resistors']:
@@ -104,7 +105,9 @@ jobs:
                   if split is None:
                       raise AssertionError(f"unassigned resistor/source id: {resistor['id']}")
                   row_splits.add(split)
-                  counts[split][len(resistor['bands'])] += 1
+                  count = len(resistor['bands'])
+                  original_counts.append(count)
+                  counts[split][count] += 1
                   colors[split].update(b['color'] for b in resistor['bands'])
               if len(row_splits) != 1:
                   raise AssertionError(f'image spans splits: {row["image"]} -> {row_splits}')
@@ -115,9 +118,9 @@ jobs:
           if leaking:
               raise AssertionError(f'capture/session leakage: {list(leaking.items())[:5]}')
 
-          # Require broad held-out coverage for the colors with substantial support.
           total = Counter()
-          for c in colors.values(): total.update(c)
+          for c in colors.values():
+              total.update(c)
           common = {c for c, n in total.items() if n >= 80}
           for split in ('val', 'test'):
               missing = sorted(c for c in common if colors[split][c] == 0)
@@ -126,12 +129,18 @@ jobs:
               if not counts[split][4] or not counts[split][5]:
                   raise AssertionError(f'{split} lacks 4/5-band coverage: {dict(counts[split])}')
 
-          # Quantify color-only electrical-direction ambiguity after actual rectification.
           ds = ResistorBandDataset(manifest, '/tmp/rres', output_size=(64, 384), sequence_bins=96, max_bands=6, augment=False)
+          if len(ds) != len(original_counts):
+              raise AssertionError(f'manifest/sample ordering mismatch: {len(original_counts)} vs {len(ds)}')
+
           ambiguous = Counter()
           unambiguous = Counter()
-          for sample in ds:
+          rectification_changes = Counter()
+          for idx, sample in enumerate(ds):
               n = int(sample['count'])
+              original = original_counts[idx]
+              if n != original:
+                  rectification_changes[(original, n)] += 1
               seq = [INDEX_TO_COLOR[int(x)] for x in sample['slot_colors'][:n].tolist()]
               forward = _decode_one(seq)
               reverse = _decode_one(list(reversed(seq)))
@@ -149,6 +158,7 @@ jobs:
           print('COLOR_COUNTS', {k: dict(v) for k, v in colors.items()})
           print('BAND_COUNTS', {k: dict(v) for k, v in counts.items()})
           print('CAPTURE_GROUPS', len(session_splits), 'LEAKING', len(leaking))
+          print('RECTIFICATION_COUNT_CHANGES', {f'{a}->{b}': n for (a, b), n in sorted(rectification_changes.items())})
           print('AMBIGUOUS_VALUE_DIRECTION', dict(ambiguous))
           print('UNAMBIGUOUS_VALUE_DIRECTION', dict(unambiguous))
           PY
