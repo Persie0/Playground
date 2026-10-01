@@ -55,14 +55,41 @@ jobs:
           channel: stable
           cache: true
       - name: Run private test/build harness
+        id: harness
+        continue-on-error: true
         run: bash private-ci/.github/playground/private-ci.sh private-app
+      - name: Diagnose new test files
+        if: steps.harness.outcome == 'failure'
+        shell: bash
+        run: |
+          set -uo pipefail
+          cd private-app
+          failed=0
+          for f in \
+            test/layout_models_edge_cases_test.dart \
+            test/image_processing_edge_cases_test.dart \
+            test/project_storage_service_test.dart \
+            test/dialog_validation_test.dart \
+            test/pdf_services_test.dart \
+            test/crop_editor_interaction_test.dart \
+            test/paper_canvas_interaction_test.dart; do
+            if flutter test "$f" >/dev/null 2>&1; then
+              echo "PASS: $f"
+            else
+              echo "FAIL: $f"
+              failed=1
+            fi
+          done
+          exit "$failed"
       - name: Upload debug APK
+        if: steps.harness.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: imagepdfscaler-debug-apk
           path: private-app/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
       - name: Upload release APK
+        if: steps.harness.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: imagepdfscaler-release-apk
