@@ -1,0 +1,110 @@
+name: ToiletCompass live release parser check
+
+on:
+  push:
+    branches: [toiletcompass-monthly-db]
+    paths:
+      - '.github/workflows/toiletcompass-live-release-parser-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout ToiletCompass feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/toiletcompass
+          ref: feat/monthly-country-database-pipeline
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+
+      - name: Fetch current public release snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import urllib.request
+
+          headers = {'User-Agent': 'toiletcompass-live-release-parser-check'}
+          api = 'https://api.github.com/repos/Persie0/toilets/releases/latest'
+          release = json.load(urllib.request.urlopen(urllib.request.Request(api, headers=headers)))
+          assets = {item['name']: item['browser_download_url'] for item in release['assets']}
+          manifest_url = assets['manifest.json']
+          manifest = json.load(
+              urllib.request.urlopen(urllib.request.Request(manifest_url, headers=headers))
+          )
+          with open('/tmp/live-release.json', 'w') as handle:
+              json.dump(release, handle)
+          with open('/tmp/live-manifest.json', 'w') as handle:
+              json.dump(manifest, handle)
+          missing = [
+              iso for iso, item in manifest.get('countries', {}).items()
+              if not isinstance(item.get('continents'), list)
+          ]
+          print(f"tag={release['tag_name']}")
+          print(f"countries={len(manifest.get('countries', {}))}")
+          print(f"continents={len(manifest.get('continents', {}))}")
+          print(f"countries_without_coverage={len(missing)}")
+          PY
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Parse live release with app code
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          cat > test/_live_release_parser_check_test.dart <<'DART'
+          import 'dart:convert';
+          import 'dart:io';
+
+          import 'package:flutter_test/flutter_test.dart';
+          import 'package:toiletcompass/database_manifest.dart';
+
+          void main() {
+            test('current public release is accepted as one coherent snapshot', () {
+              final releaseJson = Map<String, dynamic>.from(
+                jsonDecode(File('/tmp/live-release.json').readAsStringSync()) as Map,
+              );
+              final manifestJson = Map<String, dynamic>.from(
+                jsonDecode(File('/tmp/live-manifest.json').readAsStringSync()) as Map,
+              );
+
+              final release = GitHubDatabaseRelease.fromJson(releaseJson);
+              final manifest = DatabaseReleaseManifest.fromJson(manifestJson);
+              final snapshot = DatabaseReleaseSnapshot(
+                release: release,
+                manifest: manifest,
+              );
+
+              expect(manifest.countries, hasLength(249));
+              expect(manifest.continents, hasLength(8));
+              expect(release.tagName, manifest.version);
+              expect(
+                snapshot.assetFor(DatabaseArtifactId.country('AT')).name,
+                'AT.db',
+              );
+              expect(
+                snapshot.assetFor(DatabaseArtifactId.continent('europe')).name,
+                'europe.db',
+              );
+            });
+          }
+          DART
+          flutter test test/_live_release_parser_check_test.dart
+          rm test/_live_release_parser_check_test.dart
+          git diff --exit-code
