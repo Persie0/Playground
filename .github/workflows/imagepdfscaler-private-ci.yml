@@ -15,15 +15,7 @@ env:
   APP_REF: review/editor-logic-20261002
 
 jobs:
-  editor-test:
-    strategy:
-      fail-fast: false
-      matrix:
-        test_name:
-          - loading a project repairs invalid margins and constrains images
-          - selection rotate lock duplicate and delete update editor state
-          - multi-select alignment and exact-gap distribution mutate positions
-          - auto arrange removes overlap and orientation keeps items on paper
+  editor-diagnostic:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -41,13 +33,12 @@ jobs:
           path: private-app
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.47.5'
           channel: stable
           cache: true
       - name: Resolve dependencies
         working-directory: private-app
         run: flutter pub get >/dev/null
-      - name: Run one editor flow
+      - name: Run editor diagnostic
         working-directory: private-app
-        env:
-          TEST_NAME: ${{ matrix.test_name }}
-        run: timeout 45s flutter test --reporter=expanded --plain-name "$TEST_NAME" test/editor_page_logic_test.dart
+        run: timeout 60s flutter test --reporter=expanded test/editor_page_diagnostic_test.dart
