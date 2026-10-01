@@ -38,6 +38,8 @@ jobs:
           root=Path('/tmp/rres')
           rf=re.compile(r'\.rf\.[0-9a-f]+$', re.I)
           stamped=re.compile(r'^(?P<prefix>.+?)_(?P<ts>20\d{12})_(?P<tail>\d+)(?:_(?:jpg|jpeg|png|webp|bmp))?$', re.I)
+          fmt_suffix=re.compile(r'_(?:jpg|jpeg|png|webp|bmp)$', re.I)
+          numbered=re.compile(r'^(?P<prefix>.+?)[_-]+(?P<num>\d+)[_-]*$')
           stems=[]
           split_by_source=defaultdict(set)
           for split in ('train','valid','val','test'):
@@ -50,23 +52,34 @@ jobs:
                   split_by_source[s].add(split)
 
           kinds=Counter(); prefix_sources=defaultdict(set); examples=defaultdict(list); other_examples=[]
+          numbered_sources=defaultdict(set); numbered_examples=defaultdict(list)
           for s in stems:
               m=stamped.match(s)
               if m:
                   prefix=m.group('prefix').rstrip('_- ')
-                  if prefix.lower()=='batch':
-                      kinds['batch_timestamped']+=1
+                  if prefix.lower() in {'batch','error'}:
+                      kinds['generic_timestamped']+=1
                   else:
                       kinds['named_timestamped']+=1
                       prefix_sources[prefix].add(s)
                       if len(examples[prefix])<4: examples[prefix].append(s)
-              elif s.lower().startswith('batch_'):
+                  continue
+              if s.lower().startswith('batch_'):
                   kinds['batch_other']+=1
-              else:
-                  kinds['other']+=1
-                  if len(other_examples)<40: other_examples.append(s)
+                  continue
+
+              kinds['other']+=1
+              if len(other_examples)<40: other_examples.append(s)
+              cleaned=fmt_suffix.sub('',s).rstrip('_- ')
+              nm=numbered.match(cleaned)
+              if nm:
+                  prefix=nm.group('prefix').rstrip('_- ')
+                  if prefix and prefix.lower() not in {'image','img','download','r','rr','rrr'}:
+                      numbered_sources[prefix].add(s)
+                      if len(numbered_examples[prefix])<4: numbered_examples[prefix].append(s)
 
           repeated={k: sorted(v) for k,v in prefix_sources.items() if len(v)>1}
+          numbered_repeated={k: sorted(v) for k,v in numbered_sources.items() if len(v)>1}
           out={
               'images':len(stems),
               'unique_source_stems':len(set(stems)),
@@ -77,7 +90,13 @@ jobs:
               'capture_stems_in_repeated_named_prefixes':sum(len(v) for v in repeated.values()),
               'top_repeated_prefixes':[
                   {'prefix':k,'captures':len(v),'examples':examples[k]}
-                  for k,v in sorted(repeated.items(), key=lambda kv:(-len(kv[1]),kv[0]))[:50]
+                  for k,v in sorted(repeated.items(), key=lambda kv:(-len(kv[1]),kv[0]))[:30]
+              ],
+              'numbered_prefixes_with_multiple_stems':len(numbered_repeated),
+              'stems_in_repeated_numbered_prefixes':sum(len(v) for v in numbered_repeated.values()),
+              'top_repeated_numbered_prefixes':[
+                  {'prefix':k,'captures':len(v),'examples':numbered_examples[k]}
+                  for k,v in sorted(numbered_repeated.items(), key=lambda kv:(-len(kv[1]),kv[0]))[:30]
               ],
               'other_examples':other_examples,
           }
