@@ -1,0 +1,71 @@
+name: Verify image_enhancer iOS Sentry linker fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/image_enhancer_ios_sentry_fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_ENHANCER_REF: fix/ios-sentry-linker
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    timeout-minutes: 50
+    steps:
+      - name: Check out private image_enhancer branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: ${{ env.IMAGE_ENHANCER_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: image_enhancer
+          fetch-depth: 0
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve Flutter dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: Regenerate CocoaPods lockfile
+        working-directory: image_enhancer/ios
+        run: pod install
+
+      - name: Verify Sentry dependency graph
+        working-directory: image_enhancer
+        run: |
+          set -euo pipefail
+          if grep -q 'AppodealSentryAdapter' ios/Podfile.lock; then
+            echo '::error::AppodealSentryAdapter is still present in Podfile.lock'
+            exit 1
+          fi
+          grep -E '^  - Sentry|Sentry/HybridSDK' ios/Podfile.lock
+
+      - name: Build iOS without signing
+        working-directory: image_enhancer
+        run: flutter build ios --debug --no-codesign --no-pub
+
+      - name: Persist regenerated Podfile.lock
+        working-directory: image_enhancer
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          git add ios/Podfile.lock
+          if git diff --cached --quiet; then
+            echo 'Podfile.lock already current.'
+            exit 0
+          fi
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git commit -m 'fix(ios): align Sentry CocoaPods dependencies'
+          git push origin HEAD:${IMAGE_ENHANCER_REF}
