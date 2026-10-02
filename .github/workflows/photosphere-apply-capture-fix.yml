@@ -1,0 +1,62 @@
+name: Photosphere apply capture fix
+on:
+  push:
+    branches: [photosphere-capture-ci]
+    paths:
+      - .github/workflows/photosphere-apply-capture-fix.yml
+permissions:
+  contents: read
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout private app branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/Photosphere-
+          ref: fix/capture-guidance-3d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Apply private payload and verify uploaded bytes
+        run: |
+          set -euo pipefail
+          cd app
+          python3 tool/apply_capture_fix_payload.py
+          echo 'de7350a8641a1c07bdf66a717228f3b9415f379004975f2e5ca101f4a4376dcb  lib/src/screens/capture_screen.dart' | sha256sum -c -
+          echo '0ff05677e47229bfbbc51187e1162fd69bba505d19ed83813026091adaed6be1  lib/src/services/motion_pose_tracker.dart' | sha256sum -c -
+          echo '1e765ce6d9e78e200d5488b3541c212b009fb0542363b5283e442e2285849322  tool/configure_platforms.dart' | sha256sum -c -
+          echo 'c426e325921854f1fb63985a54b5d6b485435b578a6f2ce64aae3a2c24791041  lib/src/models/capture_geometry.dart' | sha256sum -c -
+          echo '3e90452530d1136f81cffd7b6c47ed9dcb7906eb517803ac0073cfdfd0e45129  lib/src/services/capture_sharpness.dart' | sha256sum -c -
+          echo '5456321fa8fef58d38cb6b56adb9da696e75e2e338d26734baef3ff0f079d0dc  lib/src/services/native_orientation.dart' | sha256sum -c -
+          echo '69469f137042ed8eeb84a53cf01298ec0125c1534fd8e2ee0bf1913e049d0c96  lib/src/models/vec3.dart' | sha256sum -c -
+          echo 'c40738e331d9fe2bd08493a729b6e509a5bce50d0df3e7b119e6e700d8ebb96c  test/capture_geometry_test.dart' | sha256sum -c -
+          echo '6a419fdee34cda175bee79666b2439843d0eca8573dc684ba12e4318904840b8  test/native_orientation_test.dart' | sha256sum -c -
+          git diff --check
+      - name: Commit applied implementation to private branch
+        run: |
+          set -euo pipefail
+          cd app
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'Fix 3D capture guidance and orientation robustness'
+          git push origin HEAD:fix/capture-guidance-3d
+      - name: Resolve dependencies
+        run: cd app && flutter pub get
+      - name: Focused capture regression tests
+        run: cd app && flutter test test/capture_geometry_test.dart test/native_orientation_test.dart --reporter expanded
+      - name: Full static and unit harness
+        run: bash app/.github/playground/static-unit.sh app
