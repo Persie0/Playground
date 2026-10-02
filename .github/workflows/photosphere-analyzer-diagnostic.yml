@@ -1,0 +1,41 @@
+name: Photosphere analyzer diagnostic
+
+on:
+  push:
+    branches: [photosphere-analyzer-diagnostic]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout current private fix
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/Photosphere-
+          ref: fix/capture-guidance-3d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        run: cd app && flutter pub get >/dev/null
+
+      - name: Check repository formatting
+        run: cd app && dart format --output=none --set-exit-if-changed lib test tool >/dev/null
+
+      - name: Run Flutter analyzer
+        run: cd app && flutter analyze >/dev/null
