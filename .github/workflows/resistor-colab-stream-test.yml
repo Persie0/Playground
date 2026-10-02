@@ -1,0 +1,32 @@
+name: Resistor Colab stream gate
+
+on:
+  push:
+    branches: [resistor-dataset-train]
+    paths:
+      - .github/workflows/resistor-colab-stream-test.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Checkout resistor_model branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_model
+          ref: fix/colab-first-batch-progress
+          path: resistor_model
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -q pytest
+      - name: Colab wrapper tests
+        working-directory: resistor_model
+        run: pytest -q tests/test_colab_resume.py
