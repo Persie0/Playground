@@ -1,4 +1,4 @@
-name: Verify engagement soft-paywall baselines
+name: Verify engagement soft-paywall Pro guards
 
 on:
   push:
@@ -11,30 +11,37 @@ permissions:
 
 # Public Playground only; private-repo Actions stay unused.
 jobs:
-  baseline:
-    name: Baseline ${{ matrix.repo }}
+  pro-guard:
+    name: Pro guard ${{ matrix.repo }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - repo: noise_remover
-            ref: master
-          - repo: norwegian_yoyillo
-            ref: main
+        repo:
+          - recorder_noise_remove
+          - fake_gps_detector
+          - root_detection_app
+          - face_scanner
+          - vitamindtracker
+          - surebets_calculator
+          - image_enhancer
+          - hanzi_hero
+          - Memory_Palace_Builder
+          - noise_remover
+          - norwegian_yoyillo
     steps:
       - name: Validate private repository token
         env:
           REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: test -n "$REPO_TOKEN"
 
-      - name: Checkout base branch
+      - name: Checkout feature branch
         uses: actions/checkout@v5
         with:
           repository: Persie0/${{ matrix.repo }}
           token: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          ref: ${{ matrix.ref }}
+          ref: feature/engagement-soft-paywall
           fetch-depth: 1
           persist-credentials: false
           path: app
@@ -54,6 +61,6 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      - name: Run Flutter tests
+      - name: Run Pro guard regression test
         working-directory: app
-        run: flutter test
+        run: flutter test test/engagement_soft_paywall_pro_guard_test.dart
