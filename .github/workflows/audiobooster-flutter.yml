@@ -1,5 +1,5 @@
 name: AudioBooster Flutter checks
-# Final merged-main release gate for AudioBooster, including the BaikalOS Android 14 fix.
+# TDD red/green gate for the AudioBooster simplified Play audio flow.
 on:
   push:
     branches: [main]
@@ -10,7 +10,7 @@ on:
       audio_ref:
         description: AudioBooster branch, tag, or commit to validate
         required: false
-        default: main
+        default: simplify-play-audio-flow
 permissions:
   contents: read
 jobs:
@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/Audiobooster
-          ref: ${{ inputs.audio_ref || 'main' }}
+          ref: ${{ inputs.audio_ref || 'simplify-play-audio-flow' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: audiobooster
       - uses: subosito/flutter-action@v2
@@ -70,20 +70,26 @@ jobs:
               'android.permission.MODIFY_AUDIO_SETTINGS',
               'android.permission.FOREGROUND_SERVICE',
               'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+          ]:
+              count = permissions.count(permission)
+              if count != 1:
+                  raise SystemExit(f'{permission}: expected exactly once, found {count}')
+          for permission in [
               'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION',
               'android.permission.DUMP',
               'android.permission.RECORD_AUDIO',
           ]:
               count = permissions.count(permission)
-              if count != 1:
-                  raise SystemExit(f'{permission}: expected exactly once, found {count}')
+              if count != 0:
+                  raise SystemExit(f'{permission}: expected absent, found {count}')
           for service in [
               'com.persie0.audiobooster.audio.AudioBoostService',
-              'com.persie0.audiobooster.audio.MediaNotificationListenerService',
           ]:
               count = services.count(service)
               if count != 1:
                   raise SystemExit(f'{service}: expected exactly once, found {count}')
+          if 'com.persie0.audiobooster.audio.MediaNotificationListenerService' in services:
+              raise SystemExit('MediaNotificationListenerService must be absent')
           gradle_path = Path('android/app/build.gradle.kts')
           if not gradle_path.exists():
               gradle_path = Path('android/app/build.gradle')
