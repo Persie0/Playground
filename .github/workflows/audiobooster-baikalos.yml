@@ -1,0 +1,32 @@
+name: AudioBooster BaikalOS regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/audiobooster-baikalos.yml
+permissions:
+  contents: read
+jobs:
+  android-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: fix/baikalos-session-detection
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: audiobooster
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Bootstrap Android host
+        working-directory: audiobooster
+        run: |
+          flutter pub get
+          bash tool/bootstrap_android.sh
+      - name: Run Android unit regression
+        working-directory: audiobooster/android
+        run: ./gradlew :app:testDebugUnitTest
