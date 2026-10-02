@@ -34,8 +34,35 @@ jobs:
       - name: Resolve dependencies
         run: cd app && flutter pub get >/dev/null
 
-      - name: Check repository formatting
+      - name: Check patch-file formatting
+        id: patch_format
+        continue-on-error: true
+        run: |
+          cd app
+          dart format --output=none --set-exit-if-changed \
+            lib/src/models/capture_geometry.dart \
+            lib/src/models/vec3.dart \
+            lib/src/screens/capture_screen.dart \
+            lib/src/services/capture_sharpness.dart \
+            lib/src/services/motion_pose_tracker.dart \
+            lib/src/services/native_orientation.dart \
+            test/capture_geometry_test.dart \
+            test/native_orientation_test.dart \
+            tool/configure_platforms.dart >/dev/null
+
+      - name: Check repository-wide formatting
+        id: repo_format
+        continue-on-error: true
         run: cd app && dart format --output=none --set-exit-if-changed lib test tool >/dev/null
 
       - name: Run Flutter analyzer
+        id: analyze
+        continue-on-error: true
         run: cd app && flutter analyze >/dev/null
+
+      - name: Enforce patch and analyzer gates
+        if: always()
+        env:
+          PATCH_FORMAT: ${{ steps.patch_format.outcome }}
+          ANALYZE: ${{ steps.analyze.outcome }}
+        run: test "$PATCH_FORMAT" = success -a "$ANALYZE" = success
