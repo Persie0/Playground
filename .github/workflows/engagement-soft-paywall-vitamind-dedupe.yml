@@ -1,0 +1,138 @@
+name: Dedupe Vitamin D engagement trigger
+
+on:
+  push:
+    paths:
+      - '.github/workflows/engagement-soft-paywall-vitamind-dedupe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Validate private repository token
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$REPO_TOKEN"
+
+      - name: Checkout feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/vitamindtracker
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          ref: feature/engagement-soft-paywall
+          fetch-depth: 0
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Add duplicate-trigger regression test
+        working-directory: app
+        run: |
+          cat > test/engagement_soft_paywall_dedupe_test.dart <<'DART'
+          import 'dart:io';
+          import 'package:flutter_test/flutter_test.dart';
+
+          void main() {
+            test('ExposureScreen delegates engagement counting to provider only', () {
+              final source = File('lib/screens/exposure_screen.dart').readAsStringSync();
+              expect(
+                source,
+                isNot(contains('SoftPaywallTrigger.instance.recordMeaningfulAction')),
+              );
+              expect(
+                source,
+                isNot(contains("import '../services/soft_paywall_trigger.dart';")),
+              );
+            });
+          }
+          DART
+
+      - name: RED - prove duplicate trigger exists
+        working-directory: app
+        shell: bash
+        run: |
+          set +e
+          flutter test test/engagement_soft_paywall_dedupe_test.dart > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Expected duplicate-trigger regression test to fail before fix"
+            exit 1
+          fi
+          if grep -q 'Compilation failed' /tmp/red.log; then
+            echo "::error::RED failed because test did not compile"
+            exit 1
+          fi
+
+      - name: Remove screen-level duplicate trigger
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('lib/screens/exposure_screen.dart')
+          text = path.read_text()
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected one match, got {count}: {old[:100]!r}')
+              text = text.replace(old, new, 1)
+
+          replace_once("import '../services/soft_paywall_trigger.dart';\n", '')
+          replace_once("import '../services/subscription_service.dart';\n", '')
+          replace_once(
+              "\n        final subscriptions = SubscriptionService.instance;\n"
+              "        final shouldShowPaywall =\n"
+              "            await SoftPaywallTrigger.instance.recordMeaningfulAction(\n"
+              "          isPremium: subscriptions.isPro,\n"
+              "        );\n"
+              "        if (shouldShowPaywall && mounted) {\n"
+              "          await subscriptions.presentPaywall(context);\n"
+              "        }\n",
+              "\n",
+          )
+          path.write_text(text)
+          PY
+          dart format lib/screens/exposure_screen.dart test/engagement_soft_paywall_dedupe_test.dart
+
+      - name: GREEN - duplicate trigger removed
+        working-directory: app
+        run: flutter test test/engagement_soft_paywall_dedupe_test.dart
+
+      - name: Full Flutter test suite
+        working-directory: app
+        run: flutter test
+
+      - name: Commit and push fix without private Actions
+        working-directory: app
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git config user.name 'OpenAI'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/screens/exposure_screen.dart test/engagement_soft_paywall_dedupe_test.dart
+          git commit -m 'fix: avoid double-counting sun exposure [skip ci]'
+          git remote set-url origin "https://x-access-token:${REPO_TOKEN}@github.com/Persie0/vitamindtracker.git"
+          git push origin HEAD:feature/engagement-soft-paywall
