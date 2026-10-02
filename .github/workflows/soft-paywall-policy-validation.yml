@@ -1,0 +1,24 @@
+name: Soft paywall policy validation
+
+on:
+  push:
+    branches:
+      - soft-paywall-policy-validation
+    paths:
+      - 'soft_paywall_validation/**'
+      - '.github/workflows/soft-paywall-policy-validation.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: soft_paywall_validation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - run: dart test
