@@ -1,0 +1,109 @@
+name: Sync and validate engagement soft paywalls
+
+on:
+  push:
+    paths:
+      - '.github/workflows/engagement-soft-paywall-sync-validate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync-stale:
+    name: Sync ${{ matrix.repo }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - repo: fake_gps_detector
+            base: master
+          - repo: face_scanner
+            base: master
+          - repo: vitamindtracker
+            base: master
+    steps:
+      - name: Validate private repository token
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$REPO_TOKEN"
+
+      - name: Checkout feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/${{ matrix.repo }}
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          ref: feature/engagement-soft-paywall
+          fetch-depth: 0
+          persist-credentials: false
+          path: app
+
+      - name: Merge current base branch
+        working-directory: app
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git config user.name 'OpenAI'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin "${{ matrix.base }}"
+          git merge --no-ff "origin/${{ matrix.base }}" -m "chore: sync ${{ matrix.base }} into engagement soft paywall [skip ci]"
+          git remote set-url origin "https://x-access-token:${REPO_TOKEN}@github.com/Persie0/${{ matrix.repo }}.git"
+          git push origin HEAD:feature/engagement-soft-paywall
+
+  validate:
+    name: Test ${{ matrix.repo }}
+    needs: sync-stale
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - repo: noise_remover
+          - repo: recorder_noise_remove
+          - repo: fake_gps_detector
+          - repo: root_detection_app
+          - repo: face_scanner
+          - repo: vitamindtracker
+          - repo: surebets_calculator
+          - repo: image_enhancer
+          - repo: hanzi_hero
+          - repo: norwegian_yoyillo
+          - repo: Memory_Palace_Builder
+    steps:
+      - name: Validate private repository token
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$REPO_TOKEN"
+
+      - name: Checkout feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/${{ matrix.repo }}
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          ref: feature/engagement-soft-paywall
+          fetch-depth: 1
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Run Flutter tests
+        working-directory: app
+        run: flutter test
