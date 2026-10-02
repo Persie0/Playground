@@ -1,4 +1,4 @@
-name: Patch resistor live training progress
+name: Patch resistor pre-batch progress
 
 on:
   push:
@@ -18,10 +18,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: Persie0/resistor_model
-          ref: fix/live-training-progress
+          ref: fix/colab-first-batch-progress
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: true
-      - name: Apply minimal progress patch
+      - name: Apply pre-batch diagnostic patch
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -29,30 +29,19 @@ jobs:
           path = Path('src/resistor_model/train.py')
           text = path.read_text()
 
-          old = '''def _progress_interval(total_steps: int, updates: int = 10) -> int:\n    return max(1, math.ceil(max(int(total_steps), 1) / max(int(updates), 1)))\n\n\ndef _format_duration'''
-          new = '''def _progress_interval(total_steps: int, updates: int = 50) -> int:\n    return max(1, math.ceil(max(int(total_steps), 1) / max(int(updates), 1)))\n\n\ndef _should_report_progress(*, step: int, total_steps: int, interval: int) -> bool:\n    interval = max(int(interval), 1)\n    return int(step) == 1 or int(step) == int(total_steps) or int(step) % interval == 0\n\n\ndef _print_status(message: str) -> None:\n    print(message, flush=True)\n\n\ndef _format_duration'''
-          assert old in text, 'progress helper anchor not found'
+          old = '''def _print_status(message: str) -> None:\n    print(message, flush=True)\n\n\ndef _format_duration'''
+          new = '''def _print_status(message: str) -> None:\n    print(message, flush=True)\n\n\ndef _format_pre_batch_status(*, phase: str, epoch: int, epochs: int, total_steps: int) -> str:\n    total = max(int(total_steps), 1)\n    return f"[{phase}] epoch {epoch}/{epochs} | waiting for batch 1/{total}..."\n\n\ndef _format_duration'''
+          assert old in text, 'pre-batch helper anchor not found'
           text = text.replace(old, new, 1)
 
-          old_condition = 'if show_progress and (count % interval == 0 or count == total_steps):'
-          new_condition = 'if show_progress and _should_report_progress(step=count, total_steps=total_steps, interval=interval):'
-          assert text.count(old_condition) == 2, text.count(old_condition)
-          text = text.replace(old_condition, new_condition)
+          anchor = '''    interval = _progress_interval(total_steps)\n    started = time.time()\n\n    for step, batch in enumerate(loader):'''
+          train_replacement = '''    interval = _progress_interval(total_steps)\n    started = time.time()\n    if show_progress:\n        _print_status(_format_pre_batch_status(\n            phase="train", epoch=epoch, epochs=epochs, total_steps=total_steps\n        ))\n\n    for step, batch in enumerate(loader):'''
+          assert anchor in text, 'train loop anchor not found'
+          text = text.replace(anchor, train_replacement, 1)
 
-          old = '''    out_dir = Path(cfg["train"]["output_dir"])\n    out_dir.mkdir(parents=True, exist_ok=True)\n    split_ids = resolve_split_ids(cfg["data"]["manifest"], cfg)'''
-          new = '''    out_dir = Path(cfg["train"]["output_dir"])\n    out_dir.mkdir(parents=True, exist_ok=True)\n    _print_status(f"[setup] device {device} | output {out_dir}")\n    _print_status("[setup] resolving train/val/test split IDs...")\n    split_ids = resolve_split_ids(cfg["data"]["manifest"], cfg)\n    _print_status(\n        f"[setup] splits ready | train {len(split_ids['train'])} | "\n        f"val {len(split_ids['val'])} | test {len(split_ids['test'])}"\n    )'''
-          assert old in text, 'setup split anchor not found'
-          text = text.replace(old, new, 1)
-
-          old = '''    train_loader, val_loader = _make_loaders(cfg, split_ids)\n    color_class_weights = _color_weights(train_loader.dataset, cfg, device)\n    model = build_model(cfg).to(device)'''
-          new = '''    _print_status("[setup] building datasets and data loaders...")\n    train_loader, val_loader = _make_loaders(cfg, split_ids)\n    _print_status(\n        f"[setup] loaders ready | train samples {len(train_loader.dataset)} | "\n        f"val samples {len(val_loader.dataset)}"\n    )\n    _print_status("[setup] computing training color-balance weights...")\n    color_class_weights = _color_weights(train_loader.dataset, cfg, device)\n    _print_status("[setup] building model, EMA, optimizer and scheduler...")\n    model = build_model(cfg).to(device)'''
-          assert old in text, 'loader/model anchor not found'
-          text = text.replace(old, new, 1)
-
-          old = '''    start_epoch = 0\n    best_key = (-1.0, -1.0)\n    resume = cfg["train"].get("resume")\n    if resume:\n        checkpoint = torch.load(resume, map_location=device, weights_only=False)'''
-          new = '''    start_epoch = 0\n    best_key = (-1.0, -1.0)\n    parameters = sum(parameter.numel() for parameter in model.parameters())\n    _print_status(f"[setup] model ready | parameters {parameters / 1_000_000:.2f}M")\n    resume = cfg["train"].get("resume")\n    if resume:\n        _print_status(f"[setup] loading checkpoint {resume}...")\n        checkpoint = torch.load(resume, map_location=device, weights_only=False)'''
-          assert old in text, 'resume anchor not found'
-          text = text.replace(old, new, 1)
+          val_replacement = '''    interval = _progress_interval(total_steps)\n    started = time.time()\n    if show_progress:\n        _print_status(_format_pre_batch_status(\n            phase="val", epoch=epoch, epochs=epochs, total_steps=total_steps\n        ))\n\n    for step, batch in enumerate(loader):'''
+          assert anchor in text, 'validation loop anchor not found'
+          text = text.replace(anchor, val_replacement, 1)
 
           path.write_text(text)
           PY
@@ -63,5 +52,5 @@ jobs:
           git config user.name 'Persie0'
           git config user.email '76871553+Persie0@users.noreply.github.com'
           git add src/resistor_model/train.py
-          git commit -m 'fix: print live training progress immediately'
-          git push origin HEAD:fix/live-training-progress
+          git commit -m 'fix: show progress before first batch'
+          git push origin HEAD:fix/colab-first-batch-progress
