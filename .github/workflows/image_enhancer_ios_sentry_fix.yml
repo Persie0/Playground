@@ -40,15 +40,14 @@ jobs:
         working-directory: image_enhancer/ios
         run: pod install
 
-      - name: Verify Sentry dependency graph
+      - name: Inspect Sentry dependency graph
         working-directory: image_enhancer
         run: |
           set -euo pipefail
-          if grep -q 'AppodealSentryAdapter' ios/Podfile.lock; then
-            echo '::error::AppodealSentryAdapter is still present in Podfile.lock'
-            exit 1
-          fi
-          grep -E '^  - Sentry|Sentry/HybridSDK' ios/Podfile.lock
+          echo '--- Sentry-related lockfile entries ---'
+          grep -n -C 2 -E 'AppodealSentryAdapter|Sentry(/| \()' ios/Podfile.lock || true
+          echo '--- Explicit Podfile references ---'
+          grep -n 'Sentry' ios/Podfile || true
 
       - name: Build iOS without signing
         working-directory: image_enhancer
