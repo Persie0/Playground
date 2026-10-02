@@ -1,0 +1,31 @@
+name: Reproduce image_enhancer existing-output regression
+
+on:
+  push:
+    paths:
+      - '.github/workflows/image_enhancer_existing_output_red.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: feature/storage-backed-full-resolution
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: image_enhancer
+          fetch-depth: 1
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - working-directory: image_enhancer/flutter_super_resolution
+        run: flutter pub get
+      - name: Reproduce preexisting output deletion
+        working-directory: image_enhancer/flutter_super_resolution
+        run: flutter test test/file_upscale_existing_output_test.dart
