@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/Audiobooster
-          ref: fix/baikalos-session-detection
+          ref: be34344a4672d4ef94d09da0e7bbf0e8a6cd4fff
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: audiobooster
       - uses: subosito/flutter-action@v2
@@ -113,3 +113,36 @@ jobs:
             test -s /tmp/release-pid.txt
             adb logcat -d -v threadtime > /tmp/release-logcat.txt || true
             test "$(grep -Ec 'FATAL EXCEPTION|Process: com.persie0.audiobooster' /tmp/release-logcat.txt)" -eq 0
+
+  publish-tester-release:
+    needs: [test-and-build, android-14-emulator]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: audiobooster-baikalos-tester-release
+          path: tester-release
+      - name: Publish merged-main tester prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          TAG="tester-baikalos-android14-be34344a"
+          APK="tester-release/AudioBooster-BaikalOS-Android14-tester.apk"
+          SUMS="tester-release/SHA256SUMS.txt"
+          test -f "$APK"
+          test -f "$SUMS"
+          NOTES='Tester build from merged main commit be34344a4672d4ef94d09da0e7bbf0e8a6cd4fff. Validated from the public Persie0/Playground workflow with Flutter tests, analysis, Android unit/instrumentation compilation, Android 14 emulator checks, DUMP/enhanced setup plumbing, release install/startup, and crash checks. Real BaikalOS/OEM audible behavior still depends on the device audio stack; this build includes the Android 14 AudioFlinger table parser and enhanced-session fallback fixes.'
+          if gh release view "$TAG" --repo Persie0/Audiobooster >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" "$SUMS" --repo Persie0/Audiobooster --clobber
+          else
+            gh release create "$TAG" "$APK" "$SUMS" \
+              --repo Persie0/Audiobooster \
+              --target be34344a4672d4ef94d09da0e7bbf0e8a6cd4fff \
+              --title 'AudioBooster BaikalOS Android 14 tester' \
+              --notes "$NOTES" \
+              --prerelease
+          fi
