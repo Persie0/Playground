@@ -1,0 +1,37 @@
+name: Sync image_enhancer feature with main CI rules
+
+on:
+  push:
+    paths:
+      - '.github/workflows/image_enhancer_sync_main_ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_ENHANCER_REF: feature/storage-backed-full-resolution
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out private feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: ${{ env.IMAGE_ENHANCER_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: image_enhancer
+          fetch-depth: 0
+
+      - name: Merge main CI trigger restrictions
+        working-directory: image_enhancer
+        run: |
+          set -euo pipefail
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git fetch origin main
+          git merge --no-edit origin/main
+          git push origin HEAD:${IMAGE_ENHANCER_REF}
