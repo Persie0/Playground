@@ -1,0 +1,66 @@
+name: Audit resistor r1 datasets
+
+on:
+  push:
+    branches: [resistor-dataset-train]
+    paths:
+      - .github/workflows/resistor-r1-dataset-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download r1 datasets
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/resistor-r1
+          base='https://github.com/Persie0/resistor_model/releases/download/r1'
+          for name in \
+            'rres.v4i.coco.zip' \
+            'resistor.value.training.v8i.coco.zip' \
+            'Deteksi.Nilai.Resistor.v1i.coco.zip'; do
+            echo "Downloading $name"
+            curl --fail --location --retry 3 --retry-delay 2 "$base/$name" -o "/tmp/resistor-r1/$name"
+            mkdir -p "/tmp/resistor-r1/${name%.zip}"
+            unzip -q "/tmp/resistor-r1/$name" -d "/tmp/resistor-r1/${name%.zip}"
+          done
+      - name: Inspect COCO metadata
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import collections, json
+
+          root = Path('/tmp/resistor-r1')
+          for dataset in sorted(p for p in root.iterdir() if p.is_dir()):
+              print(f'\n=== DATASET {dataset.name} ===')
+              jsons = sorted(dataset.rglob('*.json'))
+              print('json files:', [str(p.relative_to(dataset)) for p in jsons])
+              for path in jsons:
+                  try:
+                      data = json.loads(path.read_text(encoding='utf-8'))
+                  except Exception as exc:
+                      print('SKIP', path.name, exc)
+                      continue
+                  if not isinstance(data, dict) or 'images' not in data or 'annotations' not in data:
+                      continue
+                  cats = {int(c['id']): str(c['name']) for c in data.get('categories', [])}
+                  counts = collections.Counter(cats.get(int(a.get('category_id', -1)), f"id:{a.get('category_id')}") for a in data.get('annotations', []))
+                  seg = sum(bool(a.get('segmentation')) for a in data.get('annotations', []))
+                  crowd = sum(int(a.get('iscrowd', 0) or 0) for a in data.get('annotations', []))
+                  print(f'-- {path.relative_to(dataset)}')
+                  print('images', len(data.get('images', [])), 'annotations', len(data.get('annotations', [])))
+                  print('categories', cats)
+                  print('counts', dict(sorted(counts.items())))
+                  print('segmentation_annotations', seg, 'iscrowd', crowd)
+                  if data.get('images'):
+                      print('sample_image', data['images'][0])
+                  if data.get('annotations'):
+                      a = data['annotations'][0]
+                      print('sample_annotation', {k: a.get(k) for k in ('id','image_id','category_id','bbox','area','segmentation')})
+          PY
