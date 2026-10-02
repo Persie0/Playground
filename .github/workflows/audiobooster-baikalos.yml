@@ -1,4 +1,4 @@
-name: AudioBooster BaikalOS regression
+name: AudioBooster BaikalOS Android 14 gate
 on:
   push:
     branches: [main]
@@ -7,9 +7,9 @@ on:
 permissions:
   contents: read
 jobs:
-  android-unit:
+  test-and-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -25,12 +25,91 @@ jobs:
       - name: Install Flutter dependencies
         working-directory: audiobooster
         run: flutter pub get
-      - name: Run BaikalOS Flutter regression
+      - name: Run full Flutter regression
         working-directory: audiobooster
-        run: flutter test test/automatic_setup_fallback_test.dart
-      - name: Bootstrap Android host
+        run: flutter test
+      - name: Analyze Dart sources
         working-directory: audiobooster
-        run: bash tool/bootstrap_android.sh
-      - name: Run Android unit regression
+        run: flutter analyze
+      - name: Bootstrap Android host twice
+        working-directory: audiobooster
+        run: |
+          bash tool/bootstrap_android.sh
+          bash tool/bootstrap_android.sh
+      - name: Run Android unit tests and compile instrumentation
         working-directory: audiobooster/android
-        run: ./gradlew :app:testDebugUnitTest
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebugAndroidTest
+      - name: Build debug and tester release APKs
+        working-directory: audiobooster
+        run: |
+          flutter build apk --debug
+          flutter build apk --release
+      - name: Prepare validation artifacts
+        working-directory: audiobooster
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p device-test-out tester-release-out
+          cp build/app/outputs/flutter-apk/app-debug.apk device-test-out/app-debug.apk
+          cp build/app/outputs/flutter-apk/app-release.apk device-test-out/app-release.apk
+          cp build/app/outputs/flutter-apk/app-release.apk tester-release-out/AudioBooster-BaikalOS-Android14-tester.apk
+          TEST_APK="$(find build android -type f -name '*androidTest*.apk' | head -n1)"
+          test -n "$TEST_APK" && test -f "$TEST_APK"
+          cp "$TEST_APK" device-test-out/app-debug-androidTest.apk
+          sha256sum tester-release-out/AudioBooster-BaikalOS-Android14-tester.apk | tee tester-release-out/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audiobooster-baikalos-device-tests
+          path: audiobooster/device-test-out/*.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audiobooster-baikalos-tester-release
+          path: audiobooster/tester-release-out/*
+          if-no-files-found: error
+          retention-days: 90
+
+  android-14-emulator:
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: audiobooster-baikalos-device-tests
+          path: device-test
+      - name: Enable KVM acceleration
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Validate Android 14 engine, enhanced setup plumbing, and release startup
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r device-test/app-debug.apk
+            adb install -r device-test/app-debug-androidTest.apk
+            adb shell pm grant com.persie0.audiobooster android.permission.DUMP || true
+            adb shell cmd notification allow_listener com.persie0.audiobooster/com.persie0.audiobooster.audio.MediaNotificationListenerService || true
+            adb shell dumpsys package com.persie0.audiobooster | grep -F 'android.permission.DUMP: granted=true'
+            adb shell settings get secure enabled_notification_listeners | grep -F 'com.persie0.audiobooster'
+            adb shell am instrument -w -r com.persie0.audiobooster.test/androidx.test.runner.AndroidJUnitRunner > /tmp/instrumentation.txt 2>&1 || true
+            cat /tmp/instrumentation.txt
+            test "$(grep -Ec 'Process crashed|FAILURES!!!|shortMsg=' /tmp/instrumentation.txt)" -eq 0
+            grep -Eq 'OK \(3 tests\)' /tmp/instrumentation.txt
+            adb uninstall com.persie0.audiobooster.test || true
+            adb uninstall com.persie0.audiobooster || true
+            adb install -r device-test/app-release.apk
+            adb logcat -c
+            adb shell am start -W -n com.persie0.audiobooster/.MainActivity > /tmp/release-start.txt 2>&1 || true
+            cat /tmp/release-start.txt
+            grep -Eq 'Status: ok|Status: complete' /tmp/release-start.txt
+            sleep 3
+            adb shell pidof com.persie0.audiobooster > /tmp/release-pid.txt
+            test -s /tmp/release-pid.txt
+            adb logcat -d -v threadtime > /tmp/release-logcat.txt || true
+            test "$(grep -Ec 'FATAL EXCEPTION|Process: com.persie0.audiobooster' /tmp/release-logcat.txt)" -eq 0
