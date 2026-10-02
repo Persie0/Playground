@@ -1,0 +1,81 @@
+name: Normalize image_enhancer root formatting
+
+on:
+  push:
+    paths:
+      - '.github/workflows/image_enhancer_root_format_finalize.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_ENHANCER_REF: feature/storage-backed-full-resolution
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: ${{ env.IMAGE_ENHANCER_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: image_enhancer
+          fetch-depth: 1
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve root dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+      - name: Format exact final-gate scope from app root
+        working-directory: image_enhancer
+        run: |
+          dart format \
+            flutter_super_resolution/lib/file_upscaler.dart \
+            flutter_super_resolution/lib/src \
+            flutter_super_resolution/test \
+            lib/services/image_processing_task.dart \
+            lib/super_resolution_home_page.dart \
+            lib/utils/image_safety.dart \
+            test/storage_backed_ui_processing_test.dart \
+            test/android_source_region_decoder_regression_test.dart \
+            test/ios_source_region_decoder_regression_test.dart \
+            test/source_region_decoder_plugin_registration_test.dart
+      - name: App tests and analyze
+        working-directory: image_enhancer
+        run: |
+          flutter test
+          flutter analyze
+      - name: Package tests and analyze
+        working-directory: image_enhancer/flutter_super_resolution
+        run: |
+          flutter pub get
+          flutter test
+          flutter analyze
+      - name: Commit root-context formatting
+        working-directory: image_enhancer
+        run: |
+          set -euo pipefail
+          git restore pubspec.lock flutter_super_resolution/pubspec.lock 2>/dev/null || true
+          if git diff --quiet; then
+            echo 'No formatting changes required.'
+            exit 0
+          fi
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add \
+            flutter_super_resolution/lib \
+            flutter_super_resolution/test \
+            lib/services/image_processing_task.dart \
+            lib/super_resolution_home_page.dart \
+            lib/utils/image_safety.dart \
+            test/storage_backed_ui_processing_test.dart \
+            test/android_source_region_decoder_regression_test.dart \
+            test/ios_source_region_decoder_regression_test.dart \
+            test/source_region_decoder_plugin_registration_test.dart
+          git commit -m 'style: normalize storage pipeline formatting from app root'
+          git push origin HEAD:${IMAGE_ENHANCER_REF}
