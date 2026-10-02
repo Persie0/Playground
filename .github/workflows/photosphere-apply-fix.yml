@@ -1,0 +1,55 @@
+name: Photosphere apply capture fix
+
+on:
+  push:
+    branches:
+      - photosphere-capture-ci
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate private repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout private fix branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/Photosphere-
+          ref: fix/capture-guidance-3d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          path: app
+      - name: Reconstruct uploaded fix payload
+        run: |
+          cat app/.patch_parts/photosphere_fix.b64.part* > /tmp/photosphere_fix.b64
+          base64 --decode /tmp/photosphere_fix.b64 > /tmp/photosphere_fix.zip
+          echo 'ec3b7d4df5d2b9683625bcf4671e0d3f5f6eaf9cbb9dee81ea952be2663b92df  /tmp/photosphere_fix.zip' | sha256sum --check
+          mkdir -p /tmp/photosphere_fix
+          unzip -q /tmp/photosphere_fix.zip -d /tmp/photosphere_fix
+      - name: Apply capture fixes
+        run: |
+          install -D /tmp/photosphere_fix/capture_geometry.dart app/lib/src/models/capture_geometry.dart
+          install -D /tmp/photosphere_fix/vec3.dart app/lib/src/models/vec3.dart
+          install -D /tmp/photosphere_fix/capture_screen.dart app/lib/src/screens/capture_screen.dart
+          install -D /tmp/photosphere_fix/capture_sharpness.dart app/lib/src/services/capture_sharpness.dart
+          install -D /tmp/photosphere_fix/motion_pose_tracker.dart app/lib/src/services/motion_pose_tracker.dart
+          install -D /tmp/photosphere_fix/native_orientation.dart app/lib/src/services/native_orientation.dart
+          install -D /tmp/photosphere_fix/configure_platforms.dart app/tool/configure_platforms.dart
+          install -D /tmp/photosphere_fix/capture_geometry_test.dart app/test/capture_geometry_test.dart
+          install -D /tmp/photosphere_fix/native_orientation_test.dart app/test/native_orientation_test.dart
+          rm -rf app/.patch_parts
+      - name: Commit and push private fix branch
+        working-directory: app
+        run: |
+          git config user.name 'openai-coding-agent'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Fix 3D capture guidance and fused orientation'
+          git push origin HEAD:fix/capture-guidance-3d
