@@ -1,0 +1,39 @@
+name: Resistor r1 branch gate
+
+on:
+  push:
+    branches: [resistor-dataset-train]
+    paths:
+      - .github/workflows/resistor-r1-branch-gate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Checkout resistor_model feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_model
+          ref: feat/r1-multidataset-v2
+          path: resistor_model
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: resistor_model/pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './resistor_model[dev]'
+      - name: Tests
+        working-directory: resistor_model
+        run: |
+          pytest -q
+          python -m compileall -q src
