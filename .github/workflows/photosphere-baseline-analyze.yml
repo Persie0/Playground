@@ -1,0 +1,32 @@
+name: Photosphere baseline analyzer
+on:
+  push:
+    branches: [photosphere-capture-ci]
+    paths:
+      - .github/workflows/photosphere-baseline-analyze.yml
+permissions:
+  contents: read
+jobs:
+  analyze-main:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout private main
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/Photosphere-
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: cd app && flutter pub get
+      - name: Analyze main baseline
+        run: cd app && flutter analyze
