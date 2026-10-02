@@ -63,10 +63,8 @@ jobs:
           manifest_path = Path('android/app/src/main/AndroidManifest.xml')
           root = ET.parse(manifest_path).getroot()
           android_name = '{http://schemas.android.com/apk/res/android}name'
-
           permissions = [node.get(android_name) for node in root.findall('uses-permission')]
           services = [node.get(android_name) for node in root.findall('./application/service')]
-
           for permission in [
               'android.permission.MODIFY_AUDIO_SETTINGS',
               'android.permission.FOREGROUND_SERVICE',
@@ -78,7 +76,6 @@ jobs:
               count = permissions.count(permission)
               if count != 1:
                   raise SystemExit(f'{permission}: expected exactly once, found {count}')
-
           for service in [
               'com.persie0.audiobooster.audio.AudioBoostService',
               'com.persie0.audiobooster.audio.MediaNotificationListenerService',
@@ -86,7 +83,6 @@ jobs:
               count = services.count(service)
               if count != 1:
                   raise SystemExit(f'{service}: expected exactly once, found {count}')
-
           gradle_path = Path('android/app/build.gradle.kts')
           if not gradle_path.exists():
               gradle_path = Path('android/app/build.gradle')
@@ -172,7 +168,7 @@ jobs:
           else
             echo '::warning::/dev/kvm is unavailable; emulator runner will fall back to software emulation.'
           fi
-      - name: Run release instrumentation on Android ${{ matrix.api }}
+      - name: Diagnose release instrumentation on Android ${{ matrix.api }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api }}
@@ -187,7 +183,14 @@ jobs:
             echo '=== Android / audio route inventory ==='
             adb shell getprop ro.build.version.release
             adb shell dumpsys audio | grep -E 'STREAM_MUSIC|DevicesForAttributes|mCommunicationDevice' | head -n 80 || true
-            adb shell am instrument -w -r com.persie0.audiobooster.test/androidx.test.runner.AndroidJUnitRunner
+            adb logcat -c
+            adb shell am instrument -w -r com.persie0.audiobooster.test/androidx.test.runner.AndroidJUnitRunner > /tmp/instrumentation.txt 2>&1 || true
+            cat /tmp/instrumentation.txt
+            if grep -Eq 'Process crashed|FAILURES!!!|shortMsg=' /tmp/instrumentation.txt || ! grep -Eq 'OK \(3 tests\)' /tmp/instrumentation.txt; then
+              echo '=== Instrumentation failed; relevant logcat ==='
+              adb logcat -d -v threadtime | grep -E 'AndroidRuntime|FATAL EXCEPTION|audiobooster|TestRunner|Instrumentation' | tail -n 1200 || true
+              exit 1
+            fi
 
   firebase-physical-validation:
     needs: test-and-build
@@ -231,16 +234,11 @@ jobs:
           python3 - <<'PY'
           import json
           import os
-
           models = json.load(open('models.json', encoding='utf-8'))
           physical = [m for m in models if str(m.get('form', '')).upper() == 'PHYSICAL']
           preferred = []
           used = set()
-          needles = [
-              ('google', ('pixel', 'google')),
-              ('samsung', ('samsung', 'galaxy')),
-              ('xiaomi', ('xiaomi', 'redmi', 'poco')),
-          ]
+          needles = [('google', ('pixel', 'google')), ('samsung', ('samsung', 'galaxy')), ('xiaomi', ('xiaomi', 'redmi', 'poco'))]
           for label, words in needles:
               for model in physical:
                   text = ' '.join(str(model.get(k, '')) for k in ('id', 'name', 'brand', 'manufacturer')).lower()
