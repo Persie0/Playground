@@ -13,7 +13,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - name: Checkout resistor_model feature branch
@@ -32,8 +32,164 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e './resistor_model[dev]'
-      - name: Tests
+      - name: Unit tests and compile
         working-directory: resistor_model
         run: |
           pytest -q
           python -m compileall -q src
+      - name: Download all three r1 COCO datasets
+        run: |
+          set -euo pipefail
+          root=/tmp/resistor-r1
+          rm -rf "$root"
+          mkdir -p "$root/downloads" "$root/sources"
+          base='https://github.com/Persie0/resistor_model/releases/download/r1'
+          for asset in \
+            'rres.v4i.coco.zip' \
+            'resistor.value.training.v8i.coco.zip' \
+            'Deteksi.Nilai.Resistor.v1i.coco.zip'; do
+            echo "Downloading $asset"
+            curl --fail --location --retry 3 --retry-delay 2 "$base/$asset" -o "$root/downloads/$asset"
+            mkdir -p "$root/sources/${asset%.zip}"
+            unzip -q "$root/downloads/$asset" -d "$root/sources/${asset%.zip}"
+          done
+      - name: Import combined manifest and create grouped split
+        run: |
+          set -euo pipefail
+          root=/tmp/resistor-r1
+          python -m resistor_model.tools.import_roboflow_coco \
+            --root "$root/sources/rres.v4i.coco" \
+            --root "$root/sources/resistor.value.training.v8i.coco" \
+            --root "$root/sources/Deteksi.Nilai.Resistor.v1i.coco" \
+            --output "$root/manifest.jsonl" \
+            --report "$root/import-report.json" \
+            --min-bands 3 --max-bands 6
+          python -m resistor_model.tools.make_splits \
+            --manifest "$root/manifest.jsonl" \
+            --output "$root/splits.json" \
+            --ratios 0.70 0.15 0.15 --seed 42 --group-session
+      - name: Audit combined source leakage
+        run: |
+          python - <<'PY'
+          from collections import Counter, defaultdict
+          from pathlib import Path
+          import json
+
+          root = Path('/tmp/resistor-r1')
+          report = json.loads((root / 'import-report.json').read_text())
+          splits = json.loads((root / 'splits.json').read_text())
+          id_to_session = {}
+          id_to_camera = {}
+          counts = Counter()
+          with (root / 'manifest.jsonl').open() as handle:
+              for line in handle:
+                  row = json.loads(line)
+                  counts['images'] += 1
+                  for resistor in row['resistors']:
+                      rid = resistor['id']
+                      if rid in id_to_session:
+                          raise AssertionError(f'duplicate resistor id: {rid}')
+                      id_to_session[rid] = row.get('session_id')
+                      id_to_camera[rid] = row.get('camera_id')
+                      counts['resistors'] += 1
+                      counts[f"bands_{len(resistor['bands'])}"] += 1
+
+          split_sessions = {}
+          for name in ('train', 'val', 'test'):
+              ids = set(splits[name])
+              missing = ids - id_to_session.keys()
+              assert not missing, f'{name} contains unknown IDs: {list(missing)[:5]}'
+              split_sessions[name] = {id_to_session[rid] for rid in ids}
+              print(name, 'resistors', len(ids), 'sessions', len(split_sessions[name]))
+
+          for i, left in enumerate(('train', 'val', 'test')):
+              for right in ('train', 'val', 'test')[i + 1:]:
+                  overlap = split_sessions[left] & split_sessions[right]
+                  assert not overlap, f'source/session leakage {left}/{right}: {list(overlap)[:10]}'
+
+          cameras = Counter(id_to_camera.values())
+          print('manifest_counts', dict(sorted(counts.items())))
+          print('camera_resistors', dict(sorted(cameras.items())))
+          print('import_counts', report['counts'])
+          print('resistors_by_band_count', report['resistors_by_band_count'])
+          assert counts['resistors'] > 3000, counts
+          assert len(split_sessions['train']) and len(split_sessions['val']) and len(split_sessions['test'])
+          PY
+      - name: Real combined-data V2 train and validation smoke
+        run: |
+          python - <<'PY'
+          import yaml
+          cfg = {
+            'seed': 42,
+            'data': {
+              'manifest': '/tmp/resistor-r1/manifest.jsonl',
+              'image_root': '/tmp/resistor-r1',
+              'splits_file': '/tmp/resistor-r1/splits.json',
+              'output_size': [64, 384],
+              'sequence_bins': 96,
+              'group_session': True,
+              'split_ratios': [0.70, 0.15, 0.15],
+              'num_workers': 2,
+              'geometric_augment': True,
+              'hflip_prob': 0.5,
+              'vflip_prob': 0.5,
+              'jitter_strength': 1.0,
+            },
+            'model': {
+              'architecture': 'v2',
+              'backbone': 'convnext_lite',
+              'pretrained': False,
+              'num_colors': 12,
+              'max_bands': 6,
+              'base_channels': 16,
+              'd_model': 64,
+              'transformer_layers': 1,
+              'transformer_heads': 4,
+              'slot_decoder_layers': 1,
+              'dropout': 0.10,
+              'drop_path': 0.05,
+              'conv_kernel': 7,
+              'use_chromatic_branch': True,
+            },
+            'train': {
+              'epochs': 1,
+              'batch_size': 4,
+              'lr': 3e-4,
+              'weight_decay': 0.05,
+              'warmup_epochs': 0,
+              'grad_clip': 1.0,
+              'amp': False,
+              'ema_decay': 0.99,
+              'output_dir': '/tmp/resistor-r1/smoke-run',
+              'resume': None,
+            },
+            'loss': {
+              'dense': 1.0,
+              'color': 2.0,
+              'exist': 0.5,
+              'center': 1.0,
+              'width': 0.5,
+              'order': 0.2,
+              'count': 0.2,
+              'consistency': 0.03,
+              'ctc': 0.10,
+              'kl': 0.02,
+              'label_smoothing': 0.05,
+              'body_class_weight': 0.25,
+              'color_balance': 'sqrt_inverse',
+              'max_color_weight': 4.0,
+            },
+            'eval': {'extra_decoders': True, 'series_bonus': 0.0},
+          }
+          with open('/tmp/resistor-r1/smoke.yaml', 'w') as handle:
+              yaml.safe_dump(cfg, handle, sort_keys=False)
+          PY
+          set -o pipefail
+          python -u -m resistor_model.train --config /tmp/resistor-r1/smoke.yaml --smoke | tee /tmp/resistor-r1/smoke.log
+          grep -F '[epoch 1/1] start' /tmp/resistor-r1/smoke.log
+          grep -F '[train]' /tmp/resistor-r1/smoke.log
+          grep -F '[val]' /tmp/resistor-r1/smoke.log
+          grep -F 'ctc' /tmp/resistor-r1/smoke.log
+          grep -F 'kl_slot' /tmp/resistor-r1/smoke.log
+          test -s /tmp/resistor-r1/smoke-run/best.pt
+          test -s /tmp/resistor-r1/smoke-run/last.pt
