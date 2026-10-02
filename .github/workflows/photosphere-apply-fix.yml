@@ -24,10 +24,19 @@ jobs:
           ref: fix/capture-guidance-3d
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: true
+          fetch-depth: 20
           path: app
       - name: Reconstruct uploaded fix payload
+        working-directory: app
         run: |
-          cat app/.patch_parts/photosphere_fix.b64.part* > /tmp/photosphere_fix.b64
+          git show d1a1201c6c0f9f7d693f8c0de3be3237ccc87f8b:.patch_parts/photosphere_fix.b64.part00 \
+            | tr -cd 'A-Za-z0-9+/=' > /tmp/photosphere_fix.b64
+          cat .patch_parts/photosphere_fix.b64.part01 \
+              .patch_parts/photosphere_fix.b64.part02 \
+              .patch_parts/photosphere_fix.b64.part03 \
+              .patch_parts/photosphere_fix.b64.part04 \
+              .patch_parts/photosphere_fix.b64.part05 >> /tmp/photosphere_fix.b64
+          test "$(wc -c < /tmp/photosphere_fix.b64)" -eq 37192
           base64 --decode /tmp/photosphere_fix.b64 > /tmp/photosphere_fix.zip
           echo 'ec3b7d4df5d2b9683625bcf4671e0d3f5f6eaf9cbb9dee81ea952be2663b92df  /tmp/photosphere_fix.zip' | sha256sum --check
           mkdir -p /tmp/photosphere_fix
