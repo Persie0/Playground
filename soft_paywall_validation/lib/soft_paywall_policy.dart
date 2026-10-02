@@ -7,16 +7,20 @@ class SoftPaywallConfig {
     required this.firstActionThreshold,
     required this.repeatActionThresholds,
     required this.cooldowns,
-  })  : assert(firstActionThreshold > 0),
-        assert(repeatActionThresholds.length > 0),
-        assert(cooldowns.length > 0);
+  }) : assert(firstActionThreshold > 0);
 
   int repeatThresholdForImpression(int impressionCount) {
+    if (repeatActionThresholds.isEmpty) {
+      throw StateError('repeatActionThresholds must not be empty');
+    }
     final index = (impressionCount - 1).clamp(0, repeatActionThresholds.length - 1);
     return repeatActionThresholds[index];
   }
 
   Duration cooldownForImpression(int impressionCount) {
+    if (cooldowns.isEmpty) {
+      throw StateError('cooldowns must not be empty');
+    }
     final index = (impressionCount - 1).clamp(0, cooldowns.length - 1);
     return cooldowns[index];
   }
