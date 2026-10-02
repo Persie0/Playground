@@ -1,0 +1,51 @@
+name: Format image_enhancer output regression
+
+on:
+  push:
+    paths:
+      - '.github/workflows/image_enhancer_format_existing_output_test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_ENHANCER_REF: feature/storage-backed-full-resolution
+
+jobs:
+  format-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out private image_enhancer branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: ${{ env.IMAGE_ENHANCER_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: image_enhancer
+          fetch-depth: 1
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Format regression test
+        working-directory: image_enhancer
+        run: dart format flutter_super_resolution/test/file_upscale_existing_output_test.dart
+
+      - name: Commit and push formatting
+        working-directory: image_enhancer
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- flutter_super_resolution/test/file_upscale_existing_output_test.dart; then
+            echo 'Already formatted.'
+            exit 0
+          fi
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add flutter_super_resolution/test/file_upscale_existing_output_test.dart
+          git commit -m 'style: format existing output regression'
+          git push origin HEAD:${IMAGE_ENHANCER_REF}
