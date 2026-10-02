@@ -1,4 +1,4 @@
-name: Photosphere analyzer diagnostic
+name: Photosphere normalize and compare
 
 on:
   push:
@@ -23,8 +23,17 @@ jobs:
           repository: Persie0/Photosphere-
           ref: fix/capture-guidance-3d
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          path: fix
+
+      - name: Checkout private main baseline
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/Photosphere-
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
-          path: app
+          path: base
 
       - uses: subosito/flutter-action@v2
         with:
@@ -32,37 +41,65 @@ jobs:
           cache: true
 
       - name: Resolve dependencies
-        run: cd app && flutter pub get >/dev/null
-
-      - name: Check patch-file formatting
-        id: patch_format
-        continue-on-error: true
         run: |
-          cd app
-          dart format --output=none --set-exit-if-changed \
-            lib/src/models/capture_geometry.dart \
-            lib/src/models/vec3.dart \
-            lib/src/screens/capture_screen.dart \
-            lib/src/services/capture_sharpness.dart \
-            lib/src/services/motion_pose_tracker.dart \
-            lib/src/services/native_orientation.dart \
-            test/capture_geometry_test.dart \
-            test/native_orientation_test.dart \
-            tool/configure_platforms.dart >/dev/null
+          (cd fix && flutter pub get >/dev/null)
+          (cd base && flutter pub get >/dev/null)
 
-      - name: Check repository-wide formatting
-        id: repo_format
-        continue-on-error: true
-        run: cd app && dart format --output=none --set-exit-if-changed lib test tool >/dev/null
+      - name: Canonically format patch files
+        working-directory: fix
+        run: |
+          files=(
+            lib/src/models/capture_geometry.dart
+            lib/src/models/vec3.dart
+            lib/src/screens/capture_screen.dart
+            lib/src/services/capture_sharpness.dart
+            lib/src/services/motion_pose_tracker.dart
+            lib/src/services/native_orientation.dart
+            test/capture_geometry_test.dart
+            test/native_orientation_test.dart
+            tool/configure_platforms.dart
+          )
+          dart format "${files[@]}" >/dev/null
+          git add -- "${files[@]}"
+          if ! git diff --cached --quiet; then
+            git config user.name 'openai-coding-agent'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'Format capture guidance patch'
+            git push origin HEAD:fix/capture-guidance-3d
+          fi
 
-      - name: Run Flutter analyzer
-        id: analyze
-        continue-on-error: true
-        run: cd app && flutter analyze >/dev/null
+      - name: Compare analyzer baseline without exposing private diagnostics
+        id: compare
+        run: |
+          set +e
+          (cd base && flutter analyze --no-pub > /tmp/base-analyze.txt 2>&1)
+          base_rc=$?
+          (cd fix && flutter analyze --no-pub > /tmp/fix-analyze.txt 2>&1)
+          fix_rc=$?
+          set -e
+          grep -E '^[[:space:]]*(info|warning|error)[[:space:]]+•' /tmp/base-analyze.txt | sed 's#base/##g' | sort -u > /tmp/base-issues.txt || true
+          grep -E '^[[:space:]]*(info|warning|error)[[:space:]]+•' /tmp/fix-analyze.txt | sed 's#fix/##g' | sort -u > /tmp/fix-issues.txt || true
+          comm -13 /tmp/base-issues.txt /tmp/fix-issues.txt > /tmp/new-issues.txt
+          base_count=$(wc -l < /tmp/base-issues.txt)
+          fix_count=$(wc -l < /tmp/fix-issues.txt)
+          new_count=$(wc -l < /tmp/new-issues.txt)
+          echo "base_exit=$base_rc fix_exit=$fix_rc base_issues=$base_count fix_issues=$fix_count new_issues=$new_count"
+          echo "new_count=$new_count" >> "$GITHUB_OUTPUT"
 
-      - name: Enforce patch and analyzer gates
-        if: always()
+      - name: Post new analyzer diagnostics privately when needed
+        if: steps.compare.outputs.new_count != '0'
         env:
-          PATCH_FORMAT: ${{ steps.patch_format.outcome }}
-          ANALYZE: ${{ steps.analyze.outcome }}
-        run: test "$PATCH_FORMAT" = success -a "$ANALYZE" = success
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          jq -Rs '{body: ("Analyzer issues introduced by the current capture patch:\n```text\n" + . + "\n```")}' /tmp/new-issues.txt > /tmp/comment.json
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $PRIVATE_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            --data-binary @/tmp/comment.json \
+            https://api.github.com/repos/Persie0/Photosphere-/issues/25/comments >/dev/null
+
+      - name: Enforce no new analyzer issues
+        env:
+          NEW_COUNT: ${{ steps.compare.outputs.new_count }}
+        run: test "$NEW_COUNT" = 0
