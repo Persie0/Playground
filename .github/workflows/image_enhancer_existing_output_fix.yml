@@ -1,0 +1,67 @@
+name: Fix image_enhancer existing output safety
+
+on:
+  push:
+    paths:
+      - '.github/workflows/image_enhancer_existing_output_fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_ENHANCER_REF: feature/storage-backed-full-resolution
+
+jobs:
+  fix-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out private image_enhancer branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: ${{ env.IMAGE_ENHANCER_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: image_enhancer
+          fetch-depth: 1
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve package dependencies
+        working-directory: image_enhancer/flutter_super_resolution
+        run: flutter pub get
+
+      - name: Refuse existing output and preview targets
+        working-directory: image_enhancer
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('flutter_super_resolution/lib/file_upscaler.dart')
+          source = path.read_text()
+          old = """    final outputFile = File(outputPath);\n    final previewPath = '$outputPath.preview.png';\n    final previewFile = File(previewPath);\n    var success = false;\n\n    try {\n"""
+          new = """    final outputFile = File(outputPath);\n    final previewPath = '$outputPath.preview.png';\n    final previewFile = File(previewPath);\n    if (await outputFile.exists()) {\n      throw FileSystemException(\n        'Refusing to overwrite an existing upscale output.',\n        outputFile.path,\n      );\n    }\n    if (await previewFile.exists()) {\n      throw FileSystemException(\n        'Refusing to overwrite an existing upscale preview.',\n        previewFile.path,\n      );\n    }\n    var success = false;\n\n    try {\n"""
+          if old not in source:
+              raise SystemExit('expected file_upscaler.dart anchor not found')
+          path.write_text(source.replace(old, new, 1))
+          PY
+          dart format flutter_super_resolution/lib/file_upscaler.dart
+
+      - name: Run targeted regression test
+        working-directory: image_enhancer/flutter_super_resolution
+        run: flutter test test/file_upscale_existing_output_test.dart
+
+      - name: Commit and push fix
+        working-directory: image_enhancer
+        run: |
+          set -euo pipefail
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add flutter_super_resolution/lib/file_upscaler.dart
+          git commit -m 'fix: preserve existing upscale output files'
+          git push origin HEAD:${IMAGE_ENHANCER_REF}
