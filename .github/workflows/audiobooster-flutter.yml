@@ -168,7 +168,7 @@ jobs:
           else
             echo '::warning::/dev/kvm is unavailable; emulator runner will fall back to software emulation.'
           fi
-      - name: Diagnose release instrumentation on Android ${{ matrix.api }}
+      - name: Validate debug engine and release startup on Android ${{ matrix.api }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api }}
@@ -177,18 +177,29 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            adb install -r device-test/app-release.apk
+            adb install -r device-test/app-debug.apk
             adb install -r device-test/app-debug-androidTest.apk
             echo '=== Android / audio route inventory ==='
             adb shell getprop ro.build.version.release
             adb shell dumpsys audio | grep -E 'STREAM_MUSIC|DevicesForAttributes|mCommunicationDevice' | head -n 80 || true
-            adb logcat -c
             adb shell am instrument -w -r com.persie0.audiobooster.test/androidx.test.runner.AndroidJUnitRunner > /tmp/instrumentation.txt 2>&1 || true
             cat /tmp/instrumentation.txt
-            echo '=== Relevant logcat ==='
-            adb logcat -d -v threadtime | grep -E 'AndroidRuntime|FATAL EXCEPTION|audiobooster|TestRunner|Instrumentation' | tail -n 1200 || true
             test "$(grep -Ec 'Process crashed|FAILURES!!!|shortMsg=' /tmp/instrumentation.txt)" -eq 0
             grep -Eq 'OK \(3 tests\)' /tmp/instrumentation.txt
+            adb uninstall com.persie0.audiobooster.test || true
+            adb uninstall com.persie0.audiobooster || true
+            adb install -r device-test/app-release.apk
+            adb logcat -c
+            adb shell am start -W -n com.persie0.audiobooster/.MainActivity > /tmp/release-start.txt 2>&1 || true
+            cat /tmp/release-start.txt
+            grep -Eq 'Status: ok|Status: complete' /tmp/release-start.txt
+            sleep 3
+            adb shell pidof com.persie0.audiobooster > /tmp/release-pid.txt
+            cat /tmp/release-pid.txt
+            test -s /tmp/release-pid.txt
+            adb logcat -d -v threadtime > /tmp/release-logcat.txt || true
+            grep -E 'AndroidRuntime|FATAL EXCEPTION|com.persie0.audiobooster' /tmp/release-logcat.txt | tail -n 400 || true
+            test "$(grep -Ec 'FATAL EXCEPTION|Process: com.persie0.audiobooster' /tmp/release-logcat.txt)" -eq 0
 
   firebase-physical-validation:
     needs: test-and-build
@@ -278,7 +289,7 @@ jobs:
             echo "=== Firebase physical validation: $label / $model / Android API $version ==="
             gcloud firebase test android run \
               --type=instrumentation \
-              --app=device-test/app-release.apk \
+              --app=device-test/app-debug.apk \
               --test=device-test/app-debug-androidTest.apk \
               --device="model=$model,version=$version,locale=en,orientation=portrait" \
               --timeout=8m \
