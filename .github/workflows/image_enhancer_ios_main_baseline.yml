@@ -1,0 +1,35 @@
+name: Check image_enhancer iOS main baseline
+
+on:
+  push:
+    paths:
+      - '.github/workflows/image_enhancer_ios_main_baseline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: macos-latest
+    timeout-minutes: 50
+    steps:
+      - name: Check out private image_enhancer main
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: image_enhancer
+          fetch-depth: 1
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+      - name: Build iOS baseline
+        working-directory: image_enhancer
+        run: flutter build ios --debug --no-codesign --no-pub
