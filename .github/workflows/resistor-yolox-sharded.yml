@@ -1,0 +1,316 @@
+name: Resistor YOLOX sharded full
+
+on:
+  push:
+    branches: [agent/resistor-yolox-runner]
+    paths:
+      - .github/triggers/resistor-yolox-sharded.txt
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  APP_REPOSITORY: Persie0/resistor_scanner
+  YOLOX_REVISION: 419778480ab6ec0590e5d3831b3afb3b46ab2aa3
+
+jobs:
+  train:
+    if: contains(github.event.head_commit.message, 'run sharded YOLOX full comparison')
+    strategy:
+      fail-fast: false
+      matrix:
+        candidate: [tiny, s]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - name: Checkout Playground
+        uses: actions/checkout@v5
+
+      - name: Resolve private ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$(sed -n 's/^ref=//p' .github/triggers/resistor-yolox-sharded.txt | tail -n1)"
+          ref="${ref:-agent/yolox-resistor-model}"
+          echo "APP_REF=$ref" >> "$GITHUB_ENV"
+
+      - name: Validate private token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout resistor_scanner
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: app/ml/resistor_model/requirements-training.txt
+
+      - name: Install training environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r app/ml/resistor_model/requirements-training.txt pytest
+          yolox="$RUNNER_TEMP/YOLOX"
+          git clone --filter=blob:none --no-checkout https://github.com/Megvii-BaseDetection/YOLOX.git "$yolox"
+          git -C "$yolox" checkout --detach "$YOLOX_REVISION"
+          echo "PYTHONPATH=$GITHUB_WORKSPACE/app/ml/resistor_model/src:$yolox" >> "$GITHUB_ENV"
+
+      - name: Verify model source tests
+        run: python -m pytest app/ml/resistor_model/tests -q
+
+      - name: Train and export ${{ matrix.candidate }}
+        env:
+          CANDIDATE: ${{ matrix.candidate }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          from resistor_model.config import TrainConfig
+          from resistor_model.dataset import prepare_dataset
+          from resistor_model.export import export_tflite
+          from resistor_model.train import train_candidate
+
+          candidate = os.environ['CANDIDATE']
+          repo = Path('app').resolve()
+          work = Path(os.environ['RUNNER_TEMP']) / f'resistor-yolox-shard-{candidate}'
+          manifest = prepare_dataset(
+              repo / 'rres.v4i.coco.zip',
+              repo / 'assets/labels10.txt',
+              work / 'dataset',
+          )
+          config = TrainConfig(
+              candidate=candidate,
+              input_size=(384, 384),
+              epochs=80,
+              batch_size=16,
+              seed=42,
+              mode='full',
+              output_dir=work / 'runs' / candidate,
+          )
+          trained = train_candidate(config, manifest)
+          exported = export_tflite(trained.checkpoint, config, work / 'exports' / candidate)
+
+          safe = repo / 'ml/resistor_model/artifacts-shard'
+          if safe.exists():
+              shutil.rmtree(safe)
+          safe.mkdir(parents=True)
+          shutil.copy2(exported.tflite_path, safe / 'model.tflite')
+          shutil.copy2(trained.metadata_path, safe / 'training.json')
+          shutil.copy2(exported.metadata_path, safe / 'export.json')
+          (safe / 'shard.json').write_text(json.dumps({
+              'candidate': candidate,
+              'dataset_sha256': manifest.archive_sha256,
+              'input_shape': list(exported.contract.input_shape),
+              'output_shape': list(exported.contract.output_shape),
+          }, indent=2), encoding='utf-8')
+          PY
+          if find app/ml/resistor_model/artifacts-shard -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*annotations*.json' \) | grep -q .; then
+            echo 'raw dataset payload leaked into shard artifact' >&2
+            exit 1
+          fi
+
+      - name: Upload ${{ matrix.candidate }} model shard
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-yolox-shard-${{ matrix.candidate }}-${{ github.run_id }}
+          path: app/ml/resistor_model/artifacts-shard
+          retention-days: 30
+          if-no-files-found: error
+
+  aggregate:
+    needs: train
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout Playground
+        uses: actions/checkout@v5
+
+      - name: Resolve private ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$(sed -n 's/^ref=//p' .github/triggers/resistor-yolox-sharded.txt | tail -n1)"
+          ref="${ref:-agent/yolox-resistor-model}"
+          echo "APP_REF=$ref" >> "$GITHUB_ENV"
+
+      - name: Validate private token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout resistor_scanner
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install evaluation environment
+        run: >-
+          python -m pip install --upgrade pip
+          numpy==1.26.4
+          opencv-python-headless==4.10.0.84
+          pycocotools==2.0.8
+          ai-edge-litert==2.2.0
+          cryptography==50.0.2
+
+      - name: Download Tiny shard
+        uses: actions/download-artifact@v5
+        with:
+          name: resistor-yolox-shard-tiny-${{ github.run_id }}
+          path: shards/tiny
+
+      - name: Download S shard
+        uses: actions/download-artifact@v5
+        with:
+          name: resistor-yolox-shard-s-${{ github.run_id }}
+          path: shards/s
+
+      - name: Evaluate, select, package and finalize
+        env:
+          PYTHONPATH: ${{ github.workspace }}/app/ml/resistor_model/src
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import re
+          import shutil
+          from pathlib import Path
+
+          from resistor_model.dataset import prepare_dataset
+          from resistor_model.evaluate import evaluate_model
+          from resistor_model.finalize import finalize_full_result
+          from resistor_model.package import encrypt_model
+          from resistor_model.report import write_comparison_report
+          from resistor_model.select import select_candidate
+
+          repo = Path('app').resolve()
+          work = Path('/tmp/resistor-yolox-sharded-aggregate')
+          if work.exists():
+              shutil.rmtree(work)
+          work.mkdir(parents=True)
+          manifest = prepare_dataset(
+              repo / 'rres.v4i.coco.zip',
+              repo / 'assets/labels10.txt',
+              work / 'dataset',
+          )
+          models = {
+              'tiny': Path('shards/tiny/model.tflite').resolve(),
+              's': Path('shards/s/model.tflite').resolve(),
+          }
+          baseline = evaluate_model(
+              repo / 'assets/model1225.tflite', manifest,
+              name='baseline-model1225', latency_samples=100, warmups=20,
+          )
+          candidates = {
+              name: evaluate_model(
+                  path, manifest, name=name, latency_samples=100, warmups=20,
+                  license_valid=True,
+              )
+              for name, path in models.items()
+          }
+          selection = select_candidate(baseline, list(candidates.values()))
+
+          safe = repo / 'ml/resistor_model/artifacts'
+          if safe.exists():
+              shutil.rmtree(safe)
+          safe.mkdir(parents=True)
+          reports = safe / 'reports'
+          write_comparison_report(
+              baseline, candidates, selection, reports,
+              metadata={
+                  'dataset_sha256': manifest.archive_sha256,
+                  'mode': 'full',
+                  'seed': 42,
+                  'epochs': 80,
+                  'input_size': 384,
+                  'execution': 'parallel-sharded-github-actions',
+              },
+          )
+
+          encrypted = None
+          if selection.status == 'accepted' and selection.winner:
+              cache_source = (repo / 'lib/services/model_cache.dart').read_text(encoding='utf-8')
+              match = re.search(
+                  r"modelEncryptionKeyHex\s*=\s*\n?\s*'([0-9a-fA-F]{64})'",
+                  cache_source,
+              )
+              if not match:
+                  raise RuntimeError('modelEncryptionKeyHex was not found')
+              encrypted = safe / 'model_yolox_v1.tflite.enc'
+              encrypt_model(models[selection.winner], encrypted, match.group(1))
+
+          payload = {
+              'mode': 'full',
+              'dataset_sha256': manifest.archive_sha256,
+              'selection': selection.to_dict(),
+              'candidates': {
+                  name: {'tflite': str(path)} for name, path in models.items()
+              },
+              'encrypted_winner': str(encrypted) if encrypted else None,
+              'execution': 'parallel-sharded-github-actions',
+          }
+          (safe / 'pipeline.json').write_text(
+              json.dumps(payload, indent=2, sort_keys=True), encoding='utf-8'
+          )
+          finalize_full_result(safe, repo)
+          PY
+          if find app/ml/resistor_model/artifacts -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*annotations*.json' \) | grep -q .; then
+            echo 'raw dataset payload leaked into aggregate artifact' >&2
+            exit 1
+          fi
+
+      - name: Upload aggregate result
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-yolox-full-aggregate-${{ github.run_id }}
+          path: app/ml/resistor_model/artifacts
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Commit finalized result to resistor_scanner
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd app
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/model_reports pubspec.yaml lib/provider/settings_provider.dart
+          git add test/services/model_asset_integrity_test.dart test/provider/settings_model_test.dart
+          if [[ -f assets/model_yolox_v1.tflite.enc ]]; then
+            git add assets/model_yolox_v1.tflite.enc
+          fi
+          if git diff --cached --quiet; then
+            echo 'No finalized changes to commit'
+            exit 0
+          fi
+          git commit -m 'model: record parallel full YOLOX resistor comparison'
+          auth="$(printf 'x-access-token:%s' "$PRIVATE_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
+            push origin "HEAD:refs/heads/$APP_REF"
