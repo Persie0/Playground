@@ -9,7 +9,7 @@ on:
       audio_ref:
         description: AudioBooster branch, tag, or commit to validate
         required: false
-        default: validation/release-gates-temp
+        default: design/modern-audio-engine
 permissions:
   contents: read
 jobs:
@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/Audiobooster
-          ref: ${{ inputs.audio_ref || 'validation/release-gates-temp' }}
+          ref: ${{ inputs.audio_ref || 'design/modern-audio-engine' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: audiobooster
       - uses: subosito/flutter-action@v2
@@ -149,6 +149,16 @@ jobs:
         with:
           name: audiobooster-device-tests
           path: device-test
+      - name: Enable KVM acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo '::warning::/dev/kvm is unavailable; emulator runner will fall back to software emulation.'
+          fi
       - name: Run instrumentation on Android ${{ matrix.api }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
