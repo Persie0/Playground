@@ -177,7 +177,6 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            set -eu
             adb install -r device-test/app-release.apk
             adb install -r device-test/app-debug-androidTest.apk
             echo '=== Android / audio route inventory ==='
@@ -186,11 +185,10 @@ jobs:
             adb logcat -c
             adb shell am instrument -w -r com.persie0.audiobooster.test/androidx.test.runner.AndroidJUnitRunner > /tmp/instrumentation.txt 2>&1 || true
             cat /tmp/instrumentation.txt
-            if grep -Eq 'Process crashed|FAILURES!!!|shortMsg=' /tmp/instrumentation.txt || ! grep -Eq 'OK \(3 tests\)' /tmp/instrumentation.txt; then
-              echo '=== Instrumentation failed; relevant logcat ==='
-              adb logcat -d -v threadtime | grep -E 'AndroidRuntime|FATAL EXCEPTION|audiobooster|TestRunner|Instrumentation' | tail -n 1200 || true
-              exit 1
-            fi
+            echo '=== Relevant logcat ==='
+            adb logcat -d -v threadtime | grep -E 'AndroidRuntime|FATAL EXCEPTION|audiobooster|TestRunner|Instrumentation' | tail -n 1200 || true
+            test "$(grep -Ec 'Process crashed|FAILURES!!!|shortMsg=' /tmp/instrumentation.txt)" -eq 0
+            grep -Eq 'OK \(3 tests\)' /tmp/instrumentation.txt
 
   firebase-physical-validation:
     needs: test-and-build
