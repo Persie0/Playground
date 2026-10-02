@@ -83,17 +83,17 @@ jobs:
           from pathlib import Path
 
           from resistor_model.config import TrainConfig
-          from resistor_model.dataset import prepare_dataset
           from resistor_model.export import export_tflite
+          from resistor_model.release_dataset import RELEASE_ASSETS, prepare_release_dataset
           from resistor_model.train import train_candidate
 
           candidate = os.environ['CANDIDATE']
           repo = Path('app').resolve()
           work = Path(os.environ['RUNNER_TEMP']) / f'resistor-yolox-shard-{candidate}'
-          manifest = prepare_dataset(
-              repo / 'rres.v4i.coco.zip',
+          manifest = prepare_release_dataset(
               repo / 'assets/labels10.txt',
               work / 'dataset',
+              seed=42,
           )
           config = TrainConfig(
               candidate=candidate,
@@ -117,6 +117,11 @@ jobs:
           (safe / 'shard.json').write_text(json.dumps({
               'candidate': candidate,
               'dataset_sha256': manifest.archive_sha256,
+              'dataset_assets': [
+                  {'name': asset.name, 'sha256': asset.sha256}
+                  for asset in RELEASE_ASSETS
+              ],
+              'dataset_split': 'grouped-source 70/15/15',
               'input_shape': list(exported.contract.input_shape),
               'output_shape': list(exported.contract.output_shape),
           }, indent=2), encoding='utf-8')
@@ -201,10 +206,10 @@ jobs:
           import shutil
           from pathlib import Path
 
-          from resistor_model.dataset import prepare_dataset
           from resistor_model.evaluate import evaluate_model
           from resistor_model.finalize import finalize_full_result
           from resistor_model.package import encrypt_model
+          from resistor_model.release_dataset import RELEASE_ASSETS, prepare_release_dataset
           from resistor_model.report import write_comparison_report
           from resistor_model.select import select_candidate
 
@@ -213,10 +218,10 @@ jobs:
           if work.exists():
               shutil.rmtree(work)
           work.mkdir(parents=True)
-          manifest = prepare_dataset(
-              repo / 'rres.v4i.coco.zip',
+          manifest = prepare_release_dataset(
               repo / 'assets/labels10.txt',
               work / 'dataset',
+              seed=42,
           )
           models = {
               'tiny': Path('shards/tiny/model.tflite').resolve(),
@@ -240,10 +245,16 @@ jobs:
               shutil.rmtree(safe)
           safe.mkdir(parents=True)
           reports = safe / 'reports'
+          dataset_assets = [
+              {'name': asset.name, 'sha256': asset.sha256, 'url': asset.url}
+              for asset in RELEASE_ASSETS
+          ]
           write_comparison_report(
               baseline, candidates, selection, reports,
               metadata={
                   'dataset_sha256': manifest.archive_sha256,
+                  'dataset_assets': dataset_assets,
+                  'dataset_split': 'grouped-source 70/15/15',
                   'mode': 'full',
                   'seed': 42,
                   'epochs': 80,
@@ -267,6 +278,8 @@ jobs:
           payload = {
               'mode': 'full',
               'dataset_sha256': manifest.archive_sha256,
+              'dataset_assets': dataset_assets,
+              'dataset_split': 'grouped-source 70/15/15',
               'selection': selection.to_dict(),
               'candidates': {
                   name: {'tflite': str(path)} for name, path in models.items()
