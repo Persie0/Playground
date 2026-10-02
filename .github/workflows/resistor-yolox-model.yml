@@ -108,61 +108,18 @@ jobs:
           PYTHONPATH: app/ml/resistor_model/src
         run: python -m pytest "app/${TEST_TARGET}" -v
 
-      - name: Diagnose private dataset taxonomy
+      - name: Confirm fixed r1 release datasets
         if: env.MODE == 'smoke' || env.MODE == 'full'
+        env:
+          PYTHONPATH: app/ml/resistor_model/src
         shell: bash
         run: |
           python - <<'PY'
-          import json
-          import statistics
-          import zipfile
-          from collections import Counter, defaultdict
-          from pathlib import Path
-
-          archive = Path('app/rres.v4i.coco.zip')
-          with zipfile.ZipFile(archive) as zf:
-              annotation_names = [
-                  name for name in zf.namelist()
-                  if name.endswith('_annotations.coco.json') and '/train/' in f'/{name}'
-              ]
-              if len(annotation_names) != 1:
-                  raise SystemExit(f'expected one train annotation json, found {annotation_names}')
-              payload = json.loads(zf.read(annotation_names[0]))
-
-          names = {int(c['id']): str(c['name']) for c in payload['categories']}
-          images = {int(i['id']): i for i in payload['images']}
-          counts = Counter()
-          image_classes = defaultdict(set)
-          areas = defaultdict(list)
-          aspects = defaultdict(list)
-          for ann in payload['annotations']:
-              cls = names[int(ann['category_id'])]
-              image = images[int(ann['image_id'])]
-              x, y, w, h = map(float, ann['bbox'])
-              counts[cls] += 1
-              image_classes[int(ann['image_id'])].add(cls)
-              denom = float(image['width']) * float(image['height'])
-              if denom > 0 and w > 0 and h > 0:
-                  areas[cls].append((w * h) / denom)
-                  aspects[cls].append(max(w / h, h / w))
-
-          color_names = {
-              'black','blue','brown','gold','green','grey','orange','red','violet','white','yellow'
-          }
-          for cls in sorted(counts):
-              class_images = [iid for iid, classes in image_classes.items() if cls in classes]
-              with_colors = sum(bool(image_classes[iid] & color_names) for iid in class_images)
-              print(
-                  'DATASET_CLASS',
-                  json.dumps({
-                      'name': cls,
-                      'annotations': counts[cls],
-                      'images': len(class_images),
-                      'image_color_cooccurrence_fraction': round(with_colors / len(class_images), 4) if class_images else 0.0,
-                      'median_normalized_area': round(statistics.median(areas[cls]), 6) if areas[cls] else None,
-                      'median_long_short_aspect': round(statistics.median(aspects[cls]), 4) if aspects[cls] else None,
-                  }, sort_keys=True),
-              )
+          from resistor_model.release_dataset import RELEASE_ASSETS
+          if len(RELEASE_ASSETS) != 3:
+              raise SystemExit(f'expected 3 release assets, found {len(RELEASE_ASSETS)}')
+          for asset in RELEASE_ASSETS:
+              print('R1_DATASET', asset.name, asset.sha256, asset.url)
           PY
 
       - name: Run model pipeline
