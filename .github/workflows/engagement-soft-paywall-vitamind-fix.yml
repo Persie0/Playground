@@ -1,0 +1,278 @@
+name: Finish Vitamin D engagement soft paywall
+
+on:
+  push:
+    paths:
+      - '.github/workflows/engagement-soft-paywall-vitamind-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vitamindtracker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Validate private repository token
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$REPO_TOKEN"
+
+      - name: Checkout Vitamin D tracker feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/vitamindtracker
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          ref: feature/engagement-soft-paywall
+          fetch-depth: 0
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Add integration regression test
+        working-directory: app
+        run: |
+          mkdir -p test
+          cat > test/engagement_soft_paywall_integration_test.dart <<'DART'
+          import 'dart:io';
+          import 'package:flutter_test/flutter_test.dart';
+
+          String section(String source, String start, String end) {
+            final startIndex = source.indexOf(start);
+            expect(startIndex, greaterThanOrEqualTo(0));
+            final endIndex = source.indexOf(end, startIndex + start.length);
+            expect(endIndex, greaterThan(startIndex));
+            return source.substring(startIndex, endIndex);
+          }
+
+          void main() {
+            test('saved vitamin D entries feed the soft paywall meter', () {
+              final main = File('lib/main.dart').readAsStringSync();
+              final impl =
+                  File('lib/providers/vitd_provider_impl.dart').readAsStringSync();
+              final provider =
+                  File('lib/providers/vitd_provider.dart').readAsStringSync();
+
+              expect(main, contains('navigatorKey: softPaywallNavigatorKey'));
+              expect(
+                impl,
+                contains('Future<void> recordMeaningfulTrackingAction() async'),
+              );
+              expect(
+                impl,
+                contains('SoftPaywallTrigger.instance.recordMeaningfulAction'),
+              );
+              expect(
+                section(
+                  impl,
+                  'Future<void> updateMins',
+                  'double calculateIUWithUv',
+                ),
+                contains('unawaited(recordMeaningfulTrackingAction());'),
+              );
+              expect(
+                section(
+                  impl,
+                  'Future<void> addSupplement',
+                  'Future<List<TrackingEntry>>',
+                ),
+                contains('unawaited(recordMeaningfulTrackingAction());'),
+              );
+              expect(
+                section(
+                  provider,
+                  'Future<void> updateExposureInterval',
+                  '@override',
+                ),
+                contains('unawaited(recordMeaningfulTrackingAction());'),
+              );
+            });
+          }
+          DART
+
+      - name: RED - prove hooks are missing
+        working-directory: app
+        shell: bash
+        run: |
+          set +e
+          flutter test test/engagement_soft_paywall_integration_test.dart > /tmp/vitd-red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/vitd-red.log
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Expected the pre-implementation integration test to fail"
+            exit 1
+          fi
+          if grep -q 'Compilation failed' /tmp/vitd-red.log; then
+            echo "::error::RED failed because the test did not compile"
+            exit 1
+          fi
+
+      - name: Patch saved-entry engagement hooks
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(
+                      f'{path}: expected exactly one match, got {count}: {old[:100]!r}'
+                  )
+              path.write_text(text.replace(old, new, 1))
+
+          trigger = Path('lib/services/soft_paywall_trigger.dart')
+          replace_once(
+              trigger,
+              "import 'package:shared_preferences/shared_preferences.dart';\n",
+              "import 'package:flutter/material.dart';\n"
+              "import 'package:shared_preferences/shared_preferences.dart';\n\n"
+              "final GlobalKey<NavigatorState> softPaywallNavigatorKey =\n"
+              "    GlobalKey<NavigatorState>();\n"
+          )
+
+          main = Path('lib/main.dart')
+          replace_once(
+              main,
+              "import 'services/subscription_service.dart';\n",
+              "import 'services/subscription_service.dart';\n"
+              "import 'services/soft_paywall_trigger.dart';\n"
+          )
+          replace_once(
+              main,
+              "    return MaterialApp(\n"
+              "      navigatorObservers: [\n",
+              "    return MaterialApp(\n"
+              "      navigatorKey: softPaywallNavigatorKey,\n"
+              "      navigatorObservers: [\n"
+          )
+
+          impl = Path('lib/providers/vitd_provider_impl.dart')
+          replace_once(
+              impl,
+              "import '../services/subscription_service.dart';\n",
+              "import '../services/subscription_service.dart';\n"
+              "import '../services/soft_paywall_trigger.dart';\n"
+          )
+          replace_once(
+              impl,
+              "  Future<void> refreshHistory() async {\n"
+              "    // UPDATED: Increased limit to 365 to support monthly view calculations\n"
+              "    history = await DBHelper.getHistory(limit: 365);\n"
+              "    todayLog = await DBHelper.getTodayLog();\n"
+              "    notifyListeners();\n"
+              "  }\n\n",
+              "  Future<void> refreshHistory() async {\n"
+              "    // UPDATED: Increased limit to 365 to support monthly view calculations\n"
+              "    history = await DBHelper.getHistory(limit: 365);\n"
+              "    todayLog = await DBHelper.getTodayLog();\n"
+              "    notifyListeners();\n"
+              "  }\n\n"
+              "  Future<void> recordMeaningfulTrackingAction() async {\n"
+              "    final context = softPaywallNavigatorKey.currentContext;\n"
+              "    if (context == null || !context.mounted) return;\n\n"
+              "    final subscription = SubscriptionService.instance;\n"
+              "    final premium = isPro || subscription.isPro;\n"
+              "    final shouldShow =\n"
+              "        await SoftPaywallTrigger.instance.recordMeaningfulAction(\n"
+              "      isPremium: premium,\n"
+              "    );\n"
+              "    if (!shouldShow || premium || !context.mounted) return;\n"
+              "    await subscription.presentPaywallIfNeeded(context);\n"
+              "  }\n\n"
+          )
+          replace_once(
+              impl,
+              "    double produced = calculateIUWithUv(minutes, effectiveUv * cloudFactor);\n"
+              "    await DBHelper.saveSunExposureForDate(produced, minutes.round(), dateStr);\n"
+              "    await _recalculateSpillover();\n"
+              "    triggerAutoSync();\n"
+              "  }\n",
+              "    double produced = calculateIUWithUv(minutes, effectiveUv * cloudFactor);\n"
+              "    await DBHelper.saveSunExposureForDate(produced, minutes.round(), dateStr);\n"
+              "    await _recalculateSpillover();\n"
+              "    triggerAutoSync();\n"
+              "    unawaited(recordMeaningfulTrackingAction());\n"
+              "  }\n"
+          )
+          replace_once(
+              impl,
+              "    final dateStr = date?.toIso8601String().split('T')[0];\n"
+              "    await DBHelper.saveSupplement(supplementIu, date: dateStr);\n"
+              "    await _recalculateSpillover();\n"
+              "    triggerAutoSync();\n"
+              "  }\n",
+              "    final dateStr = date?.toIso8601String().split('T')[0];\n"
+              "    await DBHelper.saveSupplement(supplementIu, date: dateStr);\n"
+              "    await _recalculateSpillover();\n"
+              "    triggerAutoSync();\n"
+              "    unawaited(recordMeaningfulTrackingAction());\n"
+              "  }\n"
+          )
+
+          provider = Path('lib/providers/vitd_provider.dart')
+          replace_once(
+              provider,
+              "    await updateDailyTarget(dailyTarget);\n"
+              "    await triggerAutoSync();\n"
+              "  }\n\n"
+              "  @override\n",
+              "    await updateDailyTarget(dailyTarget);\n"
+              "    await triggerAutoSync();\n"
+              "    unawaited(recordMeaningfulTrackingAction());\n"
+              "  }\n\n"
+              "  @override\n"
+          )
+          PY
+          dart format \
+            lib/main.dart \
+            lib/providers/vitd_provider.dart \
+            lib/providers/vitd_provider_impl.dart \
+            lib/services/soft_paywall_trigger.dart \
+            test/engagement_soft_paywall_integration_test.dart
+
+      - name: GREEN - integration regression test
+        working-directory: app
+        run: flutter test test/engagement_soft_paywall_integration_test.dart
+
+      - name: Full Flutter test suite
+        working-directory: app
+        run: flutter test
+
+      - name: Commit and push feature branch without private Actions
+        working-directory: app
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git config user.name 'OpenAI'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            lib/main.dart \
+            lib/providers/vitd_provider.dart \
+            lib/providers/vitd_provider_impl.dart \
+            lib/services/soft_paywall_trigger.dart \
+            test/engagement_soft_paywall_integration_test.dart
+          if git diff --cached --quiet; then
+            echo 'No vitamindtracker changes to push.'
+            exit 0
+          fi
+          git commit -m 'feat: trigger soft paywall after tracking entries [skip ci]'
+          git remote set-url origin "https://x-access-token:${REPO_TOKEN}@github.com/Persie0/vitamindtracker.git"
+          git push origin HEAD:feature/engagement-soft-paywall
