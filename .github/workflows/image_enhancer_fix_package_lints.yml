@@ -1,0 +1,77 @@
+name: Fix image_enhancer package lints
+
+on:
+  push:
+    paths:
+      - '.github/workflows/image_enhancer_fix_package_lints.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_ENHANCER_REF: feature/storage-backed-full-resolution
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: ${{ env.IMAGE_ENHANCER_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: image_enhancer
+          fetch-depth: 1
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Apply analyzer-only fixes
+        working-directory: image_enhancer
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('flutter_super_resolution/lib/file_upscaler.dart')
+          s = p.read_text()
+          s = s.replace(
+              "      if (data == null)\n        throw StateError('Failed to read processed tile pixels.');",
+              "      if (data == null) {\n        throw StateError('Failed to read processed tile pixels.');\n      }",
+              1,
+          )
+          p.write_text(s)
+
+          redundant = {
+              'flutter_super_resolution/lib/src/source_region_decoder.dart': "import 'dart:typed_data';\n\n",
+              'flutter_super_resolution/test/file_upscale_cancellation_test.dart': "import 'package:flutter_super_resolution/src/file_upscale_types.dart';\n",
+              'flutter_super_resolution/test/file_upscale_existing_output_test.dart': "import 'package:flutter_super_resolution/src/file_upscale_types.dart';\n",
+              'flutter_super_resolution/test/file_upscale_pipeline_test.dart': "import 'package:flutter_super_resolution/src/file_upscale_types.dart';\n",
+              'flutter_super_resolution/test/source_region_decoder_test.dart': "import 'dart:typed_data';\n",
+          }
+          for name, text in redundant.items():
+              p = Path(name)
+              s = p.read_text()
+              if text not in s:
+                  raise SystemExit(f'expected analyzer import not found: {name}')
+              p.write_text(s.replace(text, '', 1))
+          PY
+          dart format flutter_super_resolution/lib flutter_super_resolution/test
+      - name: Analyze package
+        working-directory: image_enhancer/flutter_super_resolution
+        run: |
+          flutter pub get
+          flutter analyze
+      - name: Run package tests
+        working-directory: image_enhancer/flutter_super_resolution
+        run: flutter test
+      - name: Commit and push
+        working-directory: image_enhancer
+        run: |
+          set -euo pipefail
+          git config user.name 'Persie0'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add flutter_super_resolution/lib flutter_super_resolution/test
+          git commit -m 'fix: satisfy storage pipeline package analysis'
+          git push origin HEAD:${IMAGE_ENHANCER_REF}
