@@ -1,0 +1,36 @@
+name: Verify image_enhancer alpha contract RED
+
+on:
+  push:
+    paths:
+      - '.github/workflows/image_enhancer_alpha_contract_red.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: feature/storage-backed-full-resolution
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: image_enhancer
+          fetch-depth: 1
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+      - name: Run alpha contract regressions
+        working-directory: image_enhancer
+        run: >-
+          flutter test
+          test/android_source_region_decoder_regression_test.dart
+          test/ios_source_region_decoder_regression_test.dart
