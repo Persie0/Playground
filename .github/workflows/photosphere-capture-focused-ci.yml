@@ -11,7 +11,7 @@ permissions:
 jobs:
   regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - name: Validate private checkout token
         env:
@@ -29,7 +29,30 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Resolve dependencies
-        run: cd app && flutter pub get
-      - name: Run capture regression tests
-        run: cd app && flutter test test/capture_geometry_test.dart test/native_orientation_test.dart --reporter expanded
+      - name: Build minimal regression package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p focused/lib/src/models focused/lib/src/services focused/test
+          cp app/lib/src/models/capture_geometry.dart focused/lib/src/models/
+          cp app/lib/src/models/capture_plan.dart focused/lib/src/models/
+          cp app/lib/src/models/vec3.dart focused/lib/src/models/
+          cp app/lib/src/services/motion_pose_tracker.dart focused/lib/src/services/
+          cp app/lib/src/services/native_orientation.dart focused/lib/src/services/
+          cp app/test/capture_geometry_test.dart focused/test/
+          cp app/test/native_orientation_test.dart focused/test/
+          cat > focused/pubspec.yaml <<'EOF'
+          name: photosphere
+          publish_to: none
+          environment:
+            sdk: '>=3.10.0 <4.0.0'
+          dependencies:
+            flutter:
+              sdk: flutter
+            sensors_plus: 7.1.0
+          dev_dependencies:
+            flutter_test:
+              sdk: flutter
+          EOF
+      - name: Run focused capture regression tests
+        run: cd focused && flutter pub get && flutter test test/capture_geometry_test.dart test/native_orientation_test.dart --reporter expanded
