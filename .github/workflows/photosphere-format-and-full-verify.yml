@@ -1,0 +1,63 @@
+name: Photosphere format and full verify
+on:
+  push:
+    branches: [photosphere-capture-ci]
+    paths:
+      - .github/workflows/photosphere-format-and-full-verify.yml
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout private app branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/Photosphere-
+          ref: fix/capture-guidance-3d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Diagnose formatter gate
+        run: |
+          set +e
+          cd app
+          dart format --output=none --set-exit-if-changed lib test tool
+          status=$?
+          echo "formatter_status=$status"
+          exit 0
+      - name: Apply canonical Dart formatting
+        run: |
+          set -euo pipefail
+          cd app
+          dart format lib test tool
+          git diff --check
+          if ! git diff --quiet; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add lib test tool
+            git commit -m 'Format Photosphere capture fix'
+            git push origin HEAD:fix/capture-guidance-3d
+          fi
+      - name: Resolve dependencies
+        run: cd app && flutter pub get
+      - name: Verify formatting
+        run: cd app && dart format --output=none --set-exit-if-changed lib test tool
+      - name: Analyze
+        run: cd app && flutter analyze
+      - name: Run all unit tests
+        run: cd app && flutter test --reporter expanded
+      - name: Run generated-platform static/unit harness
+        run: bash app/.github/playground/static-unit.sh app
