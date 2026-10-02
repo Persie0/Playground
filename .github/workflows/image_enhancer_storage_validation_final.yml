@@ -1,0 +1,109 @@
+name: Final image_enhancer storage validation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/image_enhancer_storage_validation_final.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_ENHANCER_REF: feature/storage-backed-full-resolution
+
+jobs:
+  linux:
+    name: Tests analyze Android build
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Check out private image_enhancer branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: ${{ env.IMAGE_ENHANCER_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: image_enhancer
+          fetch-depth: 1
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve app dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: Verify formatting
+        working-directory: image_enhancer
+        run: |
+          dart format --output=none --set-exit-if-changed \
+            flutter_super_resolution/lib/file_upscaler.dart \
+            flutter_super_resolution/lib/src \
+            flutter_super_resolution/test \
+            lib/services/image_processing_task.dart \
+            lib/super_resolution_home_page.dart \
+            lib/utils/image_safety.dart \
+            test/storage_backed_ui_processing_test.dart \
+            test/android_source_region_decoder_regression_test.dart \
+            test/ios_source_region_decoder_regression_test.dart \
+            test/source_region_decoder_plugin_registration_test.dart
+
+      - name: App tests
+        working-directory: image_enhancer
+        run: flutter test
+
+      - name: Package tests
+        working-directory: image_enhancer/flutter_super_resolution
+        run: |
+          flutter pub get
+          flutter test
+
+      - name: Analyze app
+        working-directory: image_enhancer
+        run: flutter analyze
+
+      - name: Analyze package
+        working-directory: image_enhancer/flutter_super_resolution
+        run: flutter analyze
+
+      - name: Android debug build
+        working-directory: image_enhancer
+        run: flutter build apk --debug --no-pub
+
+  ios:
+    name: iOS no-codesign build
+    runs-on: macos-latest
+    timeout-minutes: 50
+    steps:
+      - name: Check out private image_enhancer branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: ${{ env.IMAGE_ENHANCER_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: image_enhancer
+          fetch-depth: 1
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve app dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: iOS no-codesign build
+        working-directory: image_enhancer
+        run: flutter build ios --debug --no-codesign --no-pub
