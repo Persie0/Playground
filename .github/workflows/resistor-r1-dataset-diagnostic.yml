@@ -1,0 +1,77 @@
+name: Resistor r1 dataset diagnostic
+
+on:
+  push:
+    branches: [agent/resistor-yolox-runner]
+    paths:
+      - .github/workflows/resistor-r1-dataset-diagnostic.yml
+      - .github/triggers/resistor-r1-dataset-diagnostic.txt
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download and summarize three r1 COCO datasets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import shutil
+          import urllib.request
+          import zipfile
+          from collections import Counter, defaultdict
+          from pathlib import Path
+
+          base = 'https://github.com/Persie0/resistor_model/releases/download/r1'
+          assets = (
+              ('rres.v4i.coco.zip', '24b46548700156a5f553197193c153b42381472b3eddfa2f9cf19d849fc84d4a'),
+              ('resistor.value.training.v8i.coco.zip', 'dbf4b665d361a98d01024481970fc74be27d71e795b95dac5936af94dd4cf958'),
+              ('Deteksi.Nilai.Resistor.v1i.coco.zip', 'ee8db6b64e59dfe47050b313f215051d3da5932dbe5e1f7b7d94e6495449dc92'),
+          )
+          import hashlib
+          work = Path('/tmp/resistor-r1-diagnostic')
+          shutil.rmtree(work, ignore_errors=True)
+          work.mkdir(parents=True)
+          for asset, expected_sha in assets:
+              archive = work / asset
+              req = urllib.request.Request(f'{base}/{asset}', headers={'User-Agent': 'resistor-r1-diagnostic'})
+              with urllib.request.urlopen(req) as src, archive.open('wb') as dst:
+                  shutil.copyfileobj(src, dst)
+              actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+              if actual != expected_sha:
+                  raise SystemExit(f'SHA mismatch for {asset}: {actual}')
+              annotation_counts = Counter()
+              image_counts = Counter()
+              split_annotation_counts = defaultdict(Counter)
+              split_image_counts = defaultdict(Counter)
+              with zipfile.ZipFile(archive) as zf:
+                  json_names = sorted(name for name in zf.namelist() if name.endswith('_annotations.coco.json'))
+                  print('ASSET', asset, 'annotation_files', json_names)
+                  for name in json_names:
+                      payload = json.loads(zf.read(name))
+                      categories = {int(c['id']): str(c['name']) for c in payload.get('categories', [])}
+                      anns_by_image = defaultdict(set)
+                      for ann in payload.get('annotations', []):
+                          label = categories.get(int(ann['category_id']), f"<id:{ann['category_id']}>")
+                          annotation_counts[label] += 1
+                          split_annotation_counts[name][label] += 1
+                          anns_by_image[int(ann['image_id'])].add(label)
+                      for labels in anns_by_image.values():
+                          for label in labels:
+                              image_counts[label] += 1
+                              split_image_counts[name][label] += 1
+                      print('SPLIT', asset, name, 'categories', sorted(categories.values()))
+                      print('SPLIT_ANN_COUNTS', asset, name, json.dumps(dict(sorted(split_annotation_counts[name].items())), sort_keys=True))
+                      print('SPLIT_IMAGE_COUNTS', asset, name, json.dumps(dict(sorted(split_image_counts[name].items())), sort_keys=True))
+              print('ASSET_ANN_COUNTS', asset, json.dumps(dict(sorted(annotation_counts.items())), sort_keys=True))
+              print('ASSET_IMAGE_COUNTS', asset, json.dumps(dict(sorted(image_counts.items())), sort_keys=True))
+          PY
