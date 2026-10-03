@@ -40,26 +40,41 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Apply reviewed lifecycle fix
+      - name: Apply reviewed fixes
         working-directory: app
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path('lib/services/subscription_service.dart')
           lines = path.read_text().splitlines()
+
           install = next(i for i, line in enumerate(lines) if line.strip() == '_installLifecycleRefresh();')
           try_index = next(i for i in range(install - 1, -1, -1) if lines[i].strip() == 'try {')
           install_line = lines.pop(install)
           lines.insert(try_index, install_line)
           lines.insert(try_index + 1, '')
+
+          launched = next(i for i, line in enumerate(lines) if line.strip().startswith("if (!launched) throw StateError("))
+          indent = lines[launched][:len(lines[launched]) - len(lines[launched].lstrip())]
+          message = lines[launched].strip()[len('if (!launched) '):]
+          lines[launched:launched + 1] = [
+              f'{indent}if (!launched) {{',
+              f'{indent}  {message}',
+              f'{indent}}}',
+          ]
+
           path.write_text('\n'.join(lines) + '\n')
           PY
-          dart format lib/services/subscription_service.dart
-          git diff --check
 
       - name: Install dependencies
         working-directory: app
         run: flutter pub get
+
+      - name: Format and diff check
+        working-directory: app
+        run: |
+          dart format lib/services/subscription_service.dart
+          git diff --check
 
       - name: Analyze
         working-directory: app
@@ -69,7 +84,7 @@ jobs:
         working-directory: app
         run: flutter test
 
-      - name: Commit and push reviewed lifecycle fix
+      - name: Commit and push reviewed fixes
         if: success()
         working-directory: app
         env:
@@ -82,6 +97,6 @@ jobs:
           git config user.name 'OpenAI'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add lib/services/subscription_service.dart
-          git commit -m 'fix: install RevenueCat resume refresh before first read [skip ci]'
+          git commit -m 'fix: harden RevenueCat lifecycle refresh [skip ci]'
           git remote set-url origin "https://x-access-token:${REPO_TOKEN}@github.com/Persie0/surebets_calculator.git"
           git push origin HEAD:fix/revenuecat-hardening
