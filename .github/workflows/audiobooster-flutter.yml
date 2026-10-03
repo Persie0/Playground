@@ -1,9 +1,10 @@
-name: AudioBooster Flutter checks
+name: AudioBooster onboarding CI
 on:
   push:
-    branches: [main]
+    branches: [audiobooster-onboarding-ci]
     paths:
       - .github/workflows/audiobooster-flutter.yml
+      - .ci-trigger-audiobooster-onboarding
   workflow_dispatch:
 permissions:
   contents: read
@@ -14,11 +15,11 @@ jobs:
     steps:
       - name: Check out Playground
         uses: actions/checkout@v4
-      - name: Check out AudioBooster
+      - name: Check out AudioBooster feature branch
         uses: actions/checkout@v4
         with:
           repository: Persie0/Audiobooster
-          ref: main
+          ref: feature/onboarding-material-you
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: audiobooster
       - uses: subosito/flutter-action@v2
@@ -31,20 +32,43 @@ jobs:
         working-directory: audiobooster
         run: flutter pub get
       - name: Run Flutter tests
+        id: flutter_tests
+        continue-on-error: true
         working-directory: audiobooster
         run: flutter test
       - name: Analyze Dart sources
+        id: analyze
+        continue-on-error: true
         working-directory: audiobooster
         run: flutter analyze
       - name: Generate Android project and install native audio bridge
         working-directory: audiobooster
         run: bash tool/bootstrap_android.sh
+      - name: Run Android unit tests
+        id: native_tests
+        continue-on-error: true
+        working-directory: audiobooster/android
+        run: ./gradlew testDebugUnitTest
       - name: Build debug APK
+        id: build
+        continue-on-error: true
         working-directory: audiobooster
         run: flutter build apk --debug
+      - name: Fail if any validation failed
+        if: always()
+        run: |
+          echo "flutter_tests=${{ steps.flutter_tests.outcome }}"
+          echo "analyze=${{ steps.analyze.outcome }}"
+          echo "native_tests=${{ steps.native_tests.outcome }}"
+          echo "build=${{ steps.build.outcome }}"
+          test "${{ steps.flutter_tests.outcome }}" = success
+          test "${{ steps.analyze.outcome }}" = success
+          test "${{ steps.native_tests.outcome }}" = success
+          test "${{ steps.build.outcome }}" = success
       - name: Upload debug APK
+        if: ${{ steps.build.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: audiobooster-debug-apk
+          name: audiobooster-onboarding-debug-apk
           path: audiobooster/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
