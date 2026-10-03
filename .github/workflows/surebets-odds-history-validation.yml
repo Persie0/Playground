@@ -20,11 +20,11 @@ jobs:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: test -n "$PRIVATE_TOKEN"
 
-      - name: Checkout Surebets fix branch
+      - name: Checkout Surebets logical history branch
         uses: actions/checkout@v5
         with:
           repository: Persie0/surebets_calculator
-          ref: fix/odds-toolbar-history-rebased
+          ref: feat/logical-bet-history
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: app
@@ -39,9 +39,9 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      - name: Run targeted regression tests
+      - name: Run logical history regression tests
         working-directory: app
-        run: flutter test test/bet_history_service_test.dart test/odds_keyboard_toolbar_test.dart
+        run: flutter test test/logical_bet_history_test.dart test/bet_history_service_test.dart
 
       - name: Run Flutter analyzer
         working-directory: app
