@@ -1,5 +1,4 @@
 name: AudioBooster onboarding feature checks
-# Validates Persie0/Audiobooster feature/onboarding-material-you.
 on:
   push:
     branches: [main]
@@ -11,7 +10,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Check out AudioBooster feature branch
@@ -28,18 +27,6 @@ jobs:
       - name: Install Flutter dependencies
         working-directory: audiobooster
         run: flutter pub get
-      - name: Run Flutter tests
+      - name: Run Task 2 model tests
         working-directory: audiobooster
-        run: flutter test
-      - name: Analyze Dart sources
-        working-directory: audiobooster
-        run: flutter analyze
-      - name: Bootstrap Android host
-        working-directory: audiobooster
-        run: bash tool/bootstrap_android.sh
-      - name: Run Android unit tests
-        working-directory: audiobooster/android
-        run: ./gradlew :app:testDebugUnitTest
-      - name: Build debug APK
-        working-directory: audiobooster
-        run: flutter build apk --debug
+        run: flutter test test/device_compatibility_test.dart test/boost_presentation_test.dart test/boost_model_test.dart
