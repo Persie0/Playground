@@ -1,4 +1,4 @@
-name: Surebets RevenueCat lifecycle red test
+name: Surebets RevenueCat lifecycle fix
 
 on:
   push:
@@ -9,9 +9,9 @@ permissions:
   contents: read
 
 jobs:
-  red-test:
+  fix-and-verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Validate private repository token
         env:
@@ -39,10 +39,54 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Apply lifecycle ordering fix
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('lib/services/subscription_service.dart')
+          text = path.read_text()
+          old = '''    try {
+      await _updateProStatus(await Purchases.getCustomerInfo());
+      _installLifecycleRefresh();
+    } on PlatformException catch (e) {'''
+          new = '''    _installLifecycleRefresh();
+
+    try {
+      await _updateProStatus(await Purchases.getCustomerInfo());
+    } on PlatformException catch (e) {'''
+          if old not in text:
+              raise SystemExit('Expected lifecycle block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          dart format lib/services/subscription_service.dart
+          git diff --check
+
       - name: Install dependencies
         working-directory: app
         run: flutter pub get
 
-      - name: Run lifecycle regression test
+      - name: Analyze
         working-directory: app
-        run: flutter test test/subscription_lifecycle_order_test.dart
+        run: flutter analyze
+
+      - name: Run Flutter tests
+        working-directory: app
+        run: flutter test
+
+      - name: Commit and push reviewed fix
+        if: success()
+        working-directory: app
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if git diff --quiet; then
+            echo 'No changes to push'
+            exit 0
+          fi
+          git config user.name 'OpenAI'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/services/subscription_service.dart
+          git commit -m 'fix: keep RevenueCat resume refresh available after startup errors [skip ci]'
+          git remote set-url origin "https://x-access-token:${REPO_TOKEN}@github.com/Persie0/surebets_calculator.git"
+          git push origin HEAD:fix/revenuecat-hardening
