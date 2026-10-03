@@ -1,0 +1,122 @@
+name: Photosphere build repair
+
+on:
+  push:
+    paths:
+      - 'photosphere_fix_trigger.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repair-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+    steps:
+      - name: Validate repository token
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout repair harness
+        uses: actions/checkout@v5
+        with:
+          path: harness
+
+      - name: Checkout Photosphere
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/Photosphere
+          ref: main
+          token: ${{ env.PRIVATE_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: app
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Apply compile fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 harness/tools/repair_photosphere_build.py photosphere app
+          dart format app/lib/src/services
+
+      - name: Bootstrap generated platforms
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd app && bash tool/bootstrap.sh)
+
+      - name: Run Flutter tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd app && flutter test)
+
+      - name: Build Android debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd app && flutter build apk --debug)
+          test -f app/build/app/outputs/flutter-apk/app-debug.apk
+          ls -lh app/build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Commit verified Photosphere fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C app config user.name 'Persie0'
+          git -C app config user.email '76871553+Persie0@users.noreply.github.com'
+          git -C app add lib/src/services
+          if git -C app diff --cached --quiet; then
+            echo 'No Photosphere source changes to commit.'
+          else
+            git -C app commit -m 'Fix DartCV compatibility and Android build'
+            git -C app push origin HEAD:main
+          fi
+
+      - name: Checkout shared builder
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: main
+          token: ${{ env.PRIVATE_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: builder
+
+      - name: Patch shared Flutter bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 harness/tools/repair_photosphere_build.py builder builder
+          git -C builder diff --check
+
+      - name: Commit shared builder fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C builder config user.name 'Persie0'
+          git -C builder config user.email '76871553+Persie0@users.noreply.github.com'
+          git -C builder add .github/workflows/debug_create_app.yml .github/workflows/debug_build_release_reusable.yml
+          if git -C builder diff --cached --quiet; then
+            echo 'Shared builder already contains the Flutter bootstrap fix.'
+          else
+            git -C builder commit -m 'Prepare generated Flutter platforms before builds'
+            git -C builder push origin HEAD:main
+          fi
