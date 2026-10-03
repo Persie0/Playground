@@ -39,14 +39,15 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Apply lifecycle ordering fix
+      - name: Apply reviewed fixes
         working-directory: app
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path('lib/services/subscription_service.dart')
           lines = path.read_text().splitlines()
-          replaced = False
+          lifecycle_fixed = False
+          lint_fixed = False
           for i in range(len(lines) - 2):
               if (
                   lines[i].strip() == 'try {'
@@ -60,10 +61,22 @@ jobs:
                       f'{indent}try {{',
                       f'{indent}  await _updateProStatus(await Purchases.getCustomerInfo());',
                   ]
-                  replaced = True
+                  lifecycle_fixed = True
                   break
-          if not replaced:
+          for i, line in enumerate(lines):
+              if line.strip() == "if (!launched) throw StateError('Could not open subscription management.');":
+                  indent = line[:len(line) - len(line.lstrip())]
+                  lines[i:i + 1] = [
+                      f'{indent}if (!launched) {{',
+                      f"{indent}  throw StateError('Could not open subscription management.');",
+                      f'{indent}}}',
+                  ]
+                  lint_fixed = True
+                  break
+          if not lifecycle_fixed:
               raise SystemExit('Expected lifecycle block not found')
+          if not lint_fixed:
+              raise SystemExit('Expected subscription-management lint line not found')
           path.write_text('\n'.join(lines) + '\n')
           PY
           dart format lib/services/subscription_service.dart
@@ -81,7 +94,7 @@ jobs:
         working-directory: app
         run: flutter test
 
-      - name: Commit and push reviewed fix
+      - name: Commit and push reviewed fixes
         if: success()
         working-directory: app
         env:
@@ -94,6 +107,6 @@ jobs:
           git config user.name 'OpenAI'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add lib/services/subscription_service.dart
-          git commit -m 'fix: keep RevenueCat resume refresh available after startup errors [skip ci]'
+          git commit -m 'fix: harden RevenueCat resume refresh path [skip ci]'
           git remote set-url origin "https://x-access-token:${REPO_TOKEN}@github.com/Persie0/surebets_calculator.git"
           git push origin HEAD:fix/revenuecat-hardening
