@@ -1,0 +1,45 @@
+name: AnkiFlutter rustfmt export
+
+on:
+  push:
+    paths:
+      - ankiflutter-rustfmt-target.txt
+      - .github/workflows/ankiflutter-rustfmt-export.yml
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Read target
+        id: target
+        run: echo "sha=$(tr -d '\r\n' < ankiflutter-rustfmt-target.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          repository: Persie0/AnkiFlutter
+          ref: ${{ steps.target.outputs.sha }}
+          path: source
+          submodules: false
+      - name: Install rustfmt
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup component add rustfmt --toolchain 1.88.0
+          rustup override set 1.88.0 --path source
+      - name: Format bridge
+        working-directory: source
+        run: cargo fmt --manifest-path native/anki_bridge/Cargo.toml
+      - name: Collect formatted files
+        run: |
+          mkdir -p formatted/native/anki_bridge/src formatted/native/anki_bridge/tests
+          cp source/native/anki_bridge/build.rs formatted/native/anki_bridge/build.rs
+          cp source/native/anki_bridge/src/ffi.rs formatted/native/anki_bridge/src/ffi.rs
+          cp source/native/anki_bridge/tests/backend_contract.rs formatted/native/anki_bridge/tests/backend_contract.rs
+          cp source/native/anki_bridge/tests/operation_indices.rs formatted/native/anki_bridge/tests/operation_indices.rs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ankiflutter-rustfmt
+          path: formatted
+          if-no-files-found: error
