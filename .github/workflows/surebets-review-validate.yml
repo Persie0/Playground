@@ -45,19 +45,29 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
           path = Path('lib/settings_page.dart')
-          text = path.read_text()
-          old = '''                      SettingsProvider.setBoughtProStatic();
-                      SubscriptionService.instance.syncFromLegacy(true);'''
-          new = '''                      unawaited(
-                        SubscriptionService.instance.setPro(
-                          true,
-                          isLifetime: true,
-                        ),
-                      );'''
-          if old not in text:
+          lines = path.read_text().splitlines()
+          replaced = False
+          for i in range(len(lines) - 1):
+              if (
+                  lines[i].strip() == 'SettingsProvider.setBoughtProStatic();'
+                  and lines[i + 1].strip() == 'SubscriptionService.instance.syncFromLegacy(true);'
+              ):
+                  indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+                  lines[i:i + 2] = [
+                      f'{indent}unawaited(',
+                      f'{indent}  SubscriptionService.instance.setPro(',
+                      f'{indent}    true,',
+                      f'{indent}    isLifetime: true,',
+                      f'{indent}  ),',
+                      f'{indent});',
+                  ]
+                  replaced = True
+                  break
+          if not replaced:
               raise SystemExit('Expected tester Pro legacy block not found')
-          path.write_text(text.replace(old, new, 1))
+          path.write_text('\n'.join(lines) + '\n')
           PY
           dart format lib/settings_page.dart
           git diff --check
