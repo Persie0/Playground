@@ -1,0 +1,40 @@
+name: AnkiFlutter focused tests
+
+on:
+  push:
+    paths:
+      - ankiflutter-focused-target.txt
+      - .github/workflows/ankiflutter-focused-tests.yml
+
+permissions:
+  contents: read
+
+jobs:
+  typed-answer:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Read target
+        id: target
+        run: echo "sha=$(tr -d '\r\n' < ankiflutter-focused-target.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          repository: Persie0/AnkiFlutter
+          ref: ${{ steps.target.outputs.sha }}
+          path: source
+          submodules: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+      - name: Resolve Flutter dependencies
+        working-directory: source/app
+        run: flutter pub get
+      - name: Run typed-answer red tests
+        working-directory: source/app
+        run: |
+          flutter test \
+            test/core/backend/backend_operation_test.dart \
+            test/features/reviewer/review_page_typed_answer_test.dart \
+            test/features/reviewer/data/anki_review_typed_answer_repository_test.dart
