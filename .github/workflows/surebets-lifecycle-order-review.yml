@@ -1,0 +1,48 @@
+name: Surebets RevenueCat lifecycle red test
+
+on:
+  push:
+    paths:
+      - '.github/workflows/surebets-lifecycle-order-review.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  red-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate private repository token
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$REPO_TOKEN"
+
+      - name: Checkout Surebets PR 13 branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/surebets_calculator
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          ref: fix/revenuecat-hardening
+          fetch-depth: 1
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Run lifecycle regression test
+        working-directory: app
+        run: flutter test test/subscription_lifecycle_order_test.dart
