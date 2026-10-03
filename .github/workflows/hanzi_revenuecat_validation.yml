@@ -1,4 +1,4 @@
-name: HanziHero merged-main verification
+name: HanziHero PR81 daily-limit TDD
 
 on:
   push:
@@ -16,18 +16,18 @@ env:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 35
     steps:
       - name: Validate private checkout token
         env:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: test -n "$PRIVATE_TOKEN"
 
-      - name: Checkout HanziHero main
+      - name: Checkout HanziHero PR81 branch
         uses: actions/checkout@v5
         with:
           repository: Persie0/hanzi_hero
-          ref: main
+          ref: chore/lower-free-interactions-limit-to-30
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: app
@@ -41,6 +41,6 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      - name: Run full Flutter test suite
+      - name: Run PR81 focused tests
         working-directory: app
-        run: flutter test
+        run: flutter test test/daily_free_interaction_limit_guard_test.dart test/providers/settings_provider_test.dart test/providers/safe_settings_provider_test.dart
