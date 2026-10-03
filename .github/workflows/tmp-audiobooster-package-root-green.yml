@@ -1,0 +1,34 @@
+name: Temporary AudioBooster package/root green gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tmp-audiobooster-package-root-green.yml
+
+permissions:
+  contents: read
+
+jobs:
+  focused-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out AudioBooster feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: feature/supported-app-icons
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: audiobooster
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        working-directory: audiobooster
+        run: flutter pub get
+      - name: Run focused tests
+        working-directory: audiobooster
+        run: flutter test test/root_mode_source_test.dart test/supported_app_history_test.dart
