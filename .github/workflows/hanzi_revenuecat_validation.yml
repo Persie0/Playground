@@ -18,28 +18,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v5
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout HanziHero branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/hanzi_hero
+          ref: fix/revenuecat-startup-hardening
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
 
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Clone HanziHero branch
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          set -euo pipefail
-          REF="$(cat .github/hanzi_revenuecat_ref.txt)"
-          gh repo clone Persie0/hanzi_hero hanzi_hero
-          cd hanzi_hero
-          git fetch origin "$REF"
-          git checkout "$REF"
-
       - name: Install dependencies
-        working-directory: hanzi_hero
+        working-directory: app
         run: flutter pub get
 
       - name: Run RevenueCat regression tests
-        working-directory: hanzi_hero
+        working-directory: app
         run: flutter test test/services/subscription_service_test.dart test/revenuecat_lifecycle_guard_test.dart
