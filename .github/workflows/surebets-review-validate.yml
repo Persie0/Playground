@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  red:
+  validate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -44,6 +44,10 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      - name: Run regression test
+      - name: Analyze
         working-directory: app
-        run: flutter test test/revenuecat_hardening_stale_legacy_sync_test.dart
+        run: flutter analyze
+
+      - name: Run Flutter tests
+        working-directory: app
+        run: flutter test
