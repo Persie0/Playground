@@ -1,0 +1,53 @@
+name: AnkiFlutter full Flutter test diagnostic
+
+on:
+  push:
+    paths:
+      - ankiflutter-focused-target.txt
+      - .github/workflows/ankiflutter-full-test-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Read target
+        id: target
+        run: echo "sha=$(tr -d '\r\n' < ankiflutter-focused-target.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          repository: Persie0/AnkiFlutter
+          ref: ${{ steps.target.outputs.sha }}
+          path: source
+          submodules: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+      - name: Resolve Flutter dependencies
+        working-directory: source/app
+        run: flutter pub get
+      - name: Run full Flutter tests and capture output
+        id: tests
+        working-directory: source/app
+        shell: bash
+        run: |
+          set +e
+          flutter test 2>&1 | tee "$GITHUB_WORKSPACE/full-test.log"
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload complete Flutter test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ankiflutter-full-test-log
+          path: full-test.log
+          if-no-files-found: error
+      - name: Fail when Flutter tests failed
+        if: steps.tests.outputs.status != '0'
+        run: exit 1
