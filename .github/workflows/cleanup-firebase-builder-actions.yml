@@ -17,13 +17,24 @@ jobs:
     env:
       TARGET_REPO: Persie0/firebase_tester_builder
     steps:
-      - name: Verify exact builder workflow inventory
+      - name: Resolve cross-repository token
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          CROSS_REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${GH_TOKEN:-}"
+          if [ -z "${CROSS_REPO_TOKEN:-}" ]; then
+            echo "::error::No Playground cross-repository token is configured."
+            exit 1
+          fi
+          echo "CROSS_REPO_TOKEN=$CROSS_REPO_TOKEN" >> "$GITHUB_ENV"
+
+      - name: Verify exact builder workflow inventory
+        env:
+          GH_TOKEN: ${{ env.CROSS_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
           expected="$(printf '%s\n' app_store_auto.yml debug_build_release_reusable.yml debug_create_app.yml play_auto.yml | sort)"
           actual="$(gh api "repos/${TARGET_REPO}/contents/.github/workflows?ref=main" --jq '.[].name' | sort)"
           if [ "$actual" != "$expected" ]; then
@@ -34,7 +45,7 @@ jobs:
 
       - name: Audit historical workflow runs
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ env.CROSS_REPO_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
