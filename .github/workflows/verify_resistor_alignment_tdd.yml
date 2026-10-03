@@ -20,13 +20,50 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install test dependencies
-        run: python -m pip install -q pytest numpy
+      - name: Install repository and verification dependencies
+        run: |
+          python -m pip install -q --upgrade pip
+          python -m pip install -q -e '.[dev,segmentation,export]' onnxruntime matplotlib
 
-      - name: Run alignment tests
-        env:
-          PYTHONPATH: src
-        run: pytest -q tests/test_alignment.py
+      - name: Run full test suite
+        run: pytest -q
+
+      - name: Validate Python and notebook syntax
+        run: |
+          python -m py_compile src/resistor_model/alignment.py colab/test_resistor_segmentation_alignment_colab.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          json.loads(Path('colab/test_resistor_segmentation_alignment_colab.ipynb').read_text(encoding='utf-8'))
+          print('notebook JSON valid')
+          PY
+
+      - name: Synthetic rotated-resistor alignment smoke test
+        run: |
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          import cv2
+          import numpy as np
+
+          script = Path('colab/test_resistor_segmentation_alignment_colab.py')
+          spec = importlib.util.spec_from_file_location('alignment_colab', script)
+          module = importlib.util.module_from_spec(spec)
+          assert spec is not None and spec.loader is not None
+          spec.loader.exec_module(module)
+
+          image = np.full((600, 600, 3), 240, dtype=np.uint8)
+          mask = np.zeros((600, 600), dtype=np.uint8)
+          cv2.ellipse(mask, (300, 300), (180, 55), 27, 0, 360, 255, -1)
+          cv2.ellipse(image, (300, 300), (180, 55), 27, 0, 360, (110, 80, 55), -1)
+
+          axis, diagnostics = module.robust_axis_angle(mask)
+          crop, crop_mask, rotated, rotation = module.rotate_vertical_crop(image, mask, axis)
+          assert crop.shape[0] > crop.shape[1], crop.shape
+          assert crop_mask.shape[:2] == crop.shape[:2]
+          assert len(diagnostics) == 4
+          assert np.count_nonzero(crop_mask) > 0
+          print(f'axis={axis:.2f} rotation={rotation:.2f} crop={crop.shape[1]}x{crop.shape[0]}')
+          PY
 
       # Temporary public verification workflow; removed after merge.
-      # Rerun after float-tolerance correction.
