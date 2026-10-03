@@ -1,0 +1,39 @@
+name: Sync HanziHero PR80 with main
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hanzi-pr80-sync.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate private repository token
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$REPO_TOKEN"
+
+      - name: Checkout HanziHero PR branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/hanzi_hero
+          ref: fix/revenuecat-startup-hardening
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: app
+
+      - name: Merge current main and push
+        working-directory: app
+        run: |
+          git config user.name 'OpenAI'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          git merge --no-ff origin/main -m 'chore: sync main into RevenueCat hardening [skip ci]'
+          git push origin HEAD:fix/revenuecat-startup-hardening
