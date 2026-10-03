@@ -1,4 +1,4 @@
-# validation revision 2
+# validation revision 3
 name: Temporary AudioBooster package/root final gate
 
 on:
@@ -45,9 +45,11 @@ jobs:
           test ! -e tool/android/com/persie0/audiobooster/audio/RootSessionDetector.kt
           test ! -e tool/android/com/persie0/audiobooster/audio/AudioFlingerDumpParser.kt
           test ! -e tool/android/com/persie0/audiobooster/audio/SessionDescriptor.kt
+          test ! -d tool/android-test/fixtures
           ! grep -RniE '\b(root|Root|ROOT)\b' lib tool/android android/app/src/main/kotlin README.md
           ! grep -E 'PackageManager|resolveLabel|getApplicationLabel|getApplicationIcon|"label"' tool/android/com/persie0/audiobooster/audio/SupportedAppHistory.kt
           ! grep -R 'QUERY_ALL_PACKAGES' android/app/src/main/AndroidManifest.xml tool/bootstrap_android.sh
+          ! grep -F 'tool/android-test/fixtures' tool/bootstrap_android.sh
       - name: Run Flutter tests
         working-directory: audiobooster
         run: flutter test
