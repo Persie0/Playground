@@ -1,5 +1,4 @@
 name: AudioBooster onboarding feature checks
-# Task 2 GREEN verification
 on:
   push:
     branches: [main]
@@ -11,7 +10,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Check out AudioBooster feature branch
@@ -28,6 +27,27 @@ jobs:
       - name: Install Flutter dependencies
         working-directory: audiobooster
         run: flutter pub get
-      - name: Run Task 2 model tests
+      - name: Show resolved lockfile
         working-directory: audiobooster
-        run: flutter test test/device_compatibility_test.dart test/boost_presentation_test.dart test/boost_model_test.dart
+        run: cat pubspec.lock
+      - name: Run Flutter tests
+        working-directory: audiobooster
+        run: flutter test
+      - name: Analyze Dart sources
+        working-directory: audiobooster
+        run: flutter analyze
+      - name: Bootstrap Android host
+        working-directory: audiobooster
+        run: bash tool/bootstrap_android.sh
+      - name: Run Android unit tests
+        working-directory: audiobooster/android
+        run: ./gradlew :app:testDebugUnitTest
+      - name: Build debug APK
+        working-directory: audiobooster
+        run: flutter build apk --debug
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: audiobooster-onboarding-debug-apk
+          path: audiobooster/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
