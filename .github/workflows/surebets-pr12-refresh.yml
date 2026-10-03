@@ -1,4 +1,4 @@
-name: Refresh Surebets PR 12
+name: Refresh and verify Surebets PR 12
 
 on:
   push:
@@ -9,9 +9,9 @@ permissions:
   contents: read
 
 jobs:
-  refresh:
+  refresh-and-verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Validate private repository token
         env:
@@ -28,10 +28,42 @@ jobs:
           persist-credentials: false
           path: app
 
-      - name: Attempt merge from master
+      - name: Merge master
         working-directory: app
         run: |
           git config user.name 'OpenAI'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git merge --no-commit --no-ff origin/master
-          git status --short
+          git merge --no-ff origin/master -m 'merge: sync master into engagement soft paywall [skip ci]'
+          git diff --check HEAD^ HEAD
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: app
+        run: flutter analyze
+
+      - name: Run Flutter tests
+        working-directory: app
+        run: flutter test
+
+      - name: Push verified refresh
+        if: success()
+        working-directory: app
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git remote set-url origin "https://x-access-token:${REPO_TOKEN}@github.com/Persie0/surebets_calculator.git"
+          git push origin HEAD:feature/engagement-soft-paywall
