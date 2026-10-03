@@ -1,0 +1,66 @@
+name: Temporary AudioBooster package/root final gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tmp-audiobooster-package-root-final.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out AudioBooster feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: feature/supported-app-icons
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: audiobooster
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: audiobooster-package-root-final-${{ runner.os }}-v1
+      - name: Install dependencies
+        working-directory: audiobooster
+        run: flutter pub get
+      - name: Verify package-only history and root removal
+        working-directory: audiobooster
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e tool/android/com/persie0/audiobooster/audio/RootSessionDetector.kt
+          test ! -e tool/android/com/persie0/audiobooster/audio/AudioFlingerDumpParser.kt
+          test ! -e tool/android/com/persie0/audiobooster/audio/SessionDescriptor.kt
+          ! grep -RniE '\b(root|Root|ROOT)\b' lib tool/android android/app/src/main/kotlin README.md
+          ! grep -E 'PackageManager|resolveLabel|getApplicationLabel|getApplicationIcon|"label"' tool/android/com/persie0/audiobooster/audio/SupportedAppHistory.kt
+          ! grep -R 'QUERY_ALL_PACKAGES' android/app/src/main/AndroidManifest.xml tool/bootstrap_android.sh
+      - name: Run Flutter tests
+        working-directory: audiobooster
+        run: flutter test
+      - name: Analyze
+        working-directory: audiobooster
+        run: flutter analyze
+      - name: Bootstrap Android twice
+        working-directory: audiobooster
+        run: |
+          bash tool/bootstrap_android.sh
+          bash tool/bootstrap_android.sh
+      - name: Android unit tests and instrumentation compilation
+        working-directory: audiobooster/android
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebugAndroidTest
+      - name: Build debug APK
+        working-directory: audiobooster
+        run: flutter build apk --debug
