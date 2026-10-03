@@ -17,24 +17,13 @@ jobs:
     env:
       TARGET_REPO: Persie0/firebase_tester_builder
     steps:
-      - name: Resolve cross-repository token
-        env:
-          CROSS_REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${CROSS_REPO_TOKEN:-}" ]; then
-            echo "::error::No Playground cross-repository token is configured."
-            exit 1
-          fi
-          echo "CROSS_REPO_TOKEN=$CROSS_REPO_TOKEN" >> "$GITHUB_ENV"
-
       - name: Verify exact builder workflow inventory
         env:
-          GH_TOKEN: ${{ env.CROSS_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
+          test -n "${GH_TOKEN:-}"
           expected="$(printf '%s\n' app_store_auto.yml debug_build_release_reusable.yml debug_create_app.yml play_auto.yml | sort)"
           actual="$(gh api "repos/${TARGET_REPO}/contents/.github/workflows?ref=main" --jq '.[].name' | sort)"
           if [ "$actual" != "$expected" ]; then
@@ -45,7 +34,7 @@ jobs:
 
       - name: Rebuild audited deletion set
         env:
-          GH_TOKEN: ${{ env.CROSS_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -68,12 +57,44 @@ jobs:
 
       - name: Delete audited obsolete workflow runs
         env:
-          GH_TOKEN: ${{ env.CROSS_REPO_TOKEN }}
+          TOKEN_RELEASE: ${{ secrets.GH_RELEASE_TOKEN }}
+          TOKEN_PRIVATE: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          TOKEN_GH: ${{ secrets.GH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          deleted=0
-          while IFS=$'\t' read -r run_id status path; do
+
+          first_run_id="$(head -n 1 /tmp/obsolete-runs.tsv | cut -f1)"
+          if [ -z "$first_run_id" ]; then
+            echo "No obsolete workflow runs remain."
+            exit 0
+          fi
+
+          selected=""
+          for token_name in TOKEN_PRIVATE TOKEN_RELEASE TOKEN_GH; do
+            token="${!token_name:-}"
+            [ -n "$token" ] || continue
+            echo "Testing Actions-write permission with $token_name on obsolete run $first_run_id"
+            if GH_TOKEN="$token" gh api --silent --method DELETE "repos/${TARGET_REPO}/actions/runs/${first_run_id}" 2>/tmp/delete-error.log; then
+              selected="$token"
+              echo "Using $token_name for obsolete-run cleanup."
+              break
+            fi
+            if grep -q 'HTTP 403' /tmp/delete-error.log; then
+              echo "$token_name lacks Actions-write permission; trying next configured token."
+              continue
+            fi
+            cat /tmp/delete-error.log
+            exit 1
+          done
+
+          if [ -z "$selected" ]; then
+            echo "::error::None of the configured Playground tokens can delete workflow runs in ${TARGET_REPO}."
+            exit 1
+          fi
+
+          deleted=1
+          tail -n +2 /tmp/obsolete-runs.tsv | while IFS=$'\t' read -r run_id status path; do
             [ -n "${run_id:-}" ] || continue
             case "$path" in
               .github/workflows/app_store_auto.yml|.github/workflows/play_auto.yml|.github/workflows/debug_build_release_reusable.yml|.github/workflows/debug_create_app.yml)
@@ -81,17 +102,13 @@ jobs:
                 exit 1
                 ;;
             esac
-            gh api --method DELETE "repos/${TARGET_REPO}/actions/runs/${run_id}"
-            deleted=$((deleted + 1))
-            if (( deleted % 50 == 0 )); then
-              echo "Deleted $deleted obsolete runs..."
-            fi
-          done < /tmp/obsolete-runs.tsv
-          echo "Deleted $deleted obsolete workflow runs."
+            GH_TOKEN="$selected" gh api --silent --method DELETE "repos/${TARGET_REPO}/actions/runs/${run_id}"
+          done
+          echo "Obsolete workflow run deletion completed."
 
       - name: Verify only four workflow histories remain
         env:
-          GH_TOKEN: ${{ env.CROSS_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
