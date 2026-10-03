@@ -54,13 +54,33 @@ jobs:
         run: |
           set -euo pipefail
           python3 harness/tools/repair_photosphere_build.py photosphere app
-          dart format app/lib/src/services
 
-      - name: Bootstrap generated platforms
+      - name: Generate and configure platforms
         shell: bash
         run: |
           set -euo pipefail
-          (cd app && bash tool/bootstrap.sh)
+          cd app
+          flutter create --platforms=android,ios --org com.persie --no-pub .
+          dart run tool/configure_platforms.dart
+          dart run tool/set_android_sdk37.dart
+          if ! git ls-files --error-unmatch test/widget_test.dart >/dev/null 2>&1; then
+            rm -f test/widget_test.dart
+          fi
+          flutter pub get
+          dart format lib/src/services/math_compat.dart \
+            lib/src/services/keypoint_compat.dart \
+            lib/src/services/opencv_compat.dart \
+            lib/src/services/photosphere_engine.dart \
+            lib/src/services/sift_graph_rescue.dart \
+            lib/src/services/local_residual_warp.dart \
+            lib/src/services/motion_registration_masks.dart \
+            lib/src/services/hybrid_local_warp.dart \
+            lib/src/services/advanced_photosphere_engine.dart \
+            lib/src/services/structure_line_protector.dart \
+            lib/src/services/structure_preserving_warp.dart \
+            lib/src/services/dynamic_region_cleaner.dart \
+            lib/src/services/local_patch_alignment_repair.dart \
+            lib/src/services/xfeat_matcher.dart
 
       - name: Run Flutter tests
         shell: bash
@@ -104,7 +124,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 harness/tools/repair_photosphere_build.py builder builder
+          python3 harness/tools/patch_builder_flutter_bootstrap.py builder
           git -C builder diff --check
 
       - name: Commit shared builder fix
