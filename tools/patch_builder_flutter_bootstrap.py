@@ -13,10 +13,10 @@ insertion = r'''
             PROJECT_NAME="$(sed -n 's/^name:[[:space:]]*//p' pubspec.yaml | head -n1 | tr '-' '_')"
             flutter create --platforms=android --project-name="$PROJECT_NAME" --no-pub .
             if [ -f tool/configure_platforms.dart ]; then
-              dart run tool/configure_platforms.dart
+              dart tool/configure_platforms.dart
             fi
             if [ -f tool/set_android_sdk37.dart ]; then
-              dart run tool/set_android_sdk37.dart
+              dart tool/set_android_sdk37.dart
             elif [ -f tool/configure_android_sdk.sh ]; then
               bash tool/configure_android_sdk.sh
             fi
