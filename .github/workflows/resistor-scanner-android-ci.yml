@@ -30,7 +30,7 @@ jobs:
           repository: ${{ env.APP_REPOSITORY }}
           ref: ${{ env.APP_REF }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
+          persist-credentials: true
           path: app
 
       - uses: actions/setup-java@v5
@@ -54,9 +54,23 @@ jobs:
           sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null
 
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+          validate-wrappers: false
+
+      - name: Regenerate official Gradle wrapper
+        working-directory: app
+        run: |
+          gradle wrapper --gradle-version 8.13 --distribution-type bin
+          chmod +x gradlew
+          if ! git diff --quiet -- gradlew gradlew.bat gradle/wrapper; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add gradlew gradlew.bat gradle/wrapper
+            git commit -m "chore: use official Gradle 8.13 wrapper"
+            git push origin "HEAD:${APP_REF}"
+          fi
 
       - name: Unit tests and compile checks
         working-directory: app
-        run: |
-          chmod +x gradlew
-          ./gradlew --no-daemon clean testDebugUnitTest assembleDebug assembleDebugAndroidTest
+        run: ./gradlew --no-daemon clean testDebugUnitTest assembleDebug assembleDebugAndroidTest
