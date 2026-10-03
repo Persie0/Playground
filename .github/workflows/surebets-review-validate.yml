@@ -46,21 +46,13 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           path = Path('lib/services/subscription_service.dart')
-          text = path.read_text()
-          old = """    try {
-              await _updateProStatus(await Purchases.getCustomerInfo());
-              _installLifecycleRefresh();
-            } on PlatformException catch (e) {
-          """
-          new = """    _installLifecycleRefresh();
-
-            try {
-              await _updateProStatus(await Purchases.getCustomerInfo());
-            } on PlatformException catch (e) {
-          """
-          if old not in text:
-              raise SystemExit('Expected lifecycle block not found')
-          path.write_text(text.replace(old, new, 1))
+          lines = path.read_text().splitlines()
+          install = next(i for i, line in enumerate(lines) if line.strip() == '_installLifecycleRefresh();')
+          try_index = next(i for i in range(install - 1, -1, -1) if lines[i].strip() == 'try {')
+          install_line = lines.pop(install)
+          lines.insert(try_index, install_line)
+          lines.insert(try_index + 1, '')
+          path.write_text('\n'.join(lines) + '\n')
           PY
           dart format lib/services/subscription_service.dart
           git diff --check
