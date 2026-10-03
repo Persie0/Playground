@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: photosphere-build-repair
+  cancel-in-progress: true
+
 jobs:
   repair-and-build:
     runs-on: ubuntu-latest
@@ -55,18 +59,40 @@ jobs:
           set -euo pipefail
           python3 harness/tools/repair_photosphere_build.py photosphere app
 
-      - name: Generate and configure platforms
+      - name: Generate platform runners
+        timeout-minutes: 5
         shell: bash
         run: |
           set -euo pipefail
           cd app
           flutter create --platforms=android,ios --org com.persie --no-pub .
-          dart run tool/configure_platforms.dart
-          dart run tool/set_android_sdk37.dart
           if ! git ls-files --error-unmatch test/widget_test.dart >/dev/null 2>&1; then
             rm -f test/widget_test.dart
           fi
+
+      - name: Configure platform runners
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd app
+          dart run tool/configure_platforms.dart
+          dart run tool/set_android_sdk37.dart
+
+      - name: Resolve Flutter dependencies
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd app
           flutter pub get
+
+      - name: Format repaired sources
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd app
           dart format lib/src/services/math_compat.dart \
             lib/src/services/keypoint_compat.dart \
             lib/src/services/opencv_compat.dart \
@@ -83,12 +109,14 @@ jobs:
             lib/src/services/xfeat_matcher.dart
 
       - name: Run Flutter tests
+        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
           (cd app && flutter test)
 
       - name: Build Android debug APK
+        timeout-minutes: 45
         shell: bash
         run: |
           set -euo pipefail
