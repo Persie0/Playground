@@ -1,0 +1,95 @@
+name: Temporary AudioBooster home UI implementation v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tmp-audiobooster-home-ui-apply2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out AudioBooster feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: feature/home-history-player-help
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: audiobooster
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Apply bounded UI changes
+        working-directory: audiobooster
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'missing expected block: {label}')
+              return text.replace(old, new, 1)
+
+          home_path = Path('lib/home/booster_home.dart')
+          home = home_path.read_text()
+          home = replace_once(home, "import '../audio/preset.dart';\n", "import '../audio/preset.dart';\nimport '../audio/supported_app.dart';\n", 'supported app import')
+          home = replace_once(home, "  String _preset = 'Custom';\n", "  String _preset = 'Custom';\n  bool _supportedAppsLoaded = false;\n  List<SupportedApp> _supportedApps = const <SupportedApp>[];\n", 'history state')
+          home = replace_once(home, "    _load();\n  }\n\n  Future<void> _load() async {", "    _load();\n    _loadSupportedApps();\n  }\n\n  Future<void> _load() async {", 'history initial load')
+          load_method = '''\n  Future<void> _loadSupportedApps() async {\n    try {\n      final apps = [...await _audio.getSupportedApps()]\n        ..sort((a, b) => b.lastSeenEpochMs.compareTo(a.lastSeenEpochMs));\n      if (!mounted) return;\n      setState(() {\n        _supportedApps = apps.take(3).toList(growable: false);\n        _supportedAppsLoaded = true;\n      });\n    } catch (_) {\n      if (!mounted) return;\n      setState(() {\n        _supportedApps = const <SupportedApp>[];\n        _supportedAppsLoaded = true;\n      });\n    }\n  }\n'''
+          home = replace_once(home, "\n  void _startVolumeSync() {", load_method + "\n  void _startVolumeSync() {", 'history loader method')
+          home = replace_once(home, "      _refreshNativeState();\n      _refreshVolume();\n      _startVolumeSync();", "      _refreshNativeState();\n      _loadSupportedApps();\n      _refreshVolume();\n      _startVolumeSync();", 'resume refresh')
+          home = replace_once(home, "          onLimiterChanged: (value) async {\n            if (!mounted) return;\n            setState(() => _limiterEnabled = value);\n            await _apply();\n          },\n", "          onLimiterChanged: (value) async {\n            if (!mounted) return;\n            setState(() => _limiterEnabled = value);\n            await _apply();\n          },\n          onHelpRequested: _showHelp,\n", 'advanced help callback')
+          home, count = re.subn(r"return Scaffold\(\n      appBar: AppBar\([\s\S]*?\n      body:", "return Scaffold(\n      body:", home, count=1)
+          if count != 1: raise SystemExit('failed to remove home app bar')
+          home = replace_once(home, "                  _boostCard(presentation),\n                  const SizedBox(height: 24),", "                  _boostCard(presentation),\n                  if (_supportedAppsLoaded && _supportedApps.isNotEmpty) ...[\n                    const SizedBox(height: 12),\n                    _supportedAppsCard(),\n                  ],\n                  const SizedBox(height: 24),", 'history placement')
+          home, count = re.subn(r"\n                Icon\(\n                  active[\s\S]*?\n                \),\n                const SizedBox\(width: 14\),", "", home, count=1)
+          if count != 1: raise SystemExit('failed to remove boost status icon')
+          home = replace_once(home, "                Switch(\n                  value: _enabled,\n                  onChanged: (value) {\n                    setState(() => _enabled = value);\n                    _apply();\n                  },\n                ),", "                Row(\n                  mainAxisSize: MainAxisSize.min,\n                  children: [\n                    Switch(\n                      value: _enabled,\n                      onChanged: (value) {\n                        setState(() => _enabled = value);\n                        _apply();\n                      },\n                    ),\n                    IconButton(\n                      key: const Key('home-settings-button'),\n                      tooltip: 'Settings',\n                      onPressed: _showAdvanced,\n                      icon: const Icon(Icons.settings_rounded),\n                    ),\n                  ],\n                ),", 'switch settings row')
+          history_method = '''\n  Widget _supportedAppsCard() => Card(\n        child: Padding(\n          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),\n          child: Column(\n            crossAxisAlignment: CrossAxisAlignment.start,\n            children: [\n              Text(\n                'Apps that worked before',\n                style: Theme.of(context).textTheme.titleSmall?.copyWith(\n                      fontWeight: FontWeight.w700,\n                    ),\n              ),\n              const SizedBox(height: 4),\n              Text(\n                'Most recent compatible media apps',\n                style: Theme.of(context).textTheme.bodySmall,\n              ),\n              const SizedBox(height: 6),\n              for (var index = 0; index < _supportedApps.length; index++) ...[\n                if (index > 0) const Divider(height: 1),\n                Padding(\n                  padding: const EdgeInsets.symmetric(vertical: 10),\n                  child: Text(\n                    _supportedApps[index].packageName,\n                    style: Theme.of(context).textTheme.bodyMedium,\n                  ),\n                ),\n              ],\n            ],\n          ),\n        ),\n      );\n'''
+          home = replace_once(home, "\n  Widget _volumeCard() => Card(", history_method + "\n  Widget _volumeCard() => Card(", 'history card method')
+          home_path.write_text(home)
+
+          advanced_path = Path('lib/advanced/advanced_audio_page.dart')
+          advanced = advanced_path.read_text()
+          advanced = replace_once(advanced, "    required this.onLimiterChanged,\n  });", "    required this.onLimiterChanged,\n    this.onHelpRequested,\n  });", 'advanced constructor')
+          advanced = replace_once(advanced, "  final Future<void> Function(bool enabled) onLimiterChanged;\n", "  final Future<void> Function(bool enabled) onLimiterChanged;\n  final Future<void> Function()? onHelpRequested;\n", 'advanced help field')
+          advanced = advanced.replace("  bool _supportedAppsLoaded = false;\n", "")
+          advanced = advanced.replace("        _supportedAppsLoaded = true;\n", "")
+          advanced = replace_once(advanced, "              const SizedBox(height: 20),\n              _supportedAppsCard(),\n              const SizedBox(height: 12),\n              TechnicalDetailsSection(", "              const SizedBox(height: 20),\n              TechnicalDetailsSection(", 'remove duplicate history card')
+          advanced = replace_once(advanced, "              TechnicalDetailsSection(\n                status: widget.status,\n                compatibility: _compatibility,\n                supportedApps: _supportedApps,\n              ),\n", "              TechnicalDetailsSection(\n                status: widget.status,\n                compatibility: _compatibility,\n                supportedApps: _supportedApps,\n              ),\n              if (widget.onHelpRequested != null) ...[\n                const SizedBox(height: 12),\n                OutlinedButton.icon(\n                  onPressed: widget.onHelpRequested,\n                  icon: const Icon(Icons.help_outline_rounded),\n                  label: const Text('Help & setup'),\n                ),\n              ],\n", 'advanced help button')
+          advanced, count = re.subn(r"\n  Widget _supportedAppsCard\(\) => Card\([\s\S]*?\n      \);\n\n  Widget _modeTile\(", "\n  Widget _modeTile(", advanced, count=1)
+          if count != 1: raise SystemExit('failed to remove old advanced history card method')
+          advanced_path.write_text(advanced)
+
+          Path('test/supported_app_history_test.dart').write_text('''import 'dart:io';\n\nimport 'package:flutter_test/flutter_test.dart';\n\nvoid main() {\n  test('native supported-app history stores package IDs without app metadata', () {\n    final engine = File(\n      'tool/android/com/persie0/audiobooster/audio/AudioBoostEngine.kt',\n    ).readAsStringSync();\n    final history = File(\n      'tool/android/com/persie0/audiobooster/audio/SupportedAppHistory.kt',\n    ).readAsStringSync();\n    final model = File('lib/audio/supported_app.dart').readAsStringSync();\n\n    expect(engine, contains('private val supportedApps = SupportedAppHistory(appContext)'));\n    expect(\n      engine,\n      contains(\n        'if (sessions.open(sessionId, packageName, SessionEffectManager.SOURCE_BROADCAST)) {\\n'\n        '            supportedApps.record(packageName)',\n      ),\n    );\n    expect(engine, contains('fun getSupportedApps(): List<Map<String, Any>>'));\n    expect(history, contains('MAX_ENTRIES = 50'));\n    expect(history, contains('distinctBy { it.packageName }'));\n    expect(history, contains('sortedByDescending { it.lastSeenEpochMs }'));\n    expect(history, isNot(contains('PackageManager')));\n    expect(history, isNot(contains('resolveLabel')));\n    expect(history, isNot(contains('"label"')));\n    expect(model, isNot(contains('label')));\n  });\n}\n''')
+          PY
+      - name: Format
+        working-directory: audiobooster
+        run: dart format lib/home/booster_home.dart lib/advanced/advanced_audio_page.dart test/supported_app_history_test.dart test/home_history_tutorial_test.dart
+      - name: Install dependencies
+        working-directory: audiobooster
+        run: flutter pub get
+      - name: Verify focused behavior
+        working-directory: audiobooster
+        run: flutter test test/home_history_tutorial_test.dart test/supported_app_history_test.dart test/advanced_audio_page_test.dart test/automatic_setup_fallback_test.dart
+      - name: Analyze
+        working-directory: audiobooster
+        run: flutter analyze
+      - name: Commit implementation
+        working-directory: audiobooster
+        shell: bash
+        run: |
+          git config user.name "Persie0"
+          git config user.email "76871553+Persie0@users.noreply.github.com"
+          git add lib/home/booster_home.dart lib/advanced/advanced_audio_page.dart test/supported_app_history_test.dart test/home_history_tutorial_test.dart
+          git commit -m "ui: simplify home and move recent app history" || exit 0
+          git push origin HEAD:feature/home-history-player-help
