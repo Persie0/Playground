@@ -1,4 +1,4 @@
-name: Fix HanziHero PR81 stale test expectation
+name: Fix HanziHero PR81 daily limit gate
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   fix:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Validate private repository token
         env:
@@ -29,27 +29,36 @@ jobs:
           fetch-depth: 0
           path: app
 
-      - name: Correct Pro counter expectation
+      - name: Apply reviewed fixes
         working-directory: app
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('test/providers/safe_settings_provider_test.dart')
-          text = path.read_text()
-          old = 'expect(pro.dailyCardsViewed, 51);'
-          new = 'expect(pro.dailyCardsViewed, 31);'
-          if old not in text:
-              raise SystemExit('stale expectation target not found')
-          path.write_text(text.replace(old, new, 1))
+
+          source_path = Path('lib/screens/sentence_build/sentence_build_result_screen.dart')
+          source = source_path.read_text()
+          old = 'if (!settings.isPro && settings.dailyCardsViewed >= SettingsProvider.maxDailyFreeInteractions) {'
+          new = 'if (!settings.canInteract) {'
+          if old not in source:
+              raise SystemExit('expected sentence-build limit gate not found')
+          source_path.write_text(source.replace(old, new, 1))
+
+          test_path = Path('test/daily_free_interaction_limit_guard_test.dart')
+          test = test_path.read_text()
+          old_test = """    expect(\n      sentenceResult,\n      contains(\n        'settings.dailyCardsViewed >= SettingsProvider.maxDailyFreeInteractions',\n      ),\n    );\n    expect(sentenceResult, isNot(contains('settings.dailyCardsViewed >= 50')));\n"""
+          new_test = """    expect(sentenceResult, contains('if (!settings.canInteract) {'));\n    expect(\n      sentenceResult,\n      isNot(contains('settings.dailyCardsViewed >=')),\n    );\n"""
+          if old_test not in test:
+              raise SystemExit('expected contradictory guard assertion not found')
+          test_path.write_text(test.replace(old_test, new_test, 1))
           PY
           git diff --check
-          git diff -- test/providers/safe_settings_provider_test.dart
+          git diff -- lib/screens/sentence_build/sentence_build_result_screen.dart test/daily_free_interaction_limit_guard_test.dart
 
       - name: Commit and push
         working-directory: app
         run: |
           git config user.name 'OpenAI'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add test/providers/safe_settings_provider_test.dart
-          git commit -m 'test: update Pro counter expectation for 30-action cap [skip ci]'
+          git add lib/screens/sentence_build/sentence_build_result_screen.dart test/daily_free_interaction_limit_guard_test.dart
+          git commit -m 'fix: use rollover-aware daily interaction gate [skip ci]'
           git push origin HEAD:chore/lower-free-interactions-limit-to-30
