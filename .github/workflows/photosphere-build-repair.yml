@@ -58,6 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 harness/tools/repair_photosphere_build.py photosphere app
+          python3 harness/tools/patch_photosphere_kotlin.py app
 
       - name: Generate platform runners
         timeout-minutes: 5
@@ -93,7 +94,8 @@ jobs:
         run: |
           set -euo pipefail
           cd app
-          dart format lib/src/services/math_compat.dart \
+          dart format tool/configure_platforms.dart \
+            lib/src/services/math_compat.dart \
             lib/src/services/keypoint_compat.dart \
             lib/src/services/opencv_compat.dart \
             lib/src/services/photosphere_engine.dart \
@@ -130,7 +132,7 @@ jobs:
           set -euo pipefail
           git -C app config user.name 'Persie0'
           git -C app config user.email '76871553+Persie0@users.noreply.github.com'
-          git -C app add lib/src/services
+          git -C app add lib/src/services tool/configure_platforms.dart
           if git -C app diff --cached --quiet; then
             echo 'No Photosphere source changes to commit.'
           else
