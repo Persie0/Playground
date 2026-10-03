@@ -1,0 +1,71 @@
+name: Fix HanziHero PR81
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hanzi-pr81-fix.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate private repository token
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$REPO_TOKEN"
+
+      - name: Checkout HanziHero PR81 branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/hanzi_hero
+          ref: chore/lower-free-interactions-limit-to-30
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: app
+
+      - name: Apply reviewed daily-limit fixes
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path('lib/providers/safe_settings_provider.dart'): [
+                  ('_safeDailyCardsViewed >= 50',
+                   '_safeDailyCardsViewed >= SettingsProvider.maxDailyFreeInteractions'),
+              ],
+              Path('lib/screens/sentence_build/sentence_build_result_screen.dart'): [
+                  ('settings.dailyCardsViewed >= 50',
+                   'settings.dailyCardsViewed >= SettingsProvider.maxDailyFreeInteractions'),
+              ],
+              Path('test/providers/settings_provider_test.dart'): [
+                  ("'daily_cards_viewed': 48,", "'daily_cards_viewed': 28,"),
+              ],
+          }
+
+          for path, pairs in replacements.items():
+              text = path.read_text()
+              for old, new in pairs:
+                  if old not in text:
+                      raise SystemExit(f'{path}: target not found: {old}')
+                  text = text.replace(old, new, 1)
+              path.write_text(text)
+          PY
+
+          git diff --check
+          git diff -- lib/providers/safe_settings_provider.dart lib/screens/sentence_build/sentence_build_result_screen.dart test/providers/settings_provider_test.dart
+
+      - name: Commit and push
+        working-directory: app
+        run: |
+          git config user.name 'OpenAI'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/providers/safe_settings_provider.dart lib/screens/sentence_build/sentence_build_result_screen.dart test/providers/settings_provider_test.dart
+          git commit -m 'fix: centralize 30-action enforcement [skip ci]'
+          git push origin HEAD:chore/lower-free-interactions-limit-to-30
