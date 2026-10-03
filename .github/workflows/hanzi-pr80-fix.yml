@@ -1,0 +1,72 @@
+name: Fix HanziHero PR80
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hanzi-pr80-fix.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate private repository token
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$REPO_TOKEN"
+
+      - name: Checkout HanziHero PR branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/hanzi_hero
+          ref: fix/revenuecat-startup-hardening
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: app
+
+      - name: Apply reviewed fixes
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          main = Path('lib/main.dart')
+          text = main.read_text()
+          old = """Future<void> _refreshSubscriptionState() async {
+            try {
+              await SubscriptionService.instance.refreshCustomerInfo();
+          """
+          new = """Future<void> _refreshSubscriptionState() async {
+            try {
+              await SubscriptionService.instance.initializeSDK();
+              await SubscriptionService.instance.refreshCustomerInfo();
+          """
+          if old not in text:
+              raise SystemExit('main.dart target not found')
+          main.write_text(text.replace(old, new, 1))
+
+          store = Path('lib/screens/store_screen.dart')
+          text = store.read_text()
+          old = "content: Text(l10n.restoreCompleted),\n            action: SnackBarAction(\n              label: l10n.restorePurchases,\n              onPressed: _restorePurchases,"
+          new = "content: Text(l10n.restorePurchasesDescription),\n            action: SnackBarAction(\n              label: l10n.restorePurchases,\n              onPressed: _restorePurchases,"
+          if old not in text:
+              raise SystemExit('store_screen.dart target not found')
+          store.write_text(text.replace(old, new, 1))
+          PY
+
+          git diff --check
+          git diff -- lib/main.dart lib/screens/store_screen.dart
+
+      - name: Commit and push
+        working-directory: app
+        run: |
+          git config user.name 'OpenAI'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/main.dart lib/screens/store_screen.dart
+          git commit -m 'fix: address RevenueCat lifecycle review [skip ci]'
+          git push origin HEAD:fix/revenuecat-startup-hardening
