@@ -45,19 +45,26 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           path = Path('lib/services/subscription_service.dart')
-          text = path.read_text()
-          old = '''    try {
-      await _updateProStatus(await Purchases.getCustomerInfo());
-      _installLifecycleRefresh();
-    } on PlatformException catch (e) {'''
-          new = '''    _installLifecycleRefresh();
-
-    try {
-      await _updateProStatus(await Purchases.getCustomerInfo());
-    } on PlatformException catch (e) {'''
-          if old not in text:
+          lines = path.read_text().splitlines()
+          replaced = False
+          for i in range(len(lines) - 2):
+              if (
+                  lines[i].strip() == 'try {'
+                  and lines[i + 1].strip() == 'await _updateProStatus(await Purchases.getCustomerInfo());'
+                  and lines[i + 2].strip() == '_installLifecycleRefresh();'
+              ):
+                  indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+                  lines[i:i + 3] = [
+                      f'{indent}_installLifecycleRefresh();',
+                      '',
+                      f'{indent}try {{',
+                      f'{indent}  await _updateProStatus(await Purchases.getCustomerInfo());',
+                  ]
+                  replaced = True
+                  break
+          if not replaced:
               raise SystemExit('Expected lifecycle block not found')
-          path.write_text(text.replace(old, new, 1))
+          path.write_text('\n'.join(lines) + '\n')
           PY
           dart format lib/services/subscription_service.dart
           git diff --check
