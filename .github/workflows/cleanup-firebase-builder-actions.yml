@@ -1,4 +1,4 @@
-name: Audit firebase tester builder Actions cleanup
+name: Cleanup firebase tester builder Actions history
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  audit:
+  cleanup:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
     env:
       TARGET_REPO: Persie0/firebase_tester_builder
     steps:
@@ -38,12 +38,12 @@ jobs:
           expected="$(printf '%s\n' app_store_auto.yml debug_build_release_reusable.yml debug_create_app.yml play_auto.yml | sort)"
           actual="$(gh api "repos/${TARGET_REPO}/contents/.github/workflows?ref=main" --jq '.[].name' | sort)"
           if [ "$actual" != "$expected" ]; then
-            echo "::error::Unexpected builder workflow inventory"
+            echo "::error::Unexpected builder workflow inventory; refusing cleanup."
             printf 'Expected:\n%s\nActual:\n%s\n' "$expected" "$actual"
             exit 1
           fi
 
-      - name: Audit historical workflow runs
+      - name: Rebuild audited deletion set
         env:
           GH_TOKEN: ${{ env.CROSS_REPO_TOKEN }}
         shell: bash
@@ -59,9 +59,57 @@ jobs:
             $3 != ".github/workflows/debug_create_app.yml"
           ' /tmp/all-runs.tsv > /tmp/obsolete-runs.tsv
 
-          echo "Total runs: $(wc -l < /tmp/all-runs.tsv)"
-          echo "Obsolete runs: $(wc -l < /tmp/obsolete-runs.tsv)"
-          echo "Obsolete workflow paths:"
-          cut -f3 /tmp/obsolete-runs.tsv | sort | uniq -c | sort -nr
+          obsolete="$(wc -l < /tmp/obsolete-runs.tsv | tr -d ' ')"
+          echo "Obsolete runs to delete: $obsolete"
+          if [ "$obsolete" -gt 726 ]; then
+            echo "::error::Deletion set grew beyond the audited 726 runs; refusing cleanup."
+            exit 1
+          fi
 
-# Triggered intentionally once for the cleanup audit.
+      - name: Delete audited obsolete workflow runs
+        env:
+          GH_TOKEN: ${{ env.CROSS_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          deleted=0
+          while IFS=$'\t' read -r run_id status path; do
+            [ -n "${run_id:-}" ] || continue
+            case "$path" in
+              .github/workflows/app_store_auto.yml|.github/workflows/play_auto.yml|.github/workflows/debug_build_release_reusable.yml|.github/workflows/debug_create_app.yml)
+                echo "::error::Refusing to delete allowlisted workflow run $run_id ($path)"
+                exit 1
+                ;;
+            esac
+            gh api --method DELETE "repos/${TARGET_REPO}/actions/runs/${run_id}"
+            deleted=$((deleted + 1))
+            if (( deleted % 50 == 0 )); then
+              echo "Deleted $deleted obsolete runs..."
+            fi
+          done < /tmp/obsolete-runs.tsv
+          echo "Deleted $deleted obsolete workflow runs."
+
+      - name: Verify only four workflow histories remain
+        env:
+          GH_TOKEN: ${{ env.CROSS_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${TARGET_REPO}/actions/runs?per_page=100" \
+            --jq '.workflow_runs[] | [.id, .path] | @tsv' > /tmp/remaining-runs.tsv
+
+          unexpected="$(awk -F '\t' '
+            $2 != ".github/workflows/app_store_auto.yml" &&
+            $2 != ".github/workflows/play_auto.yml" &&
+            $2 != ".github/workflows/debug_build_release_reusable.yml" &&
+            $2 != ".github/workflows/debug_create_app.yml"
+          ' /tmp/remaining-runs.tsv)"
+
+          if [ -n "$unexpected" ]; then
+            echo "::error::Obsolete workflow runs still remain:"
+            printf '%s\n' "$unexpected"
+            exit 1
+          fi
+
+          echo "Remaining workflow histories:"
+          cut -f2 /tmp/remaining-runs.tsv | sort | uniq -c | sort -nr
