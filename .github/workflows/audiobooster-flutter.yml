@@ -15,6 +15,18 @@ jobs:
     steps:
       - name: Check out Playground
         uses: actions/checkout@v4
+      - name: Select validation profile
+        id: mode
+        run: |
+          profile=flutter
+          if [ -f .ci-trigger-audiobooster-onboarding ]; then
+            requested="$(sed -n 's/^profile=//p' .ci-trigger-audiobooster-onboarding | head -n 1)"
+            case "$requested" in
+              flutter|native|full) profile="$requested" ;;
+            esac
+          fi
+          echo "profile=$profile" >> "$GITHUB_OUTPUT"
+          echo "Validation profile: $profile"
       - name: Check out AudioBooster feature branch
         uses: actions/checkout@v4
         with:
@@ -41,32 +53,44 @@ jobs:
         continue-on-error: true
         working-directory: audiobooster
         run: flutter analyze
+      - name: Cache Gradle
+        if: ${{ steps.mode.outputs.profile == 'native' || steps.mode.outputs.profile == 'full' }}
+        uses: gradle/actions/setup-gradle@v4
       - name: Generate Android project and install native audio bridge
+        if: ${{ steps.mode.outputs.profile == 'native' || steps.mode.outputs.profile == 'full' }}
         working-directory: audiobooster
         run: bash tool/bootstrap_android.sh
       - name: Run AudioBooster Android unit tests
+        if: ${{ steps.mode.outputs.profile == 'native' || steps.mode.outputs.profile == 'full' }}
         id: native_tests
         continue-on-error: true
         working-directory: audiobooster/android
         run: ./gradlew :app:testDebugUnitTest
       - name: Build debug APK
+        if: ${{ steps.mode.outputs.profile == 'full' }}
         id: build
         continue-on-error: true
         working-directory: audiobooster
         run: flutter build apk --debug
-      - name: Fail if any validation failed
+      - name: Fail if any requested validation failed
         if: always()
         run: |
+          profile="${{ steps.mode.outputs.profile }}"
+          echo "profile=$profile"
           echo "flutter_tests=${{ steps.flutter_tests.outcome }}"
           echo "analyze=${{ steps.analyze.outcome }}"
           echo "native_tests=${{ steps.native_tests.outcome }}"
           echo "build=${{ steps.build.outcome }}"
           test "${{ steps.flutter_tests.outcome }}" = success
           test "${{ steps.analyze.outcome }}" = success
-          test "${{ steps.native_tests.outcome }}" = success
-          test "${{ steps.build.outcome }}" = success
+          if [ "$profile" = native ] || [ "$profile" = full ]; then
+            test "${{ steps.native_tests.outcome }}" = success
+          fi
+          if [ "$profile" = full ]; then
+            test "${{ steps.build.outcome }}" = success
+          fi
       - name: Upload debug APK
-        if: ${{ steps.build.outcome == 'success' }}
+        if: ${{ steps.mode.outputs.profile == 'full' && steps.build.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: audiobooster-onboarding-debug-apk
