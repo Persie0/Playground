@@ -1,0 +1,38 @@
+name: Refresh Surebets PR 12
+
+on:
+  push:
+    paths:
+      - '.github/workflows/surebets-pr12-refresh.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate private repository token
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$REPO_TOKEN"
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/surebets_calculator
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          ref: feature/engagement-soft-paywall
+          fetch-depth: 0
+          persist-credentials: false
+          path: app
+
+      - name: Attempt merge from master
+        working-directory: app
+        run: |
+          git config user.name 'OpenAI'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin master
+          git merge --no-commit --no-ff origin/master
+          git status --short
