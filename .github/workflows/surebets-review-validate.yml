@@ -12,14 +12,14 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Validate private repository token
         env:
           REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: test -n "$REPO_TOKEN"
 
-      - name: Checkout Surebets review branch
+      - name: Checkout Surebets PR 12 branch
         uses: actions/checkout@v5
         with:
           repository: Persie0/surebets_calculator
@@ -44,6 +44,10 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      - name: Run focused regression test
+      - name: Analyze
         working-directory: app
-        run: flutter test test/soft_paywall_trigger_test.dart
+        run: flutter analyze
+
+      - name: Run Flutter tests
+        working-directory: app
+        run: flutter test
