@@ -1,0 +1,29 @@
+name: Verify resistor alignment TDD
+
+on:
+  push:
+    paths:
+      - '.github/workflows/verify_resistor_alignment_tdd.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout resistor_model feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor_model
+          ref: feature/segmentation-alignment-colab
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install test dependencies
+        run: python -m pip install -q pytest numpy
+
+      - name: Run alignment tests
+        env:
+          PYTHONPATH: src
+        run: pytest -q tests/test_alignment.py
