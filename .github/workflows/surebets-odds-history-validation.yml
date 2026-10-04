@@ -13,7 +13,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Validate private checkout token
         env:
@@ -39,6 +39,21 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      - name: Run fifth-active-odd regression
+      - name: Run paywall regression tests
         working-directory: app
-        run: flutter test test/fifth_active_odd_paywall_test.dart
+        run: |
+          flutter test test/fifth_active_odd_paywall_test.dart
+          flutter test test/history_paywall_cadence_test.dart
+          flutter test test/history_paywall_repeat_test.dart
+          flutter test test/history_paywall_recovery_test.dart
+          flutter test test/engagement_soft_paywall_pro_guard_test.dart
+          flutter test test/history_navigation_flush_test.dart
+          flutter test test/logical_bet_history_test.dart
+
+      - name: Run Flutter analyzer
+        working-directory: app
+        run: flutter analyze
+
+      - name: Run full Flutter test suite
+        working-directory: app
+        run: flutter test
