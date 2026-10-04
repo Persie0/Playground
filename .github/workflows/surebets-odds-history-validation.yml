@@ -1,4 +1,4 @@
-name: Surebets fifth-active-odd verification
+name: Surebets history flush and paywall cadence
 
 on:
   push:
@@ -20,11 +20,11 @@ jobs:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         run: test -n "$PRIVATE_TOKEN"
 
-      - name: Checkout Surebets fifth-active-odd branch
+      - name: Checkout Surebets history fix branch
         uses: actions/checkout@v5
         with:
           repository: Persie0/surebets_calculator
-          ref: fix/paywall-fifth-active-odd
+          ref: fix/history-flush-paywall-cadence
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: app
@@ -39,9 +39,15 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      - name: Run fifth-active-odd regression tests
+      - name: Run history regression tests
         working-directory: app
-        run: flutter test test/fifth_active_odd_paywall_test.dart
+        run: |
+          flutter test test/history_paywall_cadence_test.dart
+          flutter test test/history_paywall_repeat_test.dart
+          flutter test test/history_paywall_recovery_test.dart
+          flutter test test/history_navigation_flush_test.dart
+          flutter test test/logical_bet_history_test.dart
+          flutter test test/fifth_active_odd_paywall_test.dart
 
       - name: Run Flutter analyzer
         working-directory: app
