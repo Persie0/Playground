@@ -41,6 +41,7 @@ jobs:
           ref: main
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
+          lfs: true
           path: baseline
 
       - name: Checkout optimized branch
@@ -50,6 +51,7 @@ jobs:
           ref: perf/pi5-28fps-verified-fixes
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
+          lfs: true
           path: optimized
 
       - name: Install benchmark dependencies
@@ -67,6 +69,7 @@ jobs:
 
       - name: Run comparative benchmark suite
         run: |
+          set -o pipefail
           python benchmarks/traffic_pi5_arm64_bench.py \
             --baseline baseline/traffic-counting-edge-detection-master \
             --optimized optimized/traffic-counting-edge-detection-master \
