@@ -1,0 +1,91 @@
+name: Temporary AudioBooster player asset apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tmp-audiobooster-player-asset-apply.yml
+
+permissions:
+  contents: read
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out AudioBooster feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: feature/player-example-button-highlight
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: audiobooster
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Apply asset rename and button emphasis
+        working-directory: audiobooster
+        shell: bash
+        run: |
+          set -euo pipefail
+          git mv assets/IMG_20261004_142338.jpg assets/audio_player_example.jpg
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'missing expected block: {label}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'pubspec.yaml',
+              '    - assets/audio_player_example.webp\n',
+              '    - assets/audio_player_example.jpg\n',
+              'pubspec player asset',
+          )
+          replace_once(
+              'lib/home/setup_media_app_sheet.dart',
+              "                'assets/audio_player_example.webp',",
+              "                'assets/audio_player_example.jpg',",
+              'tutorial player asset',
+          )
+          replace_once(
+              'lib/home/booster_home.dart',
+              """                child: FilledButton.tonalIcon(\n                  onPressed: _showSetupSteps,\n                  icon: const Icon(Icons.play_circle_outline_rounded),\n                  label: const Text('Set up a media app'),\n                ),""",
+              """                child: FilledButton.icon(\n                  key: const Key('setup-media-app-button'),\n                  style: FilledButton.styleFrom(\n                    backgroundColor: scheme.primary,\n                    foregroundColor: scheme.onPrimary,\n                    minimumSize: const Size(0, 52),\n                    padding: const EdgeInsets.symmetric(\n                      horizontal: 20,\n                      vertical: 16,\n                    ),\n                    textStyle: Theme.of(context).textTheme.titleSmall?.copyWith(\n                          fontWeight: FontWeight.w700,\n                        ),\n                  ),\n                  onPressed: _showSetupSteps,\n                  icon: const Icon(Icons.play_circle_outline_rounded),\n                  label: const Text('Set up a media app'),\n                ),""",
+              'setup button',
+          )
+          PY
+          dart format lib/home/booster_home.dart lib/home/setup_media_app_sheet.dart test/home_history_tutorial_test.dart
+      - name: Install dependencies
+        working-directory: audiobooster
+        run: flutter pub get
+      - name: Focused green test
+        working-directory: audiobooster
+        run: flutter test test/home_history_tutorial_test.dart
+      - name: Commit implementation
+        working-directory: audiobooster
+        shell: bash
+        run: |
+          git config user.name "Persie0"
+          git config user.email "76871553+Persie0@users.noreply.github.com"
+          git add assets/audio_player_example.jpg assets/IMG_20261004_142338.jpg pubspec.yaml lib/home/setup_media_app_sheet.dart lib/home/booster_home.dart test/home_history_tutorial_test.dart
+          git commit -m "ui: use uploaded player example and emphasize setup action"
+          git push origin HEAD:feature/player-example-button-highlight
+      - name: Run all Flutter tests
+        working-directory: audiobooster
+        run: flutter test
+      - name: Analyze
+        working-directory: audiobooster
+        run: flutter analyze
+      - name: Bootstrap Android
+        working-directory: audiobooster
+        run: bash tool/bootstrap_android.sh
+      - name: Build debug APK
+        working-directory: audiobooster
+        run: flutter build apk --debug
