@@ -26,8 +26,57 @@ jobs:
           repository: Persie0/surebets_calculator
           ref: fix/history-flush-paywall-cadence
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
+          persist-credentials: true
           path: app
+
+      - name: Apply calculator history flush fix
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('lib/calculator_screen.dart')
+          source = path.read_text()
+
+          def replace_exact(old: str, new: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one match, found {count}: {old[:80]!r}')
+              source = source.replace(old, new, 1)
+
+          replace_exact(
+              "  Timer? _historySaveTimer;\n  final BetHistoryService _historyService = BetHistoryService();",
+              "  Timer? _historySaveTimer;\n  SureBetResult? _pendingHistoryResult;\n  Future<void>? _historySaveInFlight;\n  final BetHistoryService _historyService = BetHistoryService();",
+          )
+
+          replace_exact(
+              "      _historySaveTimer?.cancel();\n      _historySaveTimer = null;\n      _resetCalculation();",
+              "      _historySaveTimer?.cancel();\n      _historySaveTimer = null;\n      _pendingHistoryResult = null;\n      _resetCalculation();",
+          )
+
+          replace_exact(
+              "    // Debounced history save\n    _historySaveTimer?.cancel();\n    _historySaveTimer = Timer(const Duration(milliseconds: 800), () {\n      _saveToHistory(result);\n    });",
+              "    // Debounced history save. Keep the latest valid result available so\n    // navigation can flush it before the history screen reads persistence.\n    _pendingHistoryResult = result;\n    _historySaveTimer?.cancel();\n    _historySaveTimer = Timer(const Duration(milliseconds: 800), () {\n      unawaited(_flushPendingHistory());\n    });",
+          )
+
+          replace_exact(
+              "  void _saveToHistory(SureBetResult result) {\n    if (result.convertedOdds.isEmpty) return;\n    final entry = BetHistoryEntry(\n      timestamp: DateTime.now(),\n      odds: result.convertedOdds,\n      totalStake: result.totalStake,\n      profit: result.profit,\n      isSureBet: result.isSureBet,\n      stakeSplits: result.stakeSplits,\n      profitPercentage: result.profitPercentage,\n    );\n    _historyService.saveEntry(entry);\n  }",
+              "  Future<void> _saveToHistory(SureBetResult result) async {\n    if (result.convertedOdds.isEmpty) return;\n    final entry = BetHistoryEntry(\n      timestamp: DateTime.now(),\n      odds: result.convertedOdds,\n      totalStake: result.totalStake,\n      profit: result.profit,\n      isSureBet: result.isSureBet,\n      stakeSplits: result.stakeSplits,\n      profitPercentage: result.profitPercentage,\n    );\n    await _historyService.saveEntry(entry);\n  }\n\n  Future<void> _flushPendingHistory() async {\n    _historySaveTimer?.cancel();\n    _historySaveTimer = null;\n\n    final inFlight = _historySaveInFlight;\n    if (inFlight != null) {\n      await inFlight;\n    }\n\n    final result = _pendingHistoryResult;\n    if (result == null) return;\n    _pendingHistoryResult = null;\n\n    final save = _saveToHistory(result);\n    _historySaveInFlight = save;\n    try {\n      await save;\n    } finally {\n      if (identical(_historySaveInFlight, save)) {\n        _historySaveInFlight = null;\n      }\n    }\n  }\n\n  Future<void> _openHistory() async {\n    await _flushPendingHistory();\n    if (!mounted) return;\n    await Navigator.push(\n      context,\n      MaterialPageRoute(builder: (context) => const BetHistoryScreen()),\n    );\n  }",
+          )
+
+          replace_exact(
+              "            onPressed: () {\n              Navigator.push(\n                context,\n                MaterialPageRoute(\n                    builder: (context) => const BetHistoryScreen()),\n              );\n            },",
+              "            onPressed: () {\n              unawaited(_openHistory());\n            },",
+          )
+
+          replace_exact(
+              "    _historySaveTimer?.cancel();\n    tutorial?.finish();",
+              "    _historySaveTimer?.cancel();\n    _pendingHistoryResult = null;\n    tutorial?.finish();",
+          )
+
+          path.write_text(source)
+          PY
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -48,6 +97,7 @@ jobs:
           flutter test test/history_paywall_recovery_test.dart
           flutter test test/logical_bet_history_test.dart
           flutter test test/fifth_active_odd_paywall_test.dart
+          flutter test test/engagement_soft_paywall_pro_guard_test.dart
 
       - name: Run Flutter analyzer
         working-directory: app
@@ -56,3 +106,16 @@ jobs:
       - name: Run full Flutter test suite
         working-directory: app
         run: flutter test
+
+      - name: Commit verified calculator fix
+        working-directory: app
+        run: |
+          if git diff --quiet -- lib/calculator_screen.dart; then
+            echo "No calculator changes to commit"
+            exit 0
+          fi
+          git config user.name "Persie0"
+          git config user.email "76871553+Persie0@users.noreply.github.com"
+          git add lib/calculator_screen.dart
+          git commit -m "fix: flush pending history before navigation [skip ci]"
+          git push origin HEAD:fix/history-flush-paywall-cadence
