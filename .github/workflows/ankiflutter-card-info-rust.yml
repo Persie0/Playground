@@ -1,0 +1,34 @@
+name: AnkiFlutter Card Info Rust
+
+on:
+  push:
+    paths:
+      - ankiflutter-card-info-rust-target.txt
+      - .github/workflows/ankiflutter-card-info-rust.yml
+
+permissions:
+  contents: read
+
+jobs:
+  card-info-rust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Read target
+        id: target
+        run: echo "sha=$(tr -d '\r\n' < ankiflutter-card-info-rust-target.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          repository: Persie0/AnkiFlutter
+          ref: ${{ steps.target.outputs.sha }}
+          path: source
+          submodules: recursive
+      - name: Use Rust 1.88
+        working-directory: source
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup override set 1.88.0
+          python3 tool/prepare_bridge_lock.py
+      - name: Run Card Info bridge test
+        working-directory: source
+        run: cargo test --manifest-path native/anki_bridge/Cargo.toml extended_operation_ids_map_to_the_pinned_backend_descriptors
