@@ -5,7 +5,9 @@ import unittest
 from pathlib import Path
 
 
-HARNESS = Path(__file__).resolve().parents[1] / "benchmarks" / "traffic_pi5_arm64_bench.py"
+ROOT = Path(__file__).resolve().parents[1]
+HARNESS = ROOT / "benchmarks" / "traffic_pi5_arm64_bench.py"
+WORKFLOW = ROOT / ".github" / "workflows" / "traffic-pi5-arm64-bench.yml"
 
 
 def load_harness():
@@ -37,6 +39,14 @@ class TrafficPi5Arm64BenchTests(unittest.TestCase):
             path = Path(td) / "result.json"
             bench.write_json(path, payload)
             self.assertEqual(json.loads(path.read_text()), payload)
+
+    def test_workflow_fetches_lfs_models_for_both_checkouts(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertGreaterEqual(workflow.count("lfs: true"), 2)
+
+    def test_workflow_does_not_let_tee_mask_benchmark_failures(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("set -o pipefail", workflow)
 
 
 if __name__ == "__main__":
