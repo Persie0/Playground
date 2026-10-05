@@ -1,43 +1,47 @@
-name: Noise Remover macOS policy tests
+name: Noise Remover PR 196 verification
 
 on:
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: Private Noise Remover branch/tag/SHA
-        required: false
-        default: macos-release
-        type: string
   push:
     branches: [main]
     paths:
       - '.github/workflows/noise-remover-macos-policy.yml'
-      - '.github/noise-remover-macos-policy-trigger'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-env:
-  APP_REF: ${{ inputs.ref || 'macos-release' }}
-
 jobs:
-  policy:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
     steps:
-      - name: Checkout private app
+      - name: Checkout private PR 196 head
         uses: actions/checkout@v5
         with:
           repository: Persie0/noise_remover
-          ref: ${{ env.APP_REF }}
+          ref: fix/revenuecat-hardening
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           path: app
 
-      - name: Show private revision
-        working-directory: app
-        run: git rev-parse HEAD
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
 
-      - name: Run macOS Podfile policy regression
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
         working-directory: app
-        run: python3 -m unittest tool/test_macos_podfile_linkage.py -v
+        run: flutter pub get
+
+      - name: Run full Flutter test suite
+        working-directory: app
+        run: flutter test --concurrency=1 --timeout 2m --reporter expanded
+
+      - name: Run analyzer
+        working-directory: app
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
