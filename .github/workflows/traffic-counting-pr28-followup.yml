@@ -13,11 +13,18 @@ jobs:
   verify:
     runs-on: ubuntu-24.04-arm
     steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
       - name: Checkout traffic branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: Persie0/traffic-counting-light-main
           ref: perf/pr28-followup-exact-optimizations
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
           path: traffic
 
       - name: Set up Python
