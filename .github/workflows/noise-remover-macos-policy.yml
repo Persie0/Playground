@@ -74,27 +74,29 @@ jobs:
 
           p = Path('lib/screens/paywall_screen.dart')
           s = p.read_text()
-          old = """        try {
-          await SubscriptionService.instance.refreshCustomerInfo(
-            recoverInactiveStorePurchase: true,
-            forceStoreRecovery: true,
-          );
-        } catch (recoveryError) {
-          // Recovery must not make the paywall unusable for genuinely free users.
-          debugPrint(
-            'Silent purchase recovery before paywall failed: $recoveryError',
-          );
-        }
-"""
-          new = """        try {
-          await SubscriptionService.instance.refreshCustomerInfo();
-        } catch (refreshError) {
-          // CustomerInfo refresh must not make the paywall unusable for free users.
-          debugPrint(
-            'CustomerInfo refresh before paywall failed: $refreshError',
-          );
-        }
-"""
+          old = (
+              "        try {\n"
+              "          await SubscriptionService.instance.refreshCustomerInfo(\n"
+              "            recoverInactiveStorePurchase: true,\n"
+              "            forceStoreRecovery: true,\n"
+              "          );\n"
+              "        } catch (recoveryError) {\n"
+              "          // Recovery must not make the paywall unusable for genuinely free users.\n"
+              "          debugPrint(\n"
+              "            'Silent purchase recovery before paywall failed: $recoveryError',\n"
+              "          );\n"
+              "        }\n"
+          )
+          new = (
+              "        try {\n"
+              "          await SubscriptionService.instance.refreshCustomerInfo();\n"
+              "        } catch (refreshError) {\n"
+              "          // CustomerInfo refresh must not make the paywall unusable for free users.\n"
+              "          debugPrint(\n"
+              "            'CustomerInfo refresh before paywall failed: $refreshError',\n"
+              "          );\n"
+              "        }\n"
+          )
           assert old in s, 'old paywall silent recovery block not found'
           p.write_text(s.replace(old, new, 1))
 
