@@ -1,0 +1,109 @@
+diff --git a/lib/calculator_screen.dart b/lib/calculator_screen.dart
+index af29867..0000000 100644
+--- a/lib/calculator_screen.dart
++++ b/lib/calculator_screen.dart
+@@ -51,6 +51,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
+   final bool _isBulkUpdating = false;
+   Timer? _historySaveTimer;
+   SureBetResult? _pendingHistoryResult;
++  List<String>? _pendingHistoryInputOdds;
+   Future<void>? _historySaveInFlight;
+   final BetHistoryService _historyService = BetHistoryService();
+ 
+@@ -78,6 +79,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
+       _historySaveTimer?.cancel();
+       _historySaveTimer = null;
+       _pendingHistoryResult = null;
++      _pendingHistoryInputOdds = null;
+       _resetCalculation();
+       return;
+     }
+@@ -95,13 +97,20 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
+     // Debounced history save. Keep the latest valid result available so
+     // navigation can flush it before the history screen reads persistence.
+     _pendingHistoryResult = result;
++    _pendingHistoryInputOdds = _oddsControllers
++        .map((controller) => controller.text)
++        .toList(growable: false);
+     _historySaveTimer?.cancel();
+     _historySaveTimer = Timer(const Duration(milliseconds: 800), () {
+       unawaited(_flushPendingHistory());
+     });
+   }
+ 
+-  Future<void> _saveToHistory(SureBetResult result) async {
++  Future<void> _saveToHistory(
++    SureBetResult result,
++    List<String> inputOdds,
++  ) async {
+     if (result.convertedOdds.isEmpty) return;
+     final entry = BetHistoryEntry(
+       timestamp: DateTime.now(),
+       odds: result.convertedOdds,
++      inputOdds: inputOdds,
+       totalStake: result.totalStake,
+       profit: result.profit,
+       isSureBet: result.isSureBet,
+@@ -121,10 +130,12 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
+     }
+ 
+     final result = _pendingHistoryResult;
+-    if (result == null) return;
++    final inputOdds = _pendingHistoryInputOdds;
++    if (result == null || inputOdds == null) return;
+     _pendingHistoryResult = null;
++    _pendingHistoryInputOdds = null;
+ 
+-    final save = _saveToHistory(result);
++    final save = _saveToHistory(result, inputOdds);
+     _historySaveInFlight = save;
+     try {
+       await save;
+@@ -483,6 +494,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
+     _isDisposing = true;
+     _historySaveTimer?.cancel();
+     _pendingHistoryResult = null;
++    _pendingHistoryInputOdds = null;
+     tutorial?.finish();
+     tutorial = null;
+ 
+diff --git a/lib/bet_history_screen.dart b/lib/bet_history_screen.dart
+index 7e093de..0000000 100644
+--- a/lib/bet_history_screen.dart
++++ b/lib/bet_history_screen.dart
+@@ -233,7 +233,7 @@ class _BetHistoryScreenState extends State<BetHistoryScreen> {
+                     const SizedBox(height: 4),
+                     Text(
+-                      '${l.oddsLabel}: ${entry.odds.map((o) => o.toStringAsFixed(2)).join(' / ')}',
++                      '${l.oddsLabel}: ${List.generate(entry.odds.length, (index) => _displayOdd(entry, index)).join(' / ')}',
+                       style: TextStyle(
+                         fontSize: 12,
+                         color: Theme.of(context).colorScheme.onSurfaceVariant,
+@@ -433,7 +433,7 @@ class _BetHistoryScreenState extends State<BetHistoryScreen> {
+                               children: [
+                                 Text(
+-                                  '${l.oddsLabel}: ${entry.odds[index].toStringAsFixed(2)}',
++                                  '${l.oddsLabel}: ${_displayOdd(entry, index)}',
+                                   style: TextStyle(
+                                     fontSize: 14,
+                                     fontWeight: FontWeight.w600,
+@@ -477,6 +477,19 @@ class _BetHistoryScreenState extends State<BetHistoryScreen> {
+     );
+   }
+ 
++  String _displayOdd(BetHistoryEntry entry, int index) {
++    final inputOdds = entry.inputOdds;
++    if (inputOdds != null && inputOdds.length == entry.odds.length) {
++      return inputOdds[index];
++    }
++
++    final odd = entry.odds[index];
++    if (odd.isFinite && odd == odd.roundToDouble()) {
++      return odd.toInt().toString();
++    }
++    return odd.toString();
++  }
++
+   String _formatTimeAgo(DateTime timestamp, AppLocalizations l) {
+     final now = DateTime.now();
+     final diff = now.difference(timestamp);
