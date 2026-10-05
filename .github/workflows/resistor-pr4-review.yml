@@ -13,11 +13,12 @@ permissions:
 env:
   APP_REPOSITORY: Persie0/resistor-scanner-android
   APP_REF: feat/result-preview-confidence-threshold
+  EXPECTED_HEAD: a5b3f4e1d6352d7d38d984912dd34bcf92290e62
 
 jobs:
-  unit:
+  review-fix:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Validate private checkout token
         env:
@@ -30,8 +31,242 @@ jobs:
           repository: ${{ env.APP_REPOSITORY }}
           ref: ${{ env.APP_REF }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
+          persist-credentials: true
           path: app
+
+      - name: Verify expected PR head
+        working-directory: app
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Apply review fixes
+        working-directory: app
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          pipeline = Path("app/src/main/java/at/austriao/resistorscanner/pipeline/ScannerPipeline.kt")
+          text = pipeline.read_text()
+
+          replacements = [
+              (
+                  "    private var consecutiveFailures = 0\n",
+                  "    private var consecutiveFailures = 0\n    private var livePreviewSnapshot: LiveResultPreviewSnapshot? = null\n",
+              ),
+              (
+                  """            } catch (t: Throwable) {
+                _resultPreview.value = null
+                stability.reset()
+""",
+                  """            } catch (t: Throwable) {
+                clearLiveResultPreview()
+                stability.reset()
+""",
+              ),
+              (
+                  """    private fun handleLiveSuccess(outcome: FrameOutcome.Success) {
+        consecutiveFailures = 0
+        if (bestOfEnabled) {
+            resetVotesIfGeometryChanged(outcome.geometry)
+            val progress = voteAggregator.add(outcome.decoded)
+            _aggregationProgress.value = progress
+            val displayed = progress.result ?: outcome.decoded
+            _state.value = progress.result?.let { stateFor(it, outcome.geometry) }
+                ?: ScanState.Reading(outcome.geometry, outcome.decoded)
+            _resultPreview.value = ResultPreview.fromRectified(outcome.rectified, displayed)
+            return
+        }
+
+        val observation = ScanObservation(
+            decoded = outcome.decoded,
+            centroidX = outcome.geometry.centroidX,
+            centroidY = outcome.geometry.centroidY,
+            scale = outcome.geometry.majorLength,
+            geometryUsable = true,
+        )
+        val decision = stability.update(observation)
+        val displayed = when (decision) {
+            is StableDecision.Stable -> decision.result
+            is StableDecision.Ambiguous -> decision.result
+            null -> outcome.decoded
+        }
+        _state.value = when (decision) {
+            is StableDecision.Stable -> ScanState.Stable(decision.result, outcome.geometry)
+            is StableDecision.Ambiguous -> ScanState.Ambiguous(decision.result, outcome.geometry)
+            null -> ScanState.Reading(outcome.geometry, outcome.decoded)
+        }
+        _resultPreview.value = ResultPreview.fromRectified(outcome.rectified, displayed)
+    }
+
+    private fun handleFailure(state: ScanState) {
+""",
+                  """    private fun handleLiveSuccess(outcome: FrameOutcome.Success) {
+        consecutiveFailures = 0
+        if (bestOfEnabled) {
+            resetVotesIfGeometryChanged(outcome.geometry)
+            val progress = voteAggregator.add(outcome.decoded)
+            _aggregationProgress.value = progress
+            val aggregate = progress.result
+            _state.value = aggregate?.let { stateFor(it, outcome.geometry) }
+                ?: ScanState.Reading(outcome.geometry, outcome.decoded)
+            if (aggregate != null) {
+                updateLiveResultPreview(outcome.rectified, aggregate, outcome.geometry)
+            } else {
+                clearLiveResultPreview()
+            }
+            return
+        }
+
+        val observation = ScanObservation(
+            decoded = outcome.decoded,
+            centroidX = outcome.geometry.centroidX,
+            centroidY = outcome.geometry.centroidY,
+            scale = outcome.geometry.majorLength,
+            geometryUsable = true,
+        )
+        val decision = stability.update(observation)
+        _state.value = when (decision) {
+            is StableDecision.Stable -> ScanState.Stable(decision.result, outcome.geometry)
+            is StableDecision.Ambiguous -> ScanState.Ambiguous(decision.result, outcome.geometry)
+            null -> ScanState.Reading(outcome.geometry, outcome.decoded)
+        }
+        when (decision) {
+            is StableDecision.Stable -> updateLiveResultPreview(outcome.rectified, decision.result, outcome.geometry)
+            is StableDecision.Ambiguous -> updateLiveResultPreview(outcome.rectified, decision.result, outcome.geometry)
+            null -> clearLiveResultPreview()
+        }
+    }
+
+    private fun updateLiveResultPreview(
+        rectified: RectifiedResistor,
+        decoded: DecodedBands,
+        geometry: ResistorGeometry,
+    ) {
+        if (!LiveResultPreviewPolicy.shouldRefresh(
+                previous = livePreviewSnapshot,
+                decoded = decoded,
+                centroidX = geometry.centroidX,
+                centroidY = geometry.centroidY,
+                scale = geometry.majorLength,
+            )
+        ) return
+
+        _resultPreview.value = ResultPreview.fromRectified(rectified, decoded)
+        livePreviewSnapshot = LiveResultPreviewPolicy.snapshot(
+            decoded = decoded,
+            centroidX = geometry.centroidX,
+            centroidY = geometry.centroidY,
+            scale = geometry.majorLength,
+        )
+    }
+
+    private fun clearLiveResultPreview() {
+        _resultPreview.value = null
+        livePreviewSnapshot = null
+    }
+
+    private fun handleFailure(state: ScanState) {
+""",
+              ),
+              (
+                  """        _resultPreview.value = null
+        _state.value = state
+    }
+""",
+                  """        clearLiveResultPreview()
+        _state.value = state
+    }
+""",
+              ),
+              (
+                  """    private fun resetInternal() {
+        lastSegmentTimestampNs = Long.MIN_VALUE
+        _resultPreview.value = null
+""",
+                  """    private fun resetInternal() {
+        lastSegmentTimestampNs = Long.MIN_VALUE
+        clearLiveResultPreview()
+""",
+              ),
+          ]
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"ScannerPipeline replacement expected once, found {count}: {old[:80]!r}")
+              text = text.replace(old, new, 1)
+          pipeline.write_text(text)
+
+          screen = Path("app/src/main/java/at/austriao/resistorscanner/ui/ScannerScreen.kt")
+          text = screen.read_text()
+          replacements = [
+              (
+                  """    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+""",
+                  """    onDismiss: () -> Unit,
+) {
+    var pendingMinimumDetectionConfidence by remember(minimumDetectionConfidence) {
+        mutableStateOf(minimumDetectionConfidence)
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+""",
+              ),
+              (
+                  """                            "Model confidence from the selected band count and colors.",
+""",
+                  """                            "Confidence from the selected band count and colors; combined scans also include vote agreement.",
+""",
+              ),
+              (
+                  """                        "${(minimumDetectionConfidence * 100).roundToInt()}%",
+""",
+                  """                        "${(pendingMinimumDetectionConfidence * 100).roundToInt()}%",
+""",
+              ),
+              (
+                  """                Slider(
+                    value = minimumDetectionConfidence,
+                    onValueChange = onMinimumDetectionConfidenceChange,
+                    valueRange = 0.50f..0.95f,
+                )
+""",
+                  """                Slider(
+                    value = pendingMinimumDetectionConfidence,
+                    onValueChange = { pendingMinimumDetectionConfidence = it },
+                    onValueChangeFinished = {
+                        onMinimumDetectionConfidenceChange(pendingMinimumDetectionConfidence)
+                    },
+                    valueRange = 0.50f..0.95f,
+                    steps = 8,
+                )
+""",
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"ScannerScreen replacement expected once, found {count}: {old[:80]!r}")
+              text = text.replace(old, new, 1)
+          screen.write_text(text)
+          PY
+
+          git diff --check
+          git diff -- app/src/main/java/at/austriao/resistorscanner/pipeline/ScannerPipeline.kt \
+            app/src/main/java/at/austriao/resistorscanner/ui/ScannerScreen.kt
+
+      - name: Commit fixes to PR branch
+        working-directory: app
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/at/austriao/resistorscanner/pipeline/ScannerPipeline.kt \
+            app/src/main/java/at/austriao/resistorscanner/ui/ScannerScreen.kt
+          git diff --cached --quiet && exit 1
+          git commit -m "fix: avoid redundant preview work and slider rescans"
+          git push origin "HEAD:${APP_REF}"
 
       - uses: actions/setup-java@v5
         with:
@@ -58,6 +293,6 @@ jobs:
           gradle-version: '8.13'
           validate-wrappers: false
 
-      - name: Run preview policy regression tests
+      - name: Verify unit tests, lint, and builds
         working-directory: app
-        run: gradle --no-daemon :app:testDebugUnitTest --tests at.austriao.resistorscanner.pipeline.LiveResultPreviewPolicyTest
+        run: gradle --no-daemon clean testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
