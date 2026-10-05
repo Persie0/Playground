@@ -1,0 +1,41 @@
+name: Noise Remover PR189 merge dry-run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-pr189-merge-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  merge-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact macOS branch head
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: 490528dc645b40d95c1ce250ca47042c163cf56c
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 0
+          path: app
+      - name: Dry-run merge current master
+        working-directory: app
+        shell: bash
+        run: |
+          set +e
+          git fetch origin master
+          git config user.name "Playground merge check"
+          git config user.email "actions@github.com"
+          git merge --no-commit --no-ff origin/master
+          rc=$?
+          echo "MERGE_RC=$rc"
+          echo "=== UNMERGED ==="
+          git diff --name-only --diff-filter=U
+          echo "=== STATUS ==="
+          git status --short
+          exit 0
