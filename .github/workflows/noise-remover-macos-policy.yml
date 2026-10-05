@@ -115,6 +115,27 @@ jobs:
           assert old in s, 'old home silent recovery call not found'
           p.write_text(s.replace(old, new, 1))
 
+          p = Path('integration_test/media_format_pipeline_test.dart')
+          s = p.read_text()
+          old = '    onProgress: (_, __) {},\n'
+          assert old in s, 'old progress callback not found'
+          p.write_text(s.replace(old, '    onProgress: (_, _) {},\n', 1))
+
+          p = Path('lib/services/processing_lock_service.dart')
+          s = p.read_text()
+          old = "import 'dart:async';\n"
+          assert old in s, 'unnecessary dart:async import not found'
+          p.write_text(s.replace(old, '', 1))
+
+          p = Path('test/expected_processing_event_test.dart')
+          s = p.read_text()
+          old_a = "import '../lib/services/expected_processing_event.dart';"
+          old_b = "import '../lib/services/exceptions.dart';"
+          assert old_a in s and old_b in s, 'relative expected-processing imports not found'
+          s = s.replace(old_a, "import 'package:noise_remover/services/expected_processing_event.dart';", 1)
+          s = s.replace(old_b, "import 'package:noise_remover/services/exceptions.dart';", 1)
+          p.write_text(s)
+
           p = Path('test/network_error_test.dart')
           s = p.read_text()
           old_name = "manual RevenueCat retry re-runs initialization and store recovery"
@@ -167,6 +188,9 @@ jobs:
             lib/services/subscription_service.dart \
             lib/screens/paywall_screen.dart \
             lib/screens/home_screen.dart \
+            lib/services/processing_lock_service.dart \
+            integration_test/media_format_pipeline_test.dart \
+            test/expected_processing_event_test.dart \
             test/network_error_test.dart \
             test/full_error_hardening_regression_test.dart
           git diff --check
@@ -191,7 +215,7 @@ jobs:
 
       - name: Run analyzer
         working-directory: app
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        run: flutter analyze
 
       - name: Commit and push exact green candidate
         working-directory: app
