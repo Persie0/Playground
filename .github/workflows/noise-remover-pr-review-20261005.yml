@@ -1,0 +1,50 @@
+name: Noise Remover PR review 2026-10-05
+
+on:
+  push:
+    paths:
+      - '.github/workflows/noise-remover-pr-review-20261005.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: pr198
+            ref: 435a8779c94f5cc2fcb0aacc4b17a85999489392
+          - label: pr195
+            ref: ee59efd29104899c70866657a3e61cdebbb6e8c3
+    name: Verify ${{ matrix.label }}
+    steps:
+      - name: Checkout exact Noise Remover head
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: ${{ matrix.ref }}
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Run full Flutter tests
+        working-directory: app
+        run: flutter test --concurrency=1 --timeout 2m --reporter expanded
+      - name: Run analyzer
+        working-directory: app
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
