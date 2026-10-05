@@ -1,0 +1,84 @@
+name: Temporary AudioBooster sync RevenueCat branch with main
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tmp-audiobooster-revenuecat-sync-main.yml
+permissions:
+  contents: read
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out AudioBooster feature
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: feature/revenuecat-trial-monetization
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: audiobooster
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Merge latest main and resolve dependency files
+        working-directory: audiobooster
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          set +e
+          git merge --no-commit --no-ff origin/main
+          merge_status=$?
+          set -e
+          echo "merge status: $merge_status"
+          git status --short
+
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              pubspec.yaml|pubspec.lock)
+                git checkout --ours -- "$f"
+                ;;
+              .dart_tool/*)
+                git checkout --theirs -- "$f"
+                ;;
+              *)
+                echo "Unexpected merge conflict: $f" >&2
+                exit 1
+                ;;
+            esac
+          done < <(git diff --name-only --diff-filter=U)
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("pubspec.yaml")
+          s = p.read_text()
+          s = s.replace("dynamic_color: ^1.9.0", "dynamic_color: ^2.1.0")
+          p.write_text(s)
+          PY
+
+          flutter pub get
+
+          # .dart_tool is generated and unfortunately tracked on main. Keep
+          # main's committed copies rather than committing runner-specific paths.
+          for f in .dart_tool/package_config.json .dart_tool/package_graph.json .dart_tool/version; do
+            if git cat-file -e "origin/main:$f" 2>/dev/null; then
+              git checkout origin/main -- "$f"
+            fi
+          done
+
+          git add -A
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "Unresolved conflicts remain" >&2
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+          git status --short
+          git commit -m "merge: sync latest main before RevenueCat merge"
+          git push origin HEAD:feature/revenuecat-trial-monetization
