@@ -1,0 +1,39 @@
+name: Noise Remover PR189 lockfile refresh
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-pr189-lock.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact private head
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: a9ff0491366365ebfb069c124ddd4fb983923667
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 0
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Refresh lockfile
+        working-directory: app
+        run: flutter pub get
+      - name: Upload lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr189-pubspec-lock
+          path: app/pubspec.lock
+          if-no-files-found: error
+          retention-days: 1
