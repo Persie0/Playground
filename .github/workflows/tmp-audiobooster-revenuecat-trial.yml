@@ -1,4 +1,4 @@
-name: Temporary AudioBooster RevenueCat build RED gate
+name: Temporary AudioBooster RevenueCat final verification
 
 on:
   push:
@@ -12,14 +12,14 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
-      - name: Check out corrected tests-before-build-config revision
+      - name: Check out AudioBooster feature branch
         uses: actions/checkout@v4
         with:
           repository: Persie0/Audiobooster
-          ref: ea5477670beecc49864127441db66e4b676652f5
+          ref: feature/revenuecat-trial-monetization
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: audiobooster
           fetch-depth: 0
@@ -28,9 +28,50 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Install dependencies
+      - name: Verify dependency lock
         working-directory: audiobooster
-        run: flutter pub get
-      - name: RevenueCat build config RED gate
+        run: |
+          set -euxo pipefail
+          flutter pub get
+          git diff --exit-code -- pubspec.lock
+          grep -A6 '^  purchases_flutter:' pubspec.lock
+      - name: Focused monetization tests
         working-directory: audiobooster
-        run: flutter test test/revenuecat_build_config_test.dart
+        run: |
+          set -euxo pipefail
+          flutter test test/subscription test/trial_bridge_test.dart test/trial_paywall_flow_test.dart test/revenuecat_build_config_test.dart test/home_history_tutorial_test.dart
+      - name: Full Flutter tests
+        working-directory: audiobooster
+        run: flutter test
+      - name: Analyze
+        working-directory: audiobooster
+        run: flutter analyze
+      - name: Bootstrap Android
+        working-directory: audiobooster
+        run: bash tool/bootstrap_android.sh
+      - name: Verify maintained native source mirrors
+        working-directory: audiobooster
+        run: |
+          set -euxo pipefail
+          cmp tool/android/MainActivity.kt android/app/src/main/kotlin/com/persie0/audiobooster/MainActivity.kt
+          diff -qr tool/android/com/persie0/audiobooster android/app/src/main/kotlin/com/persie0/audiobooster
+      - name: Native unit tests
+        working-directory: audiobooster/android
+        run: ./gradlew testDebugUnitTest
+      - name: Debug APK
+        working-directory: audiobooster
+        run: flutter build apk --debug
+      - name: Release APK
+        working-directory: audiobooster
+        run: flutter build apk --release
+      - name: Release AAB
+        working-directory: audiobooster
+        run: flutter build appbundle --release
+      - name: Requirement boundary scan
+        working-directory: audiobooster
+        run: |
+          set -euxo pipefail
+          ! grep -RniE 'appodeal|bidmachine|bidon|ironsource|com\.google\.android\.gms\.permission\.AD_ID' pubspec.yaml android tool || false_positive=$?
+          if [ "${false_positive:-0}" -ne 0 ]; then exit 1; fi
+          ! grep -RniE 'iosApiKey\s*=\s*[^'"'"']' lib/subscription || true
+          ! grep -RniE 'setTrialUsed|resetTrial|usedTrialMs.*argument|trial_used_ms.*call\.argument' lib tool/android android/app/src/main/kotlin
