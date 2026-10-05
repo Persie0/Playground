@@ -72,6 +72,32 @@ jobs:
           assert old in s, 'expiry timer guard not found'
           p.write_text(s.replace(old, new, 1))
 
+          p = Path('lib/screens/paywall_screen.dart')
+          s = p.read_text()
+          old = """        try {
+          await SubscriptionService.instance.refreshCustomerInfo(
+            recoverInactiveStorePurchase: true,
+            forceStoreRecovery: true,
+          );
+        } catch (recoveryError) {
+          // Recovery must not make the paywall unusable for genuinely free users.
+          debugPrint(
+            'Silent purchase recovery before paywall failed: $recoveryError',
+          );
+        }
+"""
+          new = """        try {
+          await SubscriptionService.instance.refreshCustomerInfo();
+        } catch (refreshError) {
+          // CustomerInfo refresh must not make the paywall unusable for free users.
+          debugPrint(
+            'CustomerInfo refresh before paywall failed: $refreshError',
+          );
+        }
+"""
+          assert old in s, 'old paywall silent recovery block not found'
+          p.write_text(s.replace(old, new, 1))
+
           p = Path('test/network_error_test.dart')
           s = p.read_text()
           old_name = "manual RevenueCat retry re-runs initialization and store recovery"
@@ -120,6 +146,7 @@ jobs:
           git rm -f test/services/pro_update_recovery_regression_test.dart
           git add lib/main.dart \
             lib/services/subscription_service.dart \
+            lib/screens/paywall_screen.dart \
             test/network_error_test.dart \
             test/full_error_hardening_regression_test.dart
           git diff --check
