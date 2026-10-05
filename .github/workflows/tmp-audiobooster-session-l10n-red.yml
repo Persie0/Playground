@@ -1,4 +1,4 @@
-name: Temporary AudioBooster finish localization
+name: Temporary AudioBooster localization validation
 
 on:
   push:
@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  finish:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - name: Check out AudioBooster feature branch
@@ -30,27 +30,21 @@ jobs:
       - name: Install dependencies
         working-directory: audiobooster
         run: flutter pub get
-      - name: Localize remaining UI copy
+      - name: Apply validation fixes
         working-directory: audiobooster
-        run: python scripts/fix_remaining_l10n.py
-      - name: Sync and translate new locale keys
-        working-directory: audiobooster
-        run: python scripts/localization_sync.py
-      - name: Generate Flutter localizations
-        working-directory: audiobooster
-        run: flutter gen-l10n
+        run: python scripts/fix_l10n_validation.py
       - name: Format
         working-directory: audiobooster
         run: dart format lib test
-      - name: Commit localization completion
+      - name: Commit fixes
         working-directory: audiobooster
         run: |
-          rm scripts/fix_remaining_l10n.py
+          rm scripts/fix_l10n_validation.py
           git checkout -- .dart_tool/package_config.json .dart_tool/package_graph.json .dart_tool/version 2>/dev/null || true
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Localize remaining AudioBooster UI"
+          git commit -m "Fix localization validation issues"
           git push origin HEAD:feature/session-notification-localization
       - name: Analyze
         working-directory: audiobooster
