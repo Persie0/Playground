@@ -61,6 +61,25 @@ jobs:
       - name: Debug APK
         working-directory: audiobooster
         run: flutter build apk --debug
+      - name: Configure ephemeral CI release signing
+        working-directory: audiobooster
+        run: |
+          set -euxo pipefail
+          keytool -genkeypair \
+            -keystore /tmp/audiobooster-ci.jks \
+            -storepass audioboosterci \
+            -keypass audioboosterci \
+            -alias ci \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 1 \
+            -dname 'CN=AudioBooster CI'
+          cat > android/key.properties <<'EOF'
+          storePassword=audioboosterci
+          keyPassword=audioboosterci
+          keyAlias=ci
+          storeFile=/tmp/audiobooster-ci.jks
+          EOF
       - name: Release APK
         working-directory: audiobooster
         run: flutter build apk --release
