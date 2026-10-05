@@ -1,0 +1,180 @@
+name: Native Resistor Scanner iOS PR1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-scanner-ios-native-pr1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/resistor-scanner-ios
+  APP_REF: feat/native-ios-resistor-scanner
+
+jobs:
+  ios-build:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout native iOS scanner with model submodule
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 1
+          path: source
+
+      - name: Show toolchain and checked revisions
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          swift --version
+          git log -1 --oneline
+          git submodule status
+          xcodebuild -project ResistorScanner.xcodeproj -list
+
+      - name: Verify pinned model assets
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL_DIR="Vendor/resistor-scanner-android/app/src/main/assets/models"
+          test -s "$MODEL_DIR/resistor_segmenter.onnx"
+          test -s "$MODEL_DIR/resistor_segmenter.json"
+          test -s "$MODEL_DIR/resistor_bandnet.onnx"
+          test -s "$MODEL_DIR/resistor_bandnet.json"
+          shasum -a 256             "$MODEL_DIR/resistor_segmenter.onnx"             "$MODEL_DIR/resistor_segmenter.json"             "$MODEL_DIR/resistor_bandnet.onnx"             "$MODEL_DIR/resistor_bandnet.json" | tee "$RUNNER_TEMP/model-sha256.txt"
+
+      - name: Run portable Swift core tests
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee "$RUNNER_TEMP/swift-test.log"
+
+      - name: Resolve Xcode package dependencies
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild             -resolvePackageDependencies             -project ResistorScanner.xcodeproj             -scheme ResistorScanner             2>&1 | tee "$RUNNER_TEMP/package-resolution.log"
+
+      - name: Build Debug for iOS Simulator
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild             -project ResistorScanner.xcodeproj             -scheme ResistorScanner             -configuration Debug             -destination 'generic/platform=iOS Simulator'             -derivedDataPath "$RUNNER_TEMP/DerivedData"             CODE_SIGNING_ALLOWED=NO             build 2>&1 | tee "$RUNNER_TEMP/ios-simulator-debug.log"
+
+      - name: Verify simulator app model bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphonesimulator/ResistorScanner.app"
+          test -d "$APP"
+          find "$APP" -maxdepth 2 -type f -print | sort | tee "$RUNNER_TEMP/simulator-app-files.txt"
+          test -s "$APP/Models/resistor_segmenter.onnx"
+          test -s "$APP/Models/resistor_segmenter.json"
+          test -s "$APP/Models/resistor_bandnet.onnx"
+          test -s "$APP/Models/resistor_bandnet.json"
+
+      - name: Build Release for iOS Simulator
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild             -project ResistorScanner.xcodeproj             -scheme ResistorScanner             -configuration Release             -destination 'generic/platform=iOS Simulator'             -derivedDataPath "$RUNNER_TEMP/DerivedDataReleaseSim"             CODE_SIGNING_ALLOWED=NO             build 2>&1 | tee "$RUNNER_TEMP/ios-simulator-release.log"
+
+      - name: Build Release for physical iOS device without signing
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild             -project ResistorScanner.xcodeproj             -scheme ResistorScanner             -configuration Release             -destination 'generic/platform=iOS'             -derivedDataPath "$RUNNER_TEMP/DerivedDataDevice"             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             build 2>&1 | tee "$RUNNER_TEMP/ios-device-release.log"
+
+      - name: Boot simulator and launch app
+        id: simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID="$(python3 - <<'PY'
+          import json, subprocess
+          data = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))
+          for runtime, devices in data.get('devices', {}).items():
+              if 'iOS' not in runtime:
+                  continue
+              for device in devices:
+                  if device.get('isAvailable') and device.get('name', '').startswith('iPhone'):
+                      print(device['udid'])
+                      raise SystemExit(0)
+          raise SystemExit('No available iPhone simulator found')
+          PY
+          )"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphonesimulator/ResistorScanner.app"
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch --terminate-running-process "$UDID" at.austriao.ResistorScanner | tee "$RUNNER_TEMP/simulator-launch.txt"
+          sleep 10
+          xcrun simctl spawn "$UDID" log show             --style compact             --last 20s             --predicate 'process == "ResistorScanner"'             > "$RUNNER_TEMP/simulator-app.log" || true
+          cat "$RUNNER_TEMP/simulator-app.log"
+          if grep -E -i 'fatal error|terminating app|uncaught exception|abort trap|segmentation fault' "$RUNNER_TEMP/simulator-app.log"; then
+            echo "App emitted a fatal runtime signature after launch." >&2
+            exit 1
+          fi
+
+      - name: Verify repository stayed clean
+        if: always()
+        working-directory: source
+        shell: bash
+        run: |
+          git diff --check
+          git status --short | tee "$RUNNER_TEMP/git-status.txt"
+
+      - name: Summarize build errors
+        if: always()
+        shell: bash
+        run: |
+          : > "$RUNNER_TEMP/errors.txt"
+          for log in             "$RUNNER_TEMP/swift-test.log"             "$RUNNER_TEMP/package-resolution.log"             "$RUNNER_TEMP/ios-simulator-debug.log"             "$RUNNER_TEMP/ios-simulator-release.log"             "$RUNNER_TEMP/ios-device-release.log"             "$RUNNER_TEMP/simulator-app.log"; do
+            if [ -f "$log" ]; then
+              echo "===== $(basename "$log") =====" >> "$RUNNER_TEMP/errors.txt"
+              grep -E -i 'error:|fatal error:|failed|failure|exception|undefined symbols|linker command failed' "$log" | tail -n 200 >> "$RUNNER_TEMP/errors.txt" || true
+            fi
+          done
+          cat "$RUNNER_TEMP/errors.txt"
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-scanner-ios-native-pr1
+          path: |
+            ${{ runner.temp }}/model-sha256.txt
+            ${{ runner.temp }}/swift-test.log
+            ${{ runner.temp }}/package-resolution.log
+            ${{ runner.temp }}/ios-simulator-debug.log
+            ${{ runner.temp }}/ios-simulator-release.log
+            ${{ runner.temp }}/ios-device-release.log
+            ${{ runner.temp }}/simulator-app-files.txt
+            ${{ runner.temp }}/simulator-launch.txt
+            ${{ runner.temp }}/simulator-app.log
+            ${{ runner.temp }}/git-status.txt
+            ${{ runner.temp }}/errors.txt
+          if-no-files-found: warn
+          retention-days: 3
