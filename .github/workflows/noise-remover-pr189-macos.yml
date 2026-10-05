@@ -1,0 +1,43 @@
+name: Noise Remover PR189 macOS exact-head verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-pr189-macos.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-macos:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact private head
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: a9ff0491366365ebfb069c124ddd4fb983923667
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 0
+          path: app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          python3 --version
+          ruby --version
+          pod --version
+          rustc --version
+          cargo --version
+
+      - name: Full macOS release gate
+        shell: bash
+        run: bash app/.github/playground/noise_remover/run_macos_ci.sh app
