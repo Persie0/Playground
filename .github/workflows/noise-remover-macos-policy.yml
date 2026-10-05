@@ -51,7 +51,6 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # Preserve #198 expected-processing Sentry filtering on the RevenueCat branch.
           p = Path('lib/main.dart')
           s = p.read_text()
           expected_import = "import 'services/expected_processing_event.dart';"
@@ -62,60 +61,26 @@ jobs:
           if 'shouldDropExpectedProcessingEvent(event)' not in s:
               anchor = '    options.beforeSend = (event, hint) {\n'
               assert anchor in s
-              s = s.replace(
-                  anchor,
-                  anchor + '      if (shouldDropExpectedProcessingEvent(event)) return null;\n',
-                  1,
-              )
+              s = s.replace(anchor, anchor + '      if (shouldDropExpectedProcessingEvent(event)) return null;\n', 1)
           p.write_text(s)
 
-          # A Timer may wake marginally before the wall-clock expiration. If that
-          # happens, reschedule the remaining interval instead of abandoning expiry.
           p = Path('lib/services/subscription_service.dart')
           s = p.read_text()
-          old = """      if (currentExpiration == null ||
-          currentExpiration.isAfter(DateTime.now().toUtc())) {
-        return;
-      }
-"""
-          new = """      if (currentExpiration == null) return;
-      if (currentExpiration.isAfter(DateTime.now().toUtc())) {
-        // Timers can wake slightly before the wall-clock boundary. Reschedule
-        // the remaining delay instead of abandoning entitlement expiry.
-        _scheduleEntitlementExpiry();
-        return;
-      }
-"""
+          old = "      if (currentExpiration == null ||\n          currentExpiration.isAfter(DateTime.now().toUtc())) {\n        return;\n      }\n"
+          new = "      if (currentExpiration == null) return;\n      if (currentExpiration.isAfter(DateTime.now().toUtc())) {\n        // Timers can wake slightly before the wall-clock boundary. Reschedule\n        // the remaining delay instead of abandoning entitlement expiry.\n        _scheduleEntitlementExpiry();\n        return;\n      }\n"
           assert old in s, 'expiry timer guard not found'
-          s = s.replace(old, new, 1)
-          p.write_text(s)
+          p.write_text(s.replace(old, new, 1))
 
-          # The PR intentionally removes silent receipt/store recovery. Keep the
-          # regression test aligned with that policy while retaining manual retry.
           p = Path('test/network_error_test.dart')
           s = p.read_text()
           old_name = "manual RevenueCat retry re-runs initialization and store recovery"
           assert old_name in s
-          s = s.replace(
-              old_name,
-              "manual RevenueCat retry re-runs initialization without store recovery",
-              1,
-          )
-          old = """    expect(
-      source,
-      contains('_initializeRevenueCat(forceStoreRecovery: true)'),
-    );
-"""
-          new = """    expect(source, contains('await _initializeRevenueCat();'));
-    expect(source, isNot(contains('forceStoreRecovery: true')));
-    expect(source, isNot(contains('Purchases.syncPurchases')));
-"""
+          s = s.replace(old_name, "manual RevenueCat retry re-runs initialization without store recovery", 1)
+          old = "    expect(\n      source,\n      contains('_initializeRevenueCat(forceStoreRecovery: true)'),\n    );\n"
+          new = "    expect(source, contains('await _initializeRevenueCat();'));\n    expect(source, isNot(contains('forceStoreRecovery: true')));\n    expect(source, isNot(contains('Purchases.syncPurchases')));\n"
           assert old in s, 'old manual retry expectation not found'
-          s = s.replace(old, new, 1)
-          p.write_text(s)
+          p.write_text(s.replace(old, new, 1))
 
-          # Replace the obsolete silent-sync regression with assertions matching
-          # CustomerInfo-only automatic refresh and explicit user Restore.
           p = Path('test/full_error_hardening_regression_test.dart')
           s = p.read_text()
           start_marker = "  test('inactive Pro ownership is retried on resume but rate limited', () {"
@@ -123,33 +88,28 @@ jobs:
           assert start_marker in s and end_marker in s
           start = s.index(start_marker)
           end = s.index(end_marker, start)
-          replacement = """  test('automatic subscription paths never silently recover store receipts', () {
-    final service =
-        File('lib/services/subscription_service.dart').readAsStringSync();
-    final mainSource = File('lib/main.dart').readAsStringSync();
-    final paywall =
-        File('lib/screens/paywall_screen.dart').readAsStringSync();
-
-    expect(service, isNot(contains('_silentStoreRecoveryCooldown')));
-    expect(service, isNot(contains('Purchases.syncPurchases')));
-    expect(mainSource, contains('refreshCustomerInfo()'));
-    expect(
-      mainSource,
-      isNot(contains('recoverInactiveStorePurchase: true')),
-    );
-    expect(paywall, isNot(contains('recoverInactiveStorePurchase: true')));
-    expect(paywall, contains('retryRevenueCatInitialization()'));
-  });
-
-"""
-          s = s[:start] + replacement + s[end:]
-          p.write_text(s)
+          replacement = (
+              "  test('automatic subscription paths never silently recover store receipts', () {\n"
+              "    final service =\n"
+              "        File('lib/services/subscription_service.dart').readAsStringSync();\n"
+              "    final mainSource = File('lib/main.dart').readAsStringSync();\n"
+              "    final paywall =\n"
+              "        File('lib/screens/paywall_screen.dart').readAsStringSync();\n\n"
+              "    expect(service, isNot(contains('_silentStoreRecoveryCooldown')));\n"
+              "    expect(service, isNot(contains('Purchases.syncPurchases')));\n"
+              "    expect(mainSource, contains('refreshCustomerInfo()'));\n"
+              "    expect(\n"
+              "      mainSource,\n"
+              "      isNot(contains('recoverInactiveStorePurchase: true')),\n"
+              "    );\n"
+              "    expect(paywall, isNot(contains('recoverInactiveStorePurchase: true')));\n"
+              "    expect(paywall, contains('retryRevenueCatInitialization()'));\n"
+              "  });\n\n"
+          )
+          p.write_text(s[:start] + replacement + s[end:])
           PY
 
-          # This file only asserted the silent sync/recovery implementation that
-          # PR 196 deliberately removes; current entitlement tests cover the new path.
           git rm -f test/services/pro_update_recovery_regression_test.dart
-
           git add lib/main.dart \
             lib/services/subscription_service.dart \
             test/network_error_test.dart \
