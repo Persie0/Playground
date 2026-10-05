@@ -1,0 +1,188 @@
+name: Export Noise Remover PR 196 candidate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-pr196-export.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: fix/revenuecat-hardening
+          fetch-depth: 0
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Apply exact reviewed fixes
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('lib/main.dart')
+          s = p.read_text()
+          expected_import = "import 'services/expected_processing_event.dart';"
+          if expected_import not in s:
+              anchor = "import 'services/exceptions.dart';\n"
+              assert anchor in s
+              s = s.replace(anchor, anchor + expected_import + "\n", 1)
+          if 'shouldDropExpectedProcessingEvent(event)' not in s:
+              anchor = '    options.beforeSend = (event, hint) {\n'
+              assert anchor in s
+              s = s.replace(anchor, anchor + '      if (shouldDropExpectedProcessingEvent(event)) return null;\n', 1)
+          p.write_text(s)
+
+          p = Path('lib/services/subscription_service.dart')
+          s = p.read_text()
+          old = "      if (currentExpiration == null ||\n          currentExpiration.isAfter(DateTime.now().toUtc())) {\n        return;\n      }\n"
+          new = "      if (currentExpiration == null) return;\n      if (currentExpiration.isAfter(DateTime.now().toUtc())) {\n        // Timers can wake slightly before the wall-clock boundary. Reschedule\n        // the remaining delay instead of abandoning entitlement expiry.\n        _scheduleEntitlementExpiry();\n        return;\n      }\n"
+          assert old in s, 'expiry timer guard not found'
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('lib/screens/paywall_screen.dart')
+          s = p.read_text()
+          old = (
+              "        try {\n"
+              "          await SubscriptionService.instance.refreshCustomerInfo(\n"
+              "            recoverInactiveStorePurchase: true,\n"
+              "            forceStoreRecovery: true,\n"
+              "          );\n"
+              "        } catch (recoveryError) {\n"
+              "          // Recovery must not make the paywall unusable for genuinely free users.\n"
+              "          debugPrint(\n"
+              "            'Silent purchase recovery before paywall failed: $recoveryError',\n"
+              "          );\n"
+              "        }\n"
+          )
+          new = (
+              "        try {\n"
+              "          await SubscriptionService.instance.refreshCustomerInfo();\n"
+              "        } catch (refreshError) {\n"
+              "          // CustomerInfo refresh must not make the paywall unusable for free users.\n"
+              "          debugPrint(\n"
+              "            'CustomerInfo refresh before paywall failed: $refreshError',\n"
+              "          );\n"
+              "        }\n"
+          )
+          assert old in s, 'old paywall silent recovery block not found'
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('lib/screens/home_screen.dart')
+          s = p.read_text()
+          old = (
+              "          await _subscriptionService\n"
+              "              .refreshCustomerInfo(recoverInactiveStorePurchase: true)\n"
+              "              .timeout(const Duration(seconds: 60));\n"
+          )
+          new = (
+              "          await _subscriptionService\n"
+              "              .refreshCustomerInfo()\n"
+              "              .timeout(const Duration(seconds: 60));\n"
+          )
+          assert old in s, 'old home silent recovery call not found'
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('integration_test/media_format_pipeline_test.dart')
+          s = p.read_text()
+          old = '    onProgress: (_, __) {},\n'
+          assert old in s, 'old progress callback not found'
+          p.write_text(s.replace(old, '    onProgress: (_, _) {},\n', 1))
+
+          p = Path('lib/services/processing_lock_service.dart')
+          s = p.read_text()
+          old = "import 'dart:async';\n"
+          assert old in s, 'unnecessary dart:async import not found'
+          p.write_text(s.replace(old, '', 1))
+
+          p = Path('test/expected_processing_event_test.dart')
+          s = p.read_text()
+          old_a = "import '../lib/services/expected_processing_event.dart';"
+          old_b = "import '../lib/services/exceptions.dart';"
+          assert old_a in s and old_b in s, 'relative expected-processing imports not found'
+          s = s.replace(old_a, "import 'package:noise_remover/services/expected_processing_event.dart';", 1)
+          s = s.replace(old_b, "import 'package:noise_remover/services/exceptions.dart';", 1)
+          p.write_text(s)
+
+          p = Path('test/network_error_test.dart')
+          s = p.read_text()
+          old_name = "manual RevenueCat retry re-runs initialization and store recovery"
+          assert old_name in s
+          s = s.replace(old_name, "manual RevenueCat retry re-runs initialization without store recovery", 1)
+          pattern = re.compile(r"\s*expect\(\s*source,\s*contains\('_initializeRevenueCat\(forceStoreRecovery: true\)'\),?\s*\);")
+          replacement = ("\n    expect(source, contains('await _initializeRevenueCat();'));\n"
+                         "    expect(source, isNot(contains('forceStoreRecovery: true')));\n"
+                         "    expect(source, isNot(contains('Purchases.syncPurchases')));")
+          s, count = pattern.subn(replacement, s, count=1)
+          assert count == 1, 'old manual retry expectation not found'
+          p.write_text(s)
+
+          p = Path('test/full_error_hardening_regression_test.dart')
+          s = p.read_text()
+          start_marker = "  test('inactive Pro ownership is retried on resume but rate limited', () {"
+          end_marker = "  test('error codes distinguish pipeline stages'"
+          assert start_marker in s and end_marker in s
+          start = s.index(start_marker)
+          end = s.index(end_marker, start)
+          replacement = (
+              "  test('automatic subscription paths never silently recover store receipts', () {\n"
+              "    final service =\n"
+              "        File('lib/services/subscription_service.dart').readAsStringSync();\n"
+              "    final mainSource = File('lib/main.dart').readAsStringSync();\n"
+              "    final paywall =\n"
+              "        File('lib/screens/paywall_screen.dart').readAsStringSync();\n"
+              "    final home = File('lib/screens/home_screen.dart').readAsStringSync();\n\n"
+              "    expect(service, isNot(contains('_silentStoreRecoveryCooldown')));\n"
+              "    expect(service, isNot(contains('Purchases.syncPurchases')));\n"
+              "    expect(mainSource, contains('refreshCustomerInfo()'));\n"
+              "    expect(\n"
+              "      mainSource,\n"
+              "      isNot(contains('recoverInactiveStorePurchase: true')),\n"
+              "    );\n"
+              "    expect(paywall, isNot(contains('recoverInactiveStorePurchase: true')));\n"
+              "    expect(home, isNot(contains('recoverInactiveStorePurchase: true')));\n"
+              "    expect(paywall, contains('retryRevenueCatInitialization()'));\n"
+              "  });\n\n"
+          )
+          p.write_text(s[:start] + replacement + s[end:])
+          PY
+          rm -f test/services/pro_update_recovery_regression_test.dart
+          git diff --check
+          git diff --name-status
+
+      - name: Package patched files
+        working-directory: app
+        run: |
+          tar -czf ../pr196-candidate-files.tar.gz \
+            lib/main.dart \
+            lib/services/subscription_service.dart \
+            lib/screens/paywall_screen.dart \
+            lib/screens/home_screen.dart \
+            lib/services/processing_lock_service.dart \
+            integration_test/media_format_pipeline_test.dart \
+            test/expected_processing_event_test.dart \
+            test/network_error_test.dart \
+            test/full_error_hardening_regression_test.dart
+          sha256sum ../pr196-candidate-files.tar.gz
+
+      - name: Upload patched files
+        uses: actions/upload-artifact@v4
+        with:
+          name: noise-remover-pr196-candidate-files
+          path: pr196-candidate-files.tar.gz
+          if-no-files-found: error
+          retention-days: 1
