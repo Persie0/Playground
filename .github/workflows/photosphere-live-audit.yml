@@ -1,4 +1,4 @@
-name: Photosphere resource regression
+name: Photosphere live preview validation
 on:
   push:
     branches: [codex/photosphere-live-audit-20261005]
@@ -6,48 +6,155 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  APP_SHA: bd69e802f7939c47bdeb4ee3ab4e4f85e7f83ec8
 jobs:
-  budget-red:
+  unit:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
         with:
           repository: Persie0/Photosphere
-          ref: 2b1e48d58abf55301b4fde8d643820bc6d916063
+          ref: bd69e802f7939c47bdeb4ee3ab4e4f85e7f83ec8
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: app
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-      - name: Run original budget tests and expected resource regression
+      - name: Analyze and exercise image processing and scan preview
+        shell: bash
+        env:
+          CI_RESULTS_PATH: .ci-results/decode-metrics.json
+        run: |
+          set +e
+          set -uo pipefail
+          cd app
+          mkdir -p .ci-results
+          failed=0
+          check() {
+            local label="$1"
+            shift
+            "$@" >".ci-results/$label.log" 2>&1
+            local rc=$?
+            printf '%s=%s\n' "$label" "$rc" >>.ci-results/status.txt
+            if [ "$rc" -ne 0 ]; then failed=1; fi
+            echo "CHECK: $label exit=$rc"
+          }
+          check setup flutter pub get
+          check format dart format --output=none --set-exit-if-changed lib test tool
+          check analyze flutter analyze
+          check tests flutter test --reporter expanded
+          check python-tests python3 -m unittest tool/test_blind_review.py
+          check syntax bash -n tool/bootstrap.sh tool/verify.sh
+          git config user.name Codex
+          git config user.email codex@openai.com
+          evidence="codex/photosphere-ci-unit-${{ github.run_id }}"
+          git checkout -B "$evidence" >.ci-results/evidence.log 2>&1
+          git add -f .ci-results
+          git commit -m 'Record private processing and preview validation' >>.ci-results/evidence.log 2>&1
+          git push origin "HEAD:refs/heads/$evidence" >>.ci-results/evidence.log 2>&1
+          evidence_rc=$?
+          if [ "$evidence_rc" -ne 0 ]; then echo '::error::Private diagnostics could not be saved.'; exit 1; fi
+          exit "$failed"
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/Photosphere
+          ref: bd69e802f7939c47bdeb4ee3ab4e4f85e7f83ec8
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Compile native camera bridge and image pipeline
         shell: bash
         run: |
           set +e
           set -uo pipefail
           cd app
           mkdir -p .ci-results
-          flutter pub get >.ci-results/setup.log 2>&1
-          setup=$?
-          baseline=99
-          regression=99
-          if [ "$setup" -eq 0 ]; then
-            flutter test --reporter expanded test/device_budget_test.dart >.ci-results/baseline.log 2>&1
-            baseline=$?
-            flutter test --reporter expanded test/budget_working_set_regression_test.dart >.ci-results/regression.log 2>&1
-            regression=$?
+          failed=0
+          check() {
+            local label="$1"
+            shift
+            "$@" >".ci-results/$label.log" 2>&1
+            local rc=$?
+            printf '%s=%s\n' "$label" "$rc" >>.ci-results/status.txt
+            if [ "$rc" -ne 0 ]; then failed=1; fi
+            echo "CHECK: $label exit=$rc"
+          }
+          check generate flutter create --platforms=android,ios --org com.persie --no-pub .
+          check configure dart tool/configure_platforms.dart
+          check sdk dart tool/set_android_sdk37.dart
+          check setup flutter pub get
+          if [ "$failed" -eq 0 ]; then
+            check build flutter build apk --debug
           fi
-          printf '{"setup":%s,"baseline":%s,"regression":%s}\n' "$setup" "$baseline" "$regression" >.ci-results/red-status.json
           git config user.name Codex
           git config user.email codex@openai.com
-          git checkout -B codex/photosphere-ci-evidence-red-20261005
+          evidence="codex/photosphere-ci-android-${{ github.run_id }}"
+          git checkout -B "$evidence" >.ci-results/evidence.log 2>&1
           git add -f .ci-results
-          git commit -m 'Record private budget regression evidence'
-          git push origin HEAD:refs/heads/codex/photosphere-ci-evidence-red-20261005
-          if [ "$setup" -eq 0 ] && [ "$baseline" -eq 0 ] && [ "$regression" -ne 0 ] && [ "$regression" -ne 99 ]; then
-            echo 'PASS: original budget checks pass; resource regression reproduces.'
-          else
-            echo '::error::Unexpected regression status. Diagnostics stored in private app evidence branch.'
-            exit 1
+          git commit -m 'Record private android native build validation' >>.ci-results/evidence.log 2>&1
+          git push origin "HEAD:refs/heads/$evidence" >>.ci-results/evidence.log 2>&1
+          evidence_rc=$?
+          if [ "$evidence_rc" -ne 0 ]; then echo '::error::Private diagnostics could not be saved.'; exit 1; fi
+          exit "$failed"
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/Photosphere
+          ref: bd69e802f7939c47bdeb4ee3ab4e4f85e7f83ec8
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Compile native camera bridge and image pipeline
+        shell: bash
+        run: |
+          set +e
+          set -uo pipefail
+          cd app
+          mkdir -p .ci-results
+          failed=0
+          check() {
+            local label="$1"
+            shift
+            "$@" >".ci-results/$label.log" 2>&1
+            local rc=$?
+            printf '%s=%s\n' "$label" "$rc" >>.ci-results/status.txt
+            if [ "$rc" -ne 0 ]; then failed=1; fi
+            echo "CHECK: $label exit=$rc"
+          }
+          check generate flutter create --platforms=android,ios --org com.persie --no-pub .
+          check configure dart tool/configure_platforms.dart
+          check sdk dart tool/set_android_sdk37.dart
+          check setup flutter pub get
+          if [ "$failed" -eq 0 ]; then
+            check build flutter build ios --debug --no-codesign
           fi
+          git config user.name Codex
+          git config user.email codex@openai.com
+          evidence="codex/photosphere-ci-ios-${{ github.run_id }}"
+          git checkout -B "$evidence" >.ci-results/evidence.log 2>&1
+          git add -f .ci-results
+          git commit -m 'Record private ios native build validation' >>.ci-results/evidence.log 2>&1
+          git push origin "HEAD:refs/heads/$evidence" >>.ci-results/evidence.log 2>&1
+          evidence_rc=$?
+          if [ "$evidence_rc" -ne 0 ]; then echo '::error::Private diagnostics could not be saved.'; exit 1; fi
+          exit "$failed"
