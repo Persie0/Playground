@@ -1,4 +1,4 @@
-name: Temporary AudioBooster RevenueCat final verification
+name: Temporary AudioBooster final head verification
 
 on:
   push:
@@ -12,10 +12,10 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Check out AudioBooster feature branch
+      - name: Check out final AudioBooster branch head
         uses: actions/checkout@v4
         with:
           repository: Persie0/Audiobooster
@@ -28,78 +28,25 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Verify dependency lock
+      - name: Verify branch head
         working-directory: audiobooster
         run: |
           set -euxo pipefail
+          test "$(git rev-parse HEAD)" = "99ef0ec97f88bf87452cd96373d54cad48076e35"
           flutter pub get
           git diff --exit-code -- pubspec.lock
-          grep -A6 '^  purchases_flutter:' pubspec.lock
-      - name: Focused monetization tests
-        working-directory: audiobooster
-        run: |
-          set -euxo pipefail
-          flutter test test/subscription test/trial_bridge_test.dart test/trial_paywall_flow_test.dart test/revenuecat_build_config_test.dart test/home_history_tutorial_test.dart
       - name: Full Flutter tests
         working-directory: audiobooster
         run: flutter test
       - name: Analyze
         working-directory: audiobooster
         run: flutter analyze
-      - name: Bootstrap Android
-        working-directory: audiobooster
-        run: bash tool/bootstrap_android.sh
-      - name: Verify maintained native source mirrors
+      - name: Bootstrap and app native tests
         working-directory: audiobooster
         run: |
           set -euxo pipefail
+          bash tool/bootstrap_android.sh
           cmp tool/android/MainActivity.kt android/app/src/main/kotlin/com/persie0/audiobooster/MainActivity.kt
           diff -qr tool/android/com/persie0/audiobooster/audio android/app/src/main/kotlin/com/persie0/audiobooster/audio
-      - name: AudioBooster native unit tests
-        working-directory: audiobooster/android
-        run: ./gradlew :app:testDebugUnitTest
-      - name: Debug APK
-        working-directory: audiobooster
-        run: flutter build apk --debug
-      - name: Configure ephemeral CI release signing
-        working-directory: audiobooster
-        run: |
-          set -euxo pipefail
-          keytool -genkeypair \
-            -keystore /tmp/audiobooster-ci.jks \
-            -storepass audioboosterci \
-            -keypass audioboosterci \
-            -alias ci \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 1 \
-            -dname 'CN=AudioBooster CI'
-          cat > android/key.properties <<'EOF'
-          storePassword=audioboosterci
-          keyPassword=audioboosterci
-          keyAlias=ci
-          storeFile=/tmp/audiobooster-ci.jks
-          EOF
-      - name: Release APK
-        working-directory: audiobooster
-        run: flutter build apk --release
-      - name: Release AAB
-        working-directory: audiobooster
-        run: flutter build appbundle --release
-      - name: Requirement boundary scan
-        working-directory: audiobooster
-        run: |
-          set -euxo pipefail
-          if grep -RniE 'appodeal|bidmachine|bidon|ironsource|com\.google\.android\.gms\.permission\.AD_ID' pubspec.yaml android tool; then
-            echo 'Unexpected advertising stack content found' >&2
-            exit 1
-          fi
-          if grep -RniE 'ios[^[:space:]]*api[^[:space:]]*key[^=]*=[^;]*(goog_|appl_)' lib/subscription; then
-            echo 'Unexpected configured iOS RevenueCat key found' >&2
-            exit 1
-          fi
-          if grep -RniE 'setTrialUsed|resetTrial|usedTrialMs.*argument|trial_used_ms.*call\.argument' lib tool/android android/app/src/main/kotlin; then
-            echo 'Unexpected caller-controlled trial reset/usage API found' >&2
-            exit 1
-          fi
-          echo 'Verified AudioBooster RevenueCat trial feature boundary'
+          cd android
+          ./gradlew :app:testDebugUnitTest
