@@ -1,0 +1,41 @@
+name: Verify image_enhancer PR 44
+
+on:
+  push:
+    paths:
+      - '.github/workflows/image_enhancer_pr44_review.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_ENHANCER_REF: 84766be0ec1fe83387f24683e7f68ef29381256f
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact private revision
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_enhancer
+          ref: ${{ env.IMAGE_ENHANCER_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: image_enhancer
+          fetch-depth: 1
+
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: Soft paywall regression test
+        working-directory: image_enhancer
+        run: flutter test test/engagement_soft_paywall_pro_guard_test.dart --reporter expanded
