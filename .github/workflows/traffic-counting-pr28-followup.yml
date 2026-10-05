@@ -18,13 +18,14 @@ jobs:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: test -n "$PRIVATE_TOKEN"
 
-      - name: Checkout traffic branch
+      - name: Checkout traffic branch with LFS models
         uses: actions/checkout@v5
         with:
           repository: Persie0/traffic-counting-light-main
           ref: perf/pr28-followup-exact-optimizations
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
+          lfs: true
           path: traffic
 
       - name: Set up Python
@@ -56,6 +57,8 @@ jobs:
           model = Path("src/inference/models/libreyolo9t-288x384-ncnn")
           param = next(model.glob("*.param"))
           binf = next(model.glob("*.bin"))
+          if binf.stat().st_size < 1_000_000:
+              raise SystemExit(f"model binary was not materialized from LFS: {binf.stat().st_size} bytes")
           net = ncnn.Net()
           net.opt.num_threads = 4
           assert int(net.load_param(str(param))) == 0
