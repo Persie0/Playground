@@ -100,6 +100,21 @@ jobs:
           assert old in s, 'old paywall silent recovery block not found'
           p.write_text(s.replace(old, new, 1))
 
+          p = Path('lib/screens/home_screen.dart')
+          s = p.read_text()
+          old = (
+              "          await _subscriptionService\n"
+              "              .refreshCustomerInfo(recoverInactiveStorePurchase: true)\n"
+              "              .timeout(const Duration(seconds: 60));\n"
+          )
+          new = (
+              "          await _subscriptionService\n"
+              "              .refreshCustomerInfo()\n"
+              "              .timeout(const Duration(seconds: 60));\n"
+          )
+          assert old in s, 'old home silent recovery call not found'
+          p.write_text(s.replace(old, new, 1))
+
           p = Path('test/network_error_test.dart')
           s = p.read_text()
           old_name = "manual RevenueCat retry re-runs initialization and store recovery"
@@ -130,7 +145,8 @@ jobs:
               "        File('lib/services/subscription_service.dart').readAsStringSync();\n"
               "    final mainSource = File('lib/main.dart').readAsStringSync();\n"
               "    final paywall =\n"
-              "        File('lib/screens/paywall_screen.dart').readAsStringSync();\n\n"
+              "        File('lib/screens/paywall_screen.dart').readAsStringSync();\n"
+              "    final home = File('lib/screens/home_screen.dart').readAsStringSync();\n\n"
               "    expect(service, isNot(contains('_silentStoreRecoveryCooldown')));\n"
               "    expect(service, isNot(contains('Purchases.syncPurchases')));\n"
               "    expect(mainSource, contains('refreshCustomerInfo()'));\n"
@@ -139,6 +155,7 @@ jobs:
               "      isNot(contains('recoverInactiveStorePurchase: true')),\n"
               "    );\n"
               "    expect(paywall, isNot(contains('recoverInactiveStorePurchase: true')));\n"
+              "    expect(home, isNot(contains('recoverInactiveStorePurchase: true')));\n"
               "    expect(paywall, contains('retryRevenueCatInitialization()'));\n"
               "  });\n\n"
           )
@@ -149,6 +166,7 @@ jobs:
           git add lib/main.dart \
             lib/services/subscription_service.dart \
             lib/screens/paywall_screen.dart \
+            lib/screens/home_screen.dart \
             test/network_error_test.dart \
             test/full_error_hardening_regression_test.dart
           git diff --check
