@@ -1,4 +1,4 @@
-name: Temporary AudioBooster notification copy focused gate
+name: Temporary AudioBooster notification copy final gate
 
 on:
   push:
@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  focused:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - name: Check out AudioBooster feature branch
@@ -22,6 +22,7 @@ jobs:
           ref: feature/notification-permission-audio-effects-copy
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: audiobooster
+          fetch-depth: 0
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -32,3 +33,15 @@ jobs:
       - name: Run focused tests
         working-directory: audiobooster
         run: flutter test test/notification_permission_and_compatibility_copy_test.dart test/home_history_tutorial_test.dart
+      - name: Run all Flutter tests
+        working-directory: audiobooster
+        run: flutter test
+      - name: Analyze
+        working-directory: audiobooster
+        run: flutter analyze
+      - name: Bootstrap Android
+        working-directory: audiobooster
+        run: bash tool/bootstrap_android.sh
+      - name: Build debug APK
+        working-directory: audiobooster
+        run: flutter build apk --debug
