@@ -1,0 +1,93 @@
+name: Temporary AudioBooster RevenueCat final review
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tmp-audiobooster-revenuecat-final.yml
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out AudioBooster reviewed head
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: 517a29de70037d8bf29cdc3f1ab44b898a482a9c
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: audiobooster
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        working-directory: audiobooster
+        run: flutter pub get
+      - name: Verify merged dependency state
+        working-directory: audiobooster
+        run: |
+          grep -F 'dynamic_color: ^2.1.0' pubspec.yaml
+          grep -F 'purchases_flutter: ^10.13.0' pubspec.yaml
+      - name: Focused monetization tests
+        working-directory: audiobooster
+        run: |
+          flutter test test/subscription test/trial_bridge_test.dart test/trial_engine_source_test.dart test/trial_paywall_flow_test.dart test/revenuecat_build_config_test.dart
+      - name: Full Flutter tests
+        working-directory: audiobooster
+        run: flutter test
+      - name: Analyze
+        working-directory: audiobooster
+        run: flutter analyze
+      - name: Bootstrap Android
+        working-directory: audiobooster
+        run: bash tool/bootstrap_android.sh
+      - name: Verify maintained native source mirrors
+        working-directory: audiobooster
+        run: |
+          cmp tool/android/MainActivity.kt android/app/src/main/kotlin/com/persie0/audiobooster/MainActivity.kt
+          diff -qr tool/android/com/persie0/audiobooster android/app/src/main/kotlin/com/persie0/audiobooster
+      - name: AudioBooster native unit tests
+        working-directory: audiobooster/android
+        run: ./gradlew :app:testDebugUnitTest
+      - name: Debug APK
+        working-directory: audiobooster
+        run: flutter build apk --debug
+      - name: Configure ephemeral CI release signing
+        working-directory: audiobooster
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -v -keystore android/ci-release.jks -storepass ci-release-pass -keypass ci-release-pass -alias ci -keyalg RSA -keysize 2048 -validity 2 -dname "CN=CI,O=CI,C=AT"
+          cat > android/key.properties <<'EOF'
+          storePassword=ci-release-pass
+          keyPassword=ci-release-pass
+          keyAlias=ci
+          storeFile=ci-release.jks
+          EOF
+      - name: Release APK
+        working-directory: audiobooster
+        run: flutter build apk --release
+      - name: Release AAB
+        working-directory: audiobooster
+        run: flutter build appbundle --release
+      - name: Requirement boundary scan
+        working-directory: audiobooster
+        run: |
+          set -euxo pipefail
+          if grep -RniE 'appodeal|bidmachine|bidon|ironsource|com\.google\.android\.gms\.permission\.AD_ID' pubspec.yaml android tool; then
+            echo 'Unexpected advertising stack content found' >&2
+            exit 1
+          fi
+          if grep -RniE 'ios[^[:space:]]*api[^[:space:]]*key[^=]*=[^;]*(goog_|appl_)' lib/subscription; then
+            echo 'Unexpected configured iOS RevenueCat key found' >&2
+            exit 1
+          fi
+          if grep -RniE 'setTrialUsed|resetTrial|usedTrialMs.*argument|trial_used_ms.*call\.argument' lib tool/android android/app/src/main/kotlin; then
+            echo 'Unexpected caller-controlled trial reset/usage API found' >&2
+            exit 1
+          fi
+          test ! -e .superpowers/sdd/2026-10-05-revenuecat-trial-monetization/progress.md
+          echo 'Verified reviewed RevenueCat feature boundary'
