@@ -1,0 +1,52 @@
+name: Photosphere resource regression
+on:
+  push:
+    branches: [codex/photosphere-live-audit-20261005]
+    paths: [.github/workflows/photosphere-live-audit.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  budget-red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/Photosphere
+          ref: 2b1e48d58abf55301b4fde8d643820bc6d916063
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Run original budget tests and expected resource regression
+        shell: bash
+        run: |
+          set -uo pipefail
+          cd app
+          mkdir -p .ci-results
+          flutter pub get >.ci-results/setup.log 2>&1
+          setup=$?
+          baseline=99
+          regression=99
+          if [ "$setup" -eq 0 ]; then
+            flutter test --reporter expanded test/device_budget_test.dart >.ci-results/baseline.log 2>&1
+            baseline=$?
+            flutter test --reporter expanded test/budget_working_set_regression_test.dart >.ci-results/regression.log 2>&1
+            regression=$?
+          fi
+          printf '{"setup":%s,"baseline":%s,"regression":%s}\n' "$setup" "$baseline" "$regression" >.ci-results/red-status.json
+          git config user.name Codex
+          git config user.email codex@openai.com
+          git checkout -B codex/photosphere-ci-evidence-red-20261005
+          git add -f .ci-results
+          git commit -m 'Record private budget regression evidence'
+          git push origin HEAD:refs/heads/codex/photosphere-ci-evidence-red-20261005
+          if [ "$setup" -eq 0 ] && [ "$baseline" -eq 0 ] && [ "$regression" -ne 0 ] && [ "$regression" -ne 99 ]; then
+            echo 'PASS: original budget checks pass; resource regression reproduces.'
+          else
+            echo '::error::Unexpected regression status. Diagnostics stored in private app evidence branch.'
+            exit 1
+          fi
