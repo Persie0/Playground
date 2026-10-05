@@ -25,7 +25,7 @@ source = replace_exact(
 source = replace_exact(
     source,
     "    _pendingHistoryResult = result;\n    _historySaveTimer?.cancel();",
-    "    _pendingHistoryResult = result;\n    _pendingHistoryInputOdds = _oddsControllers\n        .map((controller) => controller.text)\n        .toList(growable: false);\n    _historySaveTimer?.cancel();",
+    "    _pendingHistoryResult = result;\n    _pendingHistoryInputOdds = _oddsControllers.map((controller) => controller.text)\n        .toList(growable: false);\n    _historySaveTimer?.cancel();",
     "snapshot original odds text",
 )
 source = replace_exact(
