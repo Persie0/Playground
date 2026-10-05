@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/surebets-odds-history-validation.yml'
-      - 'surebets-odds-history-validation/run.txt'
+      - 'surebets-odds-history-validation/**'
 
 permissions:
   contents: read
@@ -15,6 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      - name: Checkout Playground patch
+        uses: actions/checkout@v5
+        with:
+          path: playground
+
       - name: Validate private checkout token
         env:
           PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
@@ -26,8 +31,12 @@ jobs:
           repository: Persie0/surebets_calculator
           ref: fix/history-preserve-odds-precision
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
-          persist-credentials: false
+          persist-credentials: true
           path: app
+
+      - name: Apply history precision fix
+        working-directory: app
+        run: git apply ../playground/surebets-odds-history-validation/history-odds-precision.patch
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -39,6 +48,29 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      - name: Run history odds precision regression
+      - name: Run history precision regressions
         working-directory: app
-        run: flutter test test/history_odds_precision_test.dart
+        run: |
+          flutter test test/history_odds_precision_test.dart
+          flutter test test/logical_bet_history_test.dart
+          flutter test test/history_navigation_flush_test.dart
+          flutter test test/history_paywall_cadence_test.dart
+          flutter test test/history_paywall_repeat_test.dart
+          flutter test test/history_paywall_recovery_test.dart
+
+      - name: Run Flutter analyzer
+        working-directory: app
+        run: flutter analyze
+
+      - name: Run full Flutter test suite
+        working-directory: app
+        run: flutter test
+
+      - name: Commit verified fix
+        working-directory: app
+        run: |
+          git config user.name "Persie0"
+          git config user.email "76871553+Persie0@users.noreply.github.com"
+          git add lib/calculator_screen.dart lib/bet_history_screen.dart
+          git commit -m "fix: preserve original odds precision in history [skip ci]"
+          git push origin HEAD:fix/history-preserve-odds-precision
