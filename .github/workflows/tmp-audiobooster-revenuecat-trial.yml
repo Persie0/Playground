@@ -12,14 +12,14 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Check out AudioBooster build-test-before-config revision
+      - name: Check out AudioBooster feature branch
         uses: actions/checkout@v4
         with:
           repository: Persie0/Audiobooster
-          ref: 6d033a15a52c258a512b344022232c3baf6fc64e
+          ref: feature/revenuecat-trial-monetization
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: audiobooster
           fetch-depth: 0
@@ -28,9 +28,26 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Install dependencies
+      - name: Install dependencies and show lock drift
         working-directory: audiobooster
-        run: flutter pub get
-      - name: RevenueCat build config RED gate
+        run: |
+          set -euxo pipefail
+          flutter pub get
+          git diff -- pubspec.lock || true
+      - name: Focused Flutter tests
         working-directory: audiobooster
-        run: flutter test test/revenuecat_build_config_test.dart
+        run: |
+          set -euxo pipefail
+          flutter test test/trial_paywall_flow_test.dart test/home_history_tutorial_test.dart test/revenuecat_build_config_test.dart test/trial_bridge_test.dart test/subscription
+      - name: Analyze
+        working-directory: audiobooster
+        run: flutter analyze
+      - name: Bootstrap Android
+        working-directory: audiobooster
+        run: bash tool/bootstrap_android.sh
+      - name: Native trial tests
+        working-directory: audiobooster/android
+        run: ./gradlew testDebugUnitTest
+      - name: Build debug APK
+        working-directory: audiobooster
+        run: flutter build apk --debug
