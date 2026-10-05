@@ -1,0 +1,181 @@
+name: Verify all exported GlitchTip fixes
+on:
+  push:
+    paths:
+      - '.github/workflows/glitchtip-export-20261005.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: glitchtip-export-20261005
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout resistor_scanner
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: a0d3d60d513a0b125f0de99dd8b7cf5e53668ab4
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: apps/resistor_scanner
+      - name: Checkout root_detection_app
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/root_detection_app
+          ref: 6b347c5f39369cfa2692bba2024e573411b3500b
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: apps/root_detection_app
+      - name: Checkout hanzi_hero
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/hanzi_hero
+          ref: 2ac28e55c9abd434e0ceaecaf4bb92107aae57c3
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: apps/hanzi_hero
+      - name: Checkout surebets_calculator
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/surebets_calculator
+          ref: 5d78dac99748f60832485f2be72ef59e03abd017
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: apps/surebets_calculator
+      - name: Checkout image_enhancer
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_enhancer
+          ref: 720b08ce4375898166206bdf00d8d319f3d9a823
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: apps/image_enhancer
+      - name: Checkout noise_remover
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: a0c5ce1f12101c37020790e4a76ed1d8eceefd9d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: apps/noise_remover
+      - name: Checkout fake_gps_detector
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/fake_gps_detector
+          ref: a849a6e28bfa21f8169c889b25290ca799ed2e0a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: apps/fake_gps_detector
+      - name: Checkout image_compressor
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_compressor
+          ref: 5e56fd9e6a9c7751db332cffaea81a039a725ec6
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: apps/image_compressor
+      - name: Checkout resistor-calc
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor-calc
+          ref: c6570b9795237400e7839da6cff098a0b557a985
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: apps/resistor-calc
+      - name: Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          gradle-version: '9.6.0'
+      - name: Authenticate private Git dependencies
+        env:
+          CHECKOUT_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git config --global url."https://x-access-token:${CHECKOUT_TOKEN}@github.com/".insteadOf "https://github.com/"
+      - name: Sequential app and native checks
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p results
+          failures=0
+          run_check() {
+            label="$1"
+            shift
+            raw_log="$(mktemp)"
+            if "$@" >"$raw_log" 2>&1; then
+              printf 'PASS %s\n' "$label" | tee -a results/summary.txt
+            else
+              failures=$((failures + 1))
+              printf 'FAIL %s\n' "$label" | tee -a results/summary.txt
+              python3 - "$raw_log" "$label" <<'PY'
+          import pathlib,re,sys
+          lines=pathlib.Path(sys.argv[1]).read_text(errors='replace').splitlines()
+          selected=[]
+          for line in lines:
+              line=re.sub(r'\x1b\[[0-9;]*m','',line).strip()
+              if not line: continue
+              if re.search(r'^(?:e: |.*\.dart:\d+:\d+: Error:|Error:|FAILURE:|> |.*\[E\]$|.*(?:Expected:|Actual:|Which:|Test failed\.))',line) or re.search(r'error •|Could not |requires SDK version|version solving failed|FAILED|Exception:|Some tests failed',line):
+                  selected.append(line[:1000])
+          pathlib.Path('results/'+re.sub(r'[^A-Za-z0-9_-]','_',sys.argv[2])+'.txt').write_text('\n'.join(selected[-100:])+'\n')
+          print('\n'.join(selected[-30:]))
+          PY
+            fi
+            rm -f "$raw_log"
+          }
+          for app in resistor_scanner root_detection_app hanzi_hero surebets_calculator image_enhancer noise_remover fake_gps_detector image_compressor resistor-calc; do
+            run_check "$app dependencies" bash -c 'cd "$1" && flutter pub get' _ "$GITHUB_WORKSPACE/apps/$app"
+            if [[ -d "apps/$app/test" ]]; then
+              run_check "$app Flutter tests" bash -c 'cd "$1" && flutter test --reporter expanded' _ "$GITHUB_WORKSPACE/apps/$app"
+            fi
+            run_check "$app analyzer" bash -c 'cd "$1" && flutter analyze --no-fatal-infos --no-fatal-warnings' _ "$GITHUB_WORKSPACE/apps/$app"
+          done
+          run_check "scanner Dart bridge tests" bash -c 'cd "$1/flutter_vision" && flutter pub get && flutter test --reporter expanded' _ "$GITHUB_WORKSPACE/apps/resistor_scanner"
+          native_tests() {
+            local app="$1" plugin="$2" flutter_bin flutter_root flutter_jar
+            flutter_bin="$(command -v flutter)"
+            flutter_root="$(cd "$(dirname "$flutter_bin")/.." && pwd)"
+            flutter_jar="$flutter_root/bin/cache/artifacts/engine/android-arm/flutter.jar"
+            if [[ ! -f "$flutter_jar" ]]; then
+              flutter_jar="$(find "$flutter_root/bin/cache/artifacts/engine" -path '*/flutter.jar' -print -quit)"
+            fi
+            [[ -f "$flutter_jar" ]] || return 1
+            printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$flutter_root" "$ANDROID_HOME" >"$app/android/local.properties"
+            cat >>"$app/$plugin/android/build.gradle" <<EOF
+          dependencies {
+              compileOnly files('$flutter_jar')
+              testImplementation files('$flutter_jar')
+          }
+          EOF
+            sed -i "/project\.evaluationDependsOn(':app')/d" "$app/android/build.gradle"
+            (cd "$app/android" && gradle ":$plugin:testDebugUnitTest" --configure-on-demand --no-daemon)
+          }
+          run_check "scanner Android JVM tests" native_tests "$GITHUB_WORKSPACE/apps/resistor_scanner" flutter_vision
+          run_check "root detector Android JVM tests" native_tests "$GITHUB_WORKSPACE/apps/root_detection_app" root_detector
+          cat results/summary.txt >>"$GITHUB_STEP_SUMMARY"
+          [[ "$failures" -eq 0 ]]
+      - name: Upload verification summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: glitchtip-export-verification
+          path: results/
+          retention-days: 7
+      - name: Clear private dependency authentication
+        if: always()
+        env:
+          CHECKOUT_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          git config --global --remove-section "url.https://x-access-token:${CHECKOUT_TOKEN}@github.com/" || true
