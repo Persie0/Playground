@@ -1,4 +1,4 @@
-name: Temporary AudioBooster session localization RED
+name: Temporary AudioBooster session localization apply
 
 on:
   push:
@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  red:
+  apply:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Check out AudioBooster feature branch
@@ -22,6 +22,7 @@ jobs:
           ref: feature/session-notification-localization
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           path: audiobooster
+          fetch-depth: 0
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -29,6 +30,28 @@ jobs:
       - name: Install dependencies
         working-directory: audiobooster
         run: flutter pub get
-      - name: Run RED test
+      - name: Apply native session notification implementation
         working-directory: audiobooster
-        run: flutter test test/session_notification_localization_test.dart
+        run: python scripts/apply_session_notification.py
+      - name: Extract Flutter UI strings
+        working-directory: audiobooster
+        run: dart run motrgem --replace
+      - name: Sync and translate locales
+        working-directory: audiobooster
+        run: python scripts/localization_sync.py
+      - name: Generate Flutter localizations
+        working-directory: audiobooster
+        run: flutter gen-l10n
+      - name: Format Dart
+        working-directory: audiobooster
+        run: dart format lib test
+      - name: Commit generated implementation
+        working-directory: audiobooster
+        run: |
+          rm scripts/apply_session_notification.py
+          git checkout -- .dart_tool/package_config.json .dart_tool/package_graph.json .dart_tool/version 2>/dev/null || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add session connection notification and app localization"
+          git push origin HEAD:feature/session-notification-localization
