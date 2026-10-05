@@ -71,7 +71,15 @@ jobs:
         working-directory: audiobooster
         run: |
           set -euxo pipefail
-          ! grep -RniE 'appodeal|bidmachine|bidon|ironsource|com\.google\.android\.gms\.permission\.AD_ID' pubspec.yaml android tool || false_positive=$?
-          if [ "${false_positive:-0}" -ne 0 ]; then exit 1; fi
-          ! grep -RniE 'iosApiKey\s*=\s*[^'"'"']' lib/subscription || true
-          ! grep -RniE 'setTrialUsed|resetTrial|usedTrialMs.*argument|trial_used_ms.*call\.argument' lib tool/android android/app/src/main/kotlin
+          if grep -RniE 'appodeal|bidmachine|bidon|ironsource|com\.google\.android\.gms\.permission\.AD_ID' pubspec.yaml android tool; then
+            echo 'Unexpected advertising stack content found' >&2
+            exit 1
+          fi
+          if grep -RniE 'ios[^[:space:]]*api[^[:space:]]*key[^=]*=[^;]*(goog_|appl_)' lib/subscription; then
+            echo 'Unexpected configured iOS RevenueCat key found' >&2
+            exit 1
+          fi
+          if grep -RniE 'setTrialUsed|resetTrial|usedTrialMs.*argument|trial_used_ms.*call\.argument' lib tool/android android/app/src/main/kotlin; then
+            echo 'Unexpected caller-controlled trial reset/usage API found' >&2
+            exit 1
+          fi
