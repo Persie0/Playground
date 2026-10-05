@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  isolate:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -31,48 +31,74 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Flutter version
-        run: flutter --version
-
-      - name: Install dependencies
+      - name: Prepare
         working-directory: audiobooster
         run: |
           set -euxo pipefail
           flutter pub get
-
-      - name: Generate localizations
-        working-directory: audiobooster
-        run: |
-          set -euxo pipefail
           flutter gen-l10n
 
-      - name: Check generated localization drift
+      - name: foreground_engine_source_test
+        if: always()
         working-directory: audiobooster
-        run: |
-          set -euxo pipefail
-          git status --short
-          git diff --check
+        run: flutter test test/foreground_engine_source_test.dart
 
-      - name: Analyze
+      - name: notification_permission_and_compatibility_copy_test
+        if: always()
         working-directory: audiobooster
-        run: |
-          set -euxo pipefail
-          flutter analyze
+        run: flutter test test/notification_permission_and_compatibility_copy_test.dart
 
-      - name: Session notification localization test
+      - name: bootstrap_android_source_test
+        if: always()
         working-directory: audiobooster
-        run: |
-          set -euxo pipefail
-          flutter test test/session_notification_localization_test.dart
+        run: flutter test test/bootstrap_android_source_test.dart
 
-      - name: Full test suite
+      - name: root_mode_source_test
+        if: always()
         working-directory: audiobooster
-        run: |
-          set -euxo pipefail
-          flutter test
+        run: flutter test test/root_mode_source_test.dart
 
-      - name: Build debug APK
+      - name: native_bridge_source_test
+        if: always()
         working-directory: audiobooster
-        run: |
-          set -euxo pipefail
-          flutter build apk --debug
+        run: flutter test test/native_bridge_source_test.dart
+
+      - name: native_modern_engine_source_test
+        if: always()
+        working-directory: audiobooster
+        run: flutter test test/native_modern_engine_source_test.dart
+
+      - name: device_validation_source_test
+        if: always()
+        working-directory: audiobooster
+        run: flutter test test/device_validation_source_test.dart
+
+      - name: user_facing_copy_test
+        if: always()
+        working-directory: audiobooster
+        run: flutter test test/user_facing_copy_test.dart
+
+      - name: home_history_tutorial_test
+        if: always()
+        working-directory: audiobooster
+        run: flutter test test/home_history_tutorial_test.dart
+
+      - name: onboarding_test
+        if: always()
+        working-directory: audiobooster
+        run: flutter test test/onboarding_test.dart
+
+      - name: advanced_audio_page_test
+        if: always()
+        working-directory: audiobooster
+        run: flutter test test/advanced_audio_page_test.dart
+
+      - name: automatic_setup_fallback_test
+        if: always()
+        working-directory: audiobooster
+        run: flutter test test/automatic_setup_fallback_test.dart
+
+      - name: simplified_play_flow_test
+        if: always()
+        working-directory: audiobooster
+        run: flutter test test/simplified_play_flow_test.dart
