@@ -1,0 +1,47 @@
+name: Noise Remover PR189 lockfile apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-pr189-lock-push.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  apply-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout private branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/noise_remover
+          ref: macos-release
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Verify expected head and refresh lockfile
+        working-directory: app
+        run: |
+          test "$(git rev-parse HEAD)" = "a9ff0491366365ebfb069c124ddd4fb983923667"
+          flutter pub get
+          git diff -- pubspec.lock
+      - name: Commit exact refreshed lockfile
+        working-directory: app
+        run: |
+          git config user.name "Public Playground CI"
+          git config user.email "actions@github.com"
+          git add pubspec.lock
+          if git diff --cached --quiet; then
+            echo "Lockfile already current."
+            exit 0
+          fi
+          git commit -m "chore: refresh merged dependency lockfile [skip ci]"
+          git push origin HEAD:macos-release
