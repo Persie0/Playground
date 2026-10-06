@@ -46,5 +46,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
-      - name: Run private Android harness
-        run: bash private-app/.github/playground/test-android.sh private-app
+      - name: Run Android unit tests
+        run: gradle -p private-app/android :app:testDebugUnitTest --stacktrace
+      - name: Build Android Debug + Release
+        run: gradle -p private-app/android :app:assembleDebug :app:assembleRelease --stacktrace
+      - name: Run Android lint
+        run: gradle -p private-app/android :app:lintDebug --stacktrace
