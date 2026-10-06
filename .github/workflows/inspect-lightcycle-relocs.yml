@@ -35,6 +35,9 @@ jobs:
           readelf -x .data liblightcycle.so > out/data-hex.txt || true
           readelf -x .got liblightcycle.so > out/got-hex.txt || true
           readelf -x .got.plt liblightcycle.so > out/got-plt-hex.txt || true
+          # Photosphere/render parameter tables referenced by photosphere_parameters.cc.
+          xxd -g 4 -s 0x61700 -l 0x600 liblightcycle.so > out/photosphere-parameter-bytes.txt
+          xxd -g 1 -s 0x62e00 -l 0x100 liblightcycle.so > out/photosphere-jump-tables.txt
 
       - name: Upload
         uses: actions/upload-artifact@v4
