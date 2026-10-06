@@ -1,0 +1,31 @@
+package p000;
+
+/* JADX INFO: compiled from: PG */
+/* JADX INFO: loaded from: classes.dex */
+final class ere extends erk {
+
+    /* JADX INFO: renamed from: a */
+    final /* synthetic */ erf f15228a;
+
+    /* JADX WARN: 'super' call moved to the top of the method (can break code semantics) */
+    public ere(erf erfVar) {
+        super(erfVar);
+        this.f15228a = erfVar;
+    }
+
+    @Override // p000.erk, p000.erg
+    /* JADX INFO: renamed from: b */
+    public final void mo7730b() {
+        this.f15228a.f15229a.m10390e();
+        erf erfVar = this.f15228a;
+        erfVar.f15229a.m10392g(erfVar.f15232d);
+    }
+
+    @Override // p000.erk, p000.erg
+    /* JADX INFO: renamed from: d */
+    public final void mo7732d() {
+        this.f15228a.f15229a.m10390e();
+        erf erfVar = this.f15228a;
+        erfVar.f15229a.m10392g(erfVar.f15231c);
+    }
+}

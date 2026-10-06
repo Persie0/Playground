@@ -1,0 +1,49 @@
+package com.google.android.libraries.camera.jni.graphics.bVLS;
+
+/* JADX INFO: loaded from: classes2.dex */
+public class aJFPpVSaoDO {
+    public static String ACwsqYjzPFE;
+    public static String AgKQqjXL;
+    public static String Aokkiwx;
+    public static String AzFcBwd;
+    public static String CzcQv;
+    public static String FmzPYSeoVWW;
+    public static String HwUkZDHSFYQy;
+    public static String JBWdxOwCzTtqZX;
+    public static String Jha;
+    public static String NICi;
+    public static String OUsRpWdgadORhk;
+    public static String PHLODCTLSIZyB;
+    public static String PwTnzctQWDMP;
+    public static String REh;
+    public static String TDSEb;
+    public static String WymRMBphr;
+    public static String XHzWturHXpRR;
+    public static String XnEJdEYJ;
+    public static String XyQ;
+    public static String Zez;
+    public static String dXSFnnC;
+    public static String hdHrCn;
+    public static String izAYaKIWGsSWPrg;
+    public static String jCt;
+    public static String kyGFOiznf;
+    public static String lJUejpauALJ;
+    public static String lkSRJYyBtU;
+    public static String mQwNRglSNGN;
+    public static String olQZnvZdLCLfzB;
+    public static String owlfJAumvGswTY;
+    public static String owtuTdm;
+    public static String pMexPwr;
+    public static String pkSfaLNBfyPJh;
+    public static String qVCAYcz;
+    public static String qwJdNOGjeIIcIV;
+    public static String sZixzN;
+    public static String tqXg;
+    public static String vGqWMQ;
+    public static String wPKBbPXlcsZSpM;
+    public static String wcRtHPAeVMGI;
+    public static String wqdsJx;
+    public static String yQprTT;
+    public static String zVQ;
+    public static String zloA;
+}

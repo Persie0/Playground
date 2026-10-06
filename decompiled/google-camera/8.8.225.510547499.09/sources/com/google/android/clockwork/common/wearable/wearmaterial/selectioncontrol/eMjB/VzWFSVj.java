@@ -1,0 +1,51 @@
+package com.google.android.clockwork.common.wearable.wearmaterial.selectioncontrol.eMjB;
+
+/* JADX INFO: loaded from: classes2.dex */
+public class VzWFSVj {
+    public static String AUrIRjRehh;
+    public static String BWsalHdrK;
+    public static String CSoi;
+    public static String ERTQKBpF;
+    public static String EZtKUzfmoj;
+    public static String EiO;
+    public static String FUZBljlTyce;
+    public static String IzCAhxMAFalb;
+    public static String JMVGzKJKGe;
+    public static String KCbEOXAtMDwN;
+    public static String KoSnKKHtUxWnQKe;
+    public static String KuLSJxbfcYJKBoI;
+    public static String LAAShJaBUKRRgRi;
+    public static String MBIvqunW;
+    public static String MbHoNdpu;
+    public static String NZJHbRzNGOJsSEA;
+    public static String Nlw;
+    public static String OJSr;
+    public static String OJStSoiv;
+    public static String PAkYkPYQtqfFwSy;
+    public static String QJJTqwQEdM;
+    public static String QbAuDNJt;
+    public static String QjGfajvLlanFrf;
+    public static String TWYeUEkBoi;
+    public static String VFxVKbyGtOvgA;
+    public static String WjdLBi;
+    public static String YdrFWtgkrFDRmM;
+    public static String gCjJSZOapxEa;
+    public static String grDITSiePZRd;
+    public static String iRKXBCaY;
+    public static String ieBYtjAAatHrEP;
+    public static String impfbUGCzkINF;
+    public static String jNqTbLIMfY;
+    public static String kCKLRu;
+    public static String lASK;
+    public static String mcoJC;
+    public static String nCvd;
+    public static String pMkZaX;
+    public static String reUiFVBKpKPZIjA;
+    public static String swSAFKEvT;
+    public static String ttlmlXNEMutJw;
+    public static String uZhg;
+    public static String yapKlzwVLdjbe;
+    public static String yeRUiMBRKBwYDaR;
+    public static String yiruXjxrMM;
+    public static String ywm;
+}

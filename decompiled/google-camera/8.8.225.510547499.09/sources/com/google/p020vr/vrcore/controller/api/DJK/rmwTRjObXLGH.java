@@ -1,0 +1,52 @@
+package com.google.p020vr.vrcore.controller.api.DJK;
+
+/* JADX INFO: loaded from: classes.dex */
+public class rmwTRjObXLGH {
+    public static String AchmkWkooTAwLkB;
+    public static String BRMfJdWpf;
+    public static String CirMGD;
+    public static String CjzjImWyjLyMreF;
+    public static String DfOmfegYz;
+    public static String DsIhaZPP;
+    public static String HBgIL;
+    public static String JNwYNy;
+    public static String JbXxwENa;
+    public static String MqjtSqcoMQYqO;
+    public static String NldULgVvTgFQ;
+    public static String QLkzrrVjqYWDQGY;
+    public static String RQGgwHh;
+    public static String RnazhZTzVh;
+    public static String SNDmZbivlq;
+    public static String STiGFoyC;
+    public static String TDpEZzHZtwYGvaQ;
+    public static String TFnWPuTF;
+    public static String TGODhXlyrwFTGF;
+    public static String TfdHlO;
+    public static String VIbDCBocnnXNZV;
+    public static String VeHJIsyIAO;
+    public static String XDNm;
+    public static String XSqvfTj;
+    public static String YiqPZ;
+    public static String ZbLcIaO;
+    public static String fPvjqKbL;
+    public static String hGzGuxlA;
+    public static String ikWvldkcFNpmbq;
+    public static String itsVAN;
+    public static String jJKLNVcjG;
+    public static String kmmH;
+    public static String kvPTYq;
+    public static String mbKQfnra;
+    public static String mwvgVJUsnISE;
+    public static String oZBNIKEDJRlmv;
+    public static String okgiE;
+    public static String pXUCaHLuvZD;
+    public static String rRAkMcaxTrfaoa;
+    public static String vTBHvlfpwtr;
+    public static String vlXbZGrXOa;
+    public static String xaq;
+    public static String xksZd;
+    public static String xnRLANMG;
+    public static String yjpKpNoSBCQzYI;
+    public static String yuiDw;
+    public static String zOFiNiMGrW;
+}

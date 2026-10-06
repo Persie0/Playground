@@ -1,0 +1,737 @@
+package p000;
+
+import android.app.PendingIntent;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.IBinder;
+import android.os.Parcel;
+import android.os.Parcelable;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.wearable.AppTheme;
+import com.google.android.gms.wearable.ConnectionConfiguration;
+import java.util.ArrayList;
+
+/* JADX INFO: compiled from: PG */
+/* JADX INFO: loaded from: classes.dex */
+public final class jny implements Parcelable.Creator {
+
+    /* JADX INFO: renamed from: a */
+    private final /* synthetic */ int f34435a;
+
+    public jny(int i) {
+        this.f34435a = i;
+    }
+
+    /* JADX INFO: renamed from: a */
+    public static boolean m13396a(int i) {
+        return i == 0;
+    }
+
+    /* JADX INFO: renamed from: b */
+    public static boolean m13397b(Object obj) {
+        return obj == null;
+    }
+
+    @Override // android.os.Parcelable.Creator
+    public final /* synthetic */ Object[] newArray(int i) {
+        switch (this.f34435a) {
+            case 0:
+                return new jnx[i];
+            case 1:
+                return new jnw[i];
+            case 2:
+                return new joa[i];
+            case 3:
+                return new job[i];
+            case 4:
+                return new joc[i];
+            case 5:
+                return new jod[i];
+            case 6:
+                return new jof[i];
+            case 7:
+                return new jog[i];
+            case 8:
+                return new joh[i];
+            case 9:
+                return new joi[i];
+            case 10:
+                return new jow[i];
+            case 11:
+                return new joz[i];
+            case 12:
+                return new jpb[i];
+            case 13:
+                return new jpc[i];
+            case 14:
+                return new jpv[i];
+            case 15:
+                return new jpw[i];
+            case 16:
+                return new jqi[i];
+            case 17:
+                return new AppTheme[i];
+            case 18:
+                return new ConnectionConfiguration[i];
+            case 19:
+                return new jre[i];
+            default:
+                return new jrf[i];
+        }
+    }
+
+    @Override // android.os.Parcelable.Creator
+    public final /* synthetic */ Object createFromParcel(Parcel parcel) {
+        int iM13243E = 0;
+        int iM13243E2 = 0;
+        int iM13243E3 = 0;
+        boolean zM13257S = false;
+        int iM13243E4 = 0;
+        int iM13243E5 = 0;
+        int iM13243E6 = 0;
+        int iM13243E7 = 0;
+        boolean zM13257S2 = false;
+        jof[] jofVarArr = null;
+        IBinder iBinderM13248J = null;
+        ArrayList arrayListM13253O = null;
+        jcu jcuVar = null;
+        jic jicVar = null;
+        ArrayList arrayListM13252N = null;
+        Intent intent = null;
+        ArrayList arrayListM13253O2 = null;
+        String strM13250L = null;
+        byte[] bArrM13258T = null;
+        switch (this.f34435a) {
+            case 0:
+                int iM13245G = jiy.m13245G(parcel);
+                jnw jnwVar = null;
+                IBinder iBinderM13248J2 = null;
+                IBinder iBinderM13248J3 = null;
+                PendingIntent pendingIntent = null;
+                IBinder iBinderM13248J4 = null;
+                String strM13250L2 = null;
+                int iM13243E8 = 1;
+                while (parcel.dataPosition() < iM13245G) {
+                    int i = parcel.readInt();
+                    switch (jiy.m13241C(i)) {
+                        case 1:
+                            iM13243E8 = jiy.m13243E(parcel, i);
+                            break;
+                        case 2:
+                            jnwVar = (jnw) jiy.m13249K(parcel, i, jnw.CREATOR);
+                            break;
+                        case 3:
+                            iBinderM13248J2 = jiy.m13248J(parcel, i);
+                            break;
+                        case 4:
+                            pendingIntent = (PendingIntent) jiy.m13249K(parcel, i, PendingIntent.CREATOR);
+                            break;
+                        case 5:
+                            iBinderM13248J3 = jiy.m13248J(parcel, i);
+                            break;
+                        case 6:
+                            iBinderM13248J4 = jiy.m13248J(parcel, i);
+                            break;
+                        case 7:
+                        default:
+                            jiy.m13256R(parcel, i);
+                            break;
+                        case 8:
+                            strM13250L2 = jiy.m13250L(parcel, i);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G);
+                return new jnx(iM13243E8, jnwVar, iBinderM13248J2, iBinderM13248J3, pendingIntent, iBinderM13248J4, strM13250L2);
+            case 1:
+                int iM13245G2 = jiy.m13245G(parcel);
+                long jM13246H = Long.MAX_VALUE;
+                LocationRequest locationRequest = null;
+                ArrayList arrayListM13253O3 = null;
+                boolean zM13257S3 = false;
+                boolean zM13257S4 = false;
+                boolean zM13257S5 = false;
+                boolean zM13257S6 = false;
+                while (parcel.dataPosition() < iM13245G2) {
+                    int i2 = parcel.readInt();
+                    switch (jiy.m13241C(i2)) {
+                        case 1:
+                            locationRequest = (LocationRequest) jiy.m13249K(parcel, i2, LocationRequest.CREATOR);
+                            break;
+                        case 2:
+                        case 3:
+                        case 4:
+                        case 6:
+                        case 7:
+                        default:
+                            jiy.m13256R(parcel, i2);
+                            break;
+                        case 5:
+                            arrayListM13253O3 = jiy.m13253O(parcel, i2, jgx.CREATOR);
+                            break;
+                        case 8:
+                            zM13257S3 = jiy.m13257S(parcel, i2);
+                            break;
+                        case 9:
+                            zM13257S4 = jiy.m13257S(parcel, i2);
+                            break;
+                        case 10:
+                            jiy.m13250L(parcel, i2);
+                            break;
+                        case 11:
+                            zM13257S5 = jiy.m13257S(parcel, i2);
+                            break;
+                        case 12:
+                            zM13257S6 = jiy.m13257S(parcel, i2);
+                            break;
+                        case 13:
+                            jiy.m13250L(parcel, i2);
+                            break;
+                        case 14:
+                            jM13246H = jiy.m13246H(parcel, i2);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G2);
+                return new jnw(locationRequest, arrayListM13253O3, zM13257S3, zM13257S4, zM13257S5, zM13257S6, jM13246H);
+            case 2:
+                int iM13245G3 = jiy.m13245G(parcel);
+                String[] strArrM13261W = null;
+                while (parcel.dataPosition() < iM13245G3) {
+                    int i3 = parcel.readInt();
+                    switch (jiy.m13241C(i3)) {
+                        case 2:
+                            iM13243E = jiy.m13243E(parcel, i3);
+                            break;
+                        case 3:
+                            jofVarArr = (jof[]) jiy.m13260V(parcel, i3, jof.CREATOR);
+                            break;
+                        case 4:
+                            strArrM13261W = jiy.m13261W(parcel, i3);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i3);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G3);
+                return new joa(iM13243E, jofVarArr, strArrM13261W);
+            case 3:
+                int iM13245G4 = jiy.m13245G(parcel);
+                long jM13246H2 = 0;
+                String strM13250L3 = null;
+                String strM13250L4 = null;
+                joa[] joaVarArr = null;
+                byte[] bArrM13258T2 = null;
+                boolean zM13257S7 = false;
+                while (parcel.dataPosition() < iM13245G4) {
+                    int i4 = parcel.readInt();
+                    switch (jiy.m13241C(i4)) {
+                        case 2:
+                            strM13250L3 = jiy.m13250L(parcel, i4);
+                            break;
+                        case 3:
+                            strM13250L4 = jiy.m13250L(parcel, i4);
+                            break;
+                        case 4:
+                            joaVarArr = (joa[]) jiy.m13260V(parcel, i4, joa.CREATOR);
+                            break;
+                        case 5:
+                            zM13257S7 = jiy.m13257S(parcel, i4);
+                            break;
+                        case 6:
+                            bArrM13258T2 = jiy.m13258T(parcel, i4);
+                            break;
+                        case 7:
+                            jM13246H2 = jiy.m13246H(parcel, i4);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i4);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G4);
+                return new job(strM13250L3, strM13250L4, joaVarArr, zM13257S7, bArrM13258T2, jM13246H2);
+            case 4:
+                int iM13245G5 = jiy.m13245G(parcel);
+                while (parcel.dataPosition() < iM13245G5) {
+                    int i5 = parcel.readInt();
+                    switch (jiy.m13241C(i5)) {
+                        case 2:
+                            bArrM13258T = jiy.m13258T(parcel, i5);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i5);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G5);
+                return new joc(bArrM13258T);
+            case 5:
+                int iM13245G6 = jiy.m13245G(parcel);
+                String strM13250L5 = null;
+                byte[] bArrM13258T3 = null;
+                byte[][] bArrM13262X = null;
+                byte[][] bArrM13262X2 = null;
+                byte[][] bArrM13262X3 = null;
+                byte[][] bArrM13262X4 = null;
+                int[] iArrM13259U = null;
+                byte[][] bArrM13262X5 = null;
+                int[] iArrM13259U2 = null;
+                byte[][] bArrM13262X6 = null;
+                while (parcel.dataPosition() < iM13245G6) {
+                    int i6 = parcel.readInt();
+                    switch (jiy.m13241C(i6)) {
+                        case 2:
+                            strM13250L5 = jiy.m13250L(parcel, i6);
+                            break;
+                        case 3:
+                            bArrM13258T3 = jiy.m13258T(parcel, i6);
+                            break;
+                        case 4:
+                            bArrM13262X = jiy.m13262X(parcel, i6);
+                            break;
+                        case 5:
+                            bArrM13262X2 = jiy.m13262X(parcel, i6);
+                            break;
+                        case 6:
+                            bArrM13262X3 = jiy.m13262X(parcel, i6);
+                            break;
+                        case 7:
+                            bArrM13262X4 = jiy.m13262X(parcel, i6);
+                            break;
+                        case 8:
+                            iArrM13259U = jiy.m13259U(parcel, i6);
+                            break;
+                        case 9:
+                            bArrM13262X5 = jiy.m13262X(parcel, i6);
+                            break;
+                        case 10:
+                            iArrM13259U2 = jiy.m13259U(parcel, i6);
+                            break;
+                        case 11:
+                            bArrM13262X6 = jiy.m13262X(parcel, i6);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i6);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G6);
+                return new jod(strM13250L5, bArrM13258T3, bArrM13262X, bArrM13262X2, bArrM13262X3, bArrM13262X4, iArrM13259U, bArrM13262X5, iArrM13259U2, bArrM13262X6);
+            case 6:
+                int iM13245G7 = jiy.m13245G(parcel);
+                long jM13246H3 = 0;
+                String strM13250L6 = null;
+                String strM13250L7 = null;
+                byte[] bArrM13258T4 = null;
+                double d = 0.0d;
+                boolean zM13257S8 = false;
+                int iM13243E9 = 0;
+                int iM13243E10 = 0;
+                while (parcel.dataPosition() < iM13245G7) {
+                    int i7 = parcel.readInt();
+                    switch (jiy.m13241C(i7)) {
+                        case 2:
+                            strM13250L6 = jiy.m13250L(parcel, i7);
+                            break;
+                        case 3:
+                            jM13246H3 = jiy.m13246H(parcel, i7);
+                            break;
+                        case 4:
+                            zM13257S8 = jiy.m13257S(parcel, i7);
+                            break;
+                        case 5:
+                            jiy.m13255Q(parcel, i7, 8);
+                            d = parcel.readDouble();
+                            break;
+                        case 6:
+                            strM13250L7 = jiy.m13250L(parcel, i7);
+                            break;
+                        case 7:
+                            bArrM13258T4 = jiy.m13258T(parcel, i7);
+                            break;
+                        case 8:
+                            iM13243E9 = jiy.m13243E(parcel, i7);
+                            break;
+                        case 9:
+                            iM13243E10 = jiy.m13243E(parcel, i7);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i7);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G7);
+                return new jof(strM13250L6, jM13246H3, zM13257S8, d, strM13250L7, bArrM13258T4, iM13243E9, iM13243E10);
+            case 7:
+                int iM13245G8 = jiy.m13245G(parcel);
+                String strM13250L8 = null;
+                jof jofVar = null;
+                while (parcel.dataPosition() < iM13245G8) {
+                    int i8 = parcel.readInt();
+                    switch (jiy.m13241C(i8)) {
+                        case 2:
+                            strM13250L = jiy.m13250L(parcel, i8);
+                            break;
+                        case 3:
+                            strM13250L8 = jiy.m13250L(parcel, i8);
+                            break;
+                        case 4:
+                            jofVar = (jof) jiy.m13249K(parcel, i8, jof.CREATOR);
+                            break;
+                        case 5:
+                            zM13257S2 = jiy.m13257S(parcel, i8);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i8);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G8);
+                return new jog(strM13250L, strM13250L8, jofVar, zM13257S2);
+            case 8:
+                int iM13245G9 = jiy.m13245G(parcel);
+                while (parcel.dataPosition() < iM13245G9) {
+                    int i9 = parcel.readInt();
+                    switch (jiy.m13241C(i9)) {
+                        case 2:
+                            arrayListM13253O2 = jiy.m13253O(parcel, i9, jog.CREATOR);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i9);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G9);
+                return new joh(arrayListM13253O2);
+            case 9:
+                int iM13245G10 = jiy.m13245G(parcel);
+                int iM13243E11 = 0;
+                while (parcel.dataPosition() < iM13245G10) {
+                    int i10 = parcel.readInt();
+                    switch (jiy.m13241C(i10)) {
+                        case 1:
+                            iM13243E7 = jiy.m13243E(parcel, i10);
+                            break;
+                        case 2:
+                            iM13243E11 = jiy.m13243E(parcel, i10);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i10);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G10);
+                return new joi(iM13243E7, iM13243E11);
+            case 10:
+                int iM13245G11 = jiy.m13245G(parcel);
+                int iM13243E12 = 0;
+                while (parcel.dataPosition() < iM13245G11) {
+                    int i11 = parcel.readInt();
+                    switch (jiy.m13241C(i11)) {
+                        case 1:
+                            iM13243E6 = jiy.m13243E(parcel, i11);
+                            break;
+                        case 2:
+                            iM13243E12 = jiy.m13243E(parcel, i11);
+                            break;
+                        case 3:
+                            intent = (Intent) jiy.m13249K(parcel, i11, Intent.CREATOR);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i11);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G11);
+                return new jow(iM13243E6, iM13243E12, intent);
+            case 11:
+                int iM13245G12 = jiy.m13245G(parcel);
+                String strM13250L9 = null;
+                while (parcel.dataPosition() < iM13245G12) {
+                    int i12 = parcel.readInt();
+                    switch (jiy.m13241C(i12)) {
+                        case 1:
+                            arrayListM13252N = jiy.m13252N(parcel, i12);
+                            break;
+                        case 2:
+                            strM13250L9 = jiy.m13250L(parcel, i12);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i12);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G12);
+                return new joz(arrayListM13252N, strM13250L9);
+            case 12:
+                int iM13245G13 = jiy.m13245G(parcel);
+                while (parcel.dataPosition() < iM13245G13) {
+                    int i13 = parcel.readInt();
+                    switch (jiy.m13241C(i13)) {
+                        case 1:
+                            iM13243E5 = jiy.m13243E(parcel, i13);
+                            break;
+                        case 2:
+                            jicVar = (jic) jiy.m13249K(parcel, i13, jic.CREATOR);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i13);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G13);
+                return new jpb(iM13243E5, jicVar);
+            case 13:
+                int iM13245G14 = jiy.m13245G(parcel);
+                jid jidVar = null;
+                while (parcel.dataPosition() < iM13245G14) {
+                    int i14 = parcel.readInt();
+                    switch (jiy.m13241C(i14)) {
+                        case 1:
+                            iM13243E4 = jiy.m13243E(parcel, i14);
+                            break;
+                        case 2:
+                            jcuVar = (jcu) jiy.m13249K(parcel, i14, jcu.CREATOR);
+                            break;
+                        case 3:
+                            jidVar = (jid) jiy.m13249K(parcel, i14, jid.CREATOR);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i14);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G14);
+                return new jpc(iM13243E4, jcuVar, jidVar);
+            case 14:
+                int iM13245G15 = jiy.m13245G(parcel);
+                String strM13250L10 = null;
+                byte[] bArrM13258T5 = null;
+                ArrayList arrayList = null;
+                while (parcel.dataPosition() < iM13245G15) {
+                    int i15 = parcel.readInt();
+                    switch (jiy.m13241C(i15)) {
+                        case 1:
+                            strM13250L10 = jiy.m13250L(parcel, i15);
+                            break;
+                        case 2:
+                            bArrM13258T5 = jiy.m13258T(parcel, i15);
+                            break;
+                        case 3:
+                            int iM13244F = jiy.m13244F(parcel, i15);
+                            int iDataPosition = parcel.dataPosition();
+                            if (iM13244F == 0) {
+                                arrayList = null;
+                            } else {
+                                ArrayList arrayList2 = new ArrayList();
+                                int i16 = parcel.readInt();
+                                for (int i17 = 0; i17 < i16; i17++) {
+                                    arrayList2.add(Integer.valueOf(parcel.readInt()));
+                                }
+                                parcel.setDataPosition(iDataPosition + iM13244F);
+                                arrayList = arrayList2;
+                            }
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i15);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G15);
+                return new jpv(strM13250L10, bArrM13258T5, arrayList);
+            case 15:
+                int iM13245G16 = jiy.m13245G(parcel);
+                boolean zM13257S9 = false;
+                while (parcel.dataPosition() < iM13245G16) {
+                    int i18 = parcel.readInt();
+                    switch (jiy.m13241C(i18)) {
+                        case 1:
+                            arrayListM13253O = jiy.m13253O(parcel, i18, jpv.CREATOR);
+                            break;
+                        case 2:
+                            zM13257S = jiy.m13257S(parcel, i18);
+                            break;
+                        case 3:
+                            zM13257S9 = jiy.m13257S(parcel, i18);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i18);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G16);
+                return new jpw(arrayListM13253O, zM13257S, zM13257S9);
+            case 16:
+                int iM13245G17 = jiy.m13245G(parcel);
+                ArrayList arrayListM13252N2 = null;
+                String strM13250L11 = null;
+                int iM13243E13 = 0;
+                boolean zM13257S10 = false;
+                int iM13243E14 = 0;
+                boolean zM13257S11 = false;
+                while (parcel.dataPosition() < iM13245G17) {
+                    int i19 = parcel.readInt();
+                    switch (jiy.m13241C(i19)) {
+                        case 2:
+                            iM13243E13 = jiy.m13243E(parcel, i19);
+                            break;
+                        case 3:
+                            zM13257S10 = jiy.m13257S(parcel, i19);
+                            break;
+                        case 4:
+                            arrayListM13252N2 = jiy.m13252N(parcel, i19);
+                            break;
+                        case 5:
+                            iM13243E14 = jiy.m13243E(parcel, i19);
+                            break;
+                        case 6:
+                            strM13250L11 = jiy.m13250L(parcel, i19);
+                            break;
+                        case 7:
+                            zM13257S11 = jiy.m13257S(parcel, i19);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i19);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G17);
+                return new jqi(iM13243E13, zM13257S10, arrayListM13252N2, iM13243E14, strM13250L11, zM13257S11);
+            case 17:
+                int iM13245G18 = jiy.m13245G(parcel);
+                int iM13243E15 = 0;
+                int iM13243E16 = 0;
+                int iM13243E17 = 0;
+                while (parcel.dataPosition() < iM13245G18) {
+                    int i20 = parcel.readInt();
+                    switch (jiy.m13241C(i20)) {
+                        case 1:
+                            iM13243E3 = jiy.m13243E(parcel, i20);
+                            break;
+                        case 2:
+                            iM13243E15 = jiy.m13243E(parcel, i20);
+                            break;
+                        case 3:
+                            iM13243E16 = jiy.m13243E(parcel, i20);
+                            break;
+                        case 4:
+                            iM13243E17 = jiy.m13243E(parcel, i20);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i20);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G18);
+                return new AppTheme(iM13243E3, iM13243E15, iM13243E16, iM13243E17);
+            case 18:
+                int iM13245G19 = jiy.m13245G(parcel);
+                String strM13250L12 = null;
+                String strM13250L13 = null;
+                String strM13250L14 = null;
+                String strM13250L15 = null;
+                String strM13250L16 = null;
+                ArrayList arrayListM13252N3 = null;
+                int iM13243E18 = 0;
+                int iM13243E19 = 0;
+                boolean zM13257S12 = false;
+                boolean zM13257S13 = false;
+                boolean zM13257S14 = false;
+                int iM13243E20 = 0;
+                boolean zM13257S15 = false;
+                while (parcel.dataPosition() < iM13245G19) {
+                    int i21 = parcel.readInt();
+                    switch (jiy.m13241C(i21)) {
+                        case 2:
+                            strM13250L12 = jiy.m13250L(parcel, i21);
+                            break;
+                        case 3:
+                            strM13250L13 = jiy.m13250L(parcel, i21);
+                            break;
+                        case 4:
+                            iM13243E18 = jiy.m13243E(parcel, i21);
+                            break;
+                        case 5:
+                            iM13243E19 = jiy.m13243E(parcel, i21);
+                            break;
+                        case 6:
+                            zM13257S12 = jiy.m13257S(parcel, i21);
+                            break;
+                        case 7:
+                            zM13257S13 = jiy.m13257S(parcel, i21);
+                            break;
+                        case 8:
+                            strM13250L14 = jiy.m13250L(parcel, i21);
+                            break;
+                        case 9:
+                            zM13257S14 = jiy.m13257S(parcel, i21);
+                            break;
+                        case 10:
+                            strM13250L15 = jiy.m13250L(parcel, i21);
+                            break;
+                        case 11:
+                            strM13250L16 = jiy.m13250L(parcel, i21);
+                            break;
+                        case 12:
+                            iM13243E20 = jiy.m13243E(parcel, i21);
+                            break;
+                        case 13:
+                            arrayListM13252N3 = jiy.m13252N(parcel, i21);
+                            break;
+                        case 14:
+                            zM13257S15 = jiy.m13257S(parcel, i21);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i21);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G19);
+                return new ConnectionConfiguration(strM13250L12, strM13250L13, iM13243E18, iM13243E19, zM13257S12, zM13257S13, strM13250L14, zM13257S14, strM13250L15, strM13250L16, iM13243E20, arrayListM13252N3, zM13257S15);
+            case 19:
+                int iM13245G20 = jiy.m13245G(parcel);
+                IntentFilter[] intentFilterArr = null;
+                String strM13250L17 = null;
+                String strM13250L18 = null;
+                while (parcel.dataPosition() < iM13245G20) {
+                    int i22 = parcel.readInt();
+                    switch (jiy.m13241C(i22)) {
+                        case 2:
+                            iBinderM13248J = jiy.m13248J(parcel, i22);
+                            break;
+                        case 3:
+                            intentFilterArr = (IntentFilter[]) jiy.m13260V(parcel, i22, IntentFilter.CREATOR);
+                            break;
+                        case 4:
+                            strM13250L17 = jiy.m13250L(parcel, i22);
+                            break;
+                        case 5:
+                            strM13250L18 = jiy.m13250L(parcel, i22);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i22);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G20);
+                return new jre(iBinderM13248J, intentFilterArr, strM13250L17, strM13250L18);
+            default:
+                int iM13245G21 = jiy.m13245G(parcel);
+                while (parcel.dataPosition() < iM13245G21) {
+                    int i23 = parcel.readInt();
+                    switch (jiy.m13241C(i23)) {
+                        case 2:
+                            iM13243E2 = jiy.m13243E(parcel, i23);
+                            break;
+                        default:
+                            jiy.m13256R(parcel, i23);
+                            break;
+                    }
+                }
+                jiy.m13254P(parcel, iM13245G21);
+                return new jrf(iM13243E2);
+        }
+    }
+}

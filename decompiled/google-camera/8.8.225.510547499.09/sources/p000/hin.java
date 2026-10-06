@@ -1,0 +1,12 @@
+package p000;
+
+/* JADX INFO: compiled from: PG */
+/* JADX INFO: loaded from: classes.dex */
+public enum hin {
+    UNINITIALIZED,
+    PREINITIALIZED,
+    INITIALIZED,
+    STARTED,
+    PROCESSING,
+    STOPPED
+}

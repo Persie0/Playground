@@ -1,0 +1,106 @@
+package p000;
+
+/* JADX INFO: compiled from: PG */
+/* JADX INFO: loaded from: classes.dex */
+public enum nkx implements nxt {
+    UNKNOWN(0),
+    TIMER_ZERO_SECONDS(1),
+    TIMER_THREE_SECONDS(2),
+    TIMER_TEN_SECONDS(3),
+    TIMER_AUTO(4),
+    HDR_AUTO(5),
+    HDR_ON(6),
+    HDR_OFF(7),
+    HDR_READY(8),
+    PHOTO_FLASH_ON(9),
+    PHOTO_FLASH_OFF(10),
+    PHOTO_FLASH_AUTO(11),
+    f43408m(12),
+    PHOTO_FLASH_UNGRAYED(13),
+    PHOTO_FLASH_NS(55),
+    VIDEO_FLASH_ON(14),
+    VIDEO_FLASH_OFF(15),
+    MICROVIDEO_ON(16),
+    MICROVIDEO_AUTO(17),
+    MICROVIDEO_OFF(18),
+    EXT_MICROPHONE_ON(19),
+    EXT_MICROPHONE_OFF(20),
+    FPS_AUTO(21),
+    FPS_24(48),
+    FPS_30(22),
+    FPS_60(23),
+    WHITE_BALANCE_AUTO(24),
+    WHITE_BALANCE_CLOUDY(25),
+    WHITE_BALANCE_SUNNY(26),
+    f43343D(27),
+    WHITE_BALANCE_FLUORESCENT(28),
+    BEAUTIFICATION_ON_LIGHT(29),
+    BEAUTIFICATION_ON_STRONG(30),
+    BEAUTIFICATION_OFF(31),
+    AF_ON(32),
+    AF_ON_LOCKED(33),
+    AF_OFF_NEAR(34),
+    AF_OFF_FAR(35),
+    AF_OFF_INFINITY(45),
+    IMAX_AUDIO_ON(36),
+    IMAX_AUDIO_OFF(37),
+    SELECTED(38),
+    UNSELECTED(39),
+    HORIZONTAL_PHOTO_SPHERE(40),
+    VERTICAL_PHOTO_SPHERE(41),
+    WIDE_ANGLE_PHOTO_SPHERE(42),
+    FISH_EYE_PHOTO_SPHERE(43),
+    PHOTO_SPHERE(44),
+    SIXTEEN_BY_NINE(46),
+    FOUR_BY_THREE(47),
+    RES_1080P(49),
+    RES_2160P(50),
+    PR_ON(51),
+    PR_OFF(52),
+    ASTRO_OFF(53),
+    ASTRO_AUTO(54),
+    MIC_INPUT_PHONE(56),
+    MIC_INPUT_EXT_WIRED(57),
+    MIC_INPUT_EXT_BLUETOOTH(58),
+    SWISS_OFF(59),
+    SWISS_ON(60),
+    LASAGNA_TR_SMALL(61),
+    LASAGNA_TR_MEDIUM(62),
+    LASAGNA_TR_LARGE(63),
+    FLOUNDER_OFF(64),
+    FLOUNDER_ON(65),
+    ASPECT_RATIO_SIXTEEN_BY_NINE(66),
+    ASPECT_RATIO_FOUR_BY_THREE(67),
+    ASPECT_RATIO_THREE_BY_FOUR(68),
+    ASPECT_RATIO_NINE_BY_SIXTEEN(69),
+    COCKTAIL_PARTY_OFF(70),
+    COCKTAIL_PARTY_ON(71),
+    VIDEO_ASPECT_RATIO_SIXTEEN_BY_NINE(72),
+    VIDEO_ASPECT_RATIO_FOUR_BY_THREE(73),
+    VIDEO_ASPECT_RATIO_THREE_BY_FOUR(74),
+    VIDEO_ASPECT_RATIO_NINE_BY_SIXTEEN(75),
+    AMETHYST_OFF(76),
+    AMETHYST_ON(77),
+    TAXI_OFF(78),
+    TAXI_AUTO(79),
+    TAXI_ON(80);
+
+
+    /* JADX INFO: renamed from: aD */
+    public final int f43422aD;
+
+    nkx(int i) {
+        this.f43422aD = i;
+    }
+
+    @Override // p000.nxt
+    /* JADX INFO: renamed from: a */
+    public final int mo14936a() {
+        return this.f43422aD;
+    }
+
+    @Override // java.lang.Enum
+    public final String toString() {
+        return Integer.toString(this.f43422aD);
+    }
+}

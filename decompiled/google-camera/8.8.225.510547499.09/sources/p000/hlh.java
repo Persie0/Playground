@@ -1,0 +1,12 @@
+package p000;
+
+/* JADX INFO: compiled from: PG */
+/* JADX INFO: loaded from: classes.dex */
+public enum hlh {
+    MEDIA_RECORDER_PREPARE_START,
+    MEDIA_RECORDER_PREPARE_END,
+    VIDEO_RECORDER_STARTING,
+    VIDEO_RECORDER_STARTED,
+    VIDEO_RECORDER_STOPPING,
+    VIDEO_RECORDER_STOPPED
+}

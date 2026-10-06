@@ -1,0 +1,35 @@
+package p000;
+
+/* JADX INFO: compiled from: PG */
+/* JADX INFO: loaded from: classes.dex */
+public enum gev {
+    SWISS,
+    FLOUNDER,
+    MOTION_BLUR_TRAIL,
+    ASTRO,
+    PHOTO_SPHERE,
+    BACK_PHOTO_FLASH,
+    FRONT_PHOTO_FLASH,
+    NIGHT_FRONT_PHOTO_FLASH,
+    BACK_VIDEO_FLASH,
+    FRONT_VIDEO_FLASH,
+    HDR,
+    f24452l,
+    VIDEO_RESOLUTION,
+    BEAUTIFICATION,
+    MAKEUP,
+    MICROVIDEO,
+    TAXI,
+    TIMER,
+    FPS,
+    AMETHYST,
+    MICROPHONE,
+    IMAX_AUDIO,
+    f24463w,
+    COCKTAIL_PARTY_BACK,
+    COCKTAIL_PARTY_FRONT,
+    IMAGE_ASPECT_RATIO,
+    IMAGE_ASPECT_RATIO_IMMERSIVE,
+    AF_BACK,
+    AF_FRONT
+}

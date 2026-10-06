@@ -1,0 +1,10 @@
+package com.google.android.libraries.lens.smartsapi;
+
+/* JADX INFO: compiled from: PG */
+/* JADX INFO: loaded from: classes.dex */
+public enum SmartsResult$SmartsEngineType {
+    PHOTO_OCR,
+    BARHOPPER,
+    PHILEASSTORM,
+    NONE
+}

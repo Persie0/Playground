@@ -1,0 +1,9 @@
+package p000;
+
+/* JADX INFO: compiled from: PG */
+/* JADX INFO: loaded from: classes2.dex */
+public final class fkz {
+
+    /* JADX INFO: renamed from: a */
+    public static final fjo f22443a = new fjo(11);
+}

@@ -1,0 +1,23 @@
+package p000;
+
+/* JADX INFO: compiled from: PG */
+/* JADX INFO: loaded from: classes2.dex */
+public enum fli {
+    UNKNOWN,
+    MAX_LENGTH,
+    ADAPTIVE_DISTANCE,
+    TOTAL_SENSITIVITY,
+    EXPOSURE_TIME,
+    CROP_REGION,
+    SUBJECT_MOTION,
+    f22491h,
+    OUT_OF_FOCUS,
+    MAX_LENGTH_AFTER_SHUTDOWN,
+    LONG_SHOT_SHUTTER_RELEASE,
+    LONG_SHOT_MINIMAL_LENGTH,
+    FIXED_LENGTH,
+    COOKIE_CUTTER_SHUTTING_DOWN,
+    ROTATION,
+    MASH_ENDED,
+    TEST_REASON
+}

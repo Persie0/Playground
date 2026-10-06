@@ -1,0 +1,11 @@
+package com.google.googlex.gcam.clientallocator;
+
+import com.google.googlex.gcam.base.LongPair;
+
+/* JADX INFO: compiled from: PG */
+/* JADX INFO: loaded from: classes2.dex */
+public interface InterleavedU8ClientAllocator {
+    LongPair allocate(int i, int i2, int i3);
+
+    void doneWriting(long j);
+}

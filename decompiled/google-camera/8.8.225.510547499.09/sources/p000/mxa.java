@@ -1,0 +1,20 @@
+package p000;
+
+import java.io.Serializable;
+
+/* JADX INFO: compiled from: PG */
+/* JADX INFO: loaded from: classes.dex */
+final class mxa implements Serializable {
+    private static final long serialVersionUID = 0;
+
+    /* JADX INFO: renamed from: a */
+    final mwx f41751a;
+
+    public mxa(mwx mwxVar) {
+        this.f41751a = mwxVar;
+    }
+
+    Object readResolve() {
+        return this.f41751a.keySet();
+    }
+}

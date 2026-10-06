@@ -1,0 +1,62 @@
+package p000;
+
+/* JADX INFO: compiled from: PG */
+/* JADX INFO: loaded from: classes2.dex */
+public enum oer implements nxt {
+    UNKNOWN_F250_LOG_REASON(0),
+    SUCCESS(1),
+    SUCCESS_PARTIAL_UPLOAD_WORK_CANCELLED(2),
+    SUCCESS_PARTIAL_UPLOAD_WORK_ENQUEUED(3),
+    SUCCESS_PARTIAL_AUTO_WORK_ENQUEUED(4),
+    SUCCESS_PARTIAL_UPLOAD_ATTACHMENT(5),
+    SUCCESS_PARTIAL_UPLOAD_RESOURCE(6),
+    SUCCESS_PARTIAL_AIRLOCK_FILES_DELETED(7),
+    SUCCESS_PARTIAL_UPLOAD_INVALID_FAILED(8),
+    SUCCESS_PARTIAL_UPLOAD_PAUSED(9),
+    SUCCESS_PARTIAL_AUTO_UPLOAD_ENQUEUED(10),
+    SUCCESS_PARTIAL_AUTO_EXPIRE_DELETED(11),
+    UPLOAD_BACKGROUND_START(12),
+    AUTO_BACKGROUND_START(13),
+    ERROR_AUTHENTICATION_RECOVERABLE(14),
+    ERROR_AUTHENTICATION_PERMANENT(15),
+    ERROR_QUERY(16),
+    ERROR_INSERT(17),
+    ERROR_UPDATE(18),
+    ERROR_BAD_STATUS(19),
+    ERROR_SAVE_ON_DEVICE(20),
+    ERROR_DELETE_ON_DEVICE(21),
+    ERROR_ENQUEUE_WORK(22),
+    ERROR_PARTIAL_QUERY_WORK(23),
+    ERROR_PARTIAL_UPLOAD_CANCELED(24),
+    ERROR_PARTIAL_UPLOAD_INVALID_URL(25),
+    ERROR_PARTIAL_UPLOAD_SERVER_ISSUE(26),
+    ERROR_UPLOAD_SERVER_FAILURE(27),
+    ERROR_UPLOAD_DATA_FAILURE(28),
+    ERROR_UPLOAD_UNSPECIFIED(29),
+    ERROR_UPLOAD_IGNORABLE(30),
+    ERROR_AUTO_IGNORABLE(31),
+    ERROR_UPLOAD_TOO_FREQUENT_ERRORS_PAUSING(32),
+    UNRECOGNIZED(-1);
+
+
+    /* JADX INFO: renamed from: I */
+    private final int f45808I;
+
+    oer(int i) {
+        this.f45808I = i;
+    }
+
+    @Override // p000.nxt
+    /* JADX INFO: renamed from: a */
+    public final int mo14936a() {
+        if (this != UNRECOGNIZED) {
+            return this.f45808I;
+        }
+        throw new IllegalArgumentException("Can't get the number of an unknown enum value.");
+    }
+
+    @Override // java.lang.Enum
+    public final String toString() {
+        return Integer.toString(mo14936a());
+    }
+}

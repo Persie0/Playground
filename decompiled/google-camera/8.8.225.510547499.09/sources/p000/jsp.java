@@ -1,0 +1,30 @@
+package p000;
+
+import android.os.Parcel;
+import android.os.Parcelable;
+import com.google.android.gms.wearable.ConnectionConfiguration;
+
+/* JADX INFO: compiled from: PG */
+/* JADX INFO: loaded from: classes.dex */
+public final class jsp extends jij {
+    public static final Parcelable.Creator CREATOR = new jsj(6);
+
+    /* JADX INFO: renamed from: a */
+    public final int f34736a;
+
+    /* JADX INFO: renamed from: b */
+    public final ConnectionConfiguration[] f34737b;
+
+    public jsp(int i, ConnectionConfiguration[] connectionConfigurationArr) {
+        this.f34736a = i;
+        this.f34737b = connectionConfigurationArr;
+    }
+
+    @Override // android.os.Parcelable
+    public final void writeToParcel(Parcel parcel, int i) {
+        int iM13281h = jiy.m13281h(parcel);
+        jiy.m13287n(parcel, 2, this.f34736a);
+        jiy.m13299z(parcel, 3, this.f34737b, i);
+        jiy.m13283j(parcel, iM13281h);
+    }
+}

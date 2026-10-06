@@ -1,0 +1,49 @@
+package com.google.android.apps.camera.p014ui.captureframe.Tjcw;
+
+/* JADX INFO: loaded from: classes.dex */
+public class xRFdVyfdeve {
+    public static String Clqyq;
+    public static String DUW;
+    public static String DVbqIhHyFTPY;
+    public static String Evej;
+    public static String GEtPvpQksTwlf;
+    public static String HHucYiJdg;
+    public static String HIQZqk;
+    public static String HujCHP;
+    public static String MKIwOeLnQGUM;
+    public static String NSgMvFXmYkvv;
+    public static String NmkkLDVv;
+    public static String OCn;
+    public static String PLt;
+    public static String RZUOexrx;
+    public static String RxX;
+    public static String SNTQdxkgjqA;
+    public static String TTjuKGAMQfqI;
+    public static String TdfkqeJbeztue;
+    public static String UlPLoIKsDK;
+    public static String YCZPsgM;
+    public static String YRdl;
+    public static String bUGp;
+    public static String eFNaMiZucWq;
+    public static String ePerMLpY;
+    public static String fel;
+    public static String fhZLjogUkD;
+    public static String hRSO;
+    public static String hZKfWNC;
+    public static String jtCgMmOeDA;
+    public static String lOHQBE;
+    public static String lpkPKPE;
+    public static String mVDumgzGm;
+    public static String mVluPEJqGDoDnex;
+    public static String nIRGzk;
+    public static String nZYWSnODldXRYP;
+    public static String oFbeeZ;
+    public static String pxQoiL;
+    public static String ryfsJSifspdyjeg;
+    public static String uEbDPLslP;
+    public static String uadZGCZtUhEu;
+    public static String vShQCiQYkFUR;
+    public static String wIKgxnYf;
+    public static String yqytahIH;
+    public static String zfuHJ;
+}
