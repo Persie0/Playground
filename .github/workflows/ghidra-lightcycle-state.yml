@@ -1,0 +1,137 @@
+name: LightCycle capture-state reverse engineering
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ghidra-lightcycle-state.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  state:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Fetch exact native library
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"             -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Download pinned Ghidra
+        run: |
+          curl -fL --retry 3             "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip"             -o ghidra.zip
+          mkdir ghidra
+          unzip -q ghidra.zip -d ghidra
+          echo "GHIDRA_HOME=$PWD/ghidra/ghidra_12.1.4_PUBLIC" >> "$GITHUB_ENV"
+
+      - name: Write state-xref script
+        shell: bash
+        run: |
+          mkdir -p scripts out
+          cat > scripts/DecompileStateXrefs.java <<'JAVA'
+          import ghidra.app.decompiler.*;
+          import ghidra.app.script.GhidraScript;
+          import ghidra.program.model.address.*;
+          import ghidra.program.model.listing.*;
+          import ghidra.program.model.mem.Memory;
+          import ghidra.program.model.symbol.*;
+          import java.io.*;
+          import java.util.*;
+
+          public class DecompileStateXrefs extends GhidraScript {
+              private static final long[] GLOBALS = {
+                  0x005170d8L, // TargetHit
+                  0x005170d9L, // TakeNewPhoto
+                  0x005170daL, // MovingTooFast
+                  0x005170dbL, // PhotoSkippedTooFast
+                  0x00512070L  // Java sensor-too-fast input pointer/global area
+              };
+
+              public void run() throws Exception {
+                  File outDir = new File(getScriptArgs()[0]);
+                  outDir.mkdirs();
+                  FunctionManager fm = currentProgram.getFunctionManager();
+                  ReferenceManager rm = currentProgram.getReferenceManager();
+                  Memory mem = currentProgram.getMemory();
+
+                  DecompInterface dec = new DecompInterface();
+                  dec.toggleCCode(true);
+                  dec.setSimplificationStyle("decompile");
+                  dec.openProgram(currentProgram);
+
+                  PrintWriter refsOut = new PrintWriter(new File(outDir, "state-xrefs.tsv"));
+                  Set<Function> funcs = new LinkedHashSet<>();
+                  for (long raw : GLOBALS) {
+                      Address a = toAddr(raw);
+                      refsOut.println("GLOBAL\t"+a);
+                      ReferenceIterator it = rm.getReferencesTo(a);
+                      while (it.hasNext()) {
+                          Reference r = it.next();
+                          Function f = fm.getFunctionContaining(r.getFromAddress());
+                          refsOut.println("REF\t"+a+"\t"+r.getReferenceType()+"\t"+
+                              r.getFromAddress()+"\t"+(f == null ? "<no-function>" : f.getEntryPoint()+"\t"+f.getName()));
+                          if (f != null) funcs.add(f);
+                      }
+                  }
+
+                  // Resolution preset table used by photosphere_parameters.cc.
+                  PrintWriter dump = new PrintWriter(new File(outDir, "constant-dump.txt"));
+                  Address preset = toAddr(0x00262e30L);
+                  dump.println("resolution_table @ "+preset);
+                  for (int i=0;i<8;i++) {
+                      Address a=preset.add(i*4L);
+                      try {
+                          int v=mem.getInt(a);
+                          dump.printf("%s int=%d hex=0x%08x float=%g%n",a,v,v,Float.intBitsToFloat(v));
+                      } catch (Exception e) { dump.println(a+" ERROR "+e); }
+                  }
+                  dump.close();
+
+                  Set<Function> expanded = new LinkedHashSet<>(funcs);
+                  for (Function f : funcs) {
+                      for (Function c : f.getCalledFunctions(monitor)) expanded.add(c);
+                  }
+
+                  PrintWriter index = new PrintWriter(new File(outDir, "functions.tsv"));
+                  for (Function f : expanded) {
+                      String safe=f.getName().replaceAll("[^A-Za-z0-9_.-]","_");
+                      DecompileResults dr=dec.decompileFunction(f,180,monitor);
+                      index.println(f.getEntryPoint()+"\t"+f.getName()+"\t"+f.getBody());
+                      try(PrintWriter pw=new PrintWriter(new File(outDir,safe+"_"+f.getEntryPoint()+".c"))) {
+                          pw.println("/* "+f.getName()+" @ "+f.getEntryPoint()+" */");
+                          if(dr.decompileCompleted() && dr.getDecompiledFunction()!=null) pw.println(dr.getDecompiledFunction().getC());
+                          else pw.println("/* FAILED "+dr.getErrorMessage()+" */");
+                      }
+                  }
+                  refsOut.close();
+                  index.close();
+                  dec.dispose();
+              }
+          }
+          JAVA
+
+      - name: Analyze capture state
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/gp out/state
+          "$GHIDRA_HOME/support/analyzeHeadless" /tmp/gp lc-state             -import "$PWD/liblightcycle.so"             -analysisTimeoutPerFile 1200             -scriptPath "$PWD/scripts"             -postScript DecompileStateXrefs.java "$PWD/out/state"             -deleteProject | tee out/ghidra.log
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pixel-camera-lightcycle-state
+          path: out/
+          if-no-files-found: error
+          retention-days: 90
