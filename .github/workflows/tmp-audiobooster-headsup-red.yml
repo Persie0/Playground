@@ -1,4 +1,4 @@
-name: Temporary AudioBooster heads-up notification RED
+name: Temporary AudioBooster heads-up notification GREEN
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/Audiobooster
-          ref: 945c74f1021387134963b397f4ecb10edb17d54d
+          ref: b9b5f436fe8d52109ed2b542d1dc0ebcad42fe5b
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: audiobooster
 
@@ -33,6 +33,16 @@ jobs:
         working-directory: audiobooster
         run: flutter pub get
 
-      - name: Verify new heads-up regression is red
+      - name: Focused notification and paywall tests
         working-directory: audiobooster
-        run: flutter test test/heads_up_notification_source_test.dart
+        run: flutter test test/heads_up_notification_source_test.dart test/trial_paywall_flow_test.dart
+
+      - name: Analyze
+        working-directory: audiobooster
+        run: flutter analyze
+
+      - name: Bootstrap Android and compile debug APK
+        working-directory: audiobooster
+        run: |
+          bash tool/bootstrap_android.sh
+          flutter build apk --debug
