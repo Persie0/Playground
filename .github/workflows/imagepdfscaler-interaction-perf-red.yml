@@ -1,0 +1,28 @@
+name: ImagePdfScaler interaction perf RED
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/imagepdfscaler-interaction-perf-red.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/ImagePdfScaler
+          ref: feat/loading-resize-fast-import
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter test test/image_processing_test.dart test/paper_canvas_interaction_test.dart
