@@ -131,7 +131,7 @@ jobs:
           openssl pkeyutl -encrypt -pubin -inkey public.pem             -pkeyopt rsa_padding_mode:oaep             -pkeyopt rsa_oaep_md:sha256             -in secret.bin             -out wrapped-key.bin
 
           base64 -w 0 wrapped-key.bin > transfer/google-camera-8.8.225.510547499.09/wrapped-key.b64
-          base64 -w 0 payload.enc | split -b 4M -d -a 3 - transfer/google-camera-8.8.225.510547499.09/part-
+          base64 -w 0 payload.enc | split -b 480K -d -a 3 - transfer/google-camera-8.8.225.510547499.09/part-
 
           enc_sha="$(sha256sum payload.enc | awk '{print $1}')"
           part_count="$(find transfer/google-camera-8.8.225.510547499.09 -name 'part-*' | wc -l)"
@@ -149,7 +149,7 @@ jobs:
           encrypted_sha256=$enc_sha
           part_count=$part_count
           part_encoding=base64
-          part_size=4MiB
+          part_size=480KiB
           cipher=aes-256-ctr
           key_wrap=rsa-oaep-sha256
           EOF
