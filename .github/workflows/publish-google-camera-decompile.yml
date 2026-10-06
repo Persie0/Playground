@@ -1,0 +1,79 @@
+name: Publish Google Camera decompile
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/publish-google-camera-decompile.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download decompile artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifact
+          gh run download 37468402588 --repo Persie0/Playground --name google-camera-8.8.225-jadx-sources --dir artifact
+      - name: Fix archive metadata
+        run: |
+          set -euo pipefail
+          src=artifact/google-camera-8.8.225.510547499.09-jadx-sources.zip
+          rm -rf unpack && mkdir unpack
+          unzip -q "$src" -d unpack
+          cat > unpack/google-camera/8.8.225.510547499.09/README.md <<'EOF2'
+          # Pixel Camera 8.8.225.510547499.09 decompiled sources
+
+          Source-only JADX 1.5.6 output from the pho release of Persie0/decompile.
+          Package: com.google.android.GoogleCamera
+          Version code: 66251366
+          Input APK SHA-256: 9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47
+          JADX exit code: 3
+          Decompiled Java files: 11,855
+          JADX errors: 41
+          Mapping: 8.8.225.510547499.09.jobf
+          Log: jadx.log
+
+          Automatic deobfuscation was enabled. Original R8/ProGuard identifiers cannot be recovered without Google's mapping file. Methods with JADX errors are best-effort reconstructions. Android resources are intentionally excluded.
+          EOF2
+          rm "$src"
+          (cd unpack && zip -qr "../$src" google-camera)
+      - name: Checkout decompile repo
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          path: target
+          fetch-depth: 1
+      - name: Publish split source archive
+        run: |
+          set -euo pipefail
+          src=artifact/google-camera-8.8.225.510547499.09-jadx-sources.zip
+          out=target/decompiled/google-camera/8.8.225.510547499.09
+          rm -rf "$out" && mkdir -p "$out"
+          split -b 480K -d -a 3 "$src" "$out/part-"
+          sha=$(sha256sum "$src" | awk '{print $1}')
+          size=$(stat -c %s "$src")
+          count=$(find "$out" -name 'part-*' | wc -l)
+          printf '%s\n' \
+            'package=com.google.android.GoogleCamera' \
+            'version=8.8.225.510547499.09' \
+            'version_code=66251366' \
+            'input_apk_sha256=9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47' \
+            'jadx_version=1.5.6' \
+            'jadx_exit=3' \
+            'jadx_errors=41' \
+            'java_files=11855' \
+            "archive_size=$size" \
+            "archive_sha256=$sha" \
+            "part_count=$count" \
+            'part_size=480KiB' > "$out/manifest.txt"
+          cd target
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add decompiled/google-camera/8.8.225.510547499.09
+          git commit -m 'Add Pixel Camera 8.8.225 JADX source archive'
+          git push origin HEAD:main
