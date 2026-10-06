@@ -1,0 +1,176 @@
+name: Deep LightCycle xref decompilation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ghidra-lightcycle-deep.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Download exact Pixel Camera LightCycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"             -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Download Ghidra
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset_url="$(curl -fsSL https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest             | jq -r '.assets[] | select(.name | test("PUBLIC.*\\.zip$")) | .browser_download_url'             | head -1)"
+          test -n "$asset_url"
+          curl -fL --retry 3 "$asset_url" -o ghidra.zip
+          mkdir ghidra
+          unzip -q ghidra.zip -d ghidra
+          GHIDRA_HOME="$(find ghidra -mindepth 1 -maxdepth 1 -type d | head -1)"
+          echo "GHIDRA_HOME=$GHIDRA_HOME" >> "$GITHUB_ENV"
+
+      - name: Write xref decompiler
+        shell: bash
+        run: |
+          mkdir -p scripts out
+          cat > scripts/DecompileStringXrefs.java <<'JAVA'
+          import ghidra.app.decompiler.*;
+          import ghidra.app.script.GhidraScript;
+          import ghidra.program.model.data.DataType;
+          import ghidra.program.model.listing.*;
+          import ghidra.program.model.symbol.*;
+          import ghidra.program.util.DefinedDataIterator;
+          import java.io.*;
+          import java.util.*;
+
+          public class DecompileStringXrefs extends GhidraScript {
+              private static final String[] NEEDLES = {
+                  "There must be more than one target in a column",
+                  "too wide to be reliably covered by 3x3 targets",
+                  "target_generator.cc",
+                  "target_manager.cc",
+                  "photosphere_parameters.cc",
+                  "image_match_width_",
+                  "Alignment did not converge",
+                  "Previous photos have not been aligned",
+                  "sensor constraints",
+                  "spherical_pairwise_match.cc",
+                  "patch_pairwise_matcher.cc",
+                  "line_aligner.cc",
+                  "bundle_adjustment.cc",
+                  "global_flow_solver.cc",
+                  "gamma exposure matching",
+                  "rosette_image_adjuster.cc",
+                  "seam_finder_graphcut.cc",
+                  "mask_generator_optimal_seam.cc",
+                  "blend_levels_",
+                  "Failed WriteYUV420ToJPEG",
+                  "full_pano_width",
+                  "cropped_area_width",
+                  "yaw_correction_deg"
+              };
+
+              public void run() throws Exception {
+                  String[] args = getScriptArgs();
+                  File outDir = new File(args.length > 0 ? args[0] : ".");
+                  outDir.mkdirs();
+
+                  FunctionManager fm = currentProgram.getFunctionManager();
+                  ReferenceManager rm = currentProgram.getReferenceManager();
+                  DecompInterface dec = new DecompInterface();
+                  dec.toggleCCode(true);
+                  dec.toggleSyntaxTree(true);
+                  dec.setSimplificationStyle("decompile");
+                  if (!dec.openProgram(currentProgram)) throw new RuntimeException("openProgram failed");
+
+                  PrintWriter hits = new PrintWriter(new File(outDir, "string-xrefs.tsv"));
+                  Set<Function> funcs = new LinkedHashSet<>();
+
+                  for (Data d : DefinedDataIterator.definedStrings(currentProgram)) {
+                      Object v = d.getValue();
+                      if (!(v instanceof String)) continue;
+                      String s = (String)v;
+                      boolean match = false;
+                      for (String n : NEEDLES) {
+                          if (s.toLowerCase().contains(n.toLowerCase())) { match = true; break; }
+                      }
+                      if (!match) continue;
+
+                      ReferenceIterator refs = rm.getReferencesTo(d.getAddress());
+                      boolean any = false;
+                      while (refs.hasNext()) {
+                          Reference ref = refs.next();
+                          any = true;
+                          Function f = fm.getFunctionContaining(ref.getFromAddress());
+                          hits.println(d.getAddress()+"\t"+escape(s)+"\t"+ref.getFromAddress()+"\t"+
+                              (f == null ? "<no-function>" : f.getEntryPoint()+"\t"+f.getName()));
+                          if (f != null) funcs.add(f);
+                      }
+                      if (!any) hits.println(d.getAddress()+"\t"+escape(s)+"\t<no-xref>");
+                  }
+
+                  // Include one call hop so option constructors and helper math are captured.
+                  Set<Function> expanded = new LinkedHashSet<>(funcs);
+                  for (Function f : funcs) {
+                      for (Function c : f.getCalledFunctions(monitor)) expanded.add(c);
+                  }
+
+                  PrintWriter index = new PrintWriter(new File(outDir, "functions.tsv"));
+                  for (Function f : expanded) {
+                      String safe = f.getName().replaceAll("[^A-Za-z0-9_.-]", "_");
+                      File dest = new File(outDir, safe+"_"+f.getEntryPoint()+".c");
+                      DecompileResults dr = dec.decompileFunction(f, 180, monitor);
+                      index.println(f.getEntryPoint()+"\t"+f.getName()+"\t"+f.getBody());
+                      try (PrintWriter pw = new PrintWriter(dest)) {
+                          pw.println("/* Function: "+f.getName()+" @ "+f.getEntryPoint()+" */");
+                          if (dr.decompileCompleted() && dr.getDecompiledFunction()!=null) {
+                              pw.println(dr.getDecompiledFunction().getC());
+                          } else {
+                              pw.println("/* DECOMPILE FAILED: "+dr.getErrorMessage()+" */");
+                          }
+                      }
+                  }
+                  hits.close();
+                  index.close();
+                  dec.dispose();
+              }
+
+              private String escape(String s) {
+                  return s.replace("\t","\\t").replace("\r","\\r").replace("\n","\\n");
+              }
+          }
+          JAVA
+
+      - name: Run Ghidra deep analysis
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ghidra-project out/decompiled
+          "$GHIDRA_HOME/support/analyzeHeadless" /tmp/ghidra-project lightcycle-deep             -import "$PWD/liblightcycle.so"             -analysisTimeoutPerFile 1200             -scriptPath "$PWD/scripts"             -postScript DecompileStringXrefs.java "$PWD/out/decompiled"             -deleteProject             | tee out/ghidra.log
+
+      - name: Save offset strings and symbols
+        shell: bash
+        run: |
+          strings -a -t x -n 4 liblightcycle.so > out/strings-offsets.txt
+          readelf -Ws liblightcycle.so > out/symbols.txt
+
+      - name: Upload deep analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-camera-lightcycle-ghidra-deep
+          path: out/
+          if-no-files-found: error
+          retention-days: 90
