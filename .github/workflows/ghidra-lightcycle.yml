@@ -154,11 +154,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          llvm-objdump -d --demangle --no-show-raw-insn liblightcycle.so > out/objdump-full.txt
+          objdump -d --demangle --no-show-raw-insn liblightcycle.so > out/objdump-full.txt
           for spec in             "ResetForPhotoSphereCapture:0xedb8c:0xedca8"             "FinishCapture:0xee234:0xee5d4"             "ProcessFrame:0xeeef4:0xef0c4"             "AddImage:0xef720:0xef7e8"             "AlignNextImage:0xef830:0xef848"             "RenderNextSession:0xeee00:0xeee78"             "SetTargetHitAngleRadians:0xefd04:0xefd68"
           do
             IFS=: read -r name start stop <<<"$spec"
-            llvm-objdump -d --demangle --no-show-raw-insn               --start-address="$start" --stop-address="$stop"               liblightcycle.so > "out/$name-asm.txt"
+            objdump -d --demangle --no-show-raw-insn               --start-address="$start" --stop-address="$stop"               liblightcycle.so > "out/$name-asm.txt"
           done
 
       - name: Upload Ghidra analysis
