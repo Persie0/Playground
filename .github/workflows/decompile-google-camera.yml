@@ -1,0 +1,241 @@
+name: Decompile Google Camera 8.8.225
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/decompile-google-camera.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: google-camera-decompile
+  cancel-in-progress: true
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout Playground
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install downloader dependencies
+        run: python -m pip install --disable-pip-version-check requests beautifulsoup4
+
+      - name: Download exact Pixel Camera APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p input
+          python <<'PY'
+          import sys, time
+          from urllib.parse import urljoin
+          import requests
+          from bs4 import BeautifulSoup
+
+          page = "https://www.apkmirror.com/apk/google-inc/camera/camera-8-8-225-510547499-09-release/pixel-camera-8-8-225-510547499-09-android-apk-download/"
+          out = "input/google-camera-8.8.225.apk"
+
+          s = requests.Session()
+          s.headers.update({
+              "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                            "(KHTML, like Gecko) Chrome/124 Safari/537.36",
+              "Accept-Language": "en-US,en;q=0.9",
+          })
+
+          def get(url):
+              r = s.get(url, timeout=60)
+              r.raise_for_status()
+              return r
+
+          r1 = get(page)
+          soup1 = BeautifulSoup(r1.text, "html.parser")
+
+          link1 = soup1.select_one("a.downloadButton")
+          if link1 is None:
+              for a in soup1.find_all("a", href=True):
+                  text = " ".join(a.stripped_strings).lower()
+                  href = a["href"]
+                  if "download apk" in text or ("/download/" in href and "key=" in href):
+                      link1 = a
+                      break
+          if link1 is None:
+              raise RuntimeError("Could not locate APKMirror intermediate download link")
+
+          u2 = urljoin(r1.url, link1["href"])
+          r2 = get(u2)
+          soup2 = BeautifulSoup(r2.text, "html.parser")
+
+          link2 = soup2.select_one('span a[rel="nofollow"]')
+          if link2 is None:
+              for a in soup2.find_all("a", href=True):
+                  href = a["href"]
+                  if "downloadr" in href and "apkmirror.com" in href:
+                      link2 = a
+                      break
+          if link2 is None:
+              candidates = [a.get("href") for a in soup2.find_all("a", href=True) if "download" in a.get("href","")]
+              print("Download-link candidates:", candidates[:30], file=sys.stderr)
+              raise RuntimeError("Could not locate final APKMirror CDN link")
+
+          final_url = urljoin(r2.url, link2["href"])
+          with s.get(final_url, stream=True, timeout=120) as r3:
+              r3.raise_for_status()
+              with open(out, "wb") as f:
+                  for chunk in r3.iter_content(chunk_size=1024 * 1024):
+                      if chunk:
+                          f.write(chunk)
+
+          print(out)
+          PY
+
+          test -s input/google-camera-8.8.225.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  input/google-camera-8.8.225.apk" | sha256sum -c -
+          stat -c '%n %s bytes' input/google-camera-8.8.225.apk
+
+      - name: Download and verify JADX 1.5.6
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 "https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip" -o jadx.zip
+          echo "545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974  jadx.zip" | sha256sum -c -
+          mkdir -p .tools/jadx
+          unzip -q jadx.zip -d .tools/jadx
+          .tools/jadx/bin/jadx --version
+
+      - name: Decompile and deobfuscate
+        env:
+          JAVA_OPTS: -Xms512m -Xmx5g -XX:+UseG1GC
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="8.8.225.510547499.09"
+          out="decompiled/google-camera/$version"
+          rm -rf "$out"
+          mkdir -p "$out"
+
+          set +e
+          .tools/jadx/bin/jadx             --threads-count 1             --no-res             --show-bad-code             --deobf             --deobf-cfg-file "$out/$version.jobf"             --deobf-cfg-file-mode overwrite             --deobf-res-name-source auto             --use-source-name-as-class-name-alias if-better             --rename-flags "case,valid,printable"             --comments-level info             --log-level progress             --output-dir "$out"             input/google-camera-8.8.225.apk 2>&1 | tee "$out/jadx.log"
+          jadx_exit="${PIPESTATUS[0]}"
+          set -e
+
+          source_count="$(find "$out/sources" -type f -name '*.java' 2>/dev/null | wc -l)"
+          test "$source_count" -gt 0
+          echo "JADX_EXIT=$jadx_exit" >> "$GITHUB_ENV"
+          echo "SOURCE_COUNT=$source_count" >> "$GITHUB_ENV"
+          echo "Recovered $source_count Java files; JADX exit $jadx_exit"
+
+      - name: Package source-only output
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="8.8.225.510547499.09"
+          out="decompiled/google-camera/$version"
+
+          cat > "$out/README.md" <<EOF
+          # Pixel Camera $version decompiled sources
+
+          Input package: com.google.android.GoogleCamera
+          Version code: 66251366
+          APK SHA-256: 9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47
+          JADX: 1.5.6
+          JADX exit code: $JADX_EXIT
+          Decompiled Java files: $SOURCE_COUNT
+
+          JADX automatic deobfuscation was enabled. Original R8/ProGuard identifiers cannot be recovered without Google's mapping file. Decompiled methods marked with errors are approximate. Android resources are intentionally excluded, matching the existing LingQ source-only workflow.
+          EOF
+
+          mkdir -p package/google-camera
+          cp -a "$out" package/google-camera/
+          (cd package && zip -qr ../google-camera-8.8.225.510547499.09-jadx-sources.zip google-camera)
+
+          plain_sha="$(sha256sum google-camera-8.8.225.510547499.09-jadx-sources.zip | awk '{print $1}')"
+          echo "PLAIN_SHA=$plain_sha" >> "$GITHUB_ENV"
+          echo "ARCHIVE_SIZE=$(stat -c %s google-camera-8.8.225.510547499.09-jadx-sources.zip)" >> "$GITHUB_ENV"
+
+      - name: Encrypt transfer payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p transfer/google-camera-8.8.225.510547499.09
+
+          cat > public.pem <<'EOF'
+          -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnSdR6ORoIByVIC04iXIB
+          g4j8P4JjM+c3PX8IRL6o4esRgbCWPvZrax8RefWREwn9nJQEKv2LwQ1Px3RzaNCa
+          KLWiwFTjYbmII1JW16TRtPzhrIGntz8xMeZKRgsC3MiUhgQ8cBP1un0pXdEauWjF
+          VWKfXNpTeXag0tE3Fj6IJoTZDvMy56d+2rQ1L4AiYMhNmIAWStvHYMdtVD5oTsa+
+          C0pk75lkoGVW4wj0FZI0QBYUNFkB9U+iWNpHmevXI4NuZ0KBoM/5xWUY0Aqp7efS
+          YFy/GPmz0Heo7nNHA8916QRl4KGhC3d1Dpn3k6pFv0gXmx2wC7y53umbdCtCeSfR
+          TQIDAQAB
+          -----END PUBLIC KEY-----
+          EOF
+
+          openssl rand 48 > secret.bin
+          key="$(xxd -p -l 32 secret.bin | tr -d '\n')"
+          iv="$(xxd -p -s 32 -l 16 secret.bin | tr -d '\n')"
+
+          openssl enc -aes-256-ctr             -K "$key" -iv "$iv"             -in google-camera-8.8.225.510547499.09-jadx-sources.zip             -out payload.enc
+
+          openssl pkeyutl -encrypt -pubin -inkey public.pem             -pkeyopt rsa_padding_mode:oaep             -pkeyopt rsa_oaep_md:sha256             -in secret.bin             -out wrapped-key.bin
+
+          base64 -w 0 wrapped-key.bin > transfer/google-camera-8.8.225.510547499.09/wrapped-key.b64
+          base64 -w 0 payload.enc | split -b 4M -d -a 3 - transfer/google-camera-8.8.225.510547499.09/part-
+
+          enc_sha="$(sha256sum payload.enc | awk '{print $1}')"
+          part_count="$(find transfer/google-camera-8.8.225.510547499.09 -name 'part-*' | wc -l)"
+
+          cat > transfer/google-camera-8.8.225.510547499.09/manifest.txt <<EOF
+          package=com.google.android.GoogleCamera
+          version=8.8.225.510547499.09
+          version_code=66251366
+          apk_sha256=9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47
+          jadx_version=1.5.6
+          jadx_exit=$JADX_EXIT
+          java_files=$SOURCE_COUNT
+          archive_size=$ARCHIVE_SIZE
+          archive_sha256=$PLAIN_SHA
+          encrypted_sha256=$enc_sha
+          part_count=$part_count
+          part_encoding=base64
+          part_size=4MiB
+          cipher=aes-256-ctr
+          key_wrap=rsa-oaep-sha256
+          EOF
+
+          cat transfer/google-camera-8.8.225.510547499.09/manifest.txt
+          du -sh transfer/google-camera-8.8.225.510547499.09
+
+      - name: Publish encrypted transfer branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a transfer /tmp/gcam-transfer
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan gcam-transfer
+          git rm -rf . >/dev/null 2>&1 || true
+          cp -a /tmp/gcam-transfer ./transfer
+          git add transfer
+          git commit -m "Encrypted Google Camera JADX transfer"
+          git push --force origin HEAD:gcam-transfer
+
+          {
+            echo "## Google Camera decompilation"
+            echo
+            echo "- Java source files: $SOURCE_COUNT"
+            echo "- JADX exit: $JADX_EXIT"
+            echo "- Source archive SHA-256: $PLAIN_SHA"
+            echo "- Encrypted transfer branch: gcam-transfer"
+          } >> "$GITHUB_STEP_SUMMARY"
