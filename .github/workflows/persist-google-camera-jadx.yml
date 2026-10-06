@@ -1,0 +1,216 @@
+name: Persist Google Camera JADX sources
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/persist-google-camera-jadx.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  persist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PUSH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+
+    steps:
+      - name: Require cross-repo token
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${PUSH_TOKEN:-}" || {
+            echo "Need PRIVATE_REPO_TOKEN, GH_TOKEN, or GH_RELEASE_TOKEN"
+            exit 1
+          }
+
+      - name: Download successful decompile artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/gcam-artifact
+          gh run download 37468402588             -R Persie0/Playground             -n google-camera-8.8.225-jadx-sources             -D /tmp/gcam-artifact
+          test -s /tmp/gcam-artifact/google-camera-8.8.225.510547499.09-jadx-sources.zip
+
+      - name: Checkout decompile
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: main
+          token: ${{ env.PUSH_TOKEN }}
+          fetch-depth: 1
+          path: decompile-repo
+
+      - name: Correct metadata and prepare split archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="8.8.225.510547499.09"
+          work="/tmp/gcam-work"
+          srczip="/tmp/gcam-artifact/google-camera-$version-jadx-sources.zip"
+          final="/tmp/google-camera-$version-jadx-sources.zip"
+
+          rm -rf "$work"
+          mkdir -p "$work"
+          unzip -q "$srczip" -d "$work"
+
+          cat > "$work/google-camera/$version/README.md" <<'EOF'
+          # Pixel Camera 8.8.225.510547499.09 decompiled sources
+
+          Source-only JADX output from the pho release of Persie0/decompile.
+
+          - Package: com.google.android.GoogleCamera
+          - Version code: 66251366
+          - Input APK SHA-256: 9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47
+          - JADX: 1.5.6
+          - JADX exit code: 3
+          - Decompiled Java files: 11855
+          - JADX reported reconstruction errors: 41
+          - Mapping: 8.8.225.510547499.09.jobf
+          - Log: jadx.log
+
+          JADX automatic deobfuscation was enabled. Original identifiers removed by R8/ProGuard cannot be recovered without Google's original mapping file. Decompiled methods marked with errors are approximate. Android resources are intentionally excluded, matching the existing LingQ source-only workflow.
+          EOF
+
+          (
+            cd "$work"
+            zip -qr "$final" google-camera
+          )
+
+          archive_sha="$(sha256sum "$final" | awk '{print $1}')"
+          archive_size="$(stat -c %s "$final")"
+
+          target="decompile-repo/decompiled/google-camera/$version"
+          rm -rf "$target"
+          mkdir -p "$target"
+          split -b 480K -d -a 3 "$final" "$target/part-"
+
+          part_count="$(find "$target" -maxdepth 1 -type f -name 'part-*' | wc -l)"
+          printf '%s\n' "$archive_sha" > /tmp/archive_sha
+          printf '%s\n' "$archive_size" > /tmp/archive_size
+          printf '%s\n' "$part_count" > /tmp/part_count
+
+      - name: Write repository metadata and reconstruction support
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd decompile-repo
+          version="8.8.225.510547499.09"
+          archive_sha="$(cat /tmp/archive_sha)"
+          archive_size="$(cat /tmp/archive_size)"
+          part_count="$(cat /tmp/part_count)"
+
+          mkdir -p decompiled/google-camera
+          cat > decompiled/google-camera/README.md <<EOF
+          # Pixel Camera decompiled sources
+
+          Source-only JADX output for Google/Pixel Camera $version, sourced from this repository's pho release asset.
+
+          ## Input
+
+          - Package: com.google.android.GoogleCamera
+          - Version: $version
+          - Version code: 66251366
+          - APK SHA-256: 9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47
+
+          ## JADX result
+
+          - JADX version: 1.5.6
+          - Automatic deobfuscation: enabled
+          - Decompiled Java files: 11,855
+          - JADX reconstruction errors: 41
+          - JADX exit code: 3 (recoverable output retained)
+          - Android resources: excluded, matching the LingQ source-only workflow
+          - Persistent source archive: $part_count chunks of at most 480 KiB
+          - Reconstructed ZIP bytes: $archive_size
+          - Reconstructed ZIP SHA-256: $archive_sha
+
+          Original R8/ProGuard names cannot be recovered without Google's mapping file, so this is deobfuscated JADX output rather than original source.
+
+          ## Reassemble
+
+          From the repository root:
+
+              python3 tools/reassemble_sources.py
+
+          This writes:
+
+              decompiled/google-camera/$version/google-camera-$version-jadx-sources.zip
+          EOF
+
+          cat > tools/reassemble_sources.py <<'PY'
+          #!/usr/bin/env python3
+          """Join split JADX source archives stored in this repository."""
+          from pathlib import Path
+
+          ROOT = Path(__file__).resolve().parents[1]
+
+          ARCHIVES = [
+              (
+                  ROOT / "decompiled" / "lingq" / "5.5.9",
+                  "lingq-5.5.9-jadx-sources.zip",
+              ),
+              (
+                  ROOT / "decompiled" / "lingq" / "6.2.0",
+                  "lingq-6.2.0-jadx-sources.zip",
+              ),
+              (
+                  ROOT / "decompiled" / "google-camera" / "8.8.225.510547499.09",
+                  "google-camera-8.8.225.510547499.09-jadx-sources.zip",
+              ),
+          ]
+
+          for folder, output_name in ARCHIVES:
+              parts = sorted(folder.glob("part-*"))
+              if not parts:
+                  raise SystemExit(f"No archive chunks found in {folder}")
+              output = folder / output_name
+              with output.open("wb") as target:
+                  for part in parts:
+                      target.write(part.read_bytes())
+              print(f"{output.relative_to(ROOT)} ({output.stat().st_size} bytes)")
+          PY
+          chmod +x tools/reassemble_sources.py
+
+          if ! grep -q "Pixel Camera 8.8.225" README.md; then
+            cat >> README.md <<'EOF'
+
+          ## Pixel Camera 8.8.225
+
+          This repository also stores source-only JADX output for Google/Pixel Camera 8.8.225.510547499.09 from the pho release. It produced 11,855 Java files with automatic JADX deobfuscation enabled; 41 methods/classes reported reconstruction errors. The split source archive is under decompiled/google-camera.
+
+          Run python3 tools/reassemble_sources.py to reconstruct both the LingQ and Pixel Camera source ZIPs.
+          EOF
+          fi
+
+      - name: Verify reconstruction
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd decompile-repo
+          python3 tools/reassemble_sources.py
+          actual="$(sha256sum decompiled/google-camera/8.8.225.510547499.09/google-camera-8.8.225.510547499.09-jadx-sources.zip | awk '{print $1}')"
+          expected="$(cat /tmp/archive_sha)"
+          test "$actual" = "$expected"
+          rm decompiled/google-camera/8.8.225.510547499.09/google-camera-8.8.225.510547499.09-jadx-sources.zip
+
+      - name: Commit and upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd decompile-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md tools/reassemble_sources.py decompiled/google-camera
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Add decompiled Pixel Camera 8.8.225 sources"
+          git push origin HEAD:main
