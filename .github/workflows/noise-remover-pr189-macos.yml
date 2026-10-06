@@ -10,15 +10,15 @@ permissions:
   contents: read
 
 jobs:
-  verify-macos:
+  macos-release-gate:
     runs-on: macos-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
-      - name: Checkout exact private head
+      - name: Checkout exact private PR head
         uses: actions/checkout@v5
         with:
           repository: Persie0/noise_remover
-          ref: 77104b8b4708843a91a399c8d3aed970c69d6ca6
+          ref: edce8a9c395db0a3fff7460652087cab9b101056
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
           persist-credentials: false
           fetch-depth: 0
@@ -29,17 +29,8 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Toolchain
-        run: |
-          xcodebuild -version
-          python3 --version
-          ruby --version
-          pod --version
-          rustc --version
-          cargo --version
-
-      - name: Full macOS release gate
+      - name: Run checked-in macOS release gate
         shell: bash
         run: bash app/.github/playground/noise_remover/run_macos_ci.sh app
 
-# trigger: pr189-77104b8b
+# trigger: pr189-edce8a9c
