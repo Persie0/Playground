@@ -1,0 +1,79 @@
+name: Dump LightCycle disassembly
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/dump-lightcycle-disassembly.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download exact Pixel Camera APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"             -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+
+      - name: Extract LightCycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          path="$(unzip -Z1 camera.apk | grep -E '(^|/)liblightcycle\.so$' | head -1)"
+          unzip -p camera.apk "$path" > out/liblightcycle.so
+          sha256sum out/liblightcycle.so | tee out/liblightcycle.sha256
+          file out/liblightcycle.so | tee out/liblightcycle.file
+
+      - name: Dump ELF and ARM64 disassembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          readelf -hW out/liblightcycle.so > out/elf-header.txt
+          readelf -SW out/liblightcycle.so > out/elf-sections.txt
+          readelf -sW out/liblightcycle.so > out/elf-symbols.txt
+          readelf -rW out/liblightcycle.so > out/elf-relocations.txt
+          readelf -dW out/liblightcycle.so > out/elf-dynamic.txt
+          llvm-objdump -d --demangle --print-imm-hex out/liblightcycle.so > out/disassembly.txt
+          llvm-objdump -s -j .rodata out/liblightcycle.so > out/rodata-hex.txt || true
+          strings -a -t x -n 4 out/liblightcycle.so > out/strings-offsets.txt
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          dis = Path("out/disassembly.txt").read_text(errors="replace").splitlines()
+          names = [
+              "ResetForPhotoSphereCapture", "ProcessFrame", "TakeNewPhoto",
+              "TargetHit", "MovingTooFast", "PhotoSkippedTooFast",
+              "AddImage", "AlignNextImage", "InitTargets", "GetTargets",
+              "GetTargetInRange", "GetNumCapturedTargets", "GetNumTotalTargets",
+              "SetTargetHitAngleRadians", "FinishCapture",
+              "CreateNewStitchingSession", "RenderNextSession",
+              "SetOutputResolutionLarge", "SetFilteredRotation",
+              "StartGyroCalibration", "EndGyroCalibration"
+          ]
+          out = []
+          for name in names:
+              pat = "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_" + name
+              for i,line in enumerate(dis):
+                  if pat in line and line.rstrip().endswith(":"):
+                      out.append("\n===== " + name + " =====")
+                      out.extend(dis[i:i+140])
+                      break
+          Path("out/jni-focused-disassembly.txt").write_text("\n".join(out))
+          PY
+
+      - name: Upload dump
+        uses: actions/upload-artifact@v4
+        with:
+          name: lightcycle-arm64-disassembly
+          path: out/
+          retention-days: 90
+          if-no-files-found: error
