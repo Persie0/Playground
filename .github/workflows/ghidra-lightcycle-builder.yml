@@ -1,0 +1,110 @@
+name: Decompile LightCycle capture builder methods
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ghidra-lightcycle-builder.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  builder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Fetch exact native library
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"             -o camera.apk
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Download pinned Ghidra
+        shell: bash
+        run: |
+          curl -fL --retry 3             "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip"             -o ghidra.zip
+          mkdir ghidra
+          unzip -q ghidra.zip -d ghidra
+          echo "GHIDRA_HOME=$PWD/ghidra/ghidra_12.1.4_PUBLIC" >> "$GITHUB_ENV"
+
+      - name: Write address decompiler
+        shell: bash
+        run: |
+          mkdir -p scripts out
+          cat > scripts/DecompileAddresses.java <<'JAVA'
+          import ghidra.app.decompiler.*;
+          import ghidra.app.script.GhidraScript;
+          import ghidra.program.model.address.Address;
+          import ghidra.program.model.listing.*;
+          import ghidra.program.model.symbol.*;
+          import java.io.*;
+          import java.util.*;
+
+          public class DecompileAddresses extends GhidraScript {
+              private static final long[] ADDRS = {
+                  0x0020f588L,0x0020f614L,0x0020f6a0L,0x0020f6c8L,
+                  0x0020f7dcL,0x0020f84cL,0x0020f958L,0x0020f968L,
+                  0x0020f978L,0x0020f9e4L,0x0020f9f4L,0x0020fa04L,
+                  0x0020fc30L,0x0020fc40L,0x0020fc50L,0x0020fc60L,
+                  0x0020fe74L,0x002100ecL,0x002100f4L,0x002100fcL,0x00210104L,
+                  0x00210310L,0x002107d4L,
+                  0x002121bcL,0x002122acL,0x002122c4L,0x00212320L,
+                  0x00212384L,0x0021239cL,0x002123b4L,0x00212498L,
+                  0x002124a0L,0x002124a8L,0x00212698L,0x002126bcL,
+                  0x002126c4L,0x002126ccL,0x002126d8L,0x002126e8L,0x00212704L,
+                  0x0021375cL,0x00213784L,0x002137b8L,0x002138f4L,
+                  0x00213b04L,0x00213e24L,0x002147c4L
+              };
+              public void run() throws Exception {
+                  File outDir=new File(getScriptArgs()[0]); outDir.mkdirs();
+                  FunctionManager fm=currentProgram.getFunctionManager();
+                  DecompInterface dec=new DecompInterface();
+                  dec.toggleCCode(true); dec.toggleSyntaxTree(true);
+                  dec.setSimplificationStyle("decompile"); dec.openProgram(currentProgram);
+                  PrintWriter idx=new PrintWriter(new File(outDir,"index.tsv"));
+                  Set<Function> all=new LinkedHashSet<>();
+                  for(long raw:ADDRS){
+                      Function f=fm.getFunctionAt(toAddr(raw));
+                      if(f!=null) all.add(f);
+                  }
+                  Set<Function> roots=new LinkedHashSet<>(all);
+                  for(Function f:roots){
+                      for(Function c:f.getCalledFunctions(monitor)) all.add(c);
+                  }
+                  for(Function f:all){
+                      DecompileResults dr=dec.decompileFunction(f,180,monitor);
+                      idx.println(f.getEntryPoint()+"\t"+f.getName()+"\t"+f.getBody());
+                      String safe=f.getName().replaceAll("[^A-Za-z0-9_.-]","_");
+                      try(PrintWriter pw=new PrintWriter(new File(outDir,safe+"_"+f.getEntryPoint()+".c"))){
+                          pw.println("/* "+f.getName()+" @ "+f.getEntryPoint()+" */");
+                          if(dr.decompileCompleted() && dr.getDecompiledFunction()!=null) pw.println(dr.getDecompiledFunction().getC());
+                          else pw.println("/* FAILED "+dr.getErrorMessage()+" */");
+                      }
+                  }
+                  idx.close(); dec.dispose();
+              }
+          }
+          JAVA
+
+      - name: Analyze
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/gp out/builder
+          "$GHIDRA_HOME/support/analyzeHeadless" /tmp/gp lc-builder             -import "$PWD/liblightcycle.so"             -analysisTimeoutPerFile 1200             -scriptPath "$PWD/scripts"             -postScript DecompileAddresses.java "$PWD/out/builder"             -deleteProject | tee out/ghidra.log
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pixel-camera-lightcycle-builder
+          path: out/
+          retention-days: 90
+          if-no-files-found: error
