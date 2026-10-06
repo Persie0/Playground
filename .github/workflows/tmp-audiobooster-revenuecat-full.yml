@@ -31,12 +31,32 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Flutter pub get
+      - name: Verify dependency lock
         working-directory: audiobooster
         run: |
           set -euxo pipefail
           flutter --version
           flutter pub get
+          git diff --exit-code -- pubspec.lock
+          grep -A6 '^  purchases_flutter:' pubspec.lock
+
+      - name: Focused monetization tests
+        working-directory: audiobooster
+        run: |
+          set -euxo pipefail
+          flutter test test/subscription test/trial_bridge_test.dart test/trial_paywall_flow_test.dart test/revenuecat_build_config_test.dart test/home_history_tutorial_test.dart
+
+      - name: Full Flutter tests
+        working-directory: audiobooster
+        run: |
+          set -euxo pipefail
+          flutter test
+
+      - name: Analyze
+        working-directory: audiobooster
+        run: |
+          set -euxo pipefail
+          flutter analyze
 
       - name: Bootstrap Android
         working-directory: audiobooster
@@ -44,36 +64,44 @@ jobs:
           set -euxo pipefail
           bash tool/bootstrap_android.sh
 
-      - name: Native JVM tests
-        working-directory: audiobooster/android
-        run: |
-          set -euxo pipefail
-          ./gradlew testDebugUnitTest
-
-      - name: Verify maintained Android mirrors
+      - name: Verify maintained native source mirrors
         working-directory: audiobooster
         run: |
           set -euxo pipefail
           cmp tool/android/MainActivity.kt android/app/src/main/kotlin/com/persie0/audiobooster/MainActivity.kt
-          diff -qr tool/android/com/persie0/audiobooster android/app/src/main/kotlin/com/persie0/audiobooster
+          diff -qr tool/android/com/persie0/audiobooster/audio android/app/src/main/kotlin/com/persie0/audiobooster/audio
 
-      - name: Flutter tests
-        working-directory: audiobooster
+      - name: AudioBooster native unit tests
+        working-directory: audiobooster/android
         run: |
           set -euxo pipefail
-          flutter test
-
-      - name: Flutter analyze
-        working-directory: audiobooster
-        run: |
-          set -euxo pipefail
-          flutter analyze
+          ./gradlew :app:testDebugUnitTest
 
       - name: Debug APK
         working-directory: audiobooster
         run: |
           set -euxo pipefail
           flutter build apk --debug
+
+      - name: Configure ephemeral CI release signing
+        working-directory: audiobooster
+        run: |
+          set -euxo pipefail
+          keytool -genkeypair \
+            -keystore /tmp/audiobooster-ci.jks \
+            -storepass audioboosterci \
+            -keypass audioboosterci \
+            -alias ci \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 1 \
+            -dname 'CN=AudioBooster CI'
+          cat > android/key.properties <<'EOF'
+          storePassword=audioboosterci
+          keyPassword=audioboosterci
+          keyAlias=ci
+          storeFile=/tmp/audiobooster-ci.jks
+          EOF
 
       - name: Release APK
         working-directory: audiobooster
@@ -86,3 +114,19 @@ jobs:
         run: |
           set -euxo pipefail
           flutter build appbundle --release
+
+      - name: Requirement boundary scan
+        working-directory: audiobooster
+        run: |
+          set -euxo pipefail
+          if grep -RniE 'appodeal|bidmachine|bidon|ironsource|com\.google\.android\.gms\.permission\.AD_ID' pubspec.yaml android tool; then
+            echo 'Unexpected advertising stack content found' >&2
+            exit 1
+          fi
+          if grep -RniE 'ios[^[:space:]]*api[^[:space:]]*key[^=]*=[^;]*(goog_|appl_)' lib/subscription; then
+            echo 'Unexpected iOS RevenueCat key found' >&2
+            exit 1
+          fi
+          grep -Rni 'audiobooster_pro' lib/subscription
+          grep -Rni 'goog_zoooKoAwTLrRRsvbFZIGEdkrFAF' lib/subscription
+          grep -n 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
