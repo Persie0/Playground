@@ -1,0 +1,241 @@
+name: LightCycle internals reverse engineering
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ghidra-lightcycle-internals.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  internals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Fetch exact native library
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"             -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Download pinned Ghidra
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip"             -o ghidra.zip
+          mkdir ghidra
+          unzip -q ghidra.zip -d ghidra
+          echo "GHIDRA_HOME=$PWD/ghidra/ghidra_12.1.4_PUBLIC" >> "$GITHUB_ENV"
+
+      - name: Write focused analysis script
+        shell: bash
+        run: |
+          mkdir -p scripts out
+          cat > scripts/AnalyzeLightCycleInternals.java <<'JAVA'
+          import ghidra.app.decompiler.*;
+          import ghidra.app.script.GhidraScript;
+          import ghidra.program.model.address.*;
+          import ghidra.program.model.data.*;
+          import ghidra.program.model.listing.*;
+          import ghidra.program.model.mem.Memory;
+          import ghidra.program.model.symbol.*;
+          import ghidra.program.util.DefinedDataIterator;
+          import java.io.*;
+          import java.util.*;
+
+          public class AnalyzeLightCycleInternals extends GhidraScript {
+              private static final long[] TARGETS = {
+                  0x001eeef4L, // JNI ProcessFrame
+                  0x002147c4L, // spherical latitude ring target generator
+                  0x002159fcL, // single-axis / target generator
+                  0x00215fd0L, // wide-angle target setup
+                  0x002161fcL, // 3x3 target grid
+                  0x00226020L, 0x002260b8L, 0x002263f0L, 0x00226614L, // patch matcher
+                  0x00227bacL, // spherical pairwise
+                  0x001ffc30L, 0x001fff14L, 0x0020012cL, // global flow
+                  0x002287c0L, 0x00229e80L, // bundle adjustment / robust loss
+                  0x00433478L, // optimal seam mask
+                  0x004390a8L, 0x00439600L, // graphcut costs
+                  0x00420998L, 0x00420f2cL, // blender/final encode
+                  0x0021874cL, 0x002188b8L, 0x002188ccL, 0x002189d8L,
+                  0x0041c5e0L // output pixel budget cap
+              };
+
+              private static final long[] DATA = {
+                  0x00161788L, 0x00161868L, 0x001619f0L, 0x00161a60L,
+                  0x00161b40L, 0x00161b48L, 0x00161b70L, 0x00161b80L,
+                  0x00161de0L, 0x00161df0L, 0x00161e30L, 0x00161fd0L,
+                  0x001622f0L, 0x001623a0L, 0x001624d0L, 0x001625c0L,
+                  0x00162e30L
+              };
+
+              private static final String[] RTTI = {
+                  "CaptureSessionBuilderImpl",
+                  "CaptureSessionBuilder",
+                  "TargetManagerCommon",
+                  "TargetManager",
+                  "PhotosphereTargetGenerator",
+                  "PatchPairwiseMatcher",
+                  "BundleAdjuster",
+                  "SeamFinderGraphcut",
+                  "OptimalSeamMaskGenerator"
+              };
+
+              public void run() throws Exception {
+                  File outDir = new File(getScriptArgs()[0]);
+                  outDir.mkdirs();
+                  FunctionManager fm = currentProgram.getFunctionManager();
+                  ReferenceManager rm = currentProgram.getReferenceManager();
+                  Memory mem = currentProgram.getMemory();
+
+                  DecompInterface dec = new DecompInterface();
+                  dec.toggleCCode(true);
+                  dec.toggleSyntaxTree(true);
+                  dec.setSimplificationStyle("decompile");
+                  dec.openProgram(currentProgram);
+
+                  Set<Function> funcs = new LinkedHashSet<>();
+                  PrintWriter refs = new PrintWriter(new File(outDir, "callers.tsv"));
+
+                  for (long raw : TARGETS) {
+                      Address a = toAddr(raw);
+                      Function f = fm.getFunctionAt(a);
+                      refs.println("TARGET\t"+a+"\t"+(f == null ? "<none>" : f.getName()));
+                      if (f == null) continue;
+                      funcs.add(f);
+
+                      ReferenceIterator ri = rm.getReferencesTo(a);
+                      while (ri.hasNext()) {
+                          Reference r = ri.next();
+                          Function caller = fm.getFunctionContaining(r.getFromAddress());
+                          refs.println("CALLER\t"+a+"\t"+r.getFromAddress()+"\t"+
+                              (caller == null ? "<none>" : caller.getEntryPoint()+"\t"+caller.getName()));
+                          if (caller != null) funcs.add(caller);
+                      }
+                      for (Function c : f.getCalledFunctions(monitor)) funcs.add(c);
+                  }
+
+                  // Expand one extra hop around discovered direct callers/callees.
+                  Set<Function> first = new LinkedHashSet<>(funcs);
+                  for (Function f : first) {
+                      for (Function c : f.getCalledFunctions(monitor)) funcs.add(c);
+                      ReferenceIterator ri = rm.getReferencesTo(f.getEntryPoint());
+                      while (ri.hasNext()) {
+                          Function caller = fm.getFunctionContaining(ri.next().getFromAddress());
+                          if (caller != null) funcs.add(caller);
+                      }
+                  }
+                  refs.close();
+
+                  PrintWriter idx = new PrintWriter(new File(outDir, "functions.tsv"));
+                  for (Function f : funcs) {
+                      String safe=f.getName().replaceAll("[^A-Za-z0-9_.-]","_");
+                      DecompileResults dr=dec.decompileFunction(f,180,monitor);
+                      idx.println(f.getEntryPoint()+"\t"+f.getName()+"\t"+f.getBody());
+                      try(PrintWriter pw=new PrintWriter(new File(outDir,safe+"_"+f.getEntryPoint()+".c"))) {
+                          pw.println("/* "+f.getName()+" @ "+f.getEntryPoint()+" */");
+                          if(dr.decompileCompleted() && dr.getDecompiledFunction()!=null) pw.println(dr.getDecompiledFunction().getC());
+                          else pw.println("/* FAILED "+dr.getErrorMessage()+" */");
+                      }
+                  }
+                  idx.close();
+
+                  PrintWriter data = new PrintWriter(new File(outDir, "data-dump.txt"));
+                  for (long raw : DATA) {
+                      Address a = toAddr(raw);
+                      data.println("DATA "+a);
+                      for (int off=0; off<64; off+=4) {
+                          Address p=a.add(off);
+                          try {
+                              int i=mem.getInt(p);
+                              float fl=Float.intBitsToFloat(i);
+                              data.printf("  +0x%02x %s int=%d hex=0x%08x float=%g%n",off,p,i,i,fl);
+                          } catch(Exception e) { data.println("  "+p+" ERROR "+e); }
+                      }
+                      for (int off=0; off<64; off+=8) {
+                          Address p=a.add(off);
+                          try {
+                              long l=mem.getLong(p);
+                              double d=Double.longBitsToDouble(l);
+                              data.printf("  Q+0x%02x %s long=%d hex=0x%016x double=%g%n",off,p,l,l,d);
+                          } catch(Exception e) { data.println("  "+p+" ERROR "+e); }
+                      }
+                  }
+                  data.close();
+
+                  PrintWriter rtti = new PrintWriter(new File(outDir, "rtti-xrefs.txt"));
+                  DataIterator dit = currentProgram.getListing().getDefinedData(true);
+                  while (dit.hasNext()) {
+                      Data d=dit.next();
+                      Object v=d.getValue();
+                      if (!(v instanceof String)) continue;
+                      String s=(String)v;
+                      boolean hit=false;
+                      for(String needle:RTTI) if(s.contains(needle)){hit=true;break;}
+                      if(!hit) continue;
+                      rtti.println("STRING\t"+d.getAddress()+"\t"+s);
+                      dumpRefsRecursive(rtti, rm, fm, mem, d.getAddress(), 0, new HashSet<Address>());
+                  }
+                  rtti.close();
+                  dec.dispose();
+              }
+
+              private void dumpRefsRecursive(PrintWriter out, ReferenceManager rm, FunctionManager fm,
+                                             Memory mem, Address target, int depth, Set<Address> seen) {
+                  if(depth > 3 || seen.contains(target)) return;
+                  seen.add(target);
+                  ReferenceIterator it=rm.getReferencesTo(target);
+                  while(it.hasNext()) {
+                      Reference r=it.next();
+                      Address from=r.getFromAddress();
+                      Function f=fm.getFunctionContaining(from);
+                      out.println("REF"+depth+"\t"+target+"\t<-\t"+from+"\t"+r.getReferenceType()+"\t"+
+                          (f==null?"<data>":f.getEntryPoint()+"\t"+f.getName()));
+                      try {
+                          Address base=from.subtract(32);
+                          out.print("NEAR\t"+from);
+                          for(int o=0;o<96;o+=8) {
+                              long q=mem.getLong(base.add(o));
+                              out.printf("\t%016x",q);
+                          }
+                          out.println();
+                      } catch(Exception e) {}
+                      dumpRefsRecursive(out,rm,fm,mem,from,depth+1,seen);
+                  }
+              }
+          }
+          JAVA
+
+      - name: Analyze internals
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/gp out/internals
+          "$GHIDRA_HOME/support/analyzeHeadless" /tmp/gp lc-internals             -import "$PWD/liblightcycle.so"             -analysisTimeoutPerFile 1200             -scriptPath "$PWD/scripts"             -postScript AnalyzeLightCycleInternals.java "$PWD/out/internals"             -deleteProject | tee out/ghidra.log
+
+      - name: Add full AArch64 disassembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu
+          aarch64-linux-gnu-objdump -d --demangle --no-show-raw-insn liblightcycle.so > out/internals/objdump-full.txt
+          aarch64-linux-gnu-objdump -s -j .rodata liblightcycle.so > out/internals/rodata.txt || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pixel-camera-lightcycle-internals
+          path: out/
+          if-no-files-found: error
+          retention-days: 90
