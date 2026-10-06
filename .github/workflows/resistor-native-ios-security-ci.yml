@@ -1,0 +1,106 @@
+name: Resistor native iOS security CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-native-ios-security-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 50
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout legacy scanner branding
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: tflite
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: legacy
+
+      - name: Checkout iOS implementation branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor-scanner-ios
+          ref: feat/security-paywall-legal-branding
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          submodules: recursive
+          path: ios
+
+      - name: Copy exact legacy icon into app icon and splash
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ios/ResistorScanner/Assets.xcassets/AppIcon.appiconset
+          cp -R legacy/ios/Runner/Assets.xcassets/AppIcon.appiconset                 ios/ResistorScanner/Assets.xcassets/AppIcon.appiconset
+          cp legacy/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png              ios/ResistorScanner/Assets.xcassets/LaunchIcon.imageset/launch-icon.png
+
+      - name: Commit branding if changed
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain ResistorScanner/Assets.xcassets)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add ResistorScanner/Assets.xcassets
+            git commit -m "Copy legacy Resistor Scanner app icon"
+            git push origin HEAD:feat/security-paywall-legal-branding
+          fi
+
+      - name: Run Swift core tests
+        working-directory: ios
+        shell: bash
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee "$RUNNER_TEMP/swift-tests.log"
+
+      - name: Resolve app packages
+        working-directory: ios
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild -resolvePackageDependencies             -project ResistorScanner.xcodeproj 2>&1 | tee "$RUNNER_TEMP/ios-resolve.log"
+
+      - name: Build iOS simulator app
+        working-directory: ios
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild             -project ResistorScanner.xcodeproj             -target ResistorScanner             -configuration Debug             -sdk iphonesimulator             -destination 'generic/platform=iOS Simulator'             CODE_SIGNING_ALLOWED=NO             REVENUECAT_API_KEY=appl_ci_placeholder             REVENUECAT_ENTITLEMENT_ID=pro             build 2>&1 | tee "$RUNNER_TEMP/ios-build.log"
+
+      - name: Verify encrypted bundled models
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(find ~/Library/Developer/Xcode/DerivedData -type d -path '*/Build/Products/Debug-iphonesimulator/ResistorScanner.app' -print -quit)"
+          test -n "$APP"
+          test -f "$APP/Models/resistor_segmenter.onnx.enc"
+          test -f "$APP/Models/resistor_bandnet.onnx.enc"
+          if find "$APP/Models" -type f -name '*.onnx' | grep -q .; then
+            echo "Plain ONNX model leaked into iOS app bundle." >&2
+            exit 1
+          fi
+
+      - name: Summarize diagnostics
+        if: always()
+        shell: bash
+        run: |
+          for log in "$RUNNER_TEMP/swift-tests.log" "$RUNNER_TEMP/ios-resolve.log" "$RUNNER_TEMP/ios-build.log"; do
+            if [ -f "$log" ]; then
+              echo "===== $(basename "$log") ====="
+              grep -E -i 'error:|fatal error:|BUILD FAILED|SwiftCompile|test failed|package resolution failed' "$log" | tail -n 160 || true
+            fi
+          done
