@@ -1,0 +1,170 @@
+name: Ghidra-decompile Pixel Camera LightCycle
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ghidra-lightcycle.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  ghidra:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Download exact Pixel Camera APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"             -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Download latest Ghidra release
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset_url="$(curl -fsSL https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest             | jq -r '.assets[] | select(.name | endswith("_PUBLIC_20250826.zip") or test("PUBLIC.*\\.zip$")) | .browser_download_url'             | head -1)"
+          test -n "$asset_url"
+          echo "Using $asset_url"
+          curl -fL --retry 3 "$asset_url" -o ghidra.zip
+          mkdir ghidra
+          unzip -q ghidra.zip -d ghidra
+          GHIDRA_HOME="$(find ghidra -mindepth 1 -maxdepth 1 -type d | head -1)"
+          echo "GHIDRA_HOME=$GHIDRA_HOME" >> "$GITHUB_ENV"
+
+      - name: Write decompiler script
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p scripts out
+          cat > scripts/DecompileSelected.java <<'JAVA'
+          import ghidra.app.decompiler.*;
+          import ghidra.app.script.GhidraScript;
+          import ghidra.program.model.address.Address;
+          import ghidra.program.model.listing.*;
+          import ghidra.program.model.symbol.*;
+          import java.io.*;
+          import java.util.*;
+          
+          public class DecompileSelected extends GhidraScript {
+              private static final String[] TARGETS = {
+                  "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_ResetForPhotoSphereCapture",
+                  "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_ProcessFrame",
+                  "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_TakeNewPhoto",
+                  "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_AddImage",
+                  "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_AlignNextImage",
+                  "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_FinishCapture",
+                  "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_RenderNextSession",
+                  "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_SetTargetHitAngleRadians",
+                  "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_InitTargets",
+                  "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_GetTargets",
+                  "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_GetTargetInRange",
+                  "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_StartGyroCalibration",
+                  "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_EndGyroCalibration"
+              };
+              
+              public void run() throws Exception {
+                  String[] args = getScriptArgs();
+                  File outDir = new File(args.length > 0 ? args[0] : ".");
+                  outDir.mkdirs();
+                  
+                  DecompInterface ifc = new DecompInterface();
+                  ifc.toggleCCode(true);
+                  ifc.toggleSyntaxTree(true);
+                  ifc.setSimplificationStyle("decompile");
+                  if (!ifc.openProgram(currentProgram)) {
+                      throw new RuntimeException("Failed to open program");
+                  }
+                  
+                  FunctionManager fm = currentProgram.getFunctionManager();
+                  SymbolTable st = currentProgram.getSymbolTable();
+                  PrintWriter index = new PrintWriter(new File(outDir, "index.txt"));
+                  
+                  Set<Function> roots = new LinkedHashSet<>();
+                  for (String name : TARGETS) {
+                      for (Symbol s : st.getSymbols(name)) {
+                          Function f = fm.getFunctionAt(s.getAddress());
+                          if (f != null) roots.add(f);
+                      }
+                  }
+                  
+                  Set<Function> all = new LinkedHashSet<>(roots);
+                  for (Function f : roots) {
+                      collectDirectCallees(f, all);
+                  }
+                  
+                  for (Function f : all) {
+                      String safe = f.getName().replaceAll("[^A-Za-z0-9_.-]", "_");
+                      File dest = new File(outDir, safe + "_" + f.getEntryPoint().toString() + ".c");
+                      DecompileResults dr = ifc.decompileFunction(f, 180, monitor);
+                      index.println(f.getEntryPoint() + "\t" + f.getName() + "\t" + f.getBody());
+                      try (PrintWriter pw = new PrintWriter(dest)) {
+                          pw.println("/*");
+                          pw.println(" * Function: " + f.getName());
+                          pw.println(" * Entry: " + f.getEntryPoint());
+                          pw.println(" * Body: " + f.getBody());
+                          pw.println(" */");
+                          if (dr.decompileCompleted() && dr.getDecompiledFunction() != null) {
+                              pw.println(dr.getDecompiledFunction().getC());
+                          } else {
+                              pw.println("/* DECOMPILE FAILED: " + dr.getErrorMessage() + " */");
+                          }
+                      }
+                  }
+                  index.close();
+                  ifc.dispose();
+              }
+              
+              private void collectDirectCallees(Function f, Set<Function> out) {
+                  Set<Function> first = new LinkedHashSet<>();
+                  for (Function callee : f.getCalledFunctions(monitor)) {
+                      first.add(callee);
+                      out.add(callee);
+                  }
+                  for (Function c : first) {
+                      // one more hop captures the thin JNI wrapper plus its primary engine implementation
+                      for (Function cc : c.getCalledFunctions(monitor)) {
+                          out.add(cc);
+                      }
+                  }
+              }
+          }
+          JAVA
+
+      - name: Run Ghidra analysis
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ghidra-project out/decompiled
+          "$GHIDRA_HOME/support/analyzeHeadless" /tmp/ghidra-project lightcycle             -import "$PWD/liblightcycle.so"             -analysisTimeoutPerFile 1200             -scriptPath "$PWD/scripts"             -postScript DecompileSelected.java "$PWD/out/decompiled"             -deleteProject             | tee out/ghidra.log
+
+      - name: Add focused assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          llvm-objdump -d --demangle --no-show-raw-insn liblightcycle.so > out/objdump-full.txt
+          for spec in             "ResetForPhotoSphereCapture:0xedb8c:0xedca8"             "FinishCapture:0xee234:0xee5d4"             "ProcessFrame:0xeeef4:0xef0c4"             "AddImage:0xef720:0xef7e8"             "AlignNextImage:0xef830:0xef848"             "RenderNextSession:0xeee00:0xeee78"             "SetTargetHitAngleRadians:0xefd04:0xefd68"
+          do
+            IFS=: read -r name start stop <<<"$spec"
+            llvm-objdump -d --demangle --no-show-raw-insn               --start-address="$start" --stop-address="$stop"               liblightcycle.so > "out/$name-asm.txt"
+          done
+
+      - name: Upload Ghidra analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-camera-lightcycle-ghidra
+          path: out/
+          if-no-files-found: error
+          retention-days: 90
