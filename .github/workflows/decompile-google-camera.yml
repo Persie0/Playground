@@ -31,96 +31,15 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Install downloader dependencies
-        run: python -m pip install --disable-pip-version-check requests beautifulsoup4
-
-      - name: Download exact Pixel Camera APK
+      - name: Download exact Pixel Camera APK from private release
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
+          test -n "${GH_TOKEN:-}" || { echo "PRIVATE_REPO_TOKEN/GH_TOKEN is not configured"; exit 1; }
           mkdir -p input
-          python <<'PY'
-          import os, sys
-          from collections import deque
-          from urllib.parse import urljoin, urlparse
-          import requests
-          from bs4 import BeautifulSoup
-
-          start_url = "https://mobile.softpedia.com/apk/camera/8.8.225.510547499.09/"
-          out = "input/google-camera-8.8.225.apk"
-
-          s = requests.Session()
-          s.headers.update({
-              "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                            "(KHTML, like Gecko) Chrome/124 Safari/537.36",
-              "Accept-Language": "en-US,en;q=0.9",
-              "Referer": start_url,
-          })
-
-          seen = set()
-          q = deque([start_url])
-
-          def likely_download(a):
-              href = (a.get("href") or "").strip()
-              text = " ".join(a.stripped_strings).lower()
-              h = href.lower()
-              return (
-                  ".apk" in h or "download" in h or "postdownload" in h or
-                  "download apk" in text or "free download" in text
-              )
-
-          while q and len(seen) < 20:
-              url = q.popleft()
-              if url in seen:
-                  continue
-              seen.add(url)
-              print("GET", url)
-
-              with s.get(url, stream=True, timeout=120, allow_redirects=True) as r:
-                  r.raise_for_status()
-                  final = r.url
-                  ctype = (r.headers.get("content-type") or "").lower()
-                  clen = int(r.headers.get("content-length") or "0")
-                  disp = (r.headers.get("content-disposition") or "").lower()
-
-                  if (
-                      "application/vnd.android.package-archive" in ctype or
-                      "application/octet-stream" in ctype and (".apk" in final.lower() or ".apk" in disp) or
-                      final.lower().split("?", 1)[0].endswith(".apk") or
-                      clen > 200_000_000 and "text/html" not in ctype
-                  ):
-                      with open(out, "wb") as f:
-                          for chunk in r.iter_content(chunk_size=1024 * 1024):
-                              if chunk:
-                                  f.write(chunk)
-                      print("Downloaded", out, os.path.getsize(out), "bytes from", final)
-                      break
-
-                  body = r.content
-                  soup = BeautifulSoup(body, "html.parser")
-                  links = []
-                  for a in soup.find_all("a", href=True):
-                      if likely_download(a):
-                          u = urljoin(final, a["href"])
-                          if u not in seen and u not in links:
-                              links.append(u)
-
-                  for tag in soup.find_all(True):
-                      for attr in ("data-url", "data-download", "data-download-url", "data-href"):
-                          v = tag.get(attr)
-                          if v and ("download" in v.lower() or ".apk" in v.lower()):
-                              u = urljoin(final, v)
-                              if u not in seen and u not in links:
-                                  links.append(u)
-
-                  print("Candidates:", links[:20])
-                  q.extend(links[:20])
-          else:
-              raise RuntimeError("Could not resolve Softpedia APK download chain")
-
-          if not os.path.exists(out):
-              raise RuntimeError("APK download did not produce a file")
-          PY
+          gh api             -H "Accept: application/octet-stream"             "repos/Persie0/decompile/releases/assets/615482104"             > input/google-camera-8.8.225.apk
 
           test -s input/google-camera-8.8.225.apk
           echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  input/google-camera-8.8.225.apk" | sha256sum -c -
