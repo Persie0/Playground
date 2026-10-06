@@ -88,7 +88,7 @@ jobs:
 
                   // Resolution preset table used by photosphere_parameters.cc.
                   PrintWriter dump = new PrintWriter(new File(outDir, "constant-dump.txt"));
-                  Address preset = toAddr(0x00262e30L);
+                  Address preset = toAddr(0x00162e30L);
                   dump.println("resolution_table @ "+preset);
                   for (int i=0;i<8;i++) {
                       Address a=preset.add(i*4L);
@@ -97,7 +97,16 @@ jobs:
                           dump.printf("%s int=%d hex=0x%08x float=%g%n",a,v,v,Float.intBitsToFloat(v));
                       } catch (Exception e) { dump.println(a+" ERROR "+e); }
                   }
-                  dump.close();
+                  dump.println("target_constants @ 00161b40");
+          Address tc = toAddr(0x00161b40L);
+          for (int i=0;i<8;i++) {
+              Address a=tc.add(i*4L);
+              try {
+                  int v=mem.getInt(a);
+                  dump.printf("%s int=%d hex=0x%08x float=%g%n",a,v,v,Float.intBitsToFloat(v));
+              } catch (Exception e) { dump.println(a+" ERROR "+e); }
+          }
+          dump.close();
 
                   Set<Function> expanded = new LinkedHashSet<>(funcs);
                   for (Function f : funcs) {
