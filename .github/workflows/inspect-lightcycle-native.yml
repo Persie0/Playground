@@ -13,7 +13,7 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Download exact Pixel Camera APK
         shell: bash
@@ -30,14 +30,15 @@ jobs:
           unzip -l camera.apk | grep -i 'liblightcycle' | tee out/apk-lightcycle-paths.txt
           path="$(unzip -Z1 camera.apk | grep -E '(^|/)liblightcycle\.so$' | head -1)"
           test -n "$path"
-          unzip -p camera.apk "$path" > out/liblightcycle.so
-          file out/liblightcycle.so | tee out/file.txt
-          sha256sum out/liblightcycle.so | tee out/sha256.txt
-          readelf -h out/liblightcycle.so > out/readelf-header.txt
-          readelf -d out/liblightcycle.so > out/readelf-dynamic.txt
-          readelf -Ws out/liblightcycle.so > out/readelf-symbols.txt || true
-          nm -D -C out/liblightcycle.so > out/nm-dynamic-demangled.txt || true
-          strings -a -n 4 out/liblightcycle.so > out/strings-all.txt
+          unzip -p camera.apk "$path" > liblightcycle.so
+          file liblightcycle.so | tee out/file.txt
+          sha256sum liblightcycle.so | tee out/sha256.txt
+          readelf -h liblightcycle.so > out/readelf-header.txt
+          readelf -d liblightcycle.so > out/readelf-dynamic.txt
+          readelf -Ws liblightcycle.so > out/readelf-symbols.txt || true
+          nm -D -C liblightcycle.so > out/nm-dynamic-demangled.txt || true
+          strings -a -t x -n 4 liblightcycle.so > out/strings-offsets.txt
+          strings -a -n 4 liblightcycle.so > out/strings-all.txt
 
           grep -Ei             'stitch|mosaic|blend|seam|feature|align|homograph|warp|spher|equirect|panorama|gyro|target|camera|jpeg|render|bundle|ransac|exposure|vignette|optimi|rotation|pose|orb|sift|surf|brief|patch|pyramid|multi.?band|graph.?cut|fisheye|horizontal|vertical|wide'             out/strings-all.txt > out/strings-relevant.txt || true
 
@@ -49,12 +50,180 @@ jobs:
             cat out/strings-relevant.txt
           } > out/lightcycle-native-summary.txt
 
-          rm out/liblightcycle.so
+      - name: Disassemble JNI entry points
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v llvm-objdump
+          llvm-objdump -d --no-show-raw-insn liblightcycle.so > out/full-disassembly.txt
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          syms = {}
+          for line in Path("out/readelf-symbols.txt").read_text(errors="replace").splitlines():
+              m = re.search(r"\s+([0-9a-fA-F]+)\s+(\d+)\s+FUNC\s+GLOBAL.*\s(Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_[^@\s]+)", line)
+              if m:
+                  syms[m.group(3)] = (int(m.group(1), 16), int(m.group(2)))
+
+          wanted = [
+              "ResetForPhotoSphereCapture",
+              "ProcessFrame",
+              "TakeNewPhoto",
+              "TargetHit",
+              "MovingTooFast",
+              "PhotoSkippedTooFast",
+              "AddImage",
+              "AlignNextImage",
+              "FinishCapture",
+              "CreateNewStitchingSession",
+              "RenderNextSession",
+              "InitTargets",
+              "GetTargets",
+              "GetTargetInRange",
+              "SetTargetHitAngleRadians",
+              "SetFilteredRotation",
+              "StartGyroCalibration",
+              "EndGyroCalibration",
+              "SetOutputResolutionLarge",
+              "NumImagesInQueue",
+              "NumImagesTotal",
+          ]
+
+          lines = Path("out/full-disassembly.txt").read_text(errors="replace").splitlines()
+          out = []
+          for suffix in wanted:
+              full = "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_" + suffix
+              if full not in syms:
+                  continue
+              addr, size = syms[full]
+              out.append(f"\n===== {suffix} @ 0x{addr:x}, size {size} =====")
+              start = False
+              end = addr + size
+              for line in lines:
+                  mm = re.match(r"\s*([0-9a-fA-F]+):", line)
+                  if not mm:
+                      if start and line and not line.startswith(" "):
+                          pass
+                      continue
+                  a = int(mm.group(1), 16)
+                  if addr <= a < end:
+                      start = True
+                      out.append(line)
+                  elif start and a >= end:
+                      break
+          Path("out/jni-targeted-disassembly.txt").write_text("\n".join(out) + "\n")
+          PY
+
+      - name: Decompile targeted JNI call graph with angr
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --no-input 'angr==9.2.180'
+          cat > /tmp/decompile_lightcycle.py <<'PY'
+          import traceback
+          from pathlib import Path
+          import angr
+
+          ROOTS = [
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_ResetForPhotoSphereCapture",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_ProcessFrame",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_TakeNewPhoto",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_TargetHit",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_MovingTooFast",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_PhotoSkippedTooFast",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_AddImage",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_AlignNextImage",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_FinishCapture",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_CreateNewStitchingSession",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_RenderNextSession",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_InitTargets",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_GetTargets",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_GetTargetInRange",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_SetTargetHitAngleRadians",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_SetFilteredRotation",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_StartGyroCalibration",
+              "Java_com_google_android_apps_lightcycle_panorama_LightCycleNative_EndGyroCalibration",
+          ]
+
+          p = angr.Project("liblightcycle.so", auto_load_libs=False)
+          cfg = p.analyses.CFGFast(normalize=True, data_references=True, force_complete_scan=False)
+          base = p.loader.main_object.mapped_base
+
+          def off(addr):
+              return addr - base
+
+          report = []
+          callmap = []
+          visited = set()
+
+          for root_name in ROOTS:
+              sym = p.loader.find_symbol(root_name)
+              if sym is None:
+                  report.append(f"\n## {root_name}\nSYMBOL NOT FOUND\n")
+                  continue
+              root_addr = sym.rebased_addr
+              root_func = cfg.functions.get(root_addr)
+              report.append(f"\n\n# ROOT {root_name} offset=0x{off(root_addr):x}\n")
+              if root_func is None:
+                  report.append("CFG FUNCTION NOT FOUND\n")
+                  continue
+
+              queue = [(root_func, 0)]
+              local_seen = set()
+              while queue:
+                  func, depth = queue.pop(0)
+                  if func.addr in local_seen or depth > 2 or len(local_seen) >= 80:
+                      continue
+                  local_seen.add(func.addr)
+                  name = func.name
+                  report.append(
+                      f"\n## depth={depth} {name} offset=0x{off(func.addr):x} "
+                      f"size={getattr(func, 'size', 0)}\n"
+                  )
+                  try:
+                      dec = p.analyses.Decompiler(func, cfg=cfg)
+                      if dec.codegen is not None:
+                          report.append(dec.codegen.text)
+                      else:
+                          report.append("[no decompiler output]")
+                  except Exception:
+                      report.append("[decompiler exception]\n" + traceback.format_exc())
+
+                  succ = []
+                  try:
+                      for a in cfg.functions.callgraph.successors(func.addr):
+                          f2 = cfg.functions.get(a)
+                          if f2 is not None:
+                              succ.append(f2)
+                              callmap.append(
+                                  f"{root_name}\t{depth}\t0x{off(func.addr):x}\t{name}"
+                                  f"\t->\t0x{off(f2.addr):x}\t{f2.name}"
+                              )
+                  except Exception:
+                      pass
+
+                  # Follow only internal functions, not SimProcedures/import stubs.
+                  for f2 in succ:
+                      if p.loader.main_object.contains_addr(f2.addr):
+                          queue.append((f2, depth + 1))
+
+          Path("out/angr-targeted-decompile.txt").write_text("\n".join(report))
+          Path("out/angr-targeted-callgraph.tsv").write_text("\n".join(callmap) + "\n")
+          PY
+          python3 /tmp/decompile_lightcycle.py
+
+      - name: Extract parameter and algorithm strings
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Ein             'photosphere_parameters|target_generator|target_manager|overlap|fov|field.of.view|blend_levels|num_targets|target.*angle|capture.*angle|angular|moving.too.fast|photo.*too.fast|ransac|bundle|residual|focal|seam|exposure|gamma|pyramid|flow|line.*match|point.*match|render.*resolution|output.*resolution|mosaic.*size|full_pano|cropped_area|yaw_correction|source_photos'             out/strings-all.txt > out/algorithm-parameter-strings.txt || true
 
       - name: Upload native inspection
         uses: actions/upload-artifact@v4
         with:
-          name: pixel-camera-lightcycle-native-inspection
+          name: pixel-camera-lightcycle-native-deep-inspection
           path: out/
           if-no-files-found: error
           retention-days: 90
