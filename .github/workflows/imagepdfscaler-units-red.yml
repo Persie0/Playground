@@ -1,0 +1,27 @@
+name: ImagePdfScaler units RED check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/imagepdfscaler-units-red.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/ImagePdfScaler
+          ref: feat/measurement-units
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter test test/editor_page_logic_test.dart --plain-name "first startup asks for measurement units"
