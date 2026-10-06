@@ -117,11 +117,16 @@ jobs:
           Path("out/jni-targeted-disassembly.txt").write_text("\n".join(out) + "\n")
           PY
 
+      - name: Set up Python 3.11 for angr
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Decompile targeted JNI call graph with angr
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --disable-pip-version-check --no-input 'angr==9.2.180'
+          python3 -m pip install --disable-pip-version-check --no-input 'cffi<2' 'angr==9.2.180'
           cat > /tmp/decompile_lightcycle.py <<'PY'
           import traceback
           from pathlib import Path
