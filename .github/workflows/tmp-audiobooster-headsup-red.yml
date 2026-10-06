@@ -1,0 +1,38 @@
+name: Temporary AudioBooster heads-up notification RED
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tmp-audiobooster-headsup-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out AudioBooster feature
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: 945c74f1021387134963b397f4ecb10edb17d54d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: audiobooster
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: audiobooster
+        run: flutter pub get
+
+      - name: Verify new heads-up regression is red
+        working-directory: audiobooster
+        run: flutter test test/heads_up_notification_source_test.dart
