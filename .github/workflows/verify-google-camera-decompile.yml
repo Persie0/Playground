@@ -1,0 +1,35 @@
+name: Verify Google Camera decompile
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/verify-google-camera-decompile.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout decompile
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          path: decompile
+          fetch-depth: 1
+      - name: Reassemble and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd decompile
+          python3 tools/reassemble_google_camera.py
+          zip=decompiled/google-camera/8.8.225.510547499.09/google-camera-8.8.225.510547499.09-jadx-sources.zip
+          unzip -tq "$zip"
+          java_count=$(unzip -Z1 "$zip" | grep -c '\.java$')
+          test "$java_count" -eq 11855
+          unzip -Z1 "$zip" | grep -q '8.8.225.510547499.09.jobf$'
+          unzip -Z1 "$zip" | grep -q 'jadx.log$'
+          readme=$(unzip -p "$zip" 'google-camera/8.8.225.510547499.09/README.md')
+          grep -q 'Decompiled Java files: 11,855' <<< "$readme"
+          grep -q 'JADX errors: 41' <<< "$readme"
+          echo "Verified Java files: $java_count"
