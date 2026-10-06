@@ -1,0 +1,60 @@
+name: Dump LightCycle RTTI vtables
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/dump-lightcycle-vtables.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fetch exact LightCycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" \
+            -o camera.apk
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+
+      - name: Dump relocation-backed C++ tables
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          readelf -SW liblightcycle.so > out/sections.txt
+          readelf -rW liblightcycle.so > out/relocs.txt
+          readelf -x .data.rel.ro liblightcycle.so > out/data-rel-ro.hex.txt 2>/dev/null || true
+          readelf -x .rodata liblightcycle.so > out/rodata.hex.txt 2>/dev/null || true
+          readelf -x .data liblightcycle.so > out/data.hex.txt 2>/dev/null || true
+          strings -a -t x -n 4 liblightcycle.so > out/strings.txt
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          txt=Path("out/data-rel-ro.hex.txt").read_text(errors="replace").splitlines()
+          wanted=[0x4fd180,0x4fd500,0x4fd580,0x4fd800,0x4fd880,0x4fd900,0x4fd980,0x4fdf80,0x50d600,0x50d900]
+          out=[]
+          for line in txt:
+              m=re.match(r"\s*0x([0-9a-fA-F]+)",line)
+              if not m: continue
+              a=int(m.group(1),16)
+              if any(w-0x80 <= a <= w+0x180 for w in wanted):
+                  out.append(line)
+          Path("out/vtable-regions.txt").write_text("\n".join(out)+"\n")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lightcycle-vtable-dump
+          path: out/
+          retention-days: 90
+          if-no-files-found: error
