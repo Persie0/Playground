@@ -1,0 +1,60 @@
+name: Inspect Pixel Camera LightCycle native library
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/inspect-lightcycle-native.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download exact Pixel Camera APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"             -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+
+      - name: Locate and inspect liblightcycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          unzip -l camera.apk | grep -i 'liblightcycle' | tee out/apk-lightcycle-paths.txt
+          path="$(unzip -Z1 camera.apk | grep -E '(^|/)liblightcycle\.so$' | head -1)"
+          test -n "$path"
+          unzip -p camera.apk "$path" > out/liblightcycle.so
+          file out/liblightcycle.so | tee out/file.txt
+          sha256sum out/liblightcycle.so | tee out/sha256.txt
+          readelf -h out/liblightcycle.so > out/readelf-header.txt
+          readelf -d out/liblightcycle.so > out/readelf-dynamic.txt
+          readelf -Ws out/liblightcycle.so > out/readelf-symbols.txt || true
+          nm -D -C out/liblightcycle.so > out/nm-dynamic-demangled.txt || true
+          strings -a -n 4 out/liblightcycle.so > out/strings-all.txt
+
+          grep -Ei             'stitch|mosaic|blend|seam|feature|align|homograph|warp|spher|equirect|panorama|gyro|target|camera|jpeg|render|bundle|ransac|exposure|vignette|optimi|rotation|pose|orb|sift|surf|brief|patch|pyramid|multi.?band|graph.?cut|fisheye|horizontal|vertical|wide'             out/strings-all.txt > out/strings-relevant.txt || true
+
+          {
+            echo "## JNI exports"
+            grep -E 'Java_.*LightCycleNative|LightCycleNative' out/nm-dynamic-demangled.txt || true
+            echo
+            echo "## Relevant readable strings"
+            cat out/strings-relevant.txt
+          } > out/lightcycle-native-summary.txt
+
+          rm out/liblightcycle.so
+
+      - name: Upload native inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-camera-lightcycle-native-inspection
+          path: out/
+          if-no-files-found: error
+          retention-days: 90
