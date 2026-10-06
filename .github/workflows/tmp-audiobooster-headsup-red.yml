@@ -1,1 +1,58 @@
-name: Temporary AudioBooster heads-up notification final\n\non:\n  push:\n    branches: [main]\n    paths:\n      - .github/workflows/tmp-audiobooster-headsup-red.yml\n\npermissions:\n  contents: read\n\njobs:\n  validate:\n    runs-on: ubuntu-latest\n    timeout-minutes: 45\n    steps:\n      - uses: actions/checkout@v4\n\n      - name: Check out exact AudioBooster revision\n        uses: actions/checkout@v4\n        with:\n          repository: Persie0/Audiobooster\n          ref: 7a0167f910a121bdfa0370ae64eb1a7b442a8eea\n          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}\n          path: audiobooster\n          fetch-depth: 0\n\n      - uses: subosito/flutter-action@v2\n        with:\n          channel: stable\n          cache: true\n\n      - name: Install dependencies\n        working-directory: audiobooster\n        run: flutter pub get\n\n      - name: Focused heads-up and paywall tests\n        working-directory: audiobooster\n        run: flutter test test/heads_up_notification_source_test.dart test/trial_paywall_flow_test.dart\n\n      - name: Full Flutter tests\n        working-directory: audiobooster\n        run: flutter test\n\n      - name: Analyze\n        working-directory: audiobooster\n        run: flutter analyze\n\n      - name: Bootstrap Android and verify mirrored native sources\n        working-directory: audiobooster\n        run: |\n          bash tool/bootstrap_android.sh\n          cmp tool/android/MainActivity.kt android/app/src/main/kotlin/com/persie0/audiobooster/MainActivity.kt\n          diff -qr tool/android/com/persie0/audiobooster android/app/src/main/kotlin/com/persie0/audiobooster\n\n      - name: Build debug APK\n        working-directory: audiobooster\n        run: flutter build apk --debug\n
+name: Temporary AudioBooster heads-up notification final
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tmp-audiobooster-headsup-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out exact AudioBooster revision
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: 7a0167f910a121bdfa0370ae64eb1a7b442a8eea
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: audiobooster
+          fetch-depth: 0
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: audiobooster
+        run: flutter pub get
+
+      - name: Focused heads-up and paywall tests
+        working-directory: audiobooster
+        run: flutter test test/heads_up_notification_source_test.dart test/trial_paywall_flow_test.dart
+
+      - name: Full Flutter tests
+        working-directory: audiobooster
+        run: flutter test
+
+      - name: Analyze
+        working-directory: audiobooster
+        run: flutter analyze
+
+      - name: Bootstrap Android and verify mirrored native sources
+        working-directory: audiobooster
+        run: |
+          bash tool/bootstrap_android.sh
+          cmp tool/android/MainActivity.kt android/app/src/main/kotlin/com/persie0/audiobooster/MainActivity.kt
+          diff -qr tool/android/com/persie0/audiobooster android/app/src/main/kotlin/com/persie0/audiobooster
+
+      - name: Build debug APK
+        working-directory: audiobooster
+        run: flutter build apk --debug
