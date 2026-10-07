@@ -1,0 +1,44 @@
+name: AnkiFlutter browser port tests
+
+on:
+  push:
+    paths:
+      - ankiflutter-browser-target.txt
+      - .github/workflows/ankiflutter-browser-port.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ankiflutter-browser-port
+  cancel-in-progress: true
+
+jobs:
+  flutter-browser:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Resolve target
+        id: target
+        run: echo "sha=$(tr -d '\\r\\n' < ankiflutter-browser-target.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          repository: Persie0/AnkiFlutter
+          ref: ${{ steps.target.outputs.sha }}
+          path: source
+          submodules: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+      - name: Resolve locked dependencies
+        working-directory: source/app
+        run: flutter pub get --enforce-lockfile
+      - name: Analyze Flutter app
+        working-directory: source/app
+        run: flutter analyze
+      - name: Run browser repository and widget tests
+        working-directory: source/app
+        run: flutter test test/features/browser
