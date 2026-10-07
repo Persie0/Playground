@@ -151,6 +151,30 @@ jobs:
                 }
               }
 
+              long[] focusAddresses = {
+                0x416154L, // line_aligner_utils.cc record producer
+                0x4052e0L, // caller site for the line-record builder
+                0x416420L, // post-estimator point-record rescaler
+                0x416d94L, 0x416fa0L, 0x4171ccL
+              };
+              for (long raw : focusAddresses) {
+                Address a = toAddr(raw);
+                Function f = fm.getFunctionContaining(a);
+                out.println("\\n===== FOCUSED ADDRESS " + a + " =====");
+                if (f == null) {
+                  out.println("[NO FUNCTION]");
+                  continue;
+                }
+                out.println("TARGET FUNCTION " + f.getName() + " @ " + f.getEntryPoint());
+                decomp(f, "focused reverse-engineering address " + a);
+                for (Function callee : f.getCalledFunctions(monitor)) {
+                  if (callee.getEntryPoint().getOffset() >= 0x1ed630L &&
+                      callee.getEntryPoint().getOffset() < 0x4fb864L) {
+                    decomp(callee, "callee of focused function " + f.getEntryPoint());
+                  }
+                }
+              }
+
               out.println("\n===== SESSION/GLOBAL ADDRESS XREFS =====");
               long[] globals = {
                 0x512010L,0x512018L,0x512020L,0x512028L,0x512030L,0x512038L,
