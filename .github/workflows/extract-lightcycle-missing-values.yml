@@ -1,0 +1,334 @@
+name: Extract LightCycle missing values
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/extract-lightcycle-missing-values.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Download exact Pixel Camera APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" \
+            -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+
+      - name: Extract liblightcycle.so
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          path="$(unzip -Z1 camera.apk | grep -E '(^|/)liblightcycle\.so$' | head -1)"
+          test -n "$path"
+          unzip -p camera.apk "$path" > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+          file liblightcycle.so | tee out/file.txt
+          sha256sum liblightcycle.so | tee out/sha256.txt
+
+      - name: Install analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu python3-pip
+          python3 -m pip install --disable-pip-version-check --no-input pyelftools==0.32 capstone==5.0.3
+
+      - name: Build static evidence corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          readelf -h liblightcycle.so > out/readelf-header.txt
+          readelf -SW liblightcycle.so > out/readelf-sections.txt
+          readelf -rW liblightcycle.so > out/readelf-relocations.txt
+          readelf -Ws liblightcycle.so > out/readelf-symbols.txt || true
+          strings -a -t x -n 4 liblightcycle.so > out/strings-offsets.txt
+          strings -a -n 4 liblightcycle.so > out/strings-all.txt
+          aarch64-linux-gnu-objdump -d --no-show-raw-insn liblightcycle.so > out/full-disassembly.txt
+          aarch64-linux-gnu-objdump -s -j .rodata liblightcycle.so > out/rodata.txt 2>/dev/null || true
+          aarch64-linux-gnu-objdump -s -j .data.rel.ro liblightcycle.so > out/data-rel-ro.txt 2>/dev/null || true
+
+      - name: Extract missing-value candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/extract_missing_values.py <<'PY'
+          import json, math, re, struct
+          from pathlib import Path
+          from collections import defaultdict
+          from elftools.elf.elffile import ELFFile
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
+          from capstone.arm64 import ARM64_OP_IMM, ARM64_OP_REG, ARM64_OP_MEM
+
+          BIN = Path('liblightcycle.so')
+          OUT = Path('out')
+          TARGET_TERMS = {
+              'fast_detector': [
+                  'fast_9.cc', 'fast_corner_detector.cc', 'FastCornerDetector',
+              ],
+              'oriented_patch': [
+                  'oriented_patch_features.cc', 'OrientedPatchExtractor', 'ImageFeature',
+              ],
+              'patch_matcher': [
+                  'patch_pairwise_matcher.cc', 'PatchPairwiseMatcher',
+              ],
+              'spherical_pairwise': [
+                  'spherical_pairwise_match.cc', 'CameraRotationModel', 'FlowMotionModel', 'GlobalFlowSolver',
+              ],
+              'bundle_adjustment': [
+                  'bundle_adjust', 'BundleAdjuster', 'residual', 'HuberLoss', 'SoftLOneLoss', 'ceres',
+              ],
+              'render_seam_blend': [
+                  'seam', 'blend', 'graphcut', 'multiband', 'exposure', 'gamma', 'SessionRenderer', 'Stitcher',
+              ],
+          }
+          # Constants already known and useful as anchors.
+          KNOWN_FLOATS = {
+              0.9396926: 'cos(20deg) matcher direction gate',
+              0.64000005: 'squared Lowe ratio 0.8^2',
+              0.3926991: 'pi/8 orientation bin step',
+              0.2: 'RenderNextSession fixed float A',
+              0.95: 'RenderNextSession fixed float B',
+              35.0: 'bundle robust loss parameter candidate',
+              1225.0: '35^2 robust loss parameter candidate',
+          }
+          NEEDLES = {
+              'fast_threshold_candidates': ['threshold', 'nonmax', 'non-max', 'max_points', 'max features', 'FAST'],
+              'ransac_inlier_candidates': ['ransac', 'inlier', 'outlier', 'min_num', 'residual', 'angular'],
+              'bundle_weight_candidates': ['weight', 'residual', 'Huber', 'SoftLOne', 'roll', 'pitch', 'focal', 'sensor'],
+              'seam_blend_candidates': ['blend_levels', 'seam', 'unary', 'smooth', 'exposure', 'gamma'],
+          }
+
+          with BIN.open('rb') as fh:
+              elf = ELFFile(fh)
+              data = fh.read()
+              text = elf.get_section_by_name('.text')
+              rodata = elf.get_section_by_name('.rodata')
+              rela_sections = [s for s in elf.iter_sections() if hasattr(s, 'iter_relocations')]
+
+              sections = []
+              for sec in elf.iter_sections():
+                  if sec['sh_size']:
+                      sections.append((sec.name, sec['sh_addr'], sec['sh_offset'], sec['sh_size']))
+
+              def va_to_off(va):
+                  for name, addr, off, size in sections:
+                      if addr <= va < addr + size:
+                          return off + (va - addr)
+                  return None
+
+              strings = []
+              blob = data
+              # string scan with offsets + VA mapping
+              for m in re.finditer(rb'[ -~]{4,}\x00', blob):
+                  raw = m.group(0)[:-1]
+                  try:
+                      s = raw.decode('utf-8', 'replace')
+                  except Exception:
+                      continue
+                  # Convert file offset to VA.
+                  va = None
+                  for name, addr, off, size in sections:
+                      if off <= m.start() < off + size:
+                          va = addr + (m.start() - off)
+                          break
+                  if va is not None:
+                      strings.append((va, s))
+
+              relocs = []
+              for sec in rela_sections:
+                  symtab = elf.get_section(sec['sh_link']) if sec['sh_link'] else None
+                  for rel in sec.iter_relocations():
+                      sym = ''
+                      idx = rel.entry.get('r_info_sym', 0)
+                      if idx and symtab is not None:
+                          try: sym = symtab.get_symbol(idx).name
+                          except Exception: pass
+                      relocs.append({
+                          'offset': int(rel['r_offset']),
+                          'addend': int(rel.entry.get('r_addend', 0) or 0),
+                          'type': int(rel.entry.get('r_info_type', 0)),
+                          'symbol': sym,
+                          'section': sec.name,
+                      })
+
+              code = text.data()
+              base = text['sh_addr']
+              md = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
+              md.detail = True
+              insns = list(md.disasm(code, base))
+
+          # Locate strings by target group.
+          target_strings = defaultdict(list)
+          for va, s in strings:
+              for group, terms in TARGET_TERMS.items():
+                  if any(t.lower() in s.lower() for t in terms):
+                      target_strings[group].append({'va': va, 'text': s})
+
+          # Find functions roughly by exported JNI symbols and branch labels in objdump.
+          dis = Path('out/full-disassembly.txt').read_text(errors='replace').splitlines()
+          func_starts = []
+          for line in dis:
+              m = re.match(r'^([0-9a-f]+) <([^>]+)>:', line.strip())
+              if m:
+                  func_starts.append((int(m.group(1), 16), m.group(2)))
+          func_starts.sort()
+          def func_for(addr):
+              best = None
+              for a, name in func_starts:
+                  if a <= addr:
+                      best = (a, name)
+                  else:
+                      break
+              return best
+
+          # Immediate constants near relevant source-string xrefs are not trivial on AArch64.
+          # This pass collects all nearby immediates/floats in text windows around likely relevant functions.
+          candidate_windows = []
+          source_vas = [x['va'] for xs in target_strings.values() for x in xs]
+
+          # Track ADRP+ADD/LDR style references to rodata strings.
+          refs_to_strings = []
+          reg_page = {}
+          for ins in insns:
+              ops = ins.operands
+              if ins.mnemonic == 'adrp' and len(ops) >= 2 and ops[0].type == ARM64_OP_REG and ops[1].type == ARM64_OP_IMM:
+                  reg_page[ops[0].reg] = ops[1].imm
+                  continue
+              if ins.mnemonic == 'add' and len(ops) >= 3 and ops[0].type == ARM64_OP_REG and ops[1].type == ARM64_OP_REG and ops[2].type == ARM64_OP_IMM:
+                  if ops[1].reg in reg_page:
+                      val = reg_page[ops[1].reg] + ops[2].imm
+                      # nearest known string target
+                      for va in source_vas:
+                          if abs(val - va) < 8:
+                              refs_to_strings.append({'insn': ins.address, 'target': va, 'text': next(s for v,s in strings if v == va)})
+                  continue
+
+          # Window constants around string xrefs.
+          for r in refs_to_strings:
+              f = func_for(r['insn'])
+              candidate_windows.append({'kind': 'string_xref_func', 'addr': r['insn'], 'func': f, 'string': r['text']})
+
+          # Scan entire binary for exact known float bit patterns to verify anchors.
+          float_hits = []
+          for val, label in KNOWN_FLOATS.items():
+              bits = struct.pack('<f', float(val))
+              start = 0
+              while True:
+                  i = blob.find(bits, start)
+                  if i < 0: break
+                  # map to VA
+                  va = None
+                  for name, addr, off, size in sections:
+                      if off <= i < off + size:
+                          va = addr + (i - off)
+                          secname = name
+                          break
+                  if va is not None:
+                      float_hits.append({'value': val, 'label': label, 'va': va, 'section': secname})
+                  start = i + 1
+
+          # Find human-readable strings with terms directly indicating still-missing values.
+          missing_strings = defaultdict(list)
+          for va, s in strings:
+              low = s.lower()
+              for bucket, terms in NEEDLES.items():
+                  if any(t.lower() in low for t in terms):
+                      missing_strings[bucket].append({'va': va, 'text': s})
+
+          # Extract vtable/RTTI-like rows for relevant classes from relocation addends and strings.
+          relevant_relocs = []
+          for r in relocs:
+              # Keep relocations near known vtable/typeinfo regions and those pointing to relevant strings/functions.
+              add = r['addend']
+              target_text = None
+              for va, s in strings:
+                  if va == add and any(term.lower() in s.lower() for terms in TARGET_TERMS.values() for term in terms):
+                      target_text = s
+                      break
+              if target_text or (0x3f0000 <= r['offset'] <= 0x410000):
+                  relevant_relocs.append({**r, 'target_text': target_text})
+
+          report = {
+              'binary': {
+                  'apk_sha256': '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47',
+                  'liblightcycle_sha256': '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1',
+              },
+              'target_strings': target_strings,
+              'source_string_xrefs': refs_to_strings[:1000],
+              'candidate_windows': candidate_windows[:1000],
+              'known_float_hits': float_hits,
+              'missing_value_strings': missing_strings,
+              'relevant_relocations_sample': relevant_relocs[:3000],
+              'static_limits': [
+                  'Hosted GitHub Actions can recover more static constants, vtables, constructor call sites, and source-string xrefs.',
+                  'It cannot recover runtime-only values such as object fields after construction unless the value is written as a static immediate or can be traced through static constructors.',
+                  'Frida/Android runtime hooks need a rooted phone/emulator or self-hosted runner, not ordinary ubuntu-latest.',
+              ],
+          }
+          (OUT / 'missing-values-candidates.json').write_text(json.dumps(report, indent=2, sort_keys=True))
+
+          lines = []
+          lines.append('# LightCycle missing-value static extraction report')
+          lines.append('')
+          lines.append('This artifact is generated by GitHub Actions from the exact Pixel Camera 8.8 `liblightcycle.so`.')
+          lines.append('')
+          lines.append('## What this workflow can extract')
+          lines.append('')
+          lines.append('- static constants and float bit-pattern hits')
+          lines.append('- RTTI/vtable and relocation-backed object candidates')
+          lines.append('- source-string xrefs for FAST, oriented-patch, matcher, spherical, bundle, seam/blend code')
+          lines.append('- nearby functions/windows that need focused Ghidra decompilation')
+          lines.append('')
+          lines.append('## What still needs runtime instrumentation')
+          lines.append('')
+          lines.append('- thresholds stored only in constructed object fields')
+          lines.append('- per-session counts/accepted inliers')
+          lines.append('- Ceres residual blocks after dynamic graph construction')
+          lines.append('- actual seam/blend/exposure values selected for a real session')
+          lines.append('')
+          lines.append('## Known float anchor hits')
+          lines.append('')
+          for h in sorted(float_hits, key=lambda x: (x['value'], x['va'])):
+              lines.append(f"- `{h['value']}` `{h['label']}` at `0x{h['va']:x}` in `{h['section']}`")
+          lines.append('')
+          lines.append('## Relevant source/type strings')
+          lines.append('')
+          for group, xs in target_strings.items():
+              lines.append(f'### {group}')
+              for x in xs[:80]:
+                  lines.append(f"- `0x{x['va']:x}` {x['text']}")
+              lines.append('')
+          lines.append('## Missing-value candidate strings')
+          lines.append('')
+          for bucket, xs in missing_strings.items():
+              lines.append(f'### {bucket}')
+              for x in xs[:120]:
+                  lines.append(f"- `0x{x['va']:x}` {x['text']}")
+              lines.append('')
+          lines.append('## Source string xrefs')
+          lines.append('')
+          for r in refs_to_strings[:300]:
+              f = func_for(r['insn'])
+              fname = f'0x{f[0]:x} {f[1]}' if f else 'unknown'
+              lines.append(f"- insn `0x{r['insn']:x}` func `{fname}` -> `0x{r['target']:x}` {r['text']}")
+          (OUT / 'missing-values-report.md').write_text('\n'.join(lines) + '\n')
+          PY
+          python3 /tmp/extract_missing_values.py
+
+      - name: Upload extraction artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lightcycle-missing-values-static
+          path: out/
+          if-no-files-found: error
