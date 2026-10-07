@@ -1,0 +1,195 @@
+name: LightCycle focused algorithm reverse engineering
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ghidra-lightcycle-focused-algorithms.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Fetch exact native library
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"             -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Download pinned Ghidra
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip"             -o ghidra.zip
+          mkdir ghidra
+          unzip -q ghidra.zip -d ghidra
+          echo "GHIDRA_HOME=$PWD/ghidra/ghidra_12.1.4_PUBLIC" >> "$GITHUB_ENV"
+
+      - name: Write focused decompiler
+        shell: bash
+        run: |
+          mkdir -p scripts out
+          cat > scripts/FocusedLightCycle.java <<'JAVA'
+          import ghidra.app.decompiler.*;
+          import ghidra.app.script.GhidraScript;
+          import ghidra.program.model.address.*;
+          import ghidra.program.model.listing.*;
+          import ghidra.program.model.mem.Memory;
+          import ghidra.program.model.symbol.*;
+          import java.io.*;
+          import java.util.*;
+
+          public class FocusedLightCycle extends GhidraScript {
+              private static final long[] TARGETS = {
+                  // CaptureSessionBuilderImpl vtable methods.
+                  0x0020f6a0L, 0x0020f6c8L, 0x0020f7dcL, 0x0020f84cL,
+                  0x0020f958L, 0x0020f968L, 0x0020f978L, 0x0020f9e4L,
+                  0x0020f9f4L, 0x0020fa04L, 0x0020fc30L, 0x0020fc40L,
+                  0x0020fc50L, 0x0020fc60L, 0x0020fe74L, 0x002100ecL,
+                  0x002100f4L, 0x002100fcL, 0x00210104L, 0x00210310L,
+                  // PhotoSphere parameter/output sizing.
+                  0x0021874cL, 0x002188b8L, 0x002188ccL, 0x002189d8L,
+                  0x0041c5e0L,
+                  // Feature/patch matching + spherical pairwise.
+                  0x00226020L, 0x002260b8L, 0x002263f0L, 0x00226614L,
+                  0x00227bacL,
+                  // Optical flow.
+                  0x001ffc30L, 0x001fff14L, 0x0020012cL,
+                  // Bundle adjustment and loss setup.
+                  0x002287c0L, 0x00229e80L,
+                  // Seam mask / graphcut.
+                  0x00433478L, 0x004390a8L, 0x00439600L,
+                  // Multiband / final encode.
+                  0x00420998L, 0x00420f2cL
+              };
+
+              private static final long[] DATA = {
+                  0x00161788L,0x001617a8L,0x001617b0L,0x001617c0L,
+                  0x00161868L,0x001618d0L,0x001619f0L,0x00161a00L,
+                  0x00161a10L,0x00161a18L,0x00161a20L,0x00161a60L,
+                  0x00161a78L,0x00161a80L,0x00161b40L,0x00161b48L,
+                  0x00161b60L,0x00161b68L,0x00161b70L,0x00161b80L,
+                  0x00161de0L,0x00161df0L,0x00161e30L,0x00161fd0L,
+                  0x00161fd8L,0x00161ff0L,0x001622f0L,0x001623a0L,
+                  0x001624d0L,0x001625c0L,0x00162e30L
+              };
+
+              public void run() throws Exception {
+                  File outDir = new File(getScriptArgs()[0]);
+                  outDir.mkdirs();
+                  FunctionManager fm=currentProgram.getFunctionManager();
+                  ReferenceManager rm=currentProgram.getReferenceManager();
+                  Memory mem=currentProgram.getMemory();
+
+                  DecompInterface dec=new DecompInterface();
+                  dec.toggleCCode(true);
+                  dec.toggleSyntaxTree(true);
+                  dec.setSimplificationStyle("decompile");
+                  dec.openProgram(currentProgram);
+
+                  Set<Function> funcs=new LinkedHashSet<>();
+                  PrintWriter ix=new PrintWriter(new File(outDir,"targets.tsv"));
+                  for(long raw:TARGETS){
+                      Address a=toAddr(raw);
+                      Function f=fm.getFunctionAt(a);
+                      ix.println("TARGET\t"+a+"\t"+(f==null?"<none>":f.getName()+"\t"+f.getBody()));
+                      if(f!=null) funcs.add(f);
+                  }
+
+                  Set<Function> seed=new LinkedHashSet<>(funcs);
+                  for(Function f:seed){
+                      for(Function callee:f.getCalledFunctions(monitor)) funcs.add(callee);
+                      ReferenceIterator it=rm.getReferencesTo(f.getEntryPoint());
+                      while(it.hasNext()){
+                          Reference r=it.next();
+                          Function caller=fm.getFunctionContaining(r.getFromAddress());
+                          if(caller!=null) funcs.add(caller);
+                          ix.println("REF\t"+f.getEntryPoint()+"\t"+r.getFromAddress()+"\t"+
+                              (caller==null?"<none>":caller.getEntryPoint()+"\t"+caller.getName()));
+                      }
+                  }
+                  ix.close();
+
+                  PrintWriter findex=new PrintWriter(new File(outDir,"functions.tsv"));
+                  for(Function f:funcs){
+                      String safe=f.getName().replaceAll("[^A-Za-z0-9_.-]","_");
+                      DecompileResults dr=dec.decompileFunction(f,240,monitor);
+                      findex.println(f.getEntryPoint()+"\t"+f.getName()+"\t"+f.getBody());
+                      try(PrintWriter pw=new PrintWriter(new File(outDir,safe+"_"+f.getEntryPoint()+".c"))){
+                          pw.println("/* "+f.getName()+" @ "+f.getEntryPoint()+" */");
+                          if(dr.decompileCompleted() && dr.getDecompiledFunction()!=null) pw.println(dr.getDecompiledFunction().getC());
+                          else pw.println("/* FAILED: "+dr.getErrorMessage()+" */");
+                      }
+                  }
+                  findex.close();
+
+                  PrintWriter dd=new PrintWriter(new File(outDir,"data-xrefs.txt"));
+                  for(long raw:DATA){
+                      Address a=toAddr(raw);
+                      dd.println("\nDATA\t"+a);
+                      for(int off=0;off<32;off+=4){
+                          Address p=a.add(off);
+                          try{
+                              int i=mem.getInt(p);
+                              dd.printf("VAL4\t%s\tint=%d\thex=0x%08x\tfloat=%g%n",
+                                  p,i,i,Float.intBitsToFloat(i));
+                          }catch(Exception e){}
+                      }
+                      for(int off=0;off<32;off+=8){
+                          Address p=a.add(off);
+                          try{
+                              long l=mem.getLong(p);
+                              dd.printf("VAL8\t%s\thex=0x%016x\tdouble=%.17g%n",
+                                  p,l,Double.longBitsToDouble(l));
+                          }catch(Exception e){}
+                      }
+                      ReferenceIterator ri=rm.getReferencesTo(a);
+                      while(ri.hasNext()){
+                          Reference r=ri.next();
+                          Function f=fm.getFunctionContaining(r.getFromAddress());
+                          dd.println("XREF\t"+r.getFromAddress()+"\t"+r.getReferenceType()+"\t"+
+                              (f==null?"<none>":f.getEntryPoint()+"\t"+f.getName()));
+                      }
+                  }
+                  dd.close();
+                  dec.dispose();
+              }
+          }
+          JAVA
+
+      - name: Analyze
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/gh out/focused
+          "$GHIDRA_HOME/support/analyzeHeadless" /tmp/gh lc-focused             -import "$PWD/liblightcycle.so"             -analysisTimeoutPerFile 1800             -scriptPath "$PWD/scripts"             -postScript FocusedLightCycle.java "$PWD/out/focused"             -deleteProject | tee out/ghidra.log
+
+      - name: Add ARM64 disassembly and data
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu
+          aarch64-linux-gnu-objdump -d --no-show-raw-insn liblightcycle.so > out/focused/objdump.txt
+          aarch64-linux-gnu-objdump -s -j .rodata liblightcycle.so > out/focused/rodata.txt || true
+          readelf -Ws liblightcycle.so > out/focused/symbols.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pixel-camera-lightcycle-focused-algorithms
+          path: out/
+          if-no-files-found: error
+          retention-days: 90
