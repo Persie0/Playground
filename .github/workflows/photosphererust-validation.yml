@@ -29,6 +29,16 @@ jobs:
         working-directory: PhotosphereRust
         run: cargo test --all-targets
 
+      - name: Stress quality-equivalent render paths
+        working-directory: PhotosphereRust
+        run: |
+          cargo test --release --test smoke direct_and_bounded_paths_are_pixel_equivalent -- --exact
+          for i in 1 2 3 4 5; do
+            cargo test --release --test smoke direct_and_bounded_paths_are_pixel_equivalent -- --exact
+            cargo test --release --test smoke serial_and_parallel_exposure_paths_are_pixel_equivalent -- --exact
+            cargo test --release --test smoke heap_and_file_backed_output_are_pixel_equivalent -- --exact
+          done
+
       - name: Test portable JPEG fallback
         working-directory: PhotosphereRust
         run: cargo test --all-targets --no-default-features
