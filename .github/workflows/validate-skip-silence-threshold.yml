@@ -1,0 +1,47 @@
+name: Validate SkipSilencePlayer threshold
+
+on:
+  push:
+    branches: [validate-skip-silence-threshold-20261007]
+    paths:
+      - '.github/workflows/validate-skip-silence-threshold.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: feature/silence-threshold
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: target
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Build Android
+        working-directory: target/kotlin-android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleDebug --stacktrace
+
+  ios:
+    needs: android
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: feature/silence-threshold
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: target
+      - name: Build iOS simulator
+        working-directory: target/swift-ios
+        run: |
+          set -o pipefail
+          xcodebuild             -project SkipSilencePlayer.xcodeproj             -scheme SkipSilencePlayer             -configuration Debug             -sdk iphonesimulator             -destination 'generic/platform=iOS Simulator'             -derivedDataPath .derived             CODE_SIGNING_ALLOWED=NO             build
