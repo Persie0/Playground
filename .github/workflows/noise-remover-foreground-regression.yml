@@ -41,6 +41,34 @@ jobs:
       - name: Resolve Flutter dependencies
         working-directory: app
         run: flutter pub get
+      - name: Format changed Dart files and push corrections to the PR branch
+        working-directory: app
+        shell: bash
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          APP_REF: ${{ inputs.ref || 'fix/android-foreground-start-notifications-20261007' }}
+        run: |
+          set -euo pipefail
+          files=(
+            lib/services/android_media_processing_service.dart
+            lib/screens/home_screen.dart
+            test/services/android_media_processing_service_test.dart
+          )
+          dart format "${files[@]}"
+          git diff --check
+          if ! git diff --quiet -- "${files[@]}"; then
+            if [[ "$APP_REF" != "fix/android-foreground-start-notifications-20261007" ]]; then
+              echo "Ref is not the foreground-fix branch, refusing to push formatted changes."
+              exit 1
+            fi
+            git config user.name 'Persie0 CI'
+            git config user.email '76871553+Persie0@users.noreply.github.com'
+            git add -- "${files[@]}"
+            git commit -m "style: format Android foreground processing fixes"
+            git remote set-url origin "https://x-access-token:${PRIVATE_TOKEN}@github.com/Persie0/noise_remover.git"
+            git push origin "HEAD:${APP_REF}"
+            git remote set-url origin "https://github.com/Persie0/noise_remover.git"
+          fi
       - name: Verify Dart formatting
         working-directory: app
         run: dart format --output=none --set-exit-if-changed lib/services/android_media_processing_service.dart lib/screens/home_screen.dart test/services/android_media_processing_service_test.dart
