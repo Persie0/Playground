@@ -1,0 +1,52 @@
+name: Traffic counting analysis PR CI
+
+on:
+  push:
+    paths:
+      - ".github/workflows/traffic-counting-analysis-pr-ci.yml"
+      - "debug_triggers/traffic-counting-analysis-pr-ci.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_REPOSITORY: Persie0/traffic-counting-light-main
+  APP_REF: perzi/stef-pr1-analysis-geometry-world-space
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout traffic-counting candidate
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPOSITORY }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install focused test dependencies
+        run: |
+          python -m pip install             "pytest>=9,<10"             "ruff>=0.16.7,<0.17"             "numpy>=2.2,<2.5"             "opencv-python-headless>=4.12,<5"             "pyyaml>=6,<7"
+
+      - name: Ruff PR 1 files
+        working-directory: app/traffic-counting-edge-detection-master
+        run: |
+          ruff check             src/analysis/traffic/models.py             src/analysis/traffic/input.py             src/analysis/traffic/replay.py             src/analysis/traffic/route_heatmap.py             src/analysis/traffic/storage.py             src/analysis/traffic/traffic_stage.py             src/analysis/traffic/waiting_detector.py             src/detection/traffic_detector.py             tests/test_analysis_native_input.py             tests/test_analysis_route_heatmap.py             tests/test_analysis_storage_geometry.py             tests/test_analysis_waiting_detector.py
+
+      - name: Run analysis regression tests
+        working-directory: app/traffic-counting-edge-detection-master
+        run: |
+          PYTHONPATH=src pytest -q             tests/test_analysis_native_input.py             tests/test_analysis_route_heatmap.py             tests/test_analysis_waiting_detector.py             tests/test_analysis_storage_geometry.py             tests/test_analysis_vehicle_scale.py             tests/test_analysis_occupied_area.py             tests/test_analysis_pipeline_integration.py
