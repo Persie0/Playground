@@ -53,6 +53,7 @@ jobs:
         run: |
           mkdir -p scripts out
           cat > scripts/DumpXrefs.java <<'JAVA'
+          import ghidra.app.cmd.disassemble.DisassembleCommand;
           import ghidra.app.decompiler.*;
           import ghidra.app.script.GhidraScript;
           import ghidra.program.model.address.*;
@@ -210,6 +211,13 @@ jobs:
                   if (f != null) decomp(f, "global xref " + a);
                 }
               }
+
+              Address gapStart = toAddr(0x403b18L);
+              Address gapEnd = toAddr(0x403b6bL);
+              AddressSet gap = new AddressSet(gapStart, gapEnd);
+              DisassembleCommand gapDisassembly = new DisassembleCommand(gapStart, gap, false);
+              boolean gapDecoded = gapDisassembly.applyTo(currentProgram, monitor);
+              out.println("FORCED GAP DISASSEMBLY " + gapStart + ".." + gapEnd + " success=" + gapDecoded);
 
               out.println("\\n===== RAW LINE-WEIGHT DIAGNOSTICS =====");
               dumpInstructions(0x403a80L, 0x403d10L);
