@@ -1,0 +1,36 @@
+name: Bootstrap ExtractAudioFromVideo Repo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bootstrap-extract-audio-init.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  init:
+    runs-on: ubuntu-latest
+    env:
+      PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - name: Initialize empty private repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_TOKEN"
+          git clone "https://x-access-token:${PRIVATE_TOKEN}@github.com/Persie0/ExtractAudioFromVideo.git" target
+          cd target
+          git checkout -B main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cat > README.md <<'DOC'
+          # Extract Audio From Video
+
+          Repository bootstrap. Native Swift/iOS and Kotlin/Android implementations are added immediately after this initial commit.
+          DOC
+          git add README.md
+          git commit -m "Initialize repository"
+          git push -u origin main
