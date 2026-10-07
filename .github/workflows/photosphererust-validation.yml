@@ -1,0 +1,36 @@
+name: PhotosphereRust validation
+
+on:
+  push:
+    paths:
+      - ".github/workflows/photosphererust-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PhotosphereRust
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereRust
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: PhotosphereRust
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Test default feature set
+        working-directory: PhotosphereRust
+        run: cargo test --all-targets
+
+      - name: Check Android JNI feature
+        working-directory: PhotosphereRust
+        run: cargo check --features android-jni
+
+      - name: Check optimized release build
+        working-directory: PhotosphereRust
+        run: cargo check --release
