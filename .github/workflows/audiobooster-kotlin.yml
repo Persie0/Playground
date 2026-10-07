@@ -1,6 +1,5 @@
 name: AudioBooster native Kotlin checks
 # Public validation for the native Kotlin migration.
-# validation pass: compile scope + sheet opt-in fixes
 
 on:
   push:
@@ -39,9 +38,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android 17 compile SDK
+      - name: Install Android 36 SDK
         shell: bash
         run: |
+          set -euo pipefail
           SDKMANAGER=""
           for root in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" /usr/local/lib/android/sdk /opt/android-sdk; do
             [ -n "$root" ] || continue
@@ -54,9 +54,9 @@ jobs:
           test -n "$SDKMANAGER"
           echo "Using $SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" --channel=3 --install "platforms;android-37.0" "build-tools;37.0.0"
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Validate no active Flutter dependency
+      - name: Validate native-only active tree
         working-directory: audiobooster
         shell: bash
         run: |
@@ -65,11 +65,15 @@ jobs:
           test -f old/pubspec.yaml
           test ! -f pubspec.yaml
           test ! -d lib
-          ! grep -R "io.flutter\|dev.flutter" -n --include='*.kt' --include='*.kts' app settings.gradle.kts build.gradle.kts
+          if grep -R -n -E 'io\.flutter|dev\.flutter|flutterEmbedding|GeneratedPluginRegistrant'               --exclude-dir=old --exclude-dir=.git .; then
+            echo '::error::Active project still contains Flutter host references.'
+            exit 1
+          fi
 
-      - name: Unit tests and debug build
+      - name: Unit tests and APK builds
         working-directory: audiobooster
         shell: bash
         run: |
+          set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+          ./gradlew --no-daemon             :app:testDebugUnitTest             :app:assembleDebug             :app:assembleDebugAndroidTest             :app:assembleRelease             --stacktrace
