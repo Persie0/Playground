@@ -26,7 +26,13 @@ jobs:
           test "$(git rev-parse HEAD)" = "$SRC_SHA"
           brew install autoconf automake libtool pkg-config nasm yasm cmake gnu-sed || true
           export SED="$(brew --prefix)/bin/gsed"
-          ./ios.sh -x --spm --target=17.0 --arch=arm64,arm64-simulator --enable-lib-all --disable-lib-dav1d --jobs=4
+          ./ios.sh -x --spm --target=17.0 --arch=arm64,arm64-simulator \
+            --enable-lib-lame --enable-lib-libilbc --enable-lib-libvorbis \
+            --enable-lib-opencore-amr --enable-lib-opus --enable-lib-shine \
+            --enable-lib-soxr --enable-lib-speex --enable-lib-twolame \
+            --enable-lib-vo-amrwbenc --enable-lib-liblc3 \
+            --enable-lib-ios-audiotoolbox --enable-lib-ios-bzip2 \
+            --enable-lib-ios-zlib --enable-lib-ios-libiconv --jobs=4
           P="$(dirname "$(find prebuilt -maxdepth 3 -name Package.swift -print -quit)")"
           test -n "$P"
           echo "PKG=$P" >> "$GITHUB_ENV"
@@ -59,7 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release delete "$TAG" --repo Persie0/Playground --yes --cleanup-tag || true
-          gh release create "$TAG" assets/*.zip --repo Persie0/Playground --title "FFmpegKitNext 9.0.0 LGPL iOS" --notes "Source-built from FFmpegKitNext v9.0.0 $SRC_SHA for iOS 17 arm64 + arm64-simulator with --enable-lib-all and without --enable-gpl. Final binaries are dynamically linked and scanned for GPL/nonfree flags before publication."
+          gh release create "$TAG" assets/*.zip --repo Persie0/Playground --title "FFmpegKitNext 9.0.0 LGPL iOS" --notes "Source-built from FFmpegKitNext v9.0.0 $SRC_SHA for iOS 17 arm64 + arm64-simulator with the broad non-GPL audio codec pack and without --enable-gpl. Final binaries are dynamically linked and scanned for GPL/nonfree flags before publication."
           echo CHECKSUMS_BEGIN
           cat checksums.txt
           echo CHECKSUMS_END
