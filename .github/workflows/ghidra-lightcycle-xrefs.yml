@@ -164,7 +164,7 @@ jobs:
               long[] focusAddresses = {
                 0x403b08L, // adjacent allocation helper
                 0x403b6cL, // LineAlignerImpl destructor candidate
-                0x403c38L, // adjacent LineAlignerImpl constructor candidate
+                0x403c38L, // LineAlignerImpl destructor variant
                 0x4052e0L, // caller site for the line-record builder
                 0x416154L, // line_aligner_utils.cc record producer
                 0x2246e8L, // pairwise-edge copy path (raw VA 0x1246e8)
@@ -234,6 +234,29 @@ jobs:
                 Function f = fm.getFunctionContaining(ref.getFromAddress());
                 out.println("  RODATA XREF " + ref.getFromAddress() + " -> " +
                             (f == null ? "<no function>" : f.getName() + "@" + f.getEntryPoint()));
+              }
+
+              out.println("\\n===== RODATA PAGE REFERENCE SCAN 00162000 =====");
+              InstructionIterator allInstructions = listing.getInstructions(true);
+              while (allInstructions.hasNext()) {
+                Instruction instruction = allInstructions.next();
+                if (instruction.toString().toLowerCase().contains("0x162000")) {
+                  out.println("--- page reference at " + instruction.getAddress() + " ---");
+                  Instruction cursor = instruction;
+                  for (int i = 0; i < 8 && cursor != null; i++) {
+                    out.println(cursor.getAddress() + "  " + cursor);
+                    cursor = listing.getInstructionAfter(cursor.getAddress());
+                  }
+                }
+                for (Reference ref : instruction.getReferencesFrom()) {
+                  long target = ref.getToAddress().getOffset();
+                  if (target >= 0x162240L && target < 0x162280L) {
+                    Function f = fm.getFunctionContaining(instruction.getAddress());
+                    out.println("RODATA REF " + instruction.getAddress() + " -> " + ref.getToAddress() +
+                                " in " + (f == null ? "<no function>" :
+                                f.getName() + "@" + f.getEntryPoint()));
+                  }
+                }
               }
 
               out.close();
