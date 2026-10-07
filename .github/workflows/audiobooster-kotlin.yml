@@ -11,7 +11,7 @@ on:
       audio_ref:
         description: AudioBooster branch, tag, or commit to validate
         required: false
-        default: main
+        default: release-builder-sdk36
       builder_ref:
         description: firebase_tester_builder branch, tag, or commit to validate
         required: false
@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/Audiobooster
-          ref: ${{ inputs.audio_ref || '8dda0971d4e58f3d7eb60c0dbad793d570b3ef17' }}
+          ref: ${{ inputs.audio_ref || 'efea7488f639444a23395656c6539d50641d67dd' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: audiobooster
 
@@ -49,7 +49,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android 37 SDK
+      - name: Install Android 36 SDK
         shell: bash
         run: |
           set -euo pipefail
@@ -63,9 +63,7 @@ jobs:
             fi
           done
           test -n "$SDKMANAGER"
-          if ! "$SDKMANAGER" --install "platforms;android-37"; then
-            "$SDKMANAGER" --channel=3 --install "platforms;android-37"
-          fi
+          "$SDKMANAGER" --install "platforms;android-36"
 
       - name: Validate builder routing and tests
         working-directory: builder
