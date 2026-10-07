@@ -1,5 +1,4 @@
-name: Traffic counting performance unit tests
-# final scheduler validation v3
+name: Traffic counting recent PR validation
 
 on:
   push:
@@ -12,12 +11,26 @@ permissions:
 
 env:
   APP_REPOSITORY: Persie0/traffic-counting-light-main
-  APP_REF: perf/cpu-budget-priority-scheduler
 
 jobs:
-  test:
+  validate:
+    name: PR ${{ matrix.pr }} - ${{ matrix.kind }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pr: 43
+            ref: benchmark/pi5-openmp-blocktime
+            kind: openmp-blocktime
+          - pr: 44
+            ref: perf/production-mapped-camera
+            kind: mapped-camera
+          - pr: 45
+            ref: perf/cpu-budget-scheduler-clean
+            kind: cpu-budget-scheduler
+
     steps:
       - name: Validate checkout token
         env:
@@ -28,7 +41,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ${{ env.APP_REPOSITORY }}
-          ref: ${{ env.APP_REF }}
+          ref: ${{ matrix.ref }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: app
@@ -41,53 +54,39 @@ jobs:
         working-directory: app/traffic-counting-edge-detection-master
         run: python -m pip install -e ".[dev]"
 
-      - name: Compile changed runtime and benchmark code
+      - name: Compile Python sources
         working-directory: app/traffic-counting-edge-detection-master
         run: |
-          python -m py_compile             src/perf_tuning.py             src/main.py             src/inference/__init__.py             src/detection/base_license_plate_detector.py             src/detection/per_object_license_plate_detector.py             src/detection/traffic_detector.py             src/analysis/background/background_stage.py             src/analysis/traffic/traffic_stage.py             src/data/export/frame_postprocessor.py             src/data/export/http_publisher.py             src/data/export/settings_publisher.py             benchmark/tools/perzi/ncnn_ab_bench.py
+          python -m compileall -q src tests benchmark/tools/perzi
 
       - name: Correctness lint
         working-directory: app/traffic-counting-edge-detection-master
         run: |
-          ruff check --select E9,F63,F7,F82             src/perf_tuning.py             src/main.py             src/inference/__init__.py             src/detection/base_license_plate_detector.py             src/detection/per_object_license_plate_detector.py             src/detection/traffic_detector.py             src/analysis/background/background_stage.py             src/analysis/traffic/traffic_stage.py             src/data/export/frame_postprocessor.py             src/data/export/http_publisher.py             src/data/export/settings_publisher.py             benchmark/tools/perzi/ncnn_ab_bench.py
+          ruff check --select E9,F63,F7,F82 src tests benchmark/tools/perzi
 
-      - name: CPU budget priority smoke test
+      - name: Focused PR tests
+        working-directory: app/traffic-counting-edge-detection-master
+        shell: bash
+        run: |
+          set -euxo pipefail
+          case "${{ matrix.pr }}" in
+            43)
+              PYTHONPATH=src pytest -q tests/benchmark/test_openmp_blocktime_bench.py
+              python benchmark/tools/perzi/openmp_blocktime_bench.py --help >/dev/null
+              ;;
+            44)
+              PYTHONPATH=src pytest -q tests/test_mapped_camera_input.py
+              ;;
+            45)
+              PYTHONPATH=src pytest -q tests/test_perf_tuning.py
+              python benchmark/tools/perzi/cpu_budget_scheduler_bench.py --help >/dev/null
+              ;;
+          esac
+
+      - name: Detector regression suite
         working-directory: app/traffic-counting-edge-detection-master
         run: |
-          PYTHONPATH=src python - <<'PY'
-          import threading
-          import time
-          from perf_tuning import CpuBudgetManager
-
-          b = CpuBudgetManager(total_tokens=4, enabled=True)
-          assert b.recommended_threads("critical") == 2
-          assert b.recommended_threads("important") == 1
-          assert b.recommended_threads("background") == 1
-
-          b = CpuBudgetManager(total_tokens=2, enabled=True)
-          order = []
-          def run(priority, tokens):
-              with b.section(priority, tokens=tokens):
-                  order.append(priority)
-                  time.sleep(0.01)
-
-          with b.section("critical", tokens=2):
-              bg = threading.Thread(target=run, args=("background", 1))
-              crit = threading.Thread(target=run, args=("critical", 2))
-              bg.start()
-              crit.start()
-              deadline = time.time() + 2
-              while time.time() < deadline:
-                  waiting = b.snapshot()["waiting"]
-                  if waiting["background"] and waiting["critical"]:
-                      break
-                  time.sleep(0.001)
-          crit.join(2)
-          bg.join(2)
-          assert order == ["critical", "background"], order
-          PY
-
-      - name: Run detector regression suite
-        working-directory: app/traffic-counting-edge-detection-master
-        run: |
-          PYTHONPATH=src pytest -q tests             --ignore=tests/http_publisher_tests/test_settings_publisher.py             --ignore=tests/test_libreyolo_export_contract.py             --deselect=tests/test_dependency_profiles.py::TestDependencyProfiles::test_legacy_setup_requirements_remain_hailo_profile_wrapper
+          PYTHONPATH=src pytest -q tests \
+            --ignore=tests/http_publisher_tests/test_settings_publisher.py \
+            --ignore=tests/test_libreyolo_export_contract.py \
+            --deselect=tests/test_dependency_profiles.py::TestDependencyProfiles::test_legacy_setup_requirements_remain_hailo_profile_wrapper
