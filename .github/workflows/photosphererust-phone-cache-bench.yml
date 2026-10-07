@@ -1,0 +1,28 @@
+name: PhotosphereRust phone cache benchmark
+
+on:
+  push:
+    paths:
+      - ".github/workflows/photosphererust-phone-cache-bench.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PhotosphereRust
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereRust
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: PhotosphereRust
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run phone-sized cache benchmark
+        working-directory: PhotosphereRust
+        run: cargo run --release --example phone_source_bench
