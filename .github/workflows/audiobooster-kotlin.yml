@@ -1,6 +1,6 @@
 name: AudioBooster native Kotlin checks
 # Public validation for the native Kotlin migration (release-lint fixed head).
-# exact PR-head validation: 310ce5cfb5ef9076a73727bf6a530bec49b98bf9
+# exact PR-head validation: 7671f027a8d6becb254076c7286688a28a94cecb
 
 on:
   push:
@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/Audiobooster
-          ref: ${{ inputs.audio_ref || '310ce5cfb5ef9076a73727bf6a530bec49b98bf9' }}
+          ref: ${{ inputs.audio_ref || '7671f027a8d6becb254076c7286688a28a94cecb' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: audiobooster
 
@@ -71,10 +71,20 @@ jobs:
             exit 1
           fi
 
-      - name: Unit tests and APK builds
+      - name: Unit tests and debug APK builds
         working-directory: audiobooster
         shell: bash
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew --no-daemon             :app:testDebugUnitTest             :app:assembleDebug             :app:assembleDebugAndroidTest             :app:assembleRelease             --stacktrace
+          ./gradlew --no-daemon             :app:testDebugUnitTest             :app:assembleDebug             :app:assembleDebugAndroidTest             --stacktrace
+
+      - name: Build unsigned release APK
+        working-directory: audiobooster
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f key.properties ]; then
+            mv key.properties key.properties.ci-disabled
+          fi
+          ./gradlew --no-daemon :app:assembleRelease --stacktrace
