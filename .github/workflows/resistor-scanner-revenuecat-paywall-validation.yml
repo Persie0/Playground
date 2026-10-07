@@ -1,0 +1,133 @@
+name: Resistor Scanner RevenueCat paywall validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-scanner-revenuecat-paywall-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: feat/revenuecat-paywall-settings
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
+
+      - name: Verify Android quota and RevenueCat UI
+        working-directory: app
+        run: |
+          set -euo pipefail
+          BUILD=app/build.gradle.kts
+          GATE=app/src/main/java/at/austriao/resistorscanner/billing/UsageGate.kt
+          BILLING=app/src/main/java/at/austriao/resistorscanner/billing/SubscriptionManager.kt
+          PAYWALL=app/src/main/java/at/austriao/resistorscanner/ui/HardPaywallDialog.kt
+          SCREEN=app/src/main/java/at/austriao/resistorscanner/ui/ScannerScreen.kt
+
+          grep -F 'goog_NOJOKXrgsBAoLbXisMzanJmSkwI' "$BUILD"
+          grep -F 'const val FREE_GALLERY_SCANS = 6' "$GATE"
+          grep -F 'fun recordGalleryScan(): Int' "$GATE"
+          grep -F 'galleryScansUsed + 1' "$GATE"
+          ! grep -E 'recordGalleryScan\([^)]*(signature|result|uri|image)' "$GATE"
+          grep -F 'usageGate.recordGalleryScan()' "$SCREEN"
+          grep -F 'availablePackages' "$BILLING"
+          grep -F 'managementURL' "$BILLING"
+          grep -F 'Upgrade now' "$PAYWALL"
+          grep -F 'Restore purchases' "$PAYWALL"
+          grep -F 'Terms of Use (EULA)' "$PAYWALL"
+          grep -F 'Privacy Policy' "$PAYWALL"
+          grep -F 'Manage subscription' "$SCREEN"
+          grep -F 'Unlock Pro' "$SCREEN"
+
+      - name: Unit tests and debug build
+        working-directory: app
+        run: ./gradlew --no-daemon clean testDebugUnitTest assembleDebug
+
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 80
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor-scanner-ios
+          ref: feat/revenuecat-paywall-settings
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 1
+          path: app
+
+      - name: Verify iOS quota and RevenueCat UI
+        working-directory: app
+        run: |
+          set -euo pipefail
+          PROJECT=ResistorScanner.xcodeproj/project.pbxproj
+          GATE=ResistorScanner/Billing/UsageGate.swift
+          BILLING=ResistorScanner/Billing/SubscriptionManager.swift
+          PAYWALL=ResistorScanner/UI/HardPaywallView.swift
+          SETTINGS=ResistorScanner/UI/SettingsSheet.swift
+          VIEW=ResistorScanner/UI/ScannerView.swift
+
+          grep -F 'appl_yFvLKMGZIcBJvCVDOubziAXRznr' "$PROJECT"
+          test "$(grep -F 'REVENUECAT_IOS_API_KEY = "appl_yFvLKMGZIcBJvCVDOubziAXRznr";' "$PROJECT" | wc -l | tr -d ' ')" = "2"
+          grep -F 'static let freeGalleryScans = 6' "$GATE"
+          grep -F 'func recordGalleryScan() -> Int' "$GATE"
+          grep -F 'galleryScansUsed + 1' "$GATE"
+          ! grep -E 'recordGalleryScan\([^)]*(signature|result|uri|image)' "$GATE"
+          grep -F 'usageGate.recordGalleryScan()' "$VIEW"
+          grep -F 'availablePackages' "$BILLING"
+          grep -F 'managementURL' "$BILLING"
+          grep -F 'Upgrade now' "$PAYWALL"
+          grep -F 'Restore purchases' "$PAYWALL"
+          grep -F 'Terms of Use (EULA)' "$PAYWALL"
+          grep -F 'Privacy Policy' "$PAYWALL"
+          grep -F 'Manage subscription' "$SETTINGS"
+          grep -F 'Unlock Pro' "$SETTINGS"
+
+      - name: Swift tests
+        working-directory: app
+        run: swift test
+
+      - name: Resolve packages
+        working-directory: app
+        run: xcodebuild -resolvePackageDependencies -project ResistorScanner.xcodeproj -scheme ResistorScanner
+
+      - name: Build iOS simulator
+        working-directory: app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ResistorScanner.xcodeproj \
+            -scheme ResistorScanner \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tee "$RUNNER_TEMP/ios-build.log"
