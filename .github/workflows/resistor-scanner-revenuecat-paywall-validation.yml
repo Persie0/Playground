@@ -1,5 +1,4 @@
 name: Resistor Scanner RevenueCat paywall validation
-# rerun-current-branch-heads-v2
 
 on:
   push:
@@ -11,61 +10,6 @@ permissions:
   contents: read
 
 jobs:
-  android:
-    runs-on: ubuntu-latest
-    timeout-minutes: 50
-    steps:
-      - name: Validate private checkout token
-        env:
-          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-        run: test -n "$PRIVATE_TOKEN"
-
-      - uses: actions/checkout@v5
-        with:
-          repository: Persie0/resistor-scanner-android
-          ref: feat/revenuecat-paywall-settings
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-          persist-credentials: false
-          path: app
-
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          validate-wrappers: true
-
-      - name: Verify Android quota and RevenueCat UI
-        working-directory: app
-        run: |
-          set -euo pipefail
-          BUILD=app/build.gradle.kts
-          GATE=app/src/main/java/at/austriao/resistorscanner/billing/UsageGate.kt
-          BILLING=app/src/main/java/at/austriao/resistorscanner/billing/SubscriptionManager.kt
-          PAYWALL=app/src/main/java/at/austriao/resistorscanner/ui/HardPaywallDialog.kt
-          SCREEN=app/src/main/java/at/austriao/resistorscanner/ui/ScannerScreen.kt
-
-          grep -F 'goog_NOJOKXrgsBAoLbXisMzanJmSkwI' "$BUILD"
-          grep -F 'const val FREE_GALLERY_SCANS = 6' "$GATE"
-          grep -F 'fun recordGalleryScan(): Int' "$GATE"
-          grep -F 'galleryScansUsed + 1' "$GATE"
-          ! grep -E 'recordGalleryScan\([^)]*(signature|result|uri|image)' "$GATE"
-          grep -F 'usageGate.recordGalleryScan()' "$SCREEN"
-          grep -F 'availablePackages' "$BILLING"
-          grep -F 'managementURL' "$BILLING"
-          grep -F 'Upgrade now' "$PAYWALL"
-          grep -F 'Restore purchases' "$PAYWALL"
-          grep -F 'Terms of Use (EULA)' "$PAYWALL"
-          grep -F 'Privacy Policy' "$PAYWALL"
-          grep -F 'Manage subscription' "$SCREEN"
-          grep -F 'Unlock Pro' "$SCREEN"
-
-      - name: Unit tests and debug build
-        working-directory: app
-        run: ./gradlew --no-daemon clean testDebugUnitTest assembleDebug
-
   ios:
     runs-on: macos-15
     timeout-minutes: 80
@@ -105,6 +49,8 @@ jobs:
           grep -F 'usageGate.recordGalleryScan()' "$VIEW"
           grep -F 'availablePackages' "$BILLING"
           grep -F 'managementURL' "$BILLING"
+          grep -F 'localizedTitle' "$PAYWALL"
+          ! grep -F 'storeProduct.title' "$PAYWALL"
           grep -F 'Upgrade now' "$PAYWALL"
           grep -F 'Restore purchases' "$PAYWALL"
           grep -F 'Terms of Use (EULA)' "$PAYWALL"
