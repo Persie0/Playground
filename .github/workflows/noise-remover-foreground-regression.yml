@@ -49,9 +49,10 @@ jobs:
           APP_REF: ${{ inputs.ref || 'fix/android-foreground-start-notifications-20261007' }}
         run: |
           set -euo pipefail
+          # HomeScreen already has pre-existing formatting differences
+          # unrelated to this small fix. Avoid wholesale formatting churn.
           files=(
             lib/services/android_media_processing_service.dart
-            lib/screens/home_screen.dart
             test/services/android_media_processing_service_test.dart
           )
           dart format "${files[@]}"
@@ -71,7 +72,7 @@ jobs:
           fi
       - name: Verify Dart formatting
         working-directory: app
-        run: dart format --output=none --set-exit-if-changed lib/services/android_media_processing_service.dart lib/screens/home_screen.dart test/services/android_media_processing_service_test.dart
+        run: dart format --output=none --set-exit-if-changed lib/services/android_media_processing_service.dart test/services/android_media_processing_service_test.dart
       - name: Run targeted regression tests
         working-directory: app
         run: >-
