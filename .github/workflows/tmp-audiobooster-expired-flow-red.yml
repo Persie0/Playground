@@ -1,4 +1,4 @@
-name: Temporary AudioBooster foreground expiry GREEN
+name: Temporary AudioBooster bootstrap cleanup RED
 
 on:
   push:
@@ -12,14 +12,14 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Checkout AudioBooster feature
         uses: actions/checkout@v4
         with:
           repository: Persie0/Audiobooster
-          ref: eced5ddc306800c8230c7c020adcaf8029a7c677
+          ref: 672cb5a77cf97d7ced6d70dbe8808072e303ad99
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: audiobooster
       - uses: subosito/flutter-action@v2
@@ -29,6 +29,6 @@ jobs:
       - name: Dependencies
         working-directory: audiobooster
         run: flutter pub get
-      - name: Expired flow tests
+      - name: Focused source tests
         working-directory: audiobooster
-        run: flutter test test/trial_paywall_flow_test.dart test/heads_up_notification_source_test.dart
+        run: flutter test test/bootstrap_android_source_test.dart test/foreground_engine_source_test.dart
