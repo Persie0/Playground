@@ -1,4 +1,4 @@
-name: Traffic counting dashboard PR CI
+name: Traffic counting analysis PR CI
 
 on:
   push:
@@ -12,12 +12,12 @@ permissions:
 
 env:
   APP_REPOSITORY: Persie0/traffic-counting-light-main
-  APP_REF: perzi/stef-pr6-analysis-dashboard
+  APP_REF: v5
 
 jobs:
-  dashboard:
+  test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - name: Validate private checkout token
         env:
@@ -37,27 +37,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install server test dependencies
-        run: python -m pip install "pytest>=9,<10" "fastapi>=0.136,<0.137" "httpx>=0.28,<1"
+      - name: Install focused test dependencies
+        run: |
+          python -m pip install             "pytest>=9,<10"             "ruff>=0.16.7,<0.17"             "numpy>=2.2,<2.5"             "opencv-python-headless>=4.12,<5"             "pyyaml>=6,<7"             "loguru>=0.7,<1"
 
-      - name: Test analysis API
-        working-directory: app/traffic-counting-edge-dashboard-main/server
-        run: PYTHONPATH=. pytest -q tests/test_analysis.py
+      - name: Ruff critical correctness checks
+        working-directory: app/traffic-counting-edge-detection-master
+        run: |
+          ruff check --select E9,F63,F7,F82             src/analysis/analysis_pipeline.py             src/analysis/traffic             src/detection/traffic_detector.py             src/speed_measurement/homography_matrix.py             tests/test_analysis_*.py
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: app/traffic-counting-edge-dashboard-main/frontend/package-lock.json
-
-      - name: Install frontend dependencies
-        working-directory: app/traffic-counting-edge-dashboard-main/frontend
-        run: npm ci
-
-      - name: Test analysis frontend
-        working-directory: app/traffic-counting-edge-dashboard-main/frontend
-        run: npx ng test --watch=false --include=src/app/route/analysis/analysis.spec.ts
-
-      - name: Build frontend
-        working-directory: app/traffic-counting-edge-dashboard-main/frontend
-        run: npm run build
+      - name: Run combined analysis regression tests
+        working-directory: app/traffic-counting-edge-detection-master
+        run: |
+          PYTHONPATH=src pytest -q tests/test_analysis_*.py
