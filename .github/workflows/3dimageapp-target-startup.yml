@@ -12,7 +12,7 @@ permissions:
 
 env:
   APP_REPOSITORY: Persie0/3dimageapp
-  APP_REF: 2ed2e66823592b2b329c6f01bce320a9d84b4f0b
+  APP_REF: e6b5be0666d4b3487e738a2967cc943ede4d38e3
 
 jobs:
   android:
@@ -51,14 +51,5 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
-      - name: Diagnose private Android compile/test failure
-        shell: bash
-        run: |
-          set +e
-          gradle -p private-app/android :app:testDebugUnitTest --tests "com.persie.scene3d.KeyframeSelectorTest" --stacktrace > /tmp/private-build.log 2>&1
-          code=$?
-          if [ "$code" -ne 0 ]; then
-            grep -E '(^.*error:|FAILURE:|What went wrong|Execution failed|Compilation failed|cannot find symbol|method .* cannot|incompatible types|AssertionError|expected:<|Caused by:)' /tmp/private-build.log | head -n 100 || true
-            exit "$code"
-          fi
-          echo "PASS: targeted compile/test"
+      - name: Run complete private Android validation
+        run: bash private-app/.github/playground/test-android.sh private-app
