@@ -1,0 +1,65 @@
+name: Publish LGPL FFmpeg iOS Assets
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-extract-audio-ffmpeg-ios.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 180
+    env:
+      SRC_SHA: a724ed99583dcfe2af497c794fdd6b24ddd54a4e
+      TAG: extract-audio-ffmpegkitnext-9.0.0-lgpl2
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: arthenica/ffmpeg-kit-next
+          ref: v9.0.0
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SRC_SHA"
+          brew install autoconf automake libtool pkg-config nasm yasm cmake gnu-sed || true
+          export SED="$(brew --prefix)/bin/gsed"
+          ./ios.sh -x --spm --target=17.0 --arch=arm64,arm64-simulator --jobs=4
+          P="$(dirname "$(find prebuilt -maxdepth 3 -name Package.swift -print -quit)")"
+          test -n "$P"
+          echo "PKG=$P" >> "$GITHUB_ENV"
+      - name: Verify and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r b; do
+            if file "$b" | grep -q Mach-O; then
+              case "$(basename "$b")" in
+                ffmpegkit|libavcodec|libavdevice|libavfilter|libavformat|libavutil|libswresample|libswscale)
+                  found=$((found+1))
+                  otool -l "$b" | grep -q LC_ID_DYLIB
+                  ! strings "$b" | grep -E -- '--enable-gpl([ =]|$)|--enable-nonfree([ =]|$)|--enable-libx264([ =]|$)|--enable-libx265([ =]|$)|--enable-libxvid([ =]|$)|--enable-libvidstab([ =]|$)|--enable-librubberband([ =]|$)'
+                  ;;
+              esac
+            fi
+          done < <(find "$PKG" -type f)
+          test "$found" -gt 0
+          mkdir assets
+          : > checksums.txt
+          for x in "$PKG"/*.xcframework; do
+            n="$(basename "$x")"
+            ditto -c -k --sequesterRsrc --keepParent "$x" "assets/$n.zip"
+            printf '%s %s\n' "$n" "$(swift package compute-checksum "assets/$n.zip")" | tee -a checksums.txt
+          done
+      - name: Publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release delete "$TAG" --repo Persie0/Playground --yes --cleanup-tag || true
+          gh release create "$TAG" assets/*.zip --repo Persie0/Playground --title "FFmpegKitNext 9.0.0 LGPL iOS" --notes "Source-built from v9.0.0 $SRC_SHA. arm64 + arm64-simulator. Verified no GPL/nonfree build flags."
+          echo CHECKSUMS_BEGIN
+          cat checksums.txt
+          echo CHECKSUMS_END
