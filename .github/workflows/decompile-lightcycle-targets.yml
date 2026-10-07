@@ -1,0 +1,138 @@
+name: Decompile LightCycle target generators
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/decompile-lightcycle-targets.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Fetch exact LightCycle binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Fetch Ghidra
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="$(curl -fsSL https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest | jq -r '.assets[] | select(.name | test("PUBLIC.*\\.zip$")) | .browser_download_url' | head -1)"
+          curl -fL --retry 3 "$url" -o ghidra.zip
+          mkdir ghidra && unzip -q ghidra.zip -d ghidra
+          echo "GHIDRA_HOME=$(find ghidra -mindepth 1 -maxdepth 1 -type d | head -1)" >> "$GITHUB_ENV"
+
+      - name: Write direct-address decompiler
+        shell: bash
+        run: |
+          mkdir -p scripts out
+          cat > scripts/DecompileAddresses.java <<'JAVA'
+          import ghidra.app.decompiler.*;
+          import ghidra.app.script.GhidraScript;
+          import ghidra.program.model.address.*;
+          import ghidra.program.model.listing.*;
+          import java.io.*;
+          import java.util.*;
+
+          public class DecompileAddresses extends GhidraScript {
+            public void run() throws Exception {
+              PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter(getScriptArgs()[0])));
+              DecompInterface di = new DecompInterface();
+              di.toggleCCode(true);
+              di.toggleSyntaxTree(true);
+              di.setSimplificationStyle("decompile");
+              di.openProgram(currentProgram);
+              FunctionManager fm = currentProgram.getFunctionManager();
+
+              long[] addrs = {
+                0x2137b8L, // PhotosphereTargetGenerator main virtual
+                0x2138f4L, // photosphere ring builder
+                0x213b04L,
+                0x213cb0L,
+                0x213e24L,
+                0x2144a4L,
+                0x214facL, // CalibrationTargetGenerator main
+                0x2158fcL, // SingleAxisTargetGenerator main
+                0x215fd0L, // WideAngleTargetGenerator main
+                0x2ed84cL, // common ResetForCapture
+                0x3188b8L, // capture config helper
+                0x2f214cL  // preview/frame helper factory
+              };
+
+              Set<Address> seen = new HashSet<>();
+              for (long raw : addrs) {
+                Address a = toAddr(raw);
+                Function f = fm.getFunctionContaining(a);
+                if (f == null) {
+                  out.println("\nNO FUNCTION containing " + a);
+                  continue;
+                }
+                dump(f, "direct target " + a, out, di, fm, seen, 2);
+              }
+              out.close();
+              di.dispose();
+            }
+
+            void dump(Function f, String why, PrintWriter out, DecompInterface di,
+                      FunctionManager fm, Set<Address> seen, int depth) throws Exception {
+              if (f == null || f.isExternal() || seen.contains(f.getEntryPoint())) return;
+              seen.add(f.getEntryPoint());
+              out.println("\n===== FUNCTION " + f.getName() + " @ " + f.getEntryPoint() + " =====");
+              out.println("WHY: " + why);
+              out.println("PROTO: " + f.getPrototypeString(false, false));
+              out.println("BODY: " + f.getBody());
+              DecompileResults r = di.decompileFunction(f, 180, monitor);
+              if (r.decompileCompleted() && r.getDecompiledFunction() != null) {
+                out.println(r.getDecompiledFunction().getC());
+              } else {
+                out.println("[DECOMPILE FAILED] " + r.getErrorMessage());
+              }
+              if (depth <= 0) return;
+              for (Function c : f.getCalledFunctions(monitor)) {
+                long o = c.getEntryPoint().getOffset();
+                if (!c.isExternal() && o >= 0x200000L && o < 0x520000L) {
+                  dump(c, "callee of " + f.getEntryPoint(), out, di, fm, seen, depth-1);
+                }
+              }
+            }
+          }
+          JAVA
+
+      - name: Analyze
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ghproj
+          set +e
+          "$GHIDRA_HOME/support/analyzeHeadless" /tmp/ghproj LC             -import "$PWD/liblightcycle.so"             -overwrite             -analysisTimeoutPerFile 1800             -scriptPath "$PWD/scripts"             -postScript DecompileAddresses.java "$PWD/out/targets-decompiled.txt"             > "$PWD/out/ghidra.log" 2>&1
+          rc=$?
+          set -e
+          tail -200 out/ghidra.log
+          test -s out/targets-decompiled.txt
+          wc -l out/targets-decompiled.txt
+          exit "$rc"
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-camera-lightcycle-targets
+          path: out/
+          if-no-files-found: warn
+          retention-days: 90
