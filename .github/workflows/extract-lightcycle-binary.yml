@@ -1,0 +1,42 @@
+name: Extract Pixel Camera LightCycle binary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/extract-lightcycle-binary.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download exact Pixel Camera APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"             -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+
+      - name: Extract LightCycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          path="$(unzip -Z1 camera.apk | grep -E '(^|/)liblightcycle\.so$' | head -1)"
+          test -n "$path"
+          unzip -p camera.apk "$path" > out/liblightcycle-arm64.so
+          sha256sum out/liblightcycle-arm64.so
+          file out/liblightcycle-arm64.so
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-camera-liblightcycle-arm64
+          path: out/liblightcycle-arm64.so
+          if-no-files-found: error
+          retention-days: 90
