@@ -1,0 +1,183 @@
+name: LightCycle class constructor reverse engineering
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ghidra-lightcycle-class-constructors.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Fetch exact native library
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"             -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Fetch Ghidra
+        run: |
+          curl -fL --retry 3             "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip"             -o ghidra.zip
+          mkdir ghidra
+          unzip -q ghidra.zip -d ghidra
+          echo "GHIDRA_HOME=$PWD/ghidra/ghidra_12.1.4_PUBLIC" >> "$GITHUB_ENV"
+
+      - name: Write RTTI constructor tracer
+        shell: bash
+        run: |
+          mkdir -p scripts out/classes
+          cat > scripts/TraceConstructors.java <<'JAVA'
+          import ghidra.app.decompiler.*;
+          import ghidra.app.script.GhidraScript;
+          import ghidra.program.model.address.*;
+          import ghidra.program.model.listing.*;
+          import ghidra.program.model.mem.Memory;
+          import ghidra.program.model.symbol.*;
+          import ghidra.program.util.DefinedDataIterator;
+          import java.io.*;
+          import java.util.*;
+
+          public class TraceConstructors extends GhidraScript {
+              static final String[] NEEDLES = {
+                  "PatchPairwiseMatcher",
+                  "OrientedPatchExtractor",
+                  "BundleAdjusterGlobalFocalLength",
+                  "BundleAdjustedEstimator",
+                  "SeamFinderGraphcut",
+                  "OptimalSeamMaskGenerator",
+                  "MonolithicMultibandBlender",
+                  "YUVMonolithicMultibandBlender",
+                  "RosetteImageAdjuster",
+                  "ExposureUnaryCostComputer",
+                  "LaplacianCbCrDiffComputer",
+                  "CameraRotationModel",
+                  "GlobalFlowSolver"
+              };
+
+              public void run() throws Exception {
+                  File outDir = new File(getScriptArgs()[0]);
+                  outDir.mkdirs();
+
+                  FunctionManager fm = currentProgram.getFunctionManager();
+                  ReferenceManager rm = currentProgram.getReferenceManager();
+                  Memory mem = currentProgram.getMemory();
+                  Listing listing = currentProgram.getListing();
+
+                  DecompInterface dec = new DecompInterface();
+                  dec.toggleCCode(true);
+                  dec.toggleSyntaxTree(true);
+                  dec.setSimplificationStyle("decompile");
+                  dec.openProgram(currentProgram);
+
+                  Set<Function> funcs = new LinkedHashSet<>();
+                  PrintWriter map = new PrintWriter(new File(outDir, "rtti-vtables-constructors.txt"));
+
+                  DataIterator it = listing.getDefinedData(true);
+                  while (it.hasNext()) {
+                      Data d = it.next();
+                      Object val = d.getValue();
+                      if (!(val instanceof String)) continue;
+                      String s = (String) val;
+                      boolean match = false;
+                      for (String n : NEEDLES) if (s.contains(n)) { match = true; break; }
+                      if (!match) continue;
+
+                      map.println("\nCLASS_STRING\t"+d.getAddress()+"\t"+s);
+                      ReferenceIterator sr = rm.getReferencesTo(d.getAddress());
+                      while (sr.hasNext()) {
+                          Reference sref = sr.next();
+                          Address nameField = sref.getFromAddress();
+                          Address typeInfo = nameField.subtract(8);
+                          map.println("TYPEINFO\t"+typeInfo+"\tname-field="+nameField);
+
+                          ReferenceIterator tr = rm.getReferencesTo(typeInfo);
+                          while (tr.hasNext()) {
+                              Reference tref = tr.next();
+                              Address typeInfoSlot = tref.getFromAddress();
+                              Address addressPoint = typeInfoSlot.add(8);
+                              map.println("VTABLE\ttypeinfo-slot="+typeInfoSlot+"\taddress-point="+addressPoint);
+
+                              // Dump 20 qwords around vtable.
+                              for (int q=-2; q<20; q++) {
+                                  Address qa = addressPoint.add(q * 8L);
+                                  try {
+                                      long v = mem.getLong(qa);
+                                      Function vf = fm.getFunctionAt(toAddr(v));
+                                      map.printf("VTQ\t%+d\t%s\t0x%016x\t%s%n",
+                                          q, qa, v, vf == null ? "" : vf.getName());
+                                  } catch(Exception e) {
+                                      map.println("VTQ\t"+q+"\t"+qa+"\tERROR");
+                                  }
+                              }
+
+                              // Constructors commonly store address-point into object vptr.
+                              // Ask Ghidra for direct refs to address point and also refs to the
+                              // typeinfo slot / nearby vtable base to catch ADRP+ADD references.
+                              for (Address probe : new Address[] {
+                                      addressPoint, typeInfoSlot, typeInfoSlot.subtract(8),
+                                      addressPoint.subtract(16) }) {
+                                  ReferenceIterator vr = rm.getReferencesTo(probe);
+                                  while (vr.hasNext()) {
+                                      Reference vref = vr.next();
+                                      Function f = fm.getFunctionContaining(vref.getFromAddress());
+                                      map.println("VREF\tprobe="+probe+"\tfrom="+vref.getFromAddress()+
+                                          "\ttype="+vref.getReferenceType()+"\t"+
+                                          (f == null ? "<none>" : f.getEntryPoint()+"\t"+f.getName()));
+                                      if (f != null) funcs.add(f);
+                                  }
+                              }
+                          }
+                      }
+                  }
+
+                  // Expand callees one hop because factory -> constructor is common.
+                  Set<Function> seed = new LinkedHashSet<>(funcs);
+                  for (Function f : seed) for (Function g : f.getCalledFunctions(monitor)) funcs.add(g);
+
+                  PrintWriter idx = new PrintWriter(new File(outDir, "functions.tsv"));
+                  for (Function f : funcs) {
+                      String safe = f.getName().replaceAll("[^A-Za-z0-9_.-]", "_");
+                      DecompileResults dr = dec.decompileFunction(f, 240, monitor);
+                      idx.println(f.getEntryPoint()+"\t"+f.getName()+"\t"+f.getBody());
+                      try(PrintWriter pw = new PrintWriter(new File(outDir, safe+"_"+f.getEntryPoint()+".c"))) {
+                          pw.println("/* "+f.getName()+" @ "+f.getEntryPoint()+" */");
+                          if (dr.decompileCompleted() && dr.getDecompiledFunction()!=null)
+                              pw.println(dr.getDecompiledFunction().getC());
+                          else
+                              pw.println("/* FAILED "+dr.getErrorMessage()+" */");
+                      }
+                  }
+                  idx.close();
+                  map.close();
+                  dec.dispose();
+              }
+          }
+          JAVA
+
+      - name: Analyze constructors
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/gh
+          "$GHIDRA_HOME/support/analyzeHeadless" /tmp/gh lc-constructors             -import "$PWD/liblightcycle.so"             -analysisTimeoutPerFile 1800             -scriptPath "$PWD/scripts"             -postScript TraceConstructors.java "$PWD/out/classes"             -deleteProject | tee out/ghidra.log
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pixel-camera-lightcycle-class-constructors
+          path: out/
+          if-no-files-found: error
+          retention-days: 90
