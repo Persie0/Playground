@@ -127,5 +127,16 @@ jobs:
           sparse-checkout-cone-mode: false
       - name: Install XcodeGen
         run: brew install xcodegen >/dev/null
-      - name: Run private iOS harness
-        run: bash private-ci/.github/playground/test-ios.sh private-app
+      - name: Diagnose private iOS build
+        shell: bash
+        run: |
+          set +e
+          cd private-app/ios
+          xcodegen generate >/tmp/xcodegen.log 2>&1
+          xcodebuild -project Scene3D.xcodeproj -scheme Scene3D -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build >/tmp/xcodebuild.log 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            grep -E '(^.*error:|SwiftCompile|CompileSwift|BUILD FAILED|cannot find|no member|extra argument|missing argument|type .* has no member|conformance|actor-isolated|Sendable)' /tmp/xcodebuild.log | head -n 160 || true
+            exit "$code"
+          fi
+          echo "PASS: iOS Debug simulator build"
