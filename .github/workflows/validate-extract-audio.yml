@@ -30,15 +30,26 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:assembleDebug --stacktrace
 
-      - name: Verify Android non-GPL dependency
+      - name: Verify Android LGPL-only dependency and binaries
         working-directory: target
+        shell: bash
         run: |
           set -euo pipefail
           grep -F 'dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9' kotlin-android/app/build.gradle.kts
-          if grep -R -E 'ffmpeg-kit-[^"]*-gpl|ffmpeg-kit-full-gpl' kotlin-android --include='*.gradle' --include='*.gradle.kts'; then
-            echo "GPL FFmpegKit dependency found"
+          if grep -R -E 'ffmpeg-kit-[^"]*-gpl|ffmpeg-kit-full-gpl|--enable-gpl|--enable-nonfree' kotlin-android --include='*.gradle' --include='*.gradle.kts'; then
+            echo "GPL/nonfree FFmpeg configuration found"
             exit 1
           fi
+
+          mapfile -t libs < <(find kotlin-android/app/build -type f \( -name 'libavcodec.so' -o -name 'libavformat.so' -o -name 'libavutil.so' \))
+          test "${#libs[@]}" -gt 0
+          for lib in "${libs[@]}"; do
+            echo "Inspecting $lib"
+            if strings "$lib" | grep -E -- '--enable-gpl([ =]|$)|--enable-nonfree([ =]|$)'; then
+              echo "ERROR: GPL/nonfree FFmpeg build flag found in $lib"
+              exit 1
+            fi
+          done
 
   ios:
     needs: android
@@ -79,6 +90,10 @@ jobs:
                     echo "ERROR: not dynamically linked: $binary"
                     bad=$((bad + 1))
                   fi
+                  if strings "$binary" | grep -E -- '--enable-gpl([ =]|$)|--enable-nonfree([ =]|$)'; then
+                    echo "ERROR: GPL/nonfree FFmpeg build flag found in $binary"
+                    bad=$((bad + 1))
+                  fi
                   ;;
               esac
             fi
@@ -100,5 +115,3 @@ jobs:
             -derivedDataPath .derived \
             CODE_SIGNING_ALLOWED=NO \
             build
-
-# rerun-ios-scheme
