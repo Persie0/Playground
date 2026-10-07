@@ -1,0 +1,144 @@
+name: Build LGPL FFmpeg iOS Vendor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-extract-audio-ios-lgpl.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 180
+    env:
+      TARGET_REPO: Persie0/ExtractAudioFromVideo
+      FFMPEG_KIT_NEXT_COMMIT: a724ed99583dcfe2af497c794fdd6b24ddd54a4e
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/ExtractAudioFromVideo
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: target
+          fetch-depth: 0
+
+      - name: Checkout FFmpegKitNext source
+        uses: actions/checkout@v5
+        with:
+          repository: arthenica/ffmpeg-kit-next
+          ref: v9.0.0
+          path: ffmpeg-kit-next
+
+      - name: Verify source revision
+        working-directory: ffmpeg-kit-next
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FFMPEG_KIT_NEXT_COMMIT"
+
+      - name: Install build prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install autoconf automake libtool pkg-config nasm yasm cmake || true
+
+      - name: Build iOS LGPL-only XCFrameworks from source
+        working-directory: ffmpeg-kit-next
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./ios.sh \
+            -x \
+            --spm \
+            --target=17.0 \
+            --disable-arch-arm64-mac-catalyst \
+            --disable-arch-x86-64-mac-catalyst \
+            --jobs=4
+
+      - name: Locate and verify generated package
+        working-directory: ffmpeg-kit-next
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE_FILE="$(find prebuilt -maxdepth 3 -name Package.swift -print -quit)"
+          test -n "$PACKAGE_FILE"
+          PACKAGE_DIR="$(dirname "$PACKAGE_FILE")"
+          echo "PACKAGE_DIR=$PACKAGE_DIR" >> "$GITHUB_ENV"
+          echo "Generated package: $PACKAGE_DIR"
+          find "$PACKAGE_DIR" -maxdepth 1 -type d -name '*.xcframework' -print
+
+          found=0
+          while IFS= read -r binary; do
+            if file "$binary" | grep -q 'Mach-O'; then
+              case "$(basename "$binary")" in
+                ffmpegkit|libavcodec|libavdevice|libavfilter|libavformat|libavutil|libswresample|libswscale)
+                  found=$((found + 1))
+                  echo "Verifying $binary"
+                  if ! otool -l "$binary" | grep -q 'LC_ID_DYLIB'; then
+                    echo "ERROR: expected dynamic library: $binary" >&2
+                    exit 1
+                  fi
+                  if strings "$binary" | grep -E -- '--enable-gpl([ =]|$)|--enable-nonfree([ =]|$)|--enable-libx264([ =]|$)|--enable-libx265([ =]|$)|--enable-libxvid([ =]|$)|--enable-libvidstab([ =]|$)|--enable-librubberband([ =]|$)'; then
+                    echo "ERROR: GPL/nonfree option found in $binary" >&2
+                    exit 1
+                  fi
+                  ;;
+              esac
+            fi
+          done < <(find "$PACKAGE_DIR" -type f)
+          test "$found" -gt 0
+
+      - name: Copy verified package into app repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEST="target/swift-ios/Vendor/FFmpegKitNextLGPL"
+          rm -rf "$DEST"
+          mkdir -p "$DEST"
+          cp -R "ffmpeg-kit-next/$PACKAGE_DIR/." "$DEST/"
+
+          cat > "$DEST/BUILD_PROVENANCE.md" <<'DOC'
+          # FFmpegKitNext LGPL iOS binary provenance
+
+          Source repository: https://github.com/arthenica/ffmpeg-kit-next
+          Release: v9.0.0
+          Commit: a724ed99583dcfe2af497c794fdd6b24ddd54a4e
+
+          Build command:
+
+          ```bash
+          ./ios.sh -x --spm --target=17.0 \
+            --disable-arch-arm64-mac-catalyst \
+            --disable-arch-x86-64-mac-catalyst \
+            --jobs=4
+          ```
+
+          No `--enable-gpl`, `--enable-nonfree`, `--enable-lib-all`, x264, x265,
+          xvidcore, libvidstab, or rubberband options were enabled.
+
+          The public validation workflow scans every shipped FFmpeg Mach-O binary
+          for forbidden GPL/nonfree configure flags before release.
+          DOC
+
+          # GitHub rejects individual blobs >=100 MB.
+          if find "$DEST" -type f -size +95M -print -quit | grep -q .; then
+            echo "ERROR: generated vendor package contains a file larger than 95 MB:" >&2
+            find "$DEST" -type f -size +95M -print >&2
+            exit 1
+          fi
+
+      - name: Commit verified vendor package
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add swift-ios/Vendor/FFmpegKitNextLGPL
+          git diff --cached --stat
+          git commit -m "Vendor verified LGPL-only FFmpegKitNext iOS binaries"
+          git push origin main
