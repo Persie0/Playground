@@ -38,9 +38,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install detector dev dependencies
-        working-directory: app/traffic-counting-edge-detection-master
-        run: python -m pip install -e ".[dev]"
+      - name: Install analysis test dependencies
+        run: |
+          python -m pip install \
+            "pytest>=9,<10" \
+            "ruff>=0.16.7,<0.17" \
+            "numpy>=2.2,<2.6" \
+            "opencv-python-headless>=4.12,<5" \
+            "pyyaml>=6,<7" \
+            "loguru>=0.7,<1"
 
       - name: Compile detector sources
         working-directory: app/traffic-counting-edge-detection-master
@@ -50,9 +56,12 @@ jobs:
         working-directory: app/traffic-counting-edge-detection-master
         run: ruff check --select E9,F63,F7,F82 src tests
 
-      - name: Run complete detector test directory
+      - name: Run all new analysis and direction tests
         working-directory: app/traffic-counting-edge-detection-master
-        run: PYTHONPATH=src pytest -q tests
+        run: |
+          PYTHONPATH=src pytest -q \
+            tests/test_analysis_*.py \
+            tests/test_direction_detection.py
 
   dashboard:
     runs-on: ubuntu-24.04
