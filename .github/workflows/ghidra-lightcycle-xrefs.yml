@@ -113,12 +113,14 @@ jobs:
               Pattern pat = Pattern.compile(
                 "(?i)(photosphere|target_generator|target manager|targethit|target_hit|" +
                 "capture_target|alignment_estimator|spherical_pairwise|patch_pairwise|" +
-                "fast_9|orientedpatch|line_aligner|line_finder|edge_finder|" +
+                "fast_9|fast_corner_detector|orientedpatch|oriented_patch_features|" +
+                "image_pyramid|pyramid_downsample|line_aligner|line_finder|edge_finder|" +
                 "global_flow_solver|camera_rotation_model|flow_constraints|" +
                 "bundle_adjust|BundleAdjusterGlobalFocalLength|LineMatchResidual|" +
                 "PointMatchResidual|line_matches|line_pairs|LineFeatureMatcher|" +
                 "ceres|rosette|session_renderer|incremental_stitch|" +
                 "stitcher\\.cc|seam_finder|optimal_seam|multiband|image_adjuster|" +
+                "affine_gamma_downsizer|gamma_exposure|blend_pyramid|color_difference|" +
                 "gamma exposure|writeyuv420tojpeg|image_match_width|moving too fast|" +
                 "photo skipped|alignment did not converge|no images to align)"
               );
@@ -178,7 +180,14 @@ jobs:
                 0x21c0a0L, // inspect another non-stack +32/stride candidate
                 0x229fb0L, // inspect candidate near GlobalFocalLength code
                 0x22cbe8L, // inspect candidate near GlobalFocalLength code
-                0x416d94L, 0x416fa0L, 0x4171ccL
+                0x416d94L, 0x416fa0L, 0x4171ccL,
+                0x403900L, // LineAlignerImpl wrapper around robust line filtering
+                0x406fccL, // line-pair RANSAC body
+                0x21ef24L, // largest-component membership filter
+                0x2252d4L, // graph component cache builder
+                0x225514L, // graph component enumeration helper
+                0x4390a8L, // seam pairwise color cost
+                0x439600L  // seam luma unary cost
               };
               for (long raw : focusAddresses) {
                 Address a = toAddr(raw);
