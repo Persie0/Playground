@@ -24,6 +24,21 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: fakegps
+      - name: Checkout pending Kotlin release builder PR
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: kotlin-play-release
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: builder
+      - name: Test Kotlin builder app routing
+        working-directory: builder
+        run: |
+          python -m unittest discover -s tests -p 'test_play*.py'
+          grep -q '          - fake_gps_detector' .github/workflows/play_kotlin_auto.yml
+          ! grep -q '          - fake_gps_detector' .github/workflows/play_auto.yml
+          ! grep -q '          - fake_gps_detector' .github/workflows/app_store_auto.yml
       - name: Set up Java 17
         uses: actions/setup-java@v5
         with:
