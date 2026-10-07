@@ -22,14 +22,28 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,aarch64-apple-ios
 
       - name: Test default feature set
         working-directory: PhotosphereRust
         run: cargo test --all-targets
 
-      - name: Check Android JNI feature
+      - name: Test portable JPEG fallback
+        working-directory: PhotosphereRust
+        run: cargo test --all-targets --no-default-features
+
+      - name: Check Android JNI feature on host
         working-directory: PhotosphereRust
         run: cargo check --features android-jni
+
+      - name: Check ARM64 Android
+        working-directory: PhotosphereRust
+        run: cargo check --release --target aarch64-linux-android --features android-jni
+
+      - name: Check ARM64 iOS
+        working-directory: PhotosphereRust
+        run: cargo check --release --target aarch64-apple-ios
 
       - name: Check optimized release build
         working-directory: PhotosphereRust
