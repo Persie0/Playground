@@ -41,7 +41,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
-      # Rerun private PR head after Kotlin compilation and Appodeal manifest-merger fix.
+      # Full validation of repaired Fake GPS native PR branch.
       - name: Verify original Flutter archive
         working-directory: fakegps
         run: |
@@ -51,7 +51,8 @@ jobs:
           test -f settings.gradle.kts
           test -f app/src/main/java/at/austriao/fake_gps_detector_app/MainActivity.kt
           test ! -f pubspec.yaml
+          test -x gradlew
       - name: Kotlin Android build and unit tests
         working-directory: fakegps
         run: |
-          gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest --stacktrace --console=plain
+          ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintRelease :app:bundleRelease --stacktrace --console=plain
