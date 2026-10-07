@@ -1,8 +1,5 @@
 name: AudioBooster native Kotlin checks
-# validation pass: native Compose API fixes
-# validation pass: Compose scope imports
-# Native Kotlin migration validation (API 36, Compose API fixes)
-# Native Kotlin migration validation
+# Public validation for the native Kotlin migration.
 
 on:
   push:
@@ -41,7 +38,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android 17 compile SDK
+      - name: Install Android 36 SDK
         shell: bash
         run: |
           SDKMANAGER=""
@@ -56,7 +53,7 @@ jobs:
           test -n "$SDKMANAGER"
           echo "Using $SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" --channel=3 --install "platforms;android-37.0" "build-tools;37.0.0"
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0"
 
       - name: Validate no active Flutter dependency
         working-directory: audiobooster
