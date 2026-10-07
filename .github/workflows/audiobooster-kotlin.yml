@@ -38,12 +38,22 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Show hosted Android SDK
+      - name: Install Android 17 compile SDK
         shell: bash
         run: |
-          echo "ANDROID_HOME=${ANDROID_HOME:-}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
-          find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/platforms" -maxdepth 1 -type d -print 2>/dev/null || true
+          SDKMANAGER=""
+          for root in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" /usr/local/lib/android/sdk /opt/android-sdk; do
+            [ -n "$root" ] || continue
+            candidate="$(find "$root" -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
+            if [ -n "$candidate" ]; then
+              SDKMANAGER="$candidate"
+              break
+            fi
+          done
+          test -n "$SDKMANAGER"
+          echo "Using $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --channel=3 --install "platforms;android-37.0" "build-tools;37.0.0"
 
       - name: Validate no active Flutter dependency
         working-directory: audiobooster
