@@ -1,0 +1,65 @@
+name: AudioBooster native Kotlin checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/audiobooster-kotlin.yml
+  workflow_dispatch:
+    inputs:
+      audio_ref:
+        description: AudioBooster branch, tag, or commit to validate
+        required: false
+        default: native-kotlin-rewrite
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out Playground
+        uses: actions/checkout@v4
+
+      - name: Check out AudioBooster
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: ${{ inputs.audio_ref || 'native-kotlin-rewrite' }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: audiobooster
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 37 platform
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-37" "build-tools;37.0.0"
+
+      - name: Validate no active Flutter dependency
+        working-directory: audiobooster
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d old/lib
+          test -f old/pubspec.yaml
+          test ! -f pubspec.yaml
+          test ! -d lib
+          ! grep -R "io.flutter\|dev.flutter" -n --include='*.kt' --include='*.kts' app settings.gradle.kts build.gradle.kts
+
+      - name: Unit tests and debug build
+        working-directory: audiobooster
+        shell: bash
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
