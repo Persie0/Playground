@@ -1,0 +1,95 @@
+name: AudioBooster Kotlin release validation v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/audiobooster-kotlin-release-validation-v2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout AudioBooster PR head
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: 97b1399370d3cb97993ce4f489903d9e55238c02
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: audiobooster
+
+      - name: Checkout release builder PR head
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: 2dd11f550c6c1783e36f5c4e76f7dae4419be6b6
+          path: builder
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install API 36
+        run: sdkmanager "platforms;android-36"
+
+      - name: Builder regression tests
+        working-directory: builder
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_play*.py'
+          grep -q '          - Audiobooster' .github/workflows/play_kotlin_auto.yml
+          ! grep -q '          - Audiobooster' .github/workflows/play_auto.yml
+          grep -q ':app:testDebugUnitTest :app:lintRelease' .github/workflows/play_kotlin_auto.yml
+          grep -q ':app:bundleRelease' .github/workflows/play_kotlin_auto.yml
+          grep -q 'verify_r8_min_scores.py' .github/workflows/play_kotlin_auto.yml
+
+      - name: Native-tree validation
+        working-directory: audiobooster
+        run: |
+          set -euo pipefail
+          test -f settings.gradle.kts
+          test -f app/build.gradle.kts
+          test -f old/pubspec.yaml
+          test -d old/lib
+          test ! -f pubspec.yaml
+          test ! -d lib
+          ! grep -R -n -E 'io\.flutter|dev\.flutter|flutterEmbedding|GeneratedPluginRegistrant' \
+            --exclude-dir=old --exclude-dir=.git .
+
+      - name: Unit tests, lint, and debug builds
+        working-directory: audiobooster
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon \
+            :app:testDebugUnitTest \
+            :app:lintRelease \
+            :app:assembleDebug \
+            :app:assembleDebugAndroidTest \
+            --stacktrace
+
+      - name: Unsigned release AAB
+        working-directory: audiobooster
+        run: |
+          set -euo pipefail
+          if [ -f key.properties ]; then mv key.properties key.properties.ci-disabled; fi
+          ./gradlew --no-daemon :app:bundleRelease --stacktrace
+          test -f app/build/outputs/bundle/release/app-release.aab
+
+      - name: Shared R8 gate
+        run: |
+          set -euo pipefail
+          python builder/.github/scripts/verify_r8_min_scores.py \
+            audiobooster/app/build/outputs/bundle/release/app-release.aab
