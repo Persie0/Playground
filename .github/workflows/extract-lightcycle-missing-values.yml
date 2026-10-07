@@ -111,8 +111,8 @@ jobs:
 
           with BIN.open('rb') as fh:
               elf = ELFFile(fh)
-              fh.seek(0)  # ELFFile has already consumed bytes while reading the ELF header.
-          data = fh.read()
+              fh.seek(0)  # Read the complete ELF from byte zero after ELFFile header parsing.
+              data = fh.read()
               text = elf.get_section_by_name('.text')
               rodata = elf.get_section_by_name('.rodata')
               rela_sections = [s for s in elf.iter_sections() if hasattr(s, 'iter_relocations')]
