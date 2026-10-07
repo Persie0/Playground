@@ -1,0 +1,73 @@
+name: Validate ExtractAudioFromVideo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/validate-extract-audio.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - name: Clone private repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_TOKEN"
+          git clone "https://x-access-token:${PRIVATE_TOKEN}@github.com/Persie0/ExtractAudioFromVideo.git" target
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+
+      - name: Install Android SDK 37
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-37" "build-tools;36.0.0"
+
+      - name: Build Android
+        working-directory: target/kotlin-android
+        run: gradle :app:assembleDebug --stacktrace
+
+  ios:
+    needs: android
+    runs-on: macos-latest
+    timeout-minutes: 25
+    env:
+      PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - name: Clone private repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_TOKEN"
+          git clone "https://x-access-token:${PRIVATE_TOKEN}@github.com/Persie0/ExtractAudioFromVideo.git" target
+
+      - name: Build iOS
+        working-directory: target/swift-ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcodebuild \
+            -project ExtractAudioFromVideo.xcodeproj \
+            -target ExtractAudioFromVideo \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
