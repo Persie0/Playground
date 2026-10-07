@@ -30,6 +30,16 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:assembleDebug --stacktrace
 
+      - name: Verify Android non-GPL dependency
+        working-directory: target
+        run: |
+          set -euo pipefail
+          grep -F 'dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9' kotlin-android/app/build.gradle.kts
+          if grep -R -E 'ffmpeg-kit-[^"]*-gpl|ffmpeg-kit-full-gpl' kotlin-android --include='*.gradle' --include='*.gradle.kts'; then
+            echo "GPL FFmpegKit dependency found"
+            exit 1
+          fi
+
   ios:
     needs: android
     runs-on: macos-latest
@@ -39,6 +49,43 @@ jobs:
           repository: Persie0/ExtractAudioFromVideo
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: target
+
+      - name: Resolve pinned iOS FFmpeg package
+        working-directory: target/swift-ios
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project ExtractAudioFromVideo.xcodeproj \
+            -clonedSourcePackagesDirPath .spm
+          grep -F '0243a6a262944e2e6cd1dd9603122108594d182a' ExtractAudioFromVideo.xcodeproj/project.pbxproj
+
+      - name: Inspect FFmpeg XCFramework linkage
+        working-directory: target/swift-ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=".spm/checkouts/ffmpeg-kit/Frameworks"
+          test -d "$ROOT"
+          found=0
+          bad=0
+          while IFS= read -r binary; do
+            if file "$binary" | grep -q 'Mach-O'; then
+              case "$(basename "$binary")" in
+                ffmpegkit|libavcodec|libavdevice|libavfilter|libavformat|libavutil|libswresample|libswscale)
+                  found=$((found + 1))
+                  echo "Checking $binary"
+                  if ! otool -l "$binary" | grep -q 'LC_ID_DYLIB'; then
+                    echo "ERROR: not dynamically linked: $binary"
+                    bad=$((bad + 1))
+                  fi
+                  ;;
+              esac
+            fi
+          done < <(find "$ROOT" -type f)
+          test "$found" -gt 0
+          test "$bad" -eq 0
+
       - name: Build iOS simulator
         working-directory: target/swift-ios
         run: |
@@ -49,7 +96,7 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
+            -clonedSourcePackagesDirPath .spm \
+            -derivedDataPath .derived \
             CODE_SIGNING_ALLOWED=NO \
             build
-
-# final-current-source
