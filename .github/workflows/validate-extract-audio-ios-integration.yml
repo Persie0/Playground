@@ -1,0 +1,34 @@
+name: Validate ExtractAudio iOS Integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/validate-extract-audio-ios-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/ExtractAudioFromVideo
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: target
+      - name: Build iOS simulator
+        working-directory: target/swift-ios
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ExtractAudioFromVideo.xcodeproj \
+            -scheme ExtractAudioFromVideo \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .derived \
+            CODE_SIGNING_ALLOWED=NO \
+            build
