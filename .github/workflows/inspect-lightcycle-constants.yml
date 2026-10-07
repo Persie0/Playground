@@ -1,0 +1,108 @@
+name: Inspect LightCycle target constants
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/inspect-lightcycle-constants.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download exact Pixel Camera APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"             -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          path="$(unzip -Z1 camera.apk | grep -E '(^|/)liblightcycle\.so$' | head -1)"
+          unzip -p camera.apk "$path" > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+
+      - name: Dump rodata and resolve key constants
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu
+          python3 -m pip install --disable-pip-version-check pyelftools==0.32
+          mkdir -p out
+          aarch64-linux-gnu-objdump -s -j .rodata liblightcycle.so > out/rodata.txt
+          aarch64-linux-gnu-objdump -s -j .data.rel.ro liblightcycle.so > out/data-rel-ro.txt
+          readelf -rW liblightcycle.so > out/relocations.txt
+
+          python3 <<'PY'
+          import struct
+          from pathlib import Path
+          from elftools.elf.elffile import ELFFile
+
+          addrs = {
+              0x61850: "TargetManager default thresholds pair",
+              0x618D0: "radians-to-degrees multiplier",
+              0x61A10: "PhotoSphere ring helper constant",
+              0x61B48: "full-circle constant used by target generators",
+              0x62908: "capture-mode jump table",
+          }
+
+          with open("liblightcycle.so", "rb") as f:
+              elf = ELFFile(f)
+              sections = list(elf.iter_sections())
+
+              def read_va(addr, n):
+                  for sec in sections:
+                      start = sec["sh_addr"]
+                      size = sec["sh_size"]
+                      if start <= addr and addr + n <= start + size:
+                          off = addr - start
+                          return sec.name, sec.data()[off:off+n]
+                  raise KeyError(hex(addr))
+
+              out = []
+              for addr, label in addrs.items():
+                  sec, b = read_va(addr, 32)
+                  out.append(f"## {label} @ 0x{addr:x} in {sec}")
+                  out.append("hex=" + b.hex())
+                  out.append("u8=" + repr(list(b[:16])))
+                  out.append("u32=" + repr([hex(x) for x in struct.unpack("<8I", b)]))
+                  out.append("f32=" + repr(struct.unpack("<8f", b)))
+                  out.append("f64=" + repr(struct.unpack("<4d", b)))
+                  out.append("")
+              Path("out/key-constants.txt").write_text("\n".join(out))
+
+              # Decode switch table at 0x62908 using the branch base from 0x10f16c.
+              sec, table = read_va(0x62908, 6)
+              base = 0x10F16C
+              lines = []
+              for mode, byte in enumerate(table):
+                  target = base + byte * 4
+                  lines.append(f"mode {mode}: byte={byte} -> 0x{target:x}")
+              Path("out/capture-mode-jump-table.txt").write_text("\n".join(lines) + "\n")
+
+              # Decode the two default TargetManager threshold floats.
+              sec, b = read_va(0x61850, 8)
+              a, c = struct.unpack("<2f", b)
+              Path("out/target-manager-defaults.txt").write_text(
+                  f"threshold_136_cos={a:.9g}\n"
+                  f"threshold_140_cos={c:.9g}\n"
+                  f"threshold_136_angle_deg={__import__('math').degrees(__import__('math').acos(a)):.9g}\n"
+                  f"threshold_140_angle_deg={__import__('math').degrees(__import__('math').acos(c)):.9g}\n"
+              )
+          PY
+
+          cat out/capture-mode-jump-table.txt
+          cat out/target-manager-defaults.txt
+          cat out/key-constants.txt
+
+      - name: Upload constant inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-camera-lightcycle-target-constants
+          path: out/
+          if-no-files-found: error
+          retention-days: 90
