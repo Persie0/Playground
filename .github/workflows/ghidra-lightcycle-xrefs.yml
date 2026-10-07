@@ -270,6 +270,50 @@ jobs:
                 }
               }
 
+              out.println("\\n===== POSSIBLE 36-BYTE RECORD FIELD +32 STORES =====");
+              Pattern at32 = Pattern.compile("(?i)#(?:0x20|32)(?=\\\\]|,|\\\\s|$)");
+              Pattern stride36 = Pattern.compile("(?i)#(?:0x24|36)(?=\\\\]|,|\\\\s|$)");
+              Map<Function, List<Instruction>> field32Stores = new LinkedHashMap<>();
+              InstructionIterator storeScan = listing.getInstructions(true);
+              while (storeScan.hasNext()) {
+                Instruction instruction = storeScan.next();
+                String mnemonic = instruction.getMnemonicString().toLowerCase();
+                if (!(mnemonic.startsWith("str") || mnemonic.startsWith("stur") ||
+                      mnemonic.startsWith("stp") || mnemonic.startsWith("stnp"))) continue;
+                if (!at32.matcher(instruction.toString()).find()) continue;
+                Function f = fm.getFunctionContaining(instruction.getAddress());
+                if (f != null) field32Stores.computeIfAbsent(f, k -> new ArrayList<>()).add(instruction);
+              }
+              out.println("Functions with a store at immediate offset +32: " + field32Stores.size());
+              int emittedFunctions = 0;
+              for (Map.Entry<Function, List<Instruction>> entry : field32Stores.entrySet()) {
+                if (emittedFunctions++ >= 160) {
+                  out.println("[TRUNCATED after 160 candidate functions]");
+                  break;
+                }
+                Function f = entry.getKey();
+                boolean hasStride36 = false;
+                InstructionIterator body = listing.getInstructions(f.getBody(), true);
+                while (body.hasNext()) {
+                  if (stride36.matcher(body.next().toString()).find()) {
+                    hasStride36 = true;
+                    break;
+                  }
+                }
+                out.println("\\nCANDIDATE " + f.getName() + " @ " + f.getEntryPoint() +
+                            " stride_0x24_in_function=" + hasStride36);
+                for (Instruction store : entry.getValue()) {
+                  Instruction cursor = store;
+                  for (int i = 0; i < 6 && cursor != null; i++) {
+                    cursor = listing.getInstructionBefore(cursor.getAddress());
+                  }
+                  for (int i = 0; i < 15 && cursor != null; i++) {
+                    out.println(cursor.getAddress() + "  " + cursor);
+                    cursor = listing.getInstructionAfter(cursor.getAddress());
+                  }
+                }
+              }
+
               out.close();
               di.dispose();
             }
