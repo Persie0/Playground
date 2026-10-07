@@ -91,6 +91,16 @@ jobs:
               }
             }
 
+            void dumpInstructions(long first, long last) {
+              out.println("\\n===== INSTRUCTIONS " + toAddr(first) + ".." + toAddr(last) + " =====");
+              AddressSet range = new AddressSet(toAddr(first), toAddr(last));
+              InstructionIterator ii = currentProgram.getListing().getInstructions(range, true);
+              while (ii.hasNext()) {
+                Instruction instruction = ii.next();
+                out.println(instruction.getAddress() + "  " + instruction);
+              }
+            }
+
             public void run() throws Exception {
               out = new PrintWriter(new BufferedWriter(new FileWriter(getScriptArgs()[0])));
               di = new DecompInterface();
@@ -197,6 +207,31 @@ jobs:
                               (f == null ? "<no function>" : f.getName()+"@"+f.getEntryPoint()));
                   if (f != null) decomp(f, "global xref " + a);
                 }
+              }
+
+              out.println("\\n===== RAW LINE-WEIGHT DIAGNOSTICS =====");
+              dumpInstructions(0x403a80L, 0x403b80L);
+              dumpInstructions(0x4052b8L, 0x4052f0L);
+              Address weightData = toAddr(0x162260L);
+              byte[] weightBytes = new byte[16];
+              currentProgram.getMemory().getBytes(weightData, weightBytes);
+              StringBuilder weightHex = new StringBuilder();
+              for (byte b : weightBytes) weightHex.append(String.format("%02x", b & 0xff));
+              out.println("RODATA " + weightData + " bytes=" + weightHex);
+              for (int i = 0; i < 4; i++) {
+                int bits = (weightBytes[i*4] & 0xff) |
+                           ((weightBytes[i*4+1] & 0xff) << 8) |
+                           ((weightBytes[i*4+2] & 0xff) << 16) |
+                           ((weightBytes[i*4+3] & 0xff) << 24);
+                out.println("  float[" + i + "] bits=0x" + Integer.toHexString(bits) +
+                            " value=" + Float.intBitsToFloat(bits));
+              }
+              ReferenceIterator weightRefs = rm.getReferencesTo(weightData);
+              while (weightRefs.hasNext()) {
+                Reference ref = weightRefs.next();
+                Function f = fm.getFunctionContaining(ref.getFromAddress());
+                out.println("  RODATA XREF " + ref.getFromAddress() + " -> " +
+                            (f == null ? "<no function>" : f.getName() + "@" + f.getEntryPoint()));
               }
 
               out.close();
