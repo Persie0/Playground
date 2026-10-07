@@ -1,0 +1,187 @@
+name: Ghidra LightCycle string xrefs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ghidra-lightcycle-xrefs.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Download exact binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Download latest Ghidra
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="$(curl -fsSL https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest | jq -r '.assets[] | select(.name | test("PUBLIC.*\\.zip$")) | .browser_download_url' | head -1)"
+          test -n "$url" && test "$url" != "null"
+          curl -fL --retry 3 "$url" -o ghidra.zip
+          mkdir ghidra
+          unzip -q ghidra.zip -d ghidra
+          GHIDRA_HOME="$(find ghidra -mindepth 1 -maxdepth 1 -type d | head -1)"
+          echo "GHIDRA_HOME=$GHIDRA_HOME" >> "$GITHUB_ENV"
+
+      - name: Write xref script
+        shell: bash
+        run: |
+          mkdir -p scripts out
+          cat > scripts/DumpXrefs.java <<'JAVA'
+          import ghidra.app.decompiler.*;
+          import ghidra.app.script.GhidraScript;
+          import ghidra.program.model.address.*;
+          import ghidra.program.model.listing.*;
+          import ghidra.program.model.symbol.*;
+          import ghidra.program.model.data.*;
+          import java.io.*;
+          import java.util.*;
+          import java.util.regex.*;
+
+          public class DumpXrefs extends GhidraScript {
+            DecompInterface di;
+            PrintWriter out;
+            Set<Address> done = new HashSet<>();
+
+            void decomp(Function f, String why) throws Exception {
+              if (f == null || done.contains(f.getEntryPoint()) || f.isExternal()) return;
+              done.add(f.getEntryPoint());
+              out.println("\n===== " + f.getName() + " @ " + f.getEntryPoint() + " =====");
+              out.println("WHY: " + why);
+              out.println("PROTO: " + f.getPrototypeString(false, false));
+              out.println("BODY: " + f.getBody());
+              DecompileResults r = di.decompileFunction(f, 120, monitor);
+              if (r.decompileCompleted() && r.getDecompiledFunction() != null) {
+                out.println(r.getDecompiledFunction().getC());
+              } else {
+                out.println("[DECOMPILE FAILED] " + r.getErrorMessage());
+              }
+              out.println("CALLEES:");
+              for (Function c : f.getCalledFunctions(monitor)) {
+                out.println("  " + c.getEntryPoint() + " " + c.getName());
+              }
+              out.println("CALLERS:");
+              for (Function c : f.getCallingFunctions(monitor)) {
+                out.println("  " + c.getEntryPoint() + " " + c.getName());
+              }
+            }
+
+            public void run() throws Exception {
+              out = new PrintWriter(new BufferedWriter(new FileWriter(getScriptArgs()[0])));
+              di = new DecompInterface();
+              di.toggleCCode(true);
+              di.toggleSyntaxTree(true);
+              di.setSimplificationStyle("decompile");
+              di.openProgram(currentProgram);
+
+              Pattern pat = Pattern.compile(
+                "(?i)(photosphere|target_generator|target manager|targethit|target_hit|" +
+                "capture_target|alignment_estimator|spherical_pairwise|patch_pairwise|" +
+                "fast_9|orientedpatch|line_aligner|line_finder|edge_finder|" +
+                "global_flow_solver|camera_rotation_model|flow_constraints|" +
+                "bundle_adjust|ceres|rosette|session_renderer|incremental_stitch|" +
+                "stitcher\.cc|seam_finder|optimal_seam|multiband|image_adjuster|" +
+                "gamma exposure|writeyuv420tojpeg|image_match_width|moving too fast|" +
+                "photo skipped|alignment did not converge|no images to align)"
+              );
+
+              Listing listing = currentProgram.getListing();
+              ReferenceManager rm = currentProgram.getReferenceManager();
+              FunctionManager fm = currentProgram.getFunctionManager();
+              DataIterator it = listing.getDefinedData(true);
+              Set<Function> hits = new TreeSet<>(Comparator.comparing(f -> f.getEntryPoint()));
+
+              while (it.hasNext()) {
+                Data d = it.next();
+                if (!d.hasStringValue()) continue;
+                Object value = d.getValue();
+                if (!(value instanceof String)) continue;
+                String s = (String)value;
+                if (!pat.matcher(s).find()) continue;
+                out.println("\nSTRING " + d.getAddress() + " = " + s);
+                ReferenceIterator refs = rm.getReferencesTo(d.getAddress());
+                while (refs.hasNext()) {
+                  Reference ref = refs.next();
+                  Function f = fm.getFunctionContaining(ref.getFromAddress());
+                  out.println("  XREF " + ref.getFromAddress() + " -> " +
+                              (f == null ? "<no function>" : f.getName()+"@"+f.getEntryPoint()));
+                  if (f != null) hits.add(f);
+                }
+              }
+
+              int n = 0;
+              for (Function f : hits) {
+                if (n++ >= 180) break;
+                decomp(f, "interesting string xref");
+                for (Function caller : f.getCallingFunctions(monitor)) {
+                  decomp(caller, "caller of string-xref function " + f.getEntryPoint());
+                }
+                for (Function callee : f.getCalledFunctions(monitor)) {
+                  if (callee.getEntryPoint().getOffset() >= 0x1ed630L &&
+                      callee.getEntryPoint().getOffset() < 0x4fb864L) {
+                    decomp(callee, "callee of string-xref function " + f.getEntryPoint());
+                  }
+                }
+              }
+
+              out.println("\n===== SESSION/GLOBAL ADDRESS XREFS =====");
+              long[] globals = {
+                0x512010L,0x512018L,0x512020L,0x512028L,0x512030L,0x512038L,
+                0x512050L,0x512058L,0x512060L,0x512068L,0x512070L,
+                0x5170c8L,0x5170d0L,0x5170d8L,0x5170d9L,0x5170daL,0x5170dbL,
+                0x517100L,0x517108L
+              };
+              for (long g : globals) {
+                Address a = toAddr(g);
+                out.println("\nGLOBAL " + a);
+                ReferenceIterator refs = rm.getReferencesTo(a);
+                while (refs.hasNext()) {
+                  Reference ref = refs.next();
+                  Function f = fm.getFunctionContaining(ref.getFromAddress());
+                  out.println("  XREF " + ref.getFromAddress() + " -> " +
+                              (f == null ? "<no function>" : f.getName()+"@"+f.getEntryPoint()));
+                  if (f != null) decomp(f, "global xref " + a);
+                }
+              }
+
+              out.close();
+              di.dispose();
+            }
+          }
+          JAVA
+
+      - name: Analyze
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ghproj
+          "$GHIDRA_HOME/support/analyzeHeadless" /tmp/ghproj LightCycleXrefs             -import "$PWD/liblightcycle.so"             -overwrite             -analysisTimeoutPerFile 1800             -scriptPath "$PWD/scripts"             -postScript DumpXrefs.java "$PWD/out/xrefs-decompiled.txt"             > "$PWD/out/ghidra.log" 2>&1
+          wc -l out/xrefs-decompiled.txt
+          grep -nE "Photosphere|target_generator|bundle_adjust|seam_finder|multiband|GLOBAL" out/xrefs-decompiled.txt | head -120 || true
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-camera-lightcycle-xrefs
+          path: out/
+          if-no-files-found: error
+          retention-days: 90
