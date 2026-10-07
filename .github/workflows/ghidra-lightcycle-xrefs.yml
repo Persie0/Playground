@@ -271,36 +271,39 @@ jobs:
               }
 
               out.println("\\n===== POSSIBLE 36-BYTE RECORD FIELD +32 STORES =====");
-              Pattern at32 = Pattern.compile("(?i)#(?:0x20|32)(?=\\]|,|\\s|$)");
-              Pattern stride36 = Pattern.compile("(?i)#(?:0x24|36)(?=\\]|,|\\s|$)");
               Map<Function, List<Instruction>> field32Stores = new LinkedHashMap<>();
               InstructionIterator storeScan = listing.getInstructions(true);
               while (storeScan.hasNext()) {
                 Instruction instruction = storeScan.next();
                 String mnemonic = instruction.getMnemonicString().toLowerCase();
+                String text = instruction.toString().toLowerCase();
                 if (!(mnemonic.startsWith("str") || mnemonic.startsWith("stur") ||
                       mnemonic.startsWith("stp") || mnemonic.startsWith("stnp"))) continue;
-                if (!at32.matcher(instruction.toString()).find()) continue;
+                if (text.contains("[sp") || text.contains(", #0x20]") || text.contains(", #32]")) {
+                  if (text.contains("[sp")) continue;
+                } else {
+                  continue;
+                }
                 Function f = fm.getFunctionContaining(instruction.getAddress());
                 if (f != null) field32Stores.computeIfAbsent(f, k -> new ArrayList<>()).add(instruction);
               }
-              out.println("Functions with a store at immediate offset +32: " + field32Stores.size());
-              int emittedFunctions = 0;
+              out.println("Non-stack functions with a store at immediate offset +32: " + field32Stores.size());
+              int strideCandidates = 0;
               for (Map.Entry<Function, List<Instruction>> entry : field32Stores.entrySet()) {
-                if (emittedFunctions++ >= 160) {
-                  out.println("[TRUNCATED after 160 candidate functions]");
-                  break;
-                }
                 Function f = entry.getKey();
                 boolean hasStride36 = false;
                 InstructionIterator body = listing.getInstructions(f.getBody(), true);
                 while (body.hasNext()) {
-                  if (stride36.matcher(body.next().toString()).find()) {
+                  String text = body.next().toString().toLowerCase();
+                  if (text.contains("#0x24") || text.contains("#36")) {
                     hasStride36 = true;
                     break;
                   }
                 }
+                if (!hasStride36 && f.getEntryPoint().getOffset() != 0x416154L) continue;
+                strideCandidates++;
                 out.println("\\nCANDIDATE " + f.getName() + " @ " + f.getEntryPoint() +
+                            " direct_stores=" + entry.getValue().size() +
                             " stride_0x24_in_function=" + hasStride36);
                 for (Instruction store : entry.getValue()) {
                   Instruction cursor = store;
@@ -313,6 +316,7 @@ jobs:
                   }
                 }
               }
+              out.println("Functions retained with stride-36 evidence or known helper anchor: " + strideCandidates);
 
               out.close();
               di.dispose();
