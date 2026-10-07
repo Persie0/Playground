@@ -70,3 +70,37 @@ jobs:
             adb shell uiautomator dump /sdcard/root-detector-ui.xml
             adb shell cat /sdcard/root-detector-ui.xml > root-detector-ui.xml
             grep -E 'EULA|Terms|Accept' root-detector-ui.xml
+
+            # Interact through accessibility bounds rather than assuming a fixed screen size.
+            python3 - <<'PY'
+            import re
+            import subprocess
+            import xml.etree.ElementTree as ET
+
+            def tap_label(label):
+                result = subprocess.run(
+                    ["adb", "shell", "uiautomator", "dump", "/sdcard/root-detector-ui.xml"],
+                    capture_output=True, text=True, timeout=45
+                )
+                if result.returncode:
+                    raise RuntimeError(result.stdout + result.stderr)
+                xml = subprocess.check_output(
+                    ["adb", "shell", "cat", "/sdcard/root-detector-ui.xml"], text=True
+                )
+                nodes = ET.fromstring(xml).iter("node")
+                for node in nodes:
+                    desc = node.attrib.get("text", "") + " " + node.attrib.get("content-desc", "")
+                    if label.casefold() not in desc.casefold():
+                        continue
+                    m = re.fullmatch(r"\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]", node.attrib.get("bounds", ""))
+                    if m:
+                        a, b, c, d = (int(v) for v in m.groups())
+                        subprocess.check_call(["adb", "shell", "input", "tap", str((a+c)//2), str((b+d)//2)])
+                        return
+                raise RuntimeError("UI label not found: " + label)
+
+            tap_label("I have read and agree")
+            tap_label("Accept and Continue")
+            PY
+            sleep 12
+            adb shell pidof at.persie0.root_detection_app
