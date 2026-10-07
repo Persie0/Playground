@@ -1,0 +1,39 @@
+name: Kotlin release builder latest regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/kotlin-builder-latest-regression.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout builder exact head
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: ab318a0b52396846367599fdbb7f3166d4879949
+          path: builder
+
+      - name: Run Play release workflow regression tests
+        working-directory: builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_play*.py'
+          grep -q '          - Audiobooster' .github/workflows/play_kotlin_auto.yml
+          grep -q '          - root_detection_app' .github/workflows/play_kotlin_auto.yml
+          grep -q '          - fake_gps_detector' .github/workflows/play_kotlin_auto.yml
+          ! grep -q '          - Audiobooster' .github/workflows/play_auto.yml
+          ! grep -q '          - root_detection_app' .github/workflows/play_auto.yml
+          ! grep -q '          - fake_gps_detector' .github/workflows/play_auto.yml
+          grep -q 'sdkmanager --channel=3' .github/workflows/play_kotlin_auto.yml
+          grep -q 'sdkmanager "platforms;android-36" "build-tools;36.0.0"' .github/workflows/play_kotlin_auto.yml
