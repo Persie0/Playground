@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -92,54 +92,16 @@ jobs:
           done < <(find "$PACKAGE_DIR" -type f)
           test "$found" -gt 0
 
-      - name: Copy verified package into app repository
+      - name: Publish verified binary package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod +x .github/scripts/publish_extract_audio_ffmpeg.sh
+          .github/scripts/publish_extract_audio_ffmpeg.sh "ffmpeg-kit-next/$PACKAGE_DIR"
+
+      - name: Commit checksum-pinned SwiftPM manifest
         shell: bash
         run: |
-          set -euo pipefail
-          DEST="target/swift-ios/Vendor/FFmpegKitNextLGPL"
-          rm -rf "$DEST"
-          mkdir -p "$DEST"
-          cp -R "ffmpeg-kit-next/$PACKAGE_DIR/." "$DEST/"
-
-          cat > "$DEST/BUILD_PROVENANCE.md" <<'DOC'
-          # FFmpegKitNext LGPL iOS binary provenance
-
-          Source repository: https://github.com/arthenica/ffmpeg-kit-next
-          Release: v9.0.0
-          Commit: a724ed99583dcfe2af497c794fdd6b24ddd54a4e
-
-          Build command:
-
-          ```bash
-          ./ios.sh -x --spm --target=17.0 \
-            --arch=arm64 \
-            --jobs=4
-          ```
-
-          No `--enable-gpl`, `--enable-nonfree`, `--enable-lib-all`, x264, x265,
-          xvidcore, libvidstab, or rubberband options were enabled.
-
-          The public validation workflow scans every shipped FFmpeg Mach-O binary
-          for forbidden GPL/nonfree configure flags before release.
-          DOC
-
-          # GitHub rejects individual blobs >=100 MB.
-          if find "$DEST" -type f -size +95M -print -quit | grep -q .; then
-            echo "ERROR: generated vendor package contains a file larger than 95 MB:" >&2
-            find "$DEST" -type f -size +95M -print >&2
-            exit 1
-          fi
-
-      - name: Commit verified vendor package
-        working-directory: target
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          git rebase origin/main
-          git add swift-ios/Vendor/FFmpegKitNextLGPL
-          git diff --cached --stat
-          git commit -m "Vendor verified LGPL-only FFmpegKitNext iOS binaries"
-          git push origin main
+          chmod +x .github/scripts/commit_extract_audio_ffmpeg_manifest.sh
+          .github/scripts/commit_extract_audio_ffmpeg_manifest.sh target "$ASSETS"
