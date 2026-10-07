@@ -1,0 +1,83 @@
+name: Temporary AudioBooster RevenueCat final gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tmp-audiobooster-revenuecat-final.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out exact AudioBooster main revision
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: 9e17742b9977ecedeee5a6bda0af3cb9aeffa6d6
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: audiobooster
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        working-directory: audiobooster
+        run: flutter pub get
+
+      - name: Bootstrap Android
+        working-directory: audiobooster
+        run: bash tool/bootstrap_android.sh
+
+      - name: Native unit tests
+        working-directory: audiobooster/android
+        run: ./gradlew testDebugUnitTest
+
+      - name: Maintained native source drift
+        working-directory: audiobooster
+        run: |
+          cmp tool/android/MainActivity.kt android/app/src/main/kotlin/com/persie0/audiobooster/MainActivity.kt
+          diff -qr tool/android/com/persie0/audiobooster android/app/src/main/kotlin/com/persie0/audiobooster
+
+      - name: Flutter tests
+        working-directory: audiobooster
+        run: flutter test
+
+      - name: Flutter analyze
+        working-directory: audiobooster
+        run: flutter analyze
+
+      - name: Debug APK
+        working-directory: audiobooster
+        run: flutter build apk --debug
+
+      - name: Release APK
+        working-directory: audiobooster
+        run: flutter build apk --release
+
+      - name: Release AAB
+        working-directory: audiobooster
+        run: flutter build appbundle --release
+
+      - name: Monetization boundary
+        working-directory: audiobooster
+        run: |
+          grep -q 'purchases_flutter' pubspec.yaml
+          grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
+          ! grep -R -E 'Appodeal|BidMachine|Bidon|IronSource' pubspec.yaml android/app/src/main/AndroidManifest.xml android/settings.gradle.kts android/app/build.gradle.kts
+          ! grep -R 'goog_' ios lib/subscription | grep -v 'goog_zoooKoAwTLrRRsvbFZIGEdkrFAF'
