@@ -1,0 +1,70 @@
+name: Verify three app PR merges (2026-10-08)
+on:
+  push:
+    paths:
+      - '.github/workflows/review-glitchtip-postmerge-20261008.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    steps:
+      - name: Checkout Image Compressor
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_compressor
+          ref: 8e2e860c36ecd02881e557539ecce16b914cb8d1
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: apps/image_compressor
+      - name: Checkout Fake GPS Detector
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/fake_gps_detector
+          ref: 4d2d1d51be86efad53c3f10456c238777a5d91d5
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: apps/fake_gps_detector
+      - name: Checkout NomadRank
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/skratch_clone
+          ref: 5dd273f4dc1f5c14c9ec85026a982c6395033d80
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: apps/skratch_clone
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Sequential Flutter analysis and tests
+        shell: bash
+        run: |
+          set -uo pipefail
+          failures=0
+          mkdir -p results
+          : > results/summary.txt
+          for app in image_compressor fake_gps_detector skratch_clone; do
+            echo "::group::$app"
+            if (cd "apps/$app" && flutter pub get && flutter analyze --no-fatal-infos --no-fatal-warnings && flutter test --concurrency=1 --timeout 2m); then
+              echo "PASS $app" | tee -a results/summary.txt
+            else
+              echo "FAIL $app" | tee -a results/summary.txt
+              failures=$((failures+1))
+            fi
+            echo "::endgroup::"
+          done
+          cat results/summary.txt >> "$GITHUB_STEP_SUMMARY"
+          test "$failures" -eq 0
+      - name: Upload verification summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-3-apps-20261008
+          path: results/summary.txt
+          retention-days: 3
