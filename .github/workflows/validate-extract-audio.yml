@@ -1,11 +1,15 @@
 name: Validate ExtractAudioFromVideo
+
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/validate-extract-audio.yml']
+    paths:
+      - '.github/workflows/validate-extract-audio.yml'
   workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   android:
     runs-on: ubuntu-latest
@@ -15,25 +19,39 @@ jobs:
           repository: Persie0/ExtractAudioFromVideo
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: target
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+
       - uses: gradle/actions/setup-gradle@v5
-      - name: Build and inspect Android
+
+      - name: Verify source dependency policy
+        working-directory: target
+        run: bash scripts/verify_media_licensing.sh
+
+      - name: Build Android
+        working-directory: target/kotlin-android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Scan Android FFmpeg binaries
         working-directory: target
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/verify_media_licensing.sh
-          cd kotlin-android
-          chmod +x ./gradlew
-          ./gradlew :app:assembleDebug --stacktrace
-          mapfile -t libs < <(find app/build -type f \( -name 'libavcodec.so' -o -name 'libavformat.so' -o -name 'libavutil.so' \))
+          mapfile -t libs < <(find kotlin-android/app/build -type f \(             -name 'libavcodec.so' -o -name 'libavformat.so' -o             -name 'libavutil.so' -o -name 'libavfilter.so' -o             -name 'libswresample.so' -o -name 'libswscale.so'           \))
           test "${#libs[@]}" -gt 0
           for lib in "${libs[@]}"; do
-            ! strings "$lib" | grep -E -- '--enable-gpl([ =]|$)|--enable-nonfree([ =]|$)'
+            echo "Inspecting $lib"
+            if strings "$lib" | grep -E --               '--enable-gpl([ =]|$)|--enable-nonfree([ =]|$)|--enable-libx264([ =]|$)|--enable-libx265([ =]|$)|--enable-libxvid([ =]|$)|--enable-libvidstab([ =]|$)|--enable-librubberband([ =]|$)'; then
+              echo "ERROR: forbidden GPL/nonfree FFmpeg flag in $lib" >&2
+              exit 1
+            fi
           done
+
   ios:
     needs: android
     runs-on: macos-latest
@@ -43,29 +61,41 @@ jobs:
           repository: Persie0/ExtractAudioFromVideo
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: target
-      - name: Resolve and inspect iOS FFmpeg assets
+
+      - name: Verify source dependency policy
         working-directory: target
+        run: bash scripts/verify_media_licensing.sh
+
+      - name: Build iOS arm64 simulator
+        working-directory: target/swift-ios
+        run: |
+          set -euo pipefail
+          xcodebuild             -project ExtractAudioFromVideo.xcodeproj             -scheme ExtractAudioFromVideo             -configuration Debug             -sdk iphonesimulator             -destination 'generic/platform=iOS Simulator'             -derivedDataPath .derived             ARCHS=arm64             EXCLUDED_ARCHS=x86_64             ONLY_ACTIVE_ARCH=YES             CODE_SIGNING_ALLOWED=NO             build
+
+      - name: Scan resolved iOS FFmpeg binaries
+        working-directory: target/swift-ios
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/verify_media_licensing.sh
-          cd swift-ios/Vendor/FFmpegKitNextLGPL
-          swift package resolve
+          ROOT=".derived/SourcePackages/artifacts"
+          test -d "$ROOT"
           found=0
-          while IFS= read -r b; do
-            if file "$b" | grep -q Mach-O; then
-              case "$(basename "$b")" in
+          while IFS= read -r binary; do
+            if file "$binary" | grep -q 'Mach-O'; then
+              case "$(basename "$binary")" in
                 ffmpegkit|libavcodec|libavdevice|libavfilter|libavformat|libavutil|libswresample|libswscale)
-                  found=$((found+1))
-                  otool -l "$b" | grep -q LC_ID_DYLIB
-                  ! strings "$b" | grep -E -- '--enable-gpl([ =]|$)|--enable-nonfree([ =]|$)|--enable-libx264([ =]|$)|--enable-libx265([ =]|$)|--enable-libxvid([ =]|$)|--enable-libvidstab([ =]|$)|--enable-librubberband([ =]|$)'
+                  found=$((found + 1))
+                  echo "Inspecting $binary"
+                  if ! otool -l "$binary" | grep -q 'LC_ID_DYLIB'; then
+                    echo "ERROR: expected dynamic FFmpeg library: $binary" >&2
+                    exit 1
+                  fi
+                  if strings "$binary" | grep -E --                     '--enable-gpl([ =]|$)|--enable-nonfree([ =]|$)|--enable-libx264([ =]|$)|--enable-libx265([ =]|$)|--enable-libxvid([ =]|$)|--enable-libvidstab([ =]|$)|--enable-librubberband([ =]|$)'; then
+                    echo "ERROR: forbidden GPL/nonfree FFmpeg flag in $binary" >&2
+                    exit 1
+                  fi
                   ;;
               esac
             fi
-          done < <(find .build -type f)
-          test "$found" -gt 0
-      - name: Build iOS simulator
-        working-directory: target/swift-ios
-        run: |
-          set -o pipefail
-          xcodebuild -project ExtractAudioFromVideo.xcodeproj -target ExtractAudioFromVideo -configuration Debug -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES EXCLUDED_ARCHS=x86_64 build
+          done < <(find "$ROOT" -type f)
+          test "$found" -ge 8
