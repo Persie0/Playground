@@ -1,5 +1,5 @@
 name: Root Detector Kotlin verification (public runner)
-# Validation rerun after Compose icon and Activity progress fixes.
+# Build the native migration without spending private-repository Actions minutes.
 
 on:
   push:
@@ -14,7 +14,7 @@ permissions:
 jobs:
   native-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,4 +50,22 @@ jobs:
 
       - name: Run native Android tests and compile APK
         working-directory: root-detector
-        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug --stacktrace
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:bundleRelease --stacktrace
+
+      - name: Validate on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install root-detector/app/build/outputs/apk/debug/app-debug.apk
+            adb shell am start -W -n at.persie0.root_detection_app/.MainActivity
+            sleep 12
+            adb shell pidof at.persie0.root_detection_app
+            adb shell uiautomator dump /sdcard/root-detector-ui.xml
+            adb shell cat /sdcard/root-detector-ui.xml > root-detector-ui.xml
+            grep -E 'EULA|Terms|Accept' root-detector-ui.xml
