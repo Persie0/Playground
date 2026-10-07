@@ -126,7 +126,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --disable-pip-version-check --no-input 'cffi<2' 'pycparser==2.22' 'angr==9.2.180'
+          python3 -m pip install --disable-pip-version-check --no-input 'cffi<2' 'pycparser==2.22' 'angr==9.2.180' 'pyelftools==0.32' 'capstone==5.0.6'
           cat > /tmp/decompile_lightcycle.py <<'PY'
           import traceback
           from pathlib import Path
@@ -219,6 +219,140 @@ jobs:
           Path("out/angr-targeted-callgraph.tsv").write_text("\n".join(callmap) + "\n")
           PY
           python3 /tmp/decompile_lightcycle.py
+
+
+      - name: Resolve GOT globals, status-byte xrefs and relocation-backed objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          readelf -rW liblightcycle.so > out/readelf-relocations.txt
+          readelf -SW liblightcycle.so > out/readelf-sections.txt
+          aarch64-linux-gnu-objdump -s -j .data.rel.ro liblightcycle.so > out/data-rel-ro.txt 2>/dev/null || true
+          aarch64-linux-gnu-objdump -s -j .got liblightcycle.so > out/got.txt 2>/dev/null || true
+
+          cat > /tmp/resolve_lightcycle_refs.py <<'PY'
+          from pathlib import Path
+          from collections import defaultdict
+          from elftools.elf.elffile import ELFFile
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
+          from capstone.arm64 import ARM64_OP_IMM, ARM64_OP_MEM, ARM64_OP_REG
+
+          TARGETS = {
+              0x8170c8: "renderer_queue_or_manager",
+              0x8170d0: "active_capture_session",
+              0x8170d8: "TargetHit",
+              0x8170d9: "TakeNewPhoto",
+              0x8170da: "MovingTooFast",
+              0x8170db: "PhotoSkippedTooFast",
+              0x817100: "gyro_or_rotation_manager",
+              0x81710c: "stitch_session_counter",
+          }
+
+          with open("liblightcycle.so", "rb") as fh:
+              elf = ELFFile(fh)
+              relocs = {}
+              rows = []
+              for sec in elf.iter_sections():
+                  if not hasattr(sec, "iter_relocations"):
+                      continue
+                  symtab = elf.get_section(sec["sh_link"]) if sec["sh_link"] else None
+                  for rel in sec.iter_relocations():
+                      off = rel["r_offset"]
+                      addend = rel.entry.get("r_addend", 0)
+                      name = ""
+                      idx = rel.entry.get("r_info_sym", 0)
+                      if symtab is not None and idx:
+                          try:
+                              name = symtab.get_symbol(idx).name
+                          except Exception:
+                              pass
+                      relocs[off] = (addend, name, rel.entry.get("r_info_type", 0))
+                      rows.append((off, addend, name, rel.entry.get("r_info_type", 0), sec.name))
+
+              Path("out/relocations-near-lightcycle-globals.txt").write_text(
+                  "\n".join(
+                      f"reloc=0x{off:x} addend=0x{addend:x} target={TARGETS.get(addend,'')} "
+                      f"symbol={name} type={rtype} section={secname}"
+                      for off, addend, name, rtype, secname in rows
+                      if addend in TARGETS or 0x817080 <= addend <= 0x817180
+                  ) + "\n"
+              )
+
+              text = elf.get_section_by_name(".text")
+              code = text.data()
+              base = text["sh_addr"]
+
+          md = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
+          md.detail = True
+          insns = list(md.disasm(code, base))
+
+          # Map GOT relocation slots to the local objects/bytes they ultimately point at.
+          got_target = {}
+          for off, (addend, name, rtype) in relocs.items():
+              if addend in TARGETS:
+                  got_target[off] = (addend, TARGETS[addend])
+
+          # Small local constant-propagation pass for ADRP -> ADD/LDR GOT sequences.
+          refs = []
+          reg_page = {}
+          ptr_regs = {}
+          for ins in insns:
+              m = ins.mnemonic
+              ops = ins.operands
+              # Flush state at obvious control-flow boundaries.
+              if m in {"ret", "br", "blr", "b"}:
+                  if m != "blr":
+                      reg_page.clear()
+                      ptr_regs.clear()
+              if m == "adrp" and len(ops) >= 2 and ops[0].type == ARM64_OP_REG and ops[1].type == ARM64_OP_IMM:
+                  reg_page[ops[0].reg] = ops[1].imm
+                  continue
+              if m == "add" and len(ops) >= 3 and ops[0].type == ARM64_OP_REG and ops[1].type == ARM64_OP_REG and ops[2].type == ARM64_OP_IMM:
+                  if ops[1].reg in reg_page:
+                      reg_page[ops[0].reg] = reg_page[ops[1].reg] + ops[2].imm
+                  continue
+              if m.startswith("ldr") and len(ops) >= 2 and ops[0].type == ARM64_OP_REG and ops[1].type == ARM64_OP_MEM:
+                  mem = ops[1].mem
+                  if mem.base in reg_page:
+                      slot = reg_page[mem.base] + mem.disp
+                      if slot in got_target:
+                          target, label = got_target[slot]
+                          ptr_regs[ops[0].reg] = (target, label, slot, ins.address)
+                          refs.append((ins.address, "LOAD_PTR", label, target, slot, ins.mnemonic, ins.op_str))
+                  continue
+              if m.startswith("str") and len(ops) >= 2 and ops[1].type == ARM64_OP_MEM:
+                  mem = ops[1].mem
+                  if mem.base in ptr_regs:
+                      target, label, slot, load_addr = ptr_regs[mem.base]
+                      refs.append((ins.address, "WRITE", label, target, slot, ins.mnemonic, ins.op_str))
+              if m.startswith("ldr") and len(ops) >= 2 and ops[1].type == ARM64_OP_MEM:
+                  mem = ops[1].mem
+                  if mem.base in ptr_regs:
+                      target, label, slot, load_addr = ptr_regs[mem.base]
+                      refs.append((ins.address, "READ", label, target, slot, ins.mnemonic, ins.op_str))
+
+          Path("out/global-xrefs.tsv").write_text(
+              "address\tkind\tlabel\ttarget\tgot_slot\tinstruction\n" +
+              "\n".join(
+                  f"0x{a:x}\t{k}\t{label}\t0x{target:x}\t0x{slot:x}\t{mn} {op}"
+                  for a,k,label,target,slot,mn,op in refs
+              ) + "\n"
+          )
+
+          # Emit disassembly context around every actual write to one of the four state bytes.
+          by_addr = {i.address: n for n, i in enumerate(insns)}
+          chunks = []
+          for a,k,label,target,slot,mn,op in refs:
+              if k != "WRITE" or target not in (0x8170d8,0x8170d9,0x8170da,0x8170db):
+                  continue
+              n = by_addr[a]
+              chunks.append(f"===== WRITE {label} at 0x{a:x} =====")
+              for ii in insns[max(0,n-24):min(len(insns),n+25)]:
+                  chunks.append(f"{ii.address:08x}:\t{ii.mnemonic}\t{ii.op_str}")
+              chunks.append("")
+          Path("out/status-byte-write-context.txt").write_text("\n".join(chunks))
+          PY
+          python3 /tmp/resolve_lightcycle_refs.py
 
       - name: Extract parameter and algorithm strings
         shell: bash
