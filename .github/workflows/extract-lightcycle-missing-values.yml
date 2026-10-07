@@ -111,7 +111,8 @@ jobs:
 
           with BIN.open('rb') as fh:
               elf = ELFFile(fh)
-              data = fh.read()
+              fh.seek(0)  # ELFFile has already consumed bytes while reading the ELF header.
+          data = fh.read()
               text = elf.get_section_by_name('.text')
               rodata = elf.get_section_by_name('.rodata')
               rela_sections = [s for s in elf.iter_sections() if hasattr(s, 'iter_relocations')]
@@ -168,12 +169,18 @@ jobs:
               md.detail = True
               insns = list(md.disasm(code, base))
 
+          if len(strings) < 1000:
+              raise RuntimeError(f'ELF scan found only {len(strings)} strings; check binary offset handling')
+
           # Locate strings by target group.
           target_strings = defaultdict(list)
           for va, s in strings:
               for group, terms in TARGET_TERMS.items():
                   if any(t.lower() in s.lower() for t in terms):
                       target_strings[group].append({'va': va, 'text': s})
+
+          if not target_strings:
+              raise RuntimeError('No target source/type strings found; refusing to publish an empty report')
 
           # Find functions roughly by exported JNI symbols and branch labels in objdump.
           dis = Path('out/full-disassembly.txt').read_text(errors='replace').splitlines()
