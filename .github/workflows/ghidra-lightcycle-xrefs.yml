@@ -17,9 +17,15 @@ jobs:
     steps:
       - name: Download exact binary
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
-          curl -fL --retry 3 "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          auth=()
+          if [[ -n "${GH_TOKEN:-}" ]]; then
+            auth=(-H "Authorization: Bearer ${GH_TOKEN}")
+          fi
+          curl "${auth[@]}" -fL --retry 3 "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
           echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
           unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
           echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
@@ -98,8 +104,10 @@ jobs:
                 "capture_target|alignment_estimator|spherical_pairwise|patch_pairwise|" +
                 "fast_9|orientedpatch|line_aligner|line_finder|edge_finder|" +
                 "global_flow_solver|camera_rotation_model|flow_constraints|" +
-                "bundle_adjust|ceres|rosette|session_renderer|incremental_stitch|" +
-                "stitcher\.cc|seam_finder|optimal_seam|multiband|image_adjuster|" +
+                "bundle_adjust|BundleAdjusterGlobalFocalLength|LineMatchResidual|" +
+                "PointMatchResidual|line_matches|line_pairs|LineFeatureMatcher|" +
+                "ceres|rosette|session_renderer|incremental_stitch|" +
+                "stitcher\\.cc|seam_finder|optimal_seam|multiband|image_adjuster|" +
                 "gamma exposure|writeyuv420tojpeg|image_match_width|moving too fast|" +
                 "photo skipped|alignment did not converge|no images to align)"
               );
@@ -175,8 +183,9 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/ghproj
           "$GHIDRA_HOME/support/analyzeHeadless" /tmp/ghproj LightCycleXrefs             -import "$PWD/liblightcycle.so"             -overwrite             -analysisTimeoutPerFile 1800             -scriptPath "$PWD/scripts"             -postScript DumpXrefs.java "$PWD/out/xrefs-decompiled.txt"             > "$PWD/out/ghidra.log" 2>&1
+          if [[ ! -s out/xrefs-decompiled.txt ]]; then cat out/ghidra.log; exit 1; fi
           wc -l out/xrefs-decompiled.txt
-          grep -nE "Photosphere|target_generator|bundle_adjust|seam_finder|multiband|GLOBAL" out/xrefs-decompiled.txt | head -120 || true
+          grep -nE "Photosphere|target_generator|bundle_adjust|LineMatchResidual|line_matches|seam_finder|multiband|GLOBAL" out/xrefs-decompiled.txt | head -120 || true
 
       - name: Upload
         uses: actions/upload-artifact@v4
