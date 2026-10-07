@@ -53,6 +53,17 @@ jobs:
         working-directory: root-detector
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:bundleRelease --stacktrace
 
+      - name: Check out release builder verification scripts
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: kotlin-play-release
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: .firebase_builder
+
+      - name: Enforce Kotlin release R8 25 percent gate
+        run: python3 .firebase_builder/.github/scripts/verify_r8_min_scores.py root-detector/app/build/outputs/bundle/release/app-release.aab
+
       - name: Validate on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -92,9 +103,9 @@ jobs:
                     desc = node.attrib.get("text", "") + " " + node.attrib.get("content-desc", "")
                     if label.casefold() not in desc.casefold():
                         continue
-                    m = re.fullmatch(r"\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]", node.attrib.get("bounds", ""))
-                    if m:
-                        a, b, c, d = (int(v) for v in m.groups())
+                    coords = [int(v) for v in re.findall("[0-9]+", node.attrib.get("bounds", ""))]
+                    if len(coords) == 4:
+                        a, b, c, d = coords
                         subprocess.check_call(["adb", "shell", "input", "tap", str((a+c)//2), str((b+d)//2)])
                         return
                 raise RuntimeError("UI label not found: " + label)
