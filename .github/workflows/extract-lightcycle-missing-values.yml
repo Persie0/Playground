@@ -86,7 +86,9 @@ jobs:
                   'spherical_pairwise_match.cc', 'CameraRotationModel', 'FlowMotionModel', 'GlobalFlowSolver',
               ],
               'bundle_adjustment': [
-                  'bundle_adjust', 'BundleAdjuster', 'residual', 'HuberLoss', 'SoftLOneLoss', 'ceres',
+                  'optimization/bundle_adjustment.cc', 'BundleAdjusterGlobalFocalLength',
+                  'BundleAdjuster', 'PointMatchResidual', 'LineMatchResidual',
+                  'RollPitchSensorResidual', 'SensorResidual', 'HuberLoss', 'SoftLOneLoss',
               ],
               'render_seam_blend': [
                   'seam', 'blend', 'graphcut', 'multiband', 'exposure', 'gamma', 'SessionRenderer', 'Stitcher',
@@ -234,14 +236,15 @@ jobs:
               while True:
                   i = blob.find(bits, start)
                   if i < 0: break
-                  # map to VA
+                  # Keep literal-data matches only; executable/unwind sections create accidental bit-pattern hits.
                   va = None
+                  secname = None
                   for name, addr, off, size in sections:
                       if off <= i < off + size:
                           va = addr + (i - off)
                           secname = name
                           break
-                  if va is not None:
+                  if va is not None and secname in {'.rodata', '.data', '.data.rel.ro'}:
                       float_hits.append({'value': val, 'label': label, 'va': va, 'section': secname})
                   start = i + 1
 
@@ -304,7 +307,7 @@ jobs:
           lines.append('- Ceres residual blocks after dynamic graph construction')
           lines.append('- actual seam/blend/exposure values selected for a real session')
           lines.append('')
-          lines.append('## Known float anchor hits')
+          lines.append('## Literal-data float candidates')
           lines.append('')
           for h in sorted(float_hits, key=lambda x: (x['value'], x['va'])):
               lines.append(f"- `{h['value']}` `{h['label']}` at `0x{h['va']:x}` in `{h['section']}`")
