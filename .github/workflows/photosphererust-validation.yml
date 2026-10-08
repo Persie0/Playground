@@ -12,7 +12,26 @@ permissions:
 # Distinct jobs run concurrently so long release stress tests do not block
 # compilation failures or Android/iOS ABI checks.
 jobs:
+  # Resolve the private repository once; every parallel job validates
+  # exactly this SHA even if other development sessions push to main.
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      revision: ${{ steps.revision.outputs.sha }}
+    steps:
+      - name: Checkout current PhotosphereRust
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereRust
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: PhotosphereRust
+      - name: Pin evaluated revision
+        id: revision
+        working-directory: PhotosphereRust
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   tests:
+    needs: resolve
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PhotosphereRust
@@ -21,6 +40,7 @@ jobs:
           repository: Persie0/PhotosphereRust
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: PhotosphereRust
+          ref: ${{ needs.resolve.outputs.revision }}
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Default features
@@ -37,6 +57,7 @@ jobs:
         run: cargo test --all-targets --no-default-features --features mmap-output
 
   render-stress:
+    needs: resolve
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PhotosphereRust
@@ -45,6 +66,7 @@ jobs:
           repository: Persie0/PhotosphereRust
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: PhotosphereRust
+          ref: ${{ needs.resolve.outputs.revision }}
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Quality equivalence and repeatability
@@ -61,6 +83,7 @@ jobs:
           done
 
   mobile-targets:
+    needs: resolve
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PhotosphereRust
@@ -69,6 +92,7 @@ jobs:
           repository: Persie0/PhotosphereRust
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: PhotosphereRust
+          ref: ${{ needs.resolve.outputs.revision }}
       - name: Install Rust targets
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -84,6 +108,7 @@ jobs:
         run: cargo check --release --target aarch64-apple-ios
 
   release-benchmarks:
+    needs: resolve
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PhotosphereRust
@@ -92,6 +117,7 @@ jobs:
           repository: Persie0/PhotosphereRust
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: PhotosphereRust
+          ref: ${{ needs.resolve.outputs.revision }}
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Optimized release build
