@@ -1,0 +1,79 @@
+name: Photo Sphere Java camera calibration provenance 96
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-java-camera-96.yml"
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [jni-fov-callers, camera2-intrinsics, session-persistence]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Fetch and verify exact Google Camera APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+      - name: Fetch pinned JADX v1.5.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 "https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip" -o jadx.zip
+          mkdir -p jadx-dist
+          unzip -q jadx.zip -d jadx-dist
+          chmod +x jadx-dist/bin/jadx
+      - name: Decompile only in public Playground runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/java
+          jadx-dist/bin/jadx --no-res --threads-count 4 -d out/java camera.apk 2>&1 | tee out/jadx.log
+          test -d out/java/sources
+          echo "JAVA_FILE_COUNT=$(find out/java/sources -name '*.java' | wc -l)"
+      - name: Inspect calibration and source-camera dataflow
+        env:
+          TRACK: ${{ matrix.track }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$TRACK" in
+            jni-fov-callers)
+              patterns='CalibrateFieldOfViewDeg|AddExistingSession|LightCycleNative|ResetForCalibrationCapture|StartGyroCalibration|SetFieldOfView|fieldOfViewDeg'
+              ;;
+            camera2-intrinsics)
+              patterns='LENS_INTRINSIC_CALIBRATION|LENS_DISTORTION|SENSOR_INFO_PHYSICAL_SIZE|SENSOR_INFO_PIXEL_ARRAY_SIZE|SENSOR_INFO_ACTIVE_ARRAY_SIZE|HORIZONTAL_VIEW_ANGLE|horizontalFov|horizontalFieldOfView'
+              ;;
+            session-persistence)
+              patterns='orientations\.txt|session\.meta|source_photos_count|fov_calibration|calibrated.*fov|calibration.*field|rosette_T_cams'
+              ;;
+          esac
+          echo "=== TRACK $TRACK ==="
+          mapfile -t paths < <(rg -l -i -e "$patterns" out/java/sources --glob '*.java' || true)
+          echo "MATCHING_FILES=${#paths[@]}"
+          for file in "${paths[@]:0:85}"; do
+            echo "===== $file ====="
+            rg -n -i -C 6 -e "$patterns" "$file" | head -n 110 || true
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-java-camera-96-${{ matrix.track }}
+          path: out/jadx.log
+          retention-days: 3
+          if-no-files-found: warn
