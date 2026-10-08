@@ -1,0 +1,66 @@
+name: Photo Sphere JNI field-of-view calibration ARM64
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-jni-fov-80.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Decode FOV calibration JNI and native model
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/native-fov-jni.txt
+          from pathlib import Path
+          from struct import unpack_from
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
+          binary=Path('liblightcycle.so').read_bytes()
+          offset=unpack_from('<Q',binary,32)[0]; ent,count=unpack_from('<HH',binary,54)
+          segments=[]
+          for i in range(count):
+              ty,flags,file_off,virt,phys,size,mem,align=unpack_from('<IIQQQQQQ',binary,offset+i*ent)
+              if ty==1: segments.append((virt,virt+size,file_off))
+          def tofile(va):
+              for lo,hi,o in segments:
+                  if lo<=va<hi:return o+va-lo
+              raise ValueError(hex(va))
+          cap=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          for name,lo,hi in [
+              ('JNI_CALIBRATE_FOV_DEGREES',0x000f0784,0x000f0910),
+              ('FOV_CALIBRATOR_INIT',0x000f0e48,0x000f0fc8),
+              ('FOV_CALIBRATOR_METHOD',0x000f0fc8,0x000f1190)
+          ]:
+              print('====',name,hex(lo),hex(hi),'====')
+              code=binary[tofile(lo):tofile(hi-4)+4]
+              ins=list(cap.disasm(code,lo))
+              for x in ins:
+                  if name=='JNI_CALIBRATE_FOV_DEGREES' or x.mnemonic.startswith(('bl','f','mov','ldr','str')):
+                      print(f'{x.address:08x}: {x.mnemonic:8} {x.op_str}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-jni-fov-80
+          path: out/
+          retention-days: 3
