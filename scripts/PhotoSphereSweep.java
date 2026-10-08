@@ -496,6 +496,21 @@ public class PhotoSphereSweep extends GhidraScript {
             0x001fd76cL,0x001fdf50L,0x001ff1c8L,
             0x001fefdcL,0x001ffc30L
         });
+        FOCUS.put("render-options-native-87", new long[]{
+            0x0041c618L,0x0041f140L,0x0041f118L,0x0041d3dcL,
+            0x00421fb0L,0x00423f2cL,0x0042a6a4L,0x00420decL,
+            0x00420998L,0x0042a4fcL,0x0041df08L
+        });
+        FOCUS.put("session-metadata-native-87", new long[]{
+            0x0021976cL,0x0021b5f4L,0x00419b74L,0x0041a6bcL,
+            0x00447bd4L,0x00447b0cL,0x00447c9cL,0x00450c1cL,
+            0x00450c9cL,0x0041d150L,0x0041e8acL,0x00421be38L
+        });
+        FOCUS.put("lens-correction-native-87", new long[]{
+            0x00431b54L,0x00431c38L,0x00431344L,0x00431118L,
+            0x00431690L,0x004317bcL,0x00430ec4L,0x00431030L,
+            0x00430e14L,0x00430978L,0x004405c8L,0x00443e74L
+        });
     }
     private PrintWriter report;
     private File dir;
