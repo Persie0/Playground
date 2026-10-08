@@ -1,0 +1,35 @@
+name: Root Detector native Kotlin release lint
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/root-detector-kotlin-release-lint.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/root_detection_app
+          ref: native-kotlin-migration
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: root-detector
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Install Android 37.0 platform
+        run: |
+          set -euo pipefail
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMANAGER" --install 'platforms;android-37.0'
+      - name: Verify release lint
+        working-directory: root-detector
+        run: gradle --no-daemon :app:lintRelease --stacktrace
