@@ -1,0 +1,76 @@
+name: Photo Sphere mask and lens ABI cross-check
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-seam-lens-capstone-75.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Analyze decoder caller and lens virtual paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/seam-lens-raw.txt
+          from pathlib import Path
+          from struct import unpack_from
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN
+          b=Path("liblightcycle.so").read_bytes()
+          phoff=unpack_from("<Q",b,32)[0]
+          ent,n=unpack_from("<HH",b,54)
+          segs=[]
+          for k in range(n):
+              typ,flags,offset,va,paddr,fs,ms,align=unpack_from("<IIQQQQQQ",b,phoff+k*ent)
+              if typ==1:segs.append((va,va+fs,offset))
+          def foff(addr):
+              for a,z,k in segs:
+                  if a<=addr<z:return k+(addr-a)
+              raise RuntimeError(hex(addr))
+          c=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          spans=[
+             ("THREE_CHANNEL_BLENDER",0x321fb0,0x322350),
+             ("SEAM_BOUNDS_RLE",0x323310,0x323680),
+             ("SOURCE_PROJECT",0x331b54,0x331c38),
+             ("SOURCE_UNPROJECT",0x331c38,0x331cd0),
+             ("LENS_CORRECTION_CLASS_A",0x331690,0x3317bc),
+             ("LENS_CORRECTION_CLASS_B",0x3317bc,0x3318a0)
+          ]
+          for name,lo,hi in spans:
+              print(f"=== {name} {lo:#x}..{hi:#x} ===")
+              code=b[foff(lo):foff(hi-4)+4]
+              ins=list(c.disasm(code,lo))
+              assert len(ins)>3
+              for k,insn in enumerate(ins):
+                  select=(name.startswith("SOURCE_") or name.startswith("LENS_")) or (
+                    insn.mnemonic in ("blr","bl","mov","movz","movk","ldr","str","cmp","and") and
+                    (insn.mnemonic in ("blr","bl","movz","movk") or
+                     "#0x58" in insn.op_str or "#0x1" in insn.op_str))
+                  if select and k<700:
+                      print(f"{insn.address:08x}: {insn.mnemonic:8} {insn.op_str}")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-seam-lens-75
+          path: out/
+          retention-days: 3
