@@ -161,10 +161,10 @@ jobs:
                               if(vf==null) vf=fm.getFunctionContaining(target);
                               String entry=(vf==null?"-":vf.getEntryPoint().toString());
                               String name=(vf==null?"-":vf.getName());
-                              ix.println("VTABLE\t"+slot+"\\t"+target+"\\t"+entry+"\\t"+name);
+                              ix.println("VTABLE\t"+slot+"\t"+target+"\t"+entry+"\t"+name);
                               if(vf!=null) funcs.add(vf);
                           }catch(Exception e){
-                              ix.println("VTABLE\t"+slot+"\\t<unreadable>\\t-\\t-");
+                              ix.println("VTABLE\t"+slot+"\t<unreadable>\t-\t-");
                           }
                       }
                   }
@@ -316,8 +316,14 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -s out/android/dex-files.txt ]]; then
-            jadx/bin/jadx --no-res --show-bad-code --threads-count 2 -d out/android/decompiled camera.apk
+            set +e
+            jadx/bin/jadx --no-res --show-bad-code --threads-count 2 -d out/android/decompiled camera.apk > out/android/jadx.log 2>&1
+            JADX_STATUS=$?
+            set -e
+            echo "$JADX_STATUS" > out/android/jadx-exit-status.txt
             grep -R -n -i -E "setPreviewCallback|setPreviewFormat|getPreviewFormat|setPreviewTexture|metadataFilePath|LocalSessionStorage|PreviewFrameProcessor|ImageFormat[.]NV21|DEPTH16" out/android/decompiled/sources > out/android/preview-metadata-hits.txt || true
+            echo "JADX exit status: $JADX_STATUS (partial output retained when nonzero)"
+            grep -i -E "finished with errors|error|warning" out/android/jadx.log | tail -n 40 || true
           else
             echo "The exact target APK has no classes*.dex entries; Java preview/runtime metadata cannot be traced from this asset." | tee out/android/preview-metadata-hits.txt
           fi
