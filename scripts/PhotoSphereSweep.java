@@ -196,6 +196,17 @@ public class PhotoSphereSweep extends GhidraScript {
             report.println("TARGET\t"+Long.toHexString(va)+"\t"+(f==null?"MISSING":f.getEntryPoint()+"\t"+f.getName()));
             if(f!=null)selected.add(f);
         }
+        if(track.equals("blend-vtable")) {
+            Address vt=toAddr(0x0050da08L);
+            report.println("BLENDER_VTABLE\t"+vt);
+            for(int slot=0;slot<10;slot++) {
+                long ptr=currentProgram.getMemory().getLong(vt.add((long)slot*8));
+                Function dest=(ptr>=0x00100000L && ptr<0x00500000L)?find(ptr):null;
+                report.println("VTABLE_SLOT\t"+(slot*8)+"\t0x"+Long.toHexString(ptr)+"\t"+
+                    (dest==null?"UNRESOLVED":dest.getEntryPoint()+" "+dest.getName()));
+                if(slot==2 && dest!=null) outputFunction(dest,"vtable_blend_slot_10");
+            }
+        }
         if(track.equals("targets-meta")) {
             DataIterator it=currentProgram.getListing().getDefinedData(true);
             ReferenceManager rm=currentProgram.getReferenceManager();
