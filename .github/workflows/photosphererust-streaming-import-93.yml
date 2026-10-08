@@ -1,0 +1,50 @@
+name: PhotosphereRust streaming import validation 93
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphererust-streaming-import-93.yml"
+permissions:
+  contents: read
+jobs:
+  importer-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - "default"
+          - "portable"
+          - "android-jni"
+    steps:
+      - name: Checkout pinned PhotosphereRust main implementation
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereRust
+          ref: 03bcf6d2b1fe99bb22bbb58f3659ed57bcbd604c
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: PhotosphereRust
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify imported session parser with selected feature configuration
+        working-directory: PhotosphereRust
+        shell: bash
+        env:
+          CONFIG: ${{ matrix.config }}
+        run: |
+          set -euo pipefail
+          case "$CONFIG" in
+            default)
+              cargo test --lib google_lightcycle -- --nocapture
+              cargo check --all-targets
+              ;;
+            portable)
+              cargo test --no-default-features --lib google_lightcycle -- --nocapture
+              cargo check --all-targets --no-default-features
+              ;;
+            android-jni)
+              cargo test --features android-jni --lib google_lightcycle -- --nocapture
+              cargo check --features android-jni
+              ;;
+          esac
