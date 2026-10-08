@@ -1,0 +1,62 @@
+name: Photo Sphere IBFS partition and blender ARM64
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-ibfs-partition-blender-raw.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install AArch64 disassembler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu
+      - name: Extract missing post-allocation instruction spans
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          readelf -W -S liblightcycle.so > out/sections.txt
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x33dc58 --stop-address=0x33df98 \
+            liblightcycle.so > out/ibfs-finalizer.S
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x32169c --stop-address=0x321e80 \
+            liblightcycle.so > out/blender-output.S
+          echo "===== IBFS FINALIZATION ====="
+          sed -n '1,270p' out/ibfs-finalizer.S
+          echo "===== BLEND FINALIZE CALLS AND STORES ====="
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path("out/blender-output.S").read_text().splitlines()
+          positions=[i for i,l in enumerate(s) if re.search(r"\b(?:bl|blr|ret|str|stp|strb|strh|scvtf|fcvtzs|fdiv|fadd|fmul|sshr|sqadd|saddw)\b", l)]
+          ix=set()
+          for k in positions[:160]:
+              ix.update(range(max(0,k-2),min(len(s),k+3)))
+          for k in sorted(ix):
+              print(s[k])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-partition-blender-raw
+          path: out/
+          retention-days: 3
