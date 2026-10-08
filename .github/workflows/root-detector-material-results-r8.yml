@@ -1,0 +1,45 @@
+name: Root Detector Material results R8 release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/root-detector-material-results-r8.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-r8:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/root_detection_app
+          ref: material-you-readable-results
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: root-detector
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: release-builder
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Install Android API 37
+        run: |
+          set -euo pipefail
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37.0"
+      - name: Build optimized release AAB
+        working-directory: root-detector
+        run: gradle --no-daemon :app:bundleRelease --stacktrace
+      - name: Verify official 25 percent R8 gates
+        run: python3 release-builder/.github/scripts/verify_r8_min_scores.py root-detector/app/build/outputs/bundle/release/app-release.aab
