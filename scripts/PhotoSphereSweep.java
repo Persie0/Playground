@@ -103,6 +103,32 @@ public class PhotoSphereSweep extends GhidraScript {
             0x00431954L,0x00431118L,0x00431344L,0x004305bcL,
             0x00430978L,0x002189d8L,0x002158fcL,0x0041c5e0L
         });
+        FOCUS.put("seam-cut", new long[]{
+            0x00433478L,0x004380dcL,0x00437958L,0x00437860L,
+            0x00438fecL,0x00438fccL,0x0043901cL,0x004390a8L,
+            0x00439600L,0x00438468L,0x0043605cL,0x00435eb0L,
+            0x00435f6cL,0x00437ab8L,0x00437e68L,0x004382d0L,
+            0x004326a8L,0x00435000L,0x004331d0L
+        });
+        FOCUS.put("blend-weights", new long[]{
+            0x00421c80L,0x0042114cL,0x00421fb0L,0x00423f2cL,
+            0x0042278cL,0x00422208L,0x0042a6a4L,0x0042a4fcL,
+            0x0042b114L,0x0042ad24L,0x0042a474L,0x0042a3f0L,
+            0x00425c40L,0x004286e0L,0x00428800L,0x00421e6cL,
+            0x00421718L,0x00421908L,0x00421c74L
+        });
+        FOCUS.put("source-mapping", new long[]{
+            0x00423310L,0x00433478L,0x0043e930L,0x0043ea50L,
+            0x0043eda4L,0x0043e114L,0x004380dcL,0x004405c8L,
+            0x00421fb0L,0x0042114cL,0x00431a24L,0x00431344L,
+            0x00430e14L,0x00431690L,0x0041a6bcL
+        });
+        FOCUS.put("warp-threads", new long[]{
+            0x0043ea50L,0x0043eda4L,0x004482f0L,0x004488d8L,
+            0x0044834cL,0x0043e930L,0x0043f4a4L,0x0043f4f4L,
+            0x0043f544L,0x004488c8L,0x004488d0L,0x004488d8L,
+            0x0044b2ecL,0x00448048L,0x00423f2cL,0x00433478L
+        });
     }
     private PrintWriter report;
     private File dir;
@@ -234,6 +260,26 @@ public class PhotoSphereSweep extends GhidraScript {
                 report.println("VTABLE_SLOT\t"+(slot*8)+"\t0x"+Long.toHexString(ptr)+"\t"+
                     (dest==null?"UNRESOLVED":dest.getEntryPoint()+" "+dest.getName()));
                 if(slot==2 && dest!=null) outputFunction(dest,"vtable_blend_slot_10");
+            }
+        }
+        if(track.equals("blend-weights")||track.equals("source-mapping")||track.equals("seam-cut")) {
+            long[] bases=track.equals("blend-weights")?
+              new long[]{0x0050d010L,0x0050d0c8L,0x0050d250L,0x0050d2c0L}:
+              track.equals("source-mapping")?
+              new long[]{0x0050da08L,0x0050d540L,0x0050d590L,0x0050d988L,0x0050d9b8L}:
+              new long[]{0x0050d708L,0x0050d760L,0x0050d778L,0x0050d7d0L,0x0050d918L};
+            for(long base:bases) {
+                report.println("CANDIDATE_VTABLE\t0x"+Long.toHexString(base));
+                for(int slot=0;slot<12;slot++) {
+                    try {
+                        long value=currentProgram.getMemory().getLong(toAddr(base+8L*slot));
+                        Function target=(value>=0x00100000L&&value<0x00500000L)?find(value):null;
+                        report.println("VTABLE_ENTRY\t0x"+Long.toHexString(base)+"\t+"+(8*slot)+"\t0x"+
+                          Long.toHexString(value)+"\t"+(target==null?"not-function":target.getEntryPoint()));
+                        if(target!=null && slot<5 && (base==0x0050d010L||base==0x0050d0c8L||
+                          base==0x0050d988L||base==0x0050d9b8L||base==0x0050d708L))selected.add(target);
+                    }catch(Exception e){report.println("VTABLE_READ_ERROR\t"+e);}
+                }
             }
         }
         if(track.equals("targets-meta")) {
