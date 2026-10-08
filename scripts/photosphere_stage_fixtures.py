@@ -9,6 +9,7 @@ boundary feather, and sequential panorama-X wrap.
 from __future__ import annotations
 
 import unittest
+import math
 
 
 def rotate3(row_major_r: tuple[float, ...], xyz: tuple[float, float, float]) -> tuple[float, float, float]:
@@ -108,6 +109,31 @@ def unproject_negative_z_linear(
     return ((px - cx) * inv_fx, -(py - cy) * inv_fy, -1.0)
 
 
+
+def equirect_ray_to_pixel(ray: tuple[float, float, float], mosaic_height: int) -> tuple[float, float]:
+    """FUN_00430800: equirect angular map, height=width//2; float rounding omitted."""
+    if mosaic_height <= 0:
+        raise ValueError("Invalid panorama height")
+    x, y, z = ray
+    elevation = math.atan2(y, math.hypot(x, -z))
+    yaw = math.atan2(x, -z)
+    return (
+        (yaw / math.pi + 1.0) * mosaic_height - 0.5,
+        ((math.pi / 2 - elevation) / math.pi) * mosaic_height - 0.5,
+    )
+
+
+def equirect_pixel_to_ray(pixel: tuple[float, float], mosaic_height: int) -> tuple[float, float, float]:
+    """FUN_004308c0: pixel-center angular map; no input-bound or output normalization."""
+    if mosaic_height <= 0:
+        raise ValueError("Invalid panorama height")
+    u, v = pixel
+    theta = (u + 0.5) / mosaic_height * math.pi
+    phi = (1.0 - (2.0 * (v + 0.5)) / mosaic_height) * math.pi / 2
+    cos_phi = math.cos(phi)
+    return (-math.sin(theta) * cos_phi, math.sin(phi), math.cos(theta) * cos_phi)
+
+
 class LightCycleStageFixtures(unittest.TestCase):
     def test_identity_rotation_and_transpose(self):
         i = (1., 0., 0., 0., 1., 0., 0., 0., 1.)
@@ -166,6 +192,46 @@ class LightCycleStageFixtures(unittest.TestCase):
             project_negative_z_linear((0., 0., 0.), 100., 100., 1., 1.)
         with self.assertRaises(ValueError):
             project_negative_z_linear((0., 0., 1.), 100., 100., 1., 1.)
+
+    def test_equirect_center_negative_z_ray(self):
+        height = 256
+        px = equirect_ray_to_pixel((0., 0., -1.), height)
+        self.assertEqual(px, (255.5, 127.5))
+        restored = equirect_pixel_to_ray(px, height)
+        for got, expected in zip(restored, (0., 0., -1.)):
+            self.assertAlmostEqual(got, expected, places=12)
+
+    def test_equirect_cardinal_rays_and_pixel_center(self):
+        h = 256
+        for ray, expected in [
+            ((1., 0., 0.), (383.5, 127.5)),
+            ((-1., 0., 0.), (127.5, 127.5)),
+            ((0., 1., 0.), (255.5, -0.5)),
+            ((0., -1., 0.), (255.5, 255.5)),
+        ]:
+            observed = equirect_ray_to_pixel(ray, h)
+            for a, b in zip(observed, expected):
+                self.assertAlmostEqual(a, b, places=10)
+            recovered = equirect_pixel_to_ray(observed, h)
+            for a, b in zip(recovered, ray):
+                self.assertAlmostEqual(a, b, places=10)
+
+    def test_equirect_nonunit_ray_direction(self):
+        p = (0.75, -0.25, -1.5)
+        h = 200
+        px = equirect_ray_to_pixel(p, h)
+        recovered = equirect_pixel_to_ray(px, h)
+        norm = math.sqrt(sum(x*x for x in p))
+        for got, orig in zip(recovered, p):
+            self.assertAlmostEqual(got, orig/norm, places=10)
+
+    def test_equirect_wrap_boundary_same_ray(self):
+        h = 256
+        a = equirect_pixel_to_ray((-0.5, 127.5), h)
+        b = equirect_pixel_to_ray((2*h-0.5, 127.5), h)
+        for x, y in zip(a, b):
+            self.assertAlmostEqual(x, y, places=10)
+
 
 
 if __name__ == "__main__":
