@@ -1,0 +1,59 @@
+name: Photo Sphere composite renderer vtable
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-composite-vtable.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install AArch64 disassembler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu
+      - name: Extract missing post-allocation instruction spans
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          readelf -W -S liblightcycle.so > out/sections.txt
+          readelf -Wr liblightcycle.so > out/native-relocations.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('out/native-relocations.txt').read_text().splitlines()
+          for lo,hi,name in [(0x40cf18,0x40d078,'composite-0x40cf18'),(0x40da58,0x40dac0,'mapper-0x40da58')]:
+            print('===== VTABLE',name,'======')
+            for line in s:
+              m=re.match(r'^\s*([0-9a-fA-F]{8,16})\s+',line)
+              if not m: continue
+              a=int(m[1],16)
+              if lo<=a<hi: print(line)
+          PY
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x31cc5c --stop-address=0x31cd78 \
+            liblightcycle.so > out/composite-constructor.S
+          cat out/composite-constructor.S
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-composite-vtable
+          path: out/
+          retention-days: 3
