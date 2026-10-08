@@ -1,0 +1,110 @@
+name: Photo Sphere checkpoint 101 three-track ARM64 gap audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-checkpoint-101-three-paths.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [gamma-camera-accessor, dense-flow-coefficients, session-metadata-lifecycle]
+    steps:
+      - name: Download and verify pinned original binary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install pinned Capstone
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Audit selected paths independently
+        shell: bash
+        env:
+          TRACK: ${{ matrix.track }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee "out/${TRACK}.txt"
+          import os, struct, math
+          from pathlib import Path
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
+          data = Path("liblightcycle.so").read_bytes()
+          phoff=struct.unpack_from("<Q",data,32)[0]
+          phent,phnum=struct.unpack_from("<HH",data,54)
+          segments=[]
+          for i in range(phnum):
+              typ,flags,off,va,_,sz,_,_=struct.unpack_from("<IIQQQQQQ",data,phoff+i*phent)
+              if typ==1: segments.append((va,va+sz,off,flags))
+          def offset(a):
+              for lo,hi,fo,flags in segments:
+                  if lo<=a<hi: return fo+(a-lo)
+              raise ValueError(f"Unmapped ELF virtual address {a:#x}")
+          d=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          track=os.environ["TRACK"]
+          groups={
+            "gamma-camera-accessor":[(0x340994,0x340c24),(0x341dc0,0x341ee0),(0x39a19c,0x39a2dc),(0x39a3a0,0x39a4e0)],
+            "dense-flow-coefficients":[(0x0ff7dc,0x0ffb40),(0x0ffab0,0x0ffefc),(0x0fff14,0x100160),(0x0fdcc0,0x0fdf00)],
+            "session-metadata-lifecycle":[(0x3195c8,0x319790),(0x319b74,0x319d40),(0x319d40,0x319f50),(0x31a84c,0x31aaa0),(0x31aa40,0x31ab60)],
+          }
+          assert track in groups
+          print(f"TRACK: {track}, SHA256 verified by previous step, PT_LOAD={len(segments)}")
+          targets={a for a,_ in groups[track]}
+          for lo,hi in groups[track]:
+              print(f"\n=== RAW {lo:#x}..{hi:#x}, GHIDRA {lo+0x100000:#x} ===")
+              code=data[offset(lo):offset(hi-4)+4]
+              instructions=list(d.disasm(code,lo))
+              assert len(instructions)>8, hex(lo)
+              for instr in instructions[:140]:
+                  if track=="dense-flow-coefficients" or instr.mnemonic.startswith(("f","b","c","ldr","str")):
+                      print(f"{instr.address:08x} {instr.mnemonic:9} {instr.op_str}")
+              print(f"Decoded {len(instructions)} instructions, first 140 printed/filtered")
+          # Compute callsites with architectural BL immediate encoding; excludes indirect BLR and data.
+          print("\n=== Direct BL callsite scan (absence does NOT exclude indirect calls) ===")
+          for target in sorted(targets):
+              sites=[]
+              for va,vend,off,flags in segments:
+                  if not flags & 1: continue
+                  chunk=memoryview(data)[off:off+(vend-va)]
+                  for pos in range(0,len(chunk)-3,4):
+                      w=struct.unpack_from("<I",chunk,pos)[0]
+                      if w>>26 != 0b100101: continue
+                      imm=w & 0x03ffffff
+                      if imm & (1<<25): imm -= 1<<26
+                      at=va+pos
+                      if at+imm*4 == target: sites.append(at)
+              print(f"target={target:#x}, direct_BL={len(sites)}, sites={[hex(x) for x in sites[:30]]}")
+          if track=="gamma-camera-accessor":
+              # This is a numerical cross-check, NOT a native sincosf oracle.
+              step=struct.unpack("<f",bytes.fromhex("8056a23d"))[0]
+              half=struct.unpack("<f",bytes.fromhex("8056223d"))[0]
+              n=[]
+              for band in range(39):
+                  theta=struct.unpack("<f",struct.pack("<f",struct.unpack("<f",struct.pack("<f",band*step))[0]+half))[0]
+                  s=struct.unpack("<f",struct.pack("<f",math.sin(theta)))[0]
+                  az=struct.unpack("<f",struct.pack("<f",step/s))[0]
+                  n.append(math.trunc(math.tau/az))
+              print(f"Independent nominal sinf approximations: band_counts={n}; sum={sum(n)}")
+          if track=="session-metadata-lifecycle":
+              for needle in (b"session.meta",b"source_photos_count",b"orientations.txt",b"ground_truth.txt"):
+                  positions=[i for i in range(len(data)) if data.startswith(needle,i)]
+                  print(f"literal {needle!r}: occurrences={len(positions)}, file_offsets={[hex(x) for x in positions[:12]]}")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-checkpoint-101-${{ matrix.track }}
+          path: out/
+          retention-days: 3
+          if-no-files-found: warn
