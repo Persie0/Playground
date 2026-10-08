@@ -1,0 +1,46 @@
+name: Photo Sphere native gamma nearest sampling Rust 107
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphererust-gamma-sampling-107.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [default, portable, android-jni]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereRust
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: PhotosphereRust
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify native GammaAdjuster integer RGB regression tests
+        working-directory: PhotosphereRust
+        shell: bash
+        env:
+          CONFIG: ${{ matrix.config }}
+        run: |
+          set -euo pipefail
+          case "$CONFIG" in
+            default)
+              cargo test --lib photometric -- --nocapture
+              cargo check --all-targets
+              ;;
+            portable)
+              cargo test --no-default-features --lib photometric -- --nocapture
+              cargo check --all-targets --no-default-features
+              ;;
+            android-jni)
+              cargo test --features android-jni --lib photometric -- --nocapture
+              cargo check --all-targets --features android-jni
+              ;;
+          esac
