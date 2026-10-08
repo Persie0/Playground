@@ -1,0 +1,59 @@
+name: Photo Sphere equirectangular projection ARM64
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-equirectangular-raw.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install AArch64 disassembler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu
+      - name: Extract missing post-allocation instruction spans
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x3307cc --stop-address=0x330970 \
+            liblightcycle.so > out/equirect-pixel-ray.S
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x3305bc --stop-address=0x3307cc \
+            liblightcycle.so > out/equirect-construction.S
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x31b154 --stop-address=0x31b3f0 \
+            liblightcycle.so > out/rotated-equirect.S
+          python3 - <<'PY'
+          import struct
+          from pathlib import Path
+          b=Path('liblightcycle.so').read_bytes()
+          print("rodata candidate FOV pi/180 at file offset 0x61ae0:")
+          o=0x61ae0
+          if len(b)>=o+8:print(hex(o),hex(struct.unpack_from("<Q",b,o)[0]),struct.unpack_from("<d",b,o)[0])
+          PY
+          for f in out/*.S; do echo "=== $f ==="; sed -n '1,520p' "$f"; done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-equirectangular-raw
+          path: out/
+          retention-days: 3
