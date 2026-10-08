@@ -161,10 +161,10 @@ jobs:
                               if(vf==null) vf=fm.getFunctionContaining(target);
                               String entry=(vf==null?"-":vf.getEntryPoint().toString());
                               String name=(vf==null?"-":vf.getName());
-                              ix.println("VTABLE\\t"+slot+"\\t"+target+"\\t"+entry+"\\t"+name);
+                              ix.println("VTABLE\t"+slot+"\\t"+target+"\\t"+entry+"\\t"+name);
                               if(vf!=null) funcs.add(vf);
                           }catch(Exception e){
-                              ix.println("VTABLE\\t"+slot+"\\t<unreadable>\\t-\\t-");
+                              ix.println("VTABLE\t"+slot+"\\t<unreadable>\\t-\\t-");
                           }
                       }
                   }
@@ -252,6 +252,33 @@ jobs:
           objdump -s -j .data.rel.ro liblightcycle.so > out/focused/data-rel-ro.txt || true
           objdump -s -j .data.rel.ro.local liblightcycle.so > out/focused/data-rel-ro-local.txt || true
 
+      - name: Print newly targeted decompiles and blender vtable slots
+        shell: bash
+        run: |
+          set -euo pipefail
+          PRINTED=$(mktemp)
+          print_body() {
+            local addr="$1"
+            local limit="$2"
+            local file
+            file=$(find out/focused -maxdepth 1 -type f -name "*_${addr}.c" -print -quit || true)
+            if [[ -z "$file" ]]; then
+              echo "No decompile file for ${addr}"
+              return
+            fi
+            if grep -Fxq "$addr" "$PRINTED"; then return; fi
+            printf '%s\n' "$addr" >> "$PRINTED"
+            echo "===== ${file} ====="
+            sed -n "1,${limit}p" "$file"
+          }
+          grep '^VTABLE' out/focused/targets.tsv || true
+          for TARGET in 003440ec 0021b5f4 0021e3e4 00218d54 0021b18c 0021be38 0021976c 00403cf8 000ef830 002158fc 002159fc 000efb78 001f214c 001f327c 001f32b0 001f32bc 001f333c 001ed94c 001edb58 00406504 004068d0 00406bc4 00406d64 00416a40 0021db38 0021df1c 0042278c; do
+            print_body "$TARGET" 700
+          done
+          for SLOT in 0050d070 0050d080 0050d128 0050d138; do
+            ENTRY=$(awk -v slot="$SLOT" '$1=="VTABLE" && $2==slot {print $4; exit}' out/focused/targets.tsv)
+            if [[ -n "$ENTRY" && "$ENTRY" != "-" ]]; then print_body "$ENTRY" 700; fi
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: pixel-camera-lightcycle-focused-algorithms
@@ -270,8 +297,8 @@ jobs:
           mkdir -p out/android
           curl -fL --retry 3 "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
           echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
-          unzip -Z1 camera.apk | tee out/android/apk-members.txt
-          grep -E '^classes([0-9]+)?\.dex out/android/apk-members.txt > out/android/dex-files.txt || true
+          unzip -Z1 camera.apk > out/android/apk-members.txt
+          grep -E '^classes([0-9]+)?[.]dex$' out/android/apk-members.txt > out/android/dex-files.txt || true
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -290,7 +317,7 @@ jobs:
           set -euo pipefail
           if [[ -s out/android/dex-files.txt ]]; then
             jadx/bin/jadx --no-res --show-bad-code --threads-count 2 -d out/android/decompiled camera.apk
-            grep -R -n -i -E "setPreviewCallback|setPreviewFormat|getPreviewFormat|setPreviewTexture|metadataFilePath|LocalSessionStorage|PreviewFrameProcessor|ImageFormat\\.NV21|DEPTH16" out/android/decompiled/sources > out/android/preview-metadata-hits.txt || true
+            grep -R -n -i -E "setPreviewCallback|setPreviewFormat|getPreviewFormat|setPreviewTexture|metadataFilePath|LocalSessionStorage|PreviewFrameProcessor|ImageFormat[.]NV21|DEPTH16" out/android/decompiled/sources > out/android/preview-metadata-hits.txt || true
           else
             echo "The exact target APK has no classes*.dex entries; Java preview/runtime metadata cannot be traced from this asset." | tee out/android/preview-metadata-hits.txt
           fi
