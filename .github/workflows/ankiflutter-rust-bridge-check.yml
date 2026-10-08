@@ -1,0 +1,63 @@
+name: AnkiFlutter Rust bridge check
+
+on:
+  push:
+    paths:
+      - ankiflutter-rust-bridge-target.txt
+      - .github/workflows/ankiflutter-rust-bridge-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ankiflutter-rust-bridge-check
+  cancel-in-progress: true
+
+jobs:
+  rust-bridge:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - id: ref
+        name: Resolve AnkiFlutter SHA
+        shell: bash
+        run: echo "sha=$(tr -d '\r\n' < ankiflutter-rust-bridge-target.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          repository: Persie0/AnkiFlutter
+          ref: ${{ steps.ref.outputs.sha }}
+          path: source
+          submodules: recursive
+      - name: Install protobuf and native prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler clang cmake ninja-build pkg-config libstdc++-12-dev libgtk-3-dev
+      - name: Use pinned Rust toolchain
+        working-directory: source
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup component add rustfmt clippy --toolchain 1.88.0
+          rustup override set 1.88.0
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            source/native/anki_bridge/target
+          key: ankiflutter-rust-bridge-${{ runner.os }}-${{ steps.ref.outputs.sha }}
+          restore-keys: |
+            ankiflutter-rust-bridge-${{ runner.os }}-
+            ankiflutter-rust-1.88-${{ runner.os }}-
+      - name: Prepare pinned bridge lockfile
+        working-directory: source
+        run: python3 tool/prepare_bridge_lock.py
+      - name: Check Rust formatting
+        working-directory: source
+        run: cargo fmt --manifest-path native/anki_bridge/Cargo.toml --check
+      - name: Lint Rust bridge
+        working-directory: source
+        run: cargo clippy --manifest-path native/anki_bridge/Cargo.toml --all-targets -- -D warnings
+      - name: Test Rust bridge and real Anki integration
+        working-directory: source
+        run: cargo test --manifest-path native/anki_bridge/Cargo.toml
