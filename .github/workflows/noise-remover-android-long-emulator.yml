@@ -51,15 +51,4 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
-          script: |
-            set -euo pipefail
-            cd app
-            adb logcat -c
-            (
-              adb logcat -v brief | grep -m 1 'LONG_FOREGROUND_SMOKE_READY:' >/dev/null
-              echo 'Detected live long-file foreground job; backgrounding Activity'
-              adb shell input keyevent KEYCODE_HOME
-            ) &
-            WATCHER=$!
-            trap 'kill "$WATCHER" 2>/dev/null || true' EXIT
-            flutter test integration_test/foreground_long_file_processing_test.dart -d emulator-5554 --no-pub
+          script: bash app/tool/run_android_long_foreground_smoke.sh
