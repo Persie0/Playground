@@ -217,6 +217,20 @@ def rust_current_positive_z_equirect_world(
     )
 
 
+
+def native_fov_calibration_seed_policy(attempt) -> float:
+    """CalibrateFieldOfViewDeg's recovered success-first 55/65/45 policy.
+
+    attempt(initial_fov_deg) returns (success, fitted_fov_deg).
+    The actual native image-pair optimizer is deliberately NOT emulated.
+    """
+    for guess in (55.0, 65.0, 45.0):
+        success, fitted = attempt(guess)
+        if success:
+            return float(fitted)
+    return -1.0
+
+
 class LightCycleStageFixtures(unittest.TestCase):
     def test_identity_rotation_and_transpose(self):
         i = (1., 0., 0., 0., 1., 0., 0., 0., 1.)
@@ -404,6 +418,39 @@ class LightCycleStageFixtures(unittest.TestCase):
         rust = rust_current_positive_z_equirect_world((255.5, 127.5), 256)
         self.assertLess(native[2], 0.)
         self.assertGreater(rust[2], 0.)
+
+
+    def test_fov_seed_first_attempt_success_preserves_optimizer_result(self):
+        called = []
+        def attempt(guess):
+            called.append(guess)
+            return True, 58.25
+        self.assertEqual(native_fov_calibration_seed_policy(attempt), 58.25)
+        self.assertEqual(called, [55.0])
+
+    def test_fov_seed_retries_second_only_when_first_fails(self):
+        called = []
+        def attempt(guess):
+            called.append(guess)
+            return (guess == 65.0), 62.75
+        self.assertEqual(native_fov_calibration_seed_policy(attempt), 62.75)
+        self.assertEqual(called, [55.0, 65.0])
+
+    def test_fov_seed_retries_third_in_exact_native_order(self):
+        called = []
+        def attempt(guess):
+            called.append(guess)
+            return (guess == 45.0), 46.125
+        self.assertEqual(native_fov_calibration_seed_policy(attempt), 46.125)
+        self.assertEqual(called, [55.0, 65.0, 45.0])
+
+    def test_fov_seed_total_registration_failure_returns_native_sentinel(self):
+        called = []
+        def attempt(guess):
+            called.append(guess)
+            return False, 0.0
+        self.assertEqual(native_fov_calibration_seed_policy(attempt), -1.0)
+        self.assertEqual(called, [55.0, 65.0, 45.0])
 
 
 
