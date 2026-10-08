@@ -51,6 +51,24 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0020f448L,0x00216948L,0x00419d40L,0x00419b74L,
             0x0041aa40L,0x0041a6bcL
         });
+        FOCUS.put("blend-pixel", new long[]{
+            0x0043e930L,0x00423310L,0x004252b0L,0x00425770L,
+            0x004121bcL,0x0042368cL,0x0042a4fcL,0x0042a6a4L,
+            0x0042b114L,0x0042ad24L,0x0042114cL,0x00421fb0L,
+            0x0041fb10L,0x004350ecL,0x00433478L
+        });
+        FOCUS.put("source-index", new long[]{
+            0x0041a6bcL,0x00443e74L,0x004440ecL,0x00447c9cL,
+            0x00447bd4L,0x00447a54L,0x004405c8L,0x0041b04cL,
+            0x0041a84cL,0x0041a9a8L,0x00419d40L,0x00450c1cL,
+            0x00450c9cL,0x001f002cL,0x0021b5f4L
+        });
+        FOCUS.put("target-provenance", new long[]{
+            0x001edb8cL,0x001ed84cL,0x001efb78L,0x002158fcL,
+            0x002159fcL,0x002147c4L,0x0020f6a0L,0x0021105cL,
+            0x002188b8L,0x0021874cL,0x002189d8L,0x0020f448L,
+            0x0020f9e4L,0x0020fc30L,0x0020fa04L,0x001ef8f8L
+        });
     }
     private PrintWriter report;
     private File dir;
