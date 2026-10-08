@@ -416,6 +416,11 @@ public class PhotoSphereSweep extends GhidraScript {
             0x00437498L,0x0043262cL,0x0043317cL,
             0x00431f20L,0x004331d0L,0x0041c618L
         });
+        FOCUS.put("final-mask-third-class-79", new long[]{
+            0x00434f20L,0x00433478L,0x00437378L,
+            0x00437498L,0x004332fcL,0x0043454cL,
+            0x0041e8acL,0x0041c618L,0x00433294L
+        });
     }
     private PrintWriter report;
     private File dir;
