@@ -1,0 +1,98 @@
+name: Fake GPS Activity recreation smoke
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/fake-gps-rotation-smoke.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private Kotlin branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/fake_gps_detector
+          ref: fix/kotlin-purchase-recreation-and-consent-race
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: fakegps
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: SDK basics
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.6.0
+      - name: Enable KVM acceleration for the Linux emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Compile debug APK
+        working-directory: fakegps
+        run: ./gradlew --no-daemon :app:assembleDebug --console=plain
+      - name: Boot emulator, install and smoke native EULA
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_5
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -e
+            adb install -r fakegps/app/build/outputs/apk/debug/app-debug.apk
+            adb shell am start -W -n at.austriao.fake_gps_detector_app/.MainActivity
+            sleep 12
+            adb shell dumpsys activity activities | grep -q "at.austriao.fake_gps_detector_app"
+            adb shell uiautomator dump /sdcard/native_ui.xml || true
+            adb shell cat /sdcard/native_ui.xml > /tmp/native_ui.xml || true
+            echo "===== FULL NATIVE UI HIERARCHY ====="
+            cat /tmp/native_ui.xml || true
+            echo "===== ACTIVITY STATE ====="
+            adb shell dumpsys activity activities | grep -E "mResumed|topResumedActivity|mFocusedApp|MainActivity" | tail -25 || true
+            echo "===== ANDROID LOG ERRORS ====="
+            adb logcat -d -v brief -t 1000 | grep -Ei "FakeGps|MainActivity|WebView|EulaScreen|FATAL EXCEPTION|AndroidRuntime|Failed to load" | tail -80 || true
+            adb exec-out screencap -p > /tmp/fake-gps-native-smoke.png || true
+            grep -qiE "EULA|Accept|terms|agreement" /tmp/native_ui.xml
+            adb logcat -d -b crash > /tmp/fake_gps_crashlog.txt || true
+            ! grep -A12 "FATAL EXCEPTION" /tmp/fake_gps_crashlog.txt | grep -q "Process: at.austriao.fake_gps_detector_app"
+            adb shell input tap 540 2220
+            sleep 3
+            adb shell uiautomator dump /sdcard/native_language.xml
+            adb shell cat /sdcard/native_language.xml > /tmp/native_language.xml
+            grep -qiE "English|Español|Deutsch|Français" /tmp/native_language.xml
+            adb shell input tap 540 415
+            sleep 3
+            adb shell dumpsys activity activities | grep -q "at.austriao.fake_gps_detector_app"
+            adb logcat -d -b crash > /tmp/fake_gps_crashlog.txt || true
+            ! grep -A12 "FATAL EXCEPTION" /tmp/fake_gps_crashlog.txt | grep -q "Process: at.austriao.fake_gps_detector_app"
+            # Navigate away and recreate the Activity twice in one process.
+            # RevenueCat must not be configured repeatedly.
+            adb shell pm grant at.austriao.fake_gps_detector_app android.permission.ACCESS_COARSE_LOCATION || true
+            adb shell pm grant at.austriao.fake_gps_detector_app android.permission.ACCESS_FINE_LOCATION || true
+            adb shell settings put system accelerometer_rotation 0
+            adb shell settings put system user_rotation 1
+            sleep 6
+            adb shell settings put system user_rotation 0
+            sleep 6
+            adb shell wm size 850x1650
+            sleep 3
+            adb shell wm size reset
+            sleep 3
+            adb shell dumpsys activity activities | grep -q "at.austriao.fake_gps_detector_app"
+            adb logcat -d -b crash > /tmp/fake_gps_after_rotation.txt || true
+            if grep -A12 "FATAL EXCEPTION" /tmp/fake_gps_after_rotation.txt | grep -q "Process: at.austriao.fake_gps_detector_app"; then
+              cat /tmp/fake_gps_after_rotation.txt
+              exit 1
+            fi
+            echo "Native Kotlin Activity rotation and process billing reuse smoke passed"
