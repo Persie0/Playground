@@ -29,7 +29,9 @@ jobs:
         with:
           gradle-version: '9.6.0'
       - name: Install Android SDK 37.0
-        run: sdkmanager --install "platforms;android-37.0"
+        run: |
+          set -euo pipefail
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37.0"
       - name: Kotlin unit tests, release lint, and debug APK
         working-directory: app-source
         run: gradle --no-daemon :app:testDebugUnitTest :app:lintRelease :app:assembleDebug --stacktrace
@@ -52,7 +54,9 @@ jobs:
         with:
           gradle-version: '9.6.0'
       - name: Install Android SDK 37.0
-        run: sdkmanager --install "platforms;android-37.0"
+        run: |
+          set -euo pipefail
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37.0"
       - name: Assemble debug
         working-directory: app-source
         run: gradle --no-daemon :app:assembleDebug --stacktrace
