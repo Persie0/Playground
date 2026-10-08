@@ -1,0 +1,67 @@
+name: Photo Sphere native filename formatter and JPEG probe ARM64 93
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-session-import-arm64-93.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Inspect filename integer printer and header probe in raw ARM64
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/session-import-arm64-93.txt
+          from pathlib import Path
+          from struct import unpack_from
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN
+          blob=Path("liblightcycle.so").read_bytes()
+          phoff=unpack_from("<Q",blob,32)[0]; phent,phnum=unpack_from("<HH",blob,54)
+          segs=[]
+          for n in range(phnum):
+              t,flags,off,va,paddr,fs,ms,align=unpack_from("<IIQQQQQQ",blob,phoff+n*phent)
+              if t==1:segs.append((va,va+fs,off))
+          def off(va):
+              for lo,hi,filepos in segs:
+                  if lo<=va<hi:return filepos+va-lo
+              raise RuntimeError(hex(va))
+          decoder=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          spans=[
+             ("INDEX_FORMATTER",0x12148c,0x121620),
+             ("INDEX_FILENAME_BUILDER",0x319a8c,0x319ac8),
+             ("JPEG_DIMENSION_PROBE",0x34753c,0x347708),
+             ("ORIENTATION_STREAM_PARSER",0x31b58c,0x31b6c0),
+          ]
+          for name,lo,hi in spans:
+              print("===== NATIVE",name,hex(lo),hex(hi),"=====")
+              d=list(decoder.disasm(blob[off(lo):off(hi-4)+4],lo))
+              assert len(d)>3,name
+              for x in d[:240]:
+                  print(f'{x.address:08x}: {x.mnemonic:8} {x.op_str}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-session-import-raw-93
+          path: out/
+          retention-days: 3
