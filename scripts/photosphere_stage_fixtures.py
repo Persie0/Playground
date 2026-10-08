@@ -256,6 +256,40 @@ def native_fov_raw_gradient_interior(
     return gx, gy
 
 
+
+def native_flow_gradient_candidate(gx_raw: float, gy_raw: float, threshold: float) -> bool:
+    """FUN_001ff1c8's strict interior gradient eligibility check, not point sampling."""
+    return abs(gx_raw) + abs(gy_raw) > threshold * 16.0
+
+
+def so3_log_rotation_matrix_generic_nonpi(
+    m: tuple[float, float, float, float, float, float, float, float, float]
+) -> tuple[float, float, float]:
+    """Interior-angle clean-room reference for FUN_001f2e54, not bitwise native.
+
+    The native function has a separate near-180-degree branch; this reference
+    intentionally rejects that singular case until its sign convention is
+    verified with native sample fixtures.
+    """
+    if len(m) != 9:
+        raise ValueError("Expect 3x3 rotation matrix")
+    cosine = (m[0] + m[4] + m[8] - 1.0) * 0.5
+    if cosine >= 1.0:
+        return (0.0, 0.0, 0.0)
+    if cosine <= -1.0:
+        raise ValueError("Near-180-degree branch must be handled separately")
+    angle = math.acos(cosine)
+    divisor = 2.0 * math.sin(angle)
+    if abs(divisor) < 1e-12:
+        raise ValueError("Unstable singular rotation")
+    scale = angle / divisor
+    return (
+        (m[7] - m[5]) * scale,
+        (m[2] - m[6]) * scale,
+        (m[3] - m[1]) * scale,
+    )
+
+
 class LightCycleStageFixtures(unittest.TestCase):
     def test_identity_rotation_and_transpose(self):
         i = (1., 0., 0., 0., 1., 0., 0., 0., 1.)
@@ -496,6 +530,33 @@ class LightCycleStageFixtures(unittest.TestCase):
             for y in range(3)
         )
         self.assertEqual(native_fov_raw_gradient_interior(patch), (-160, 96))
+
+
+    def test_flow_gradient_strict_native_threshold(self):
+        self.assertFalse(native_flow_gradient_candidate(16.0, 16.0, 2.0))
+        self.assertTrue(native_flow_gradient_candidate(16.01, 16.0, 2.0))
+
+    def test_flow_gradient_raw_scale_before_threshold(self):
+        patch = ((20, 30, 40), (20, 30, 40), (20, 30, 40))
+        gx, gy = native_fov_raw_gradient_interior(patch)
+        self.assertEqual((gx, gy), (320, 0))
+        self.assertTrue(native_flow_gradient_candidate(gx, gy, 2.0))
+
+    def test_so3_log_identity_is_zero(self):
+        identity = (1., 0., 0., 0., 1., 0., 0., 0., 1.)
+        self.assertEqual(so3_log_rotation_matrix_generic_nonpi(identity), (0., 0., 0.))
+
+    def test_so3_log_quarter_turn_around_z(self):
+        rotate_z = (0., -1., 0., 1., 0., 0., 0., 0., 1.)
+        x,y,z = so3_log_rotation_matrix_generic_nonpi(rotate_z)
+        self.assertAlmostEqual(x, 0.)
+        self.assertAlmostEqual(y, 0.)
+        self.assertAlmostEqual(z, math.pi/2)
+
+    def test_so3_log_explicitly_separates_180_degree_case(self):
+        half_turn_x = (1.,0.,0., 0.,-1.,0., 0.,0.,-1.)
+        with self.assertRaises(ValueError):
+            so3_log_rotation_matrix_generic_nonpi(half_turn_x)
 
 
 
