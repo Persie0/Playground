@@ -308,6 +308,22 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0042114cL,0x00421fb0L,0x0042368cL,
             0x004380dcL,0x0049c5d8L,0x0042a6a4L
         });
+        FOCUS.put("camera-projection-constructors", new long[]{
+            0x00431344L,0x00430978L,0x004305bcL,0x00431118L,
+            0x00431d48L,0x00431cbcL,0x00431d28L,0x00430560L,
+            0x00430e14L,0x00431690L
+        });
+        FOCUS.put("mosaic-coordinate-model", new long[]{
+            0x0041c618L,0x0043f3e0L,0x0043f544L,0x0043f600L,
+            0x00445798L,0x0044587cL,0x00431cbcL,0x00431d28L,
+            0x00431344L,0x00433294L,0x0041cc5cL
+        });
+        FOCUS.put("seam-rle-blend-adapter", new long[]{
+            0x0043ad54L,0x004380dcL,0x00437ab8L,0x00437e68L,
+            0x0049c5d8L,0x0049ca90L,0x0049ce64L,
+            0x0041e8acL,0x0042114cL,0x00421fb0L,
+            0x0041fb10L
+        });
     }
     private PrintWriter report;
     private File dir;
