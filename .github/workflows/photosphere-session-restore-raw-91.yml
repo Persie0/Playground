@@ -1,0 +1,69 @@
+name: Photo Sphere session restore successful ARM64
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-session-restore-raw-91.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Inspect session-storage rosette restoration across allocator
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/session-restore-full.txt
+          from pathlib import Path
+          from struct import unpack_from
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
+          buf=Path("liblightcycle.so").read_bytes()
+          phoff=unpack_from("<Q",buf,32)[0]; ent,n=unpack_from("<HH",buf,54)
+          segs=[]
+          for i in range(n):
+            ty,flags,off,va,pa,fs,ms,align=unpack_from("<IIQQQQQQ",buf,phoff+i*ent)
+            if ty==1:segs.append((va,va+fs,off))
+          def offset(addr):
+            for a,z,o in segs:
+              if a<=addr<z:return o+addr-a
+            raise ValueError(hex(addr))
+          d=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          ranges=[
+              ("SESSION_STORAGE_CTOR",0x3195c8,0x319694),
+              ("SESSION_RESTORE",0x319714,0x319b74),
+              ("SESSION_COPY",0x31a8c4,0x31a9a8),
+              ("ADD_EXISTING_SESSION",0x11a34c,0x11a5ac)
+          ]
+          for name,lo,hi in ranges:
+            print("====",name,hex(lo),hex(hi),"====")
+            ins=list(d.disasm(buf[offset(lo):offset(hi-4)+4],lo))
+            print("instruction_count",len(ins))
+            for k,v in enumerate(ins):
+              if name=="SESSION_RESTORE" and k>200:
+                if v.mnemonic not in ("bl","blr","str","strh","strb","ldr","ldrh","ldrb","ret","mov","movk"):continue
+              print(f"{v.address:08x}: {v.mnemonic:8} {v.op_str}")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-session-restore-raw-91
+          path: out/
+          retention-days: 3
