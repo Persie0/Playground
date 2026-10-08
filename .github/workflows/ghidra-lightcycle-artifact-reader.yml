@@ -70,3 +70,17 @@ jobs:
               unzip -p /tmp/lightcycle.zip "$FILE" | sed -n '1,260p'
             done <<< "$CALLS"
           done
+      - name: Read beyond the initial pyramid helper log cap
+        shell: bash
+        run: |
+          set -euo pipefail
+          for TARGET in 00423f2c 0042a6a4; do
+            FILE=$(grep -E "_${TARGET}\\.c$" /tmp/artifact-files.txt | head -n 1 || true)
+            if [[ -z "$FILE" ]]; then
+              echo "No decompile for target ${TARGET}"
+              continue
+            fi
+            echo "===== remaining lines from ${FILE} ====="
+            unzip -p /tmp/lightcycle.zip "$FILE" | wc -l
+            unzip -p /tmp/lightcycle.zip "$FILE" | sed -n '321,1800p'
+          done
