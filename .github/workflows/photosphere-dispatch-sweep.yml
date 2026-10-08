@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        track: [blend-pixel, source-index, target-provenance]
+        track: [blend-pixel, source-index, target-provenance, blend-vtable]
     steps:
       - uses: actions/checkout@v4
       - name: Fetch and verify exact LightCycle library
@@ -56,6 +56,20 @@ jobs:
           test -s "out/$TRACK/index.tsv"
           echo "=== TRACK $TRACK ==="
           cat "out/$TRACK/index.tsv"
+          if [[ "$TRACK" == "blend-vtable" ]]; then
+            for addr in 0043e930 00423310 004252b0 00433478; do
+              f="out/$TRACK/${addr}_investigate.c"
+              if [[ -s "$f" ]]; then
+                echo "=== REPAIRED $addr ==="
+                sed -n '1,290p' "$f"
+              fi
+              a="out/$TRACK/${addr}_investigate.asm"
+              if [[ -s "$a" ]]; then
+                echo "=== ARM64 $addr ==="
+                sed -n '1,145p' "$a"
+              fi
+            done
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
