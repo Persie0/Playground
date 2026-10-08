@@ -151,6 +151,23 @@ public class PhotoSphereSweep extends GhidraScript {
             allocator.setReturnType(new PointerDataType(),SourceType.USER_DEFINED);
             dec.flushCache();
             report.println("ALLOCATOR_AFTER\t"+allocator.getEntryPoint()+"\tnoReturn="+allocator.hasNoReturn());
+            Function factory=find(0x0043e930L);
+            if(factory==null) throw new IllegalStateException("Missing blender factory");
+            report.println("BLEND_FACTORY_BEFORE\t"+factory.getBody());
+            for(long va=0x0043e940L;va<=0x0043e96cL;va+=4) {
+                Address a=toAddr(va);
+                if(currentProgram.getListing().getInstructionAt(a)==null)
+                    disassemble(a);
+                Instruction ins=currentProgram.getListing().getInstructionAt(a);
+                report.println("BLEND_FACTORY_RAW\t"+a+"\t"+(ins==null?"MISSING":ins.toString()));
+            }
+            try {
+                factory.setBody(new AddressSet(toAddr(0x0043e930L),toAddr(0x0043e96fL)));
+                dec.flushCache();
+                report.println("BLEND_FACTORY_AFTER\t"+factory.getBody());
+            } catch(Exception ex) {
+                report.println("BLEND_FACTORY_REPAIR_ERROR\t"+ex);
+            }
         }
         if(track.equals("rosette-access")) {
             Function allocator=find(0x004f19f4L);
