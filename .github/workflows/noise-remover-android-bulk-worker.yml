@@ -1,0 +1,57 @@
+name: Noise Remover Android bulk worker
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/noise-remover-android-bulk-worker.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-foreground-bulk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout app PR using private token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: feat/android-bulk-foreground-worker-20261008
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter pub get
+        working-directory: app
+        run: flutter pub get
+      - name: Format worker and task handler and push changes
+        working-directory: app
+        env:
+          GH_ACCESS_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          files=(lib/services/android_bulk_foreground_worker.dart lib/services/android_media_processing_task.dart)
+          dart format "${files[@]}"
+          if ! git diff --quiet -- "${files[@]}"; then
+            git config user.name 'Persie0 CI'
+            git config user.email '76871553+Persie0@users.noreply.github.com'
+            git add -- "${files[@]}"
+            git commit -m "style: format Android bulk worker"
+            git remote set-url origin "https://x-access-token:${GH_ACCESS_TOKEN}@github.com/Persie0/noise_remover.git"
+            git push origin HEAD:feat/android-bulk-foreground-worker-20261008
+          fi
+      - name: Static analysis
+        working-directory: app
+        run: flutter analyze --no-pub lib/services/android_bulk_foreground_worker.dart lib/services/android_media_processing_task.dart lib/screens/bulk_processing_screen.dart lib/screens/home_screen.dart
+      - name: Foreground and recovery regression tests
+        working-directory: app
+        run: >-
+          flutter test
+          test/services/android_media_processing_service_test.dart
+          test/services/android_media_processing_controller_test.dart
+          test/background_processing_foreground_service_regression_test.dart
+          test/android_foreground_service_manifest_test.dart
+          test/background_media_main_settings_regression_test.dart
