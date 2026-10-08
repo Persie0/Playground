@@ -1,0 +1,59 @@
+name: Photo Sphere native blender object initialization
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-blender-defaults-78.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Decode blender options/levels assignment after allocator
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/native-blender-defaults.txt
+          from pathlib import Path
+          from struct import unpack_from
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN
+          b=Path('liblightcycle.so').read_bytes();off=unpack_from('<Q',b,32)[0];ent,n=unpack_from('<HH',b,54)
+          seg=[]
+          for k in range(n):
+              t,f,o,v,p,sz,ms,a=unpack_from('<IIQQQQQQ',b,off+k*ent)
+              if t==1:seg.append((v,v+sz,o))
+          def at(v):
+              for a,z,o in seg:
+                  if a<=v<z:return o+v-a
+              raise ValueError(hex(v))
+          c=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          for name,lo,hi in [('BLENDER_DEFAULT',0x31f118,0x31f140),('BLENDER_CONFIGURED',0x31f140,0x31f334),('STITCHER_ALLOCATOR',0x31cc5c,0x31ce34)]:
+              print('======',name,hex(lo),hex(hi),'======')
+              ins=list(c.disasm(b[at(lo):at(hi-4)+4],lo))
+              print('instructions:',len(ins))
+              for x in ins:print(f'{x.address:08x}: {x.mnemonic:8} {x.op_str}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-blender-defaults-78
+          path: out/
+          retention-days: 3
