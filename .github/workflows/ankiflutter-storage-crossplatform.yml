@@ -1,0 +1,49 @@
+name: AnkiFlutter storage cross-platform tests
+
+on:
+  push:
+    paths:
+      - ankiflutter-storage-target.txt
+      - .github/workflows/ankiflutter-storage-crossplatform.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  storage-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Read exact private source SHA
+        id: target
+        shell: bash
+        run: echo "sha=$(tr -d '\\r\\n' < ankiflutter-storage-target.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          repository: Persie0/AnkiFlutter
+          ref: ${{ steps.target.outputs.sha }}
+          path: source
+          submodules: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+      - name: Flutter packages
+        working-directory: source/app
+        run: flutter pub get
+      - name: Test native host filesystem behavior
+        working-directory: source/app
+        run: |
+          flutter test --reporter expanded \
+            test/core/storage/atomic_state_file_test.dart \
+            test/features/profiles/data/file_profile_repository_test.dart \
+            test/features/collection/recent_collection_store_test.dart \
+            test/features/collection/mobile_collection_storage_test.dart \
+            test/features/sync/data/sync_auth_store_test.dart \
+            test/features/reviewer/audio/review_tts_service_test.dart
