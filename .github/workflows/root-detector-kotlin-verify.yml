@@ -1,6 +1,7 @@
 name: Root Detector Kotlin verification (public runner)
 # Build the native migration without spending private-repository Actions minutes.
-# Verify AGP 9.4's integrated optimization block and R8 25 percent release gate.
+# R8 coverage update: exclude unused BIGO mediation and Sentry ad analytics.
+# Emulator: permit KVM access and use a lower API to avoid software-emulation timeout.
 
 on:
   push:
@@ -64,14 +65,24 @@ jobs:
       - name: Enforce Kotlin release R8 25 percent gate
         run: python3 .firebase_builder/.github/scripts/verify_r8_min_scores.py root-detector/app/build/outputs/bundle/release/app-release.aab
 
+      - name: Give emulator user access to hardware KVM
+        if: always()
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod a+rw /dev/kvm
+            ls -l /dev/kvm
+          fi
+
       - name: Validate on Android emulator
+        if: always()
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 33
           arch: x86_64
           target: google_apis
           profile: pixel_6
           disable-animations: true
+          emulator-boot-timeout: 600
           script: |
             set -euo pipefail
             adb install root-detector/app/build/outputs/apk/debug/app-debug.apk
