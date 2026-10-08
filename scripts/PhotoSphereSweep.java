@@ -1,6 +1,7 @@
 import ghidra.app.decompiler.*;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.data.PointerDataType;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.*;
@@ -26,6 +27,29 @@ public class PhotoSphereSweep extends GhidraScript {
         FOCUS.put("targets-meta", new long[]{
             0x002159fcL,0x002147c4L,0x0021105cL,0x001efb78L,
             0x0020f448L,0x0020f6a0L,0x00419b74L,0x001ed94cL
+        });
+        FOCUS.put("rosette-access", new long[]{
+            0x004440ecL,0x00443e74L,0x0041a6bcL,0x00447c9cL,
+            0x00447884L,0x00447bd4L,0x0021b18cL,0x0021b5f4L,
+            0x0041ce34L,0x004478b8L,0x0041a2fcL,0x0041b400L
+        });
+        FOCUS.put("seam-finish", new long[]{
+            0x00433478L,0x004390a8L,0x00439600L,0x0042114cL,
+            0x00421c80L,0x00421fb0L,0x0042a24cL,0x0042a3d8L,
+            0x00423310L,0x00423bc4L,0x00423f2cL,0x00422208L,
+            0x0042278cL,0x0042a4fcL,0x0042a6a4L,0x0049c2bcL,
+            0x0043901cL,0x00438fecL
+        });
+        FOCUS.put("flow-config", new long[]{
+            0x001f214cL,0x001f327cL,0x001f32b0L,0x001f32bcL,
+            0x001f333cL,0x001f40f0L,0x001ffc30L,0x001fff14L,
+            0x001f4010L,0x001f2e54L,0x001f5fb0L,0x001f27d8L
+        });
+        FOCUS.put("target-config", new long[]{
+            0x001edb8cL,0x001ed84cL,0x001efb78L,0x001ef8f8L,
+            0x002159fcL,0x002147c4L,0x002158fcL,0x0020f6a0L,
+            0x0020f448L,0x00216948L,0x00419d40L,0x00419b74L,
+            0x0041aa40L,0x0041a6bcL
         });
     }
     private PrintWriter report;
@@ -94,6 +118,27 @@ public class PhotoSphereSweep extends GhidraScript {
                 dec.flushCache();
                 report.println("ALLOCATOR_AFTER\t"+allocator.getEntryPoint()+"\tnoReturn="+allocator.hasNoReturn()+"\treturn="+allocator.getReturnType());
                 outputFunction(rosette,"after");
+            }
+        }
+        if(track.equals("rosette-access")) {
+            Function allocator=find(0x004f19f4L);
+            Function rosette=find(0x004440ecL);
+            if(allocator!=null && rosette!=null) {
+                report.println("BEFORE_REPAIR\t"+rosette.getBody()+"\tallocator_noreturn="+allocator.hasNoReturn());
+                try {
+                    allocator.setNoReturn(false);
+                    allocator.setReturnType(new PointerDataType(),SourceType.USER_DEFINED);
+                    for(long va:new long[]{0x0044413cL,0x0044419cL,0x004441bcL}) {
+                        if(currentProgram.getListing().getInstructionAt(toAddr(va))==null)
+                            disassemble(toAddr(va));
+                    }
+                    rosette.setBody(new AddressSet(toAddr(0x004440ecL),toAddr(0x004441dfL)));
+                    dec.flushCache();
+                    report.println("AFTER_REPAIR\t"+rosette.getBody()+"\tallocator_noreturn="+allocator.hasNoReturn());
+                    outputFunction(rosette,"fixed");
+                } catch(Exception e) {
+                    report.println("REPAIR_ERROR\t"+e.toString());
+                }
             }
         }
         Set<Function> selected=new LinkedHashSet<>();
