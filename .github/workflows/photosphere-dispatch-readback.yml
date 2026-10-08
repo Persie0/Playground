@@ -1,0 +1,78 @@
+name: Photo Sphere downstream dispatch readback
+on:
+  workflow_run:
+    workflows: ["Photo Sphere downstream dispatch sweep"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Optional completed sweep run ID"
+        required: false
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Retrieve four native-analysis results
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id || inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SOURCE_RUN_ID" ]]; then
+            SOURCE_RUN_ID="$(curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/Persie0/Playground/actions/runs?per_page=100" \
+              | jq -r '.workflow_runs | map(select(.name == "Photo Sphere downstream dispatch sweep" and .conclusion == "success")) | .[0].id // empty')"
+          fi
+          if [[ -z "$SOURCE_RUN_ID" ]]; then
+            echo "::error::No successful native gap sweep run has completed."
+            exit 1
+          fi
+          echo "Evidence source: $SOURCE_RUN_ID"
+          mkdir -p evidence
+          curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/Persie0/Playground/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100" > /tmp/artifacts.json
+          for track in blend-pixel source-index target-provenance; do
+            id="$(jq -r --arg n "photosphere-next-$track" '.artifacts | map(select(.name==$n and .expired==false)) | .[0].id // empty' /tmp/artifacts.json)"
+            if [[ -z "$id" ]]; then echo "::error::Missing $track result in $SOURCE_RUN_ID"; exit 1; fi
+            curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/Persie0/Playground/actions/artifacts/$id/zip" -o "/tmp/$track.zip"
+            mkdir -p "evidence/$track"
+            unzip -q "/tmp/$track.zip" -d "evidence/$track"
+            echo "### $track"
+            find "evidence/$track" -name index.tsv -exec cat {} +
+          done
+      - name: Extract relevant pseudocode
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          tracks={
+            'blend-pixel':['0043e930_investigate','00423310_investigate','004252b0_investigate','00425770_investigate','0042368c_investigate','0042a4fc_investigate','0042a6a4_investigate','0042b114_investigate'],
+            'source-index':['0041a6bc_investigate','00447a54_investigate','004405c8_investigate','0041b04c_investigate','0041a84c_investigate','0041a9a8_investigate','00450c1c_investigate','001f002c_investigate'],
+            'target-provenance':['001ed84c_investigate','0021874c_investigate','002189d8_investigate','002188b8_investigate','0020f9e4_investigate','0020fc30_investigate','0020fa04_investigate','0021105c_investigate']
+          }
+          for track, ids in tracks.items():
+            for key in ids:
+              candidates=list(Path('evidence',track).rglob(key+'.c'))
+              if not candidates:
+                print('===== MISSING',track,key,'=====')
+                continue
+              lines=candidates[0].read_text(errors='replace').splitlines()
+              print('===== BODY',track,key,'lines',len(lines),'=====')
+              if len(lines) <= 190:
+                show=range(len(lines))
+              else:
+                selected=set(range(min(65,len(lines))))
+                terms=('FUN_00439','FUN_00423','FUN_00444','FUN_00447','FUN_001f','FUN_0021','FUN_0020',
+                       '+ 0xc','+ 0x10','+ 0x14','+ 0x48','+ 0x60','+ 0x68','+ 0x70','+ 0x80','return')
+                matches=[i for i,line in enumerate(lines) if any(t in line for t in terms)]
+                for i in matches[:75]: selected.update(range(max(0,i-3),min(len(lines),i+4)))
+                show=sorted(selected)[:350]
+              for i in show: print(f'{i+1:04d} {lines[i]}')
+          PY
