@@ -541,6 +541,23 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0021b5f4L,0x0021976cL,0x0041c618L,
             0x0041d3dcL,0x0041aa40L
         });
+        FOCUS.put("session-storage-ctor-90", new long[]{
+            0x00419694L,0x004196d4L,0x00419714L,0x004195e8L,
+            0x004195b0L,0x0041982cL,0x00419910L,
+            0x00419b74L,0x00419d40L,0x0041aa40L
+        });
+        FOCUS.put("metadata-reset-and-append-90", new long[]{
+            0x00419694L,0x004196d4L,0x00419714L,
+            0x00419b74L,0x00419d40L,0x00419b00L,
+            0x0041a8c4L,0x0041a9a8L,0x0041aa34L,
+            0x0041aa40L,0x004478b8L,0x00447a54L
+        });
+        FOCUS.put("source-photos-count-producer-90", new long[]{
+            0x00419d40L,0x00419b74L,0x0041a6bcL,
+            0x00419694L,0x004196d4L,0x00419714L,
+            0x0021976cL,0x0021b5f4L,
+            0x0041c618L,0x0041d3dcL
+        });
     }
     private PrintWriter report;
     private File dir;
@@ -798,6 +815,47 @@ public class PhotoSphereSweep extends GhidraScript {
                     if(target!=null && (offset==0x50||offset==0x58||offset==0x68||
                          offset==0x70||offset==0x80||offset==0x78))selected.add(target);
                 } catch(Exception e) {report.println("RLE_SLOT_ERROR\t"+e);}
+            }
+        }
+        if(track.equals("session-storage-ctor-90")||
+           track.equals("metadata-reset-and-append-90")||
+           track.equals("source-photos-count-producer-90")) {
+            ReferenceManager rm=currentProgram.getReferenceManager();
+            for(long addr: new long[]{
+                0x0050cc48L,0x0050cc50L,0x0050cc68L,0x0050cc70L,
+                0x0050cca0L,0x00419694L,0x00419b74L,0x00419d40L
+            }) {
+                ReferenceIterator it=rm.getReferencesTo(toAddr(addr));
+                int count=0;
+                while(it.hasNext() && count++<60) {
+                    Reference ref=it.next();
+                    Function caller=fm.getFunctionContaining(ref.getFromAddress());
+                    report.println("STORAGE_XREF\t0x"+Long.toHexString(addr)+
+                        "\t"+ref.getFromAddress()+"\t"+ref.getReferenceType()+
+                        "\t"+(caller==null?"NONE":caller.getEntryPoint()));
+                    if(caller!=null)selected.add(caller);
+                }
+            }
+            if(track.equals("source-photos-count-producer-90")) {
+                DataIterator it=currentProgram.getListing().getDefinedData(true);
+                int seen=0;
+                while(it.hasNext()) {
+                    Data d=it.next();
+                    if(!d.hasStringValue() || !(d.getValue() instanceof String))continue;
+                    String val=(String)d.getValue();
+                    if(!val.contains("source_photos_count") && !val.contains("session.meta") &&
+                       !val.contains("photo_count"))continue;
+                    report.println("COUNT_STRING\t"+d.getAddress()+"\t"+val.replace('\n',' '));
+                    ReferenceIterator refs=rm.getReferencesTo(d.getAddress());
+                    while(refs.hasNext()) {
+                        Reference ref=refs.next();
+                        Function fn=fm.getFunctionContaining(ref.getFromAddress());
+                        report.println("COUNT_XREF\t"+ref.getFromAddress()+"\t"+
+                            (fn==null?"NONE":fn.getEntryPoint()));
+                        if(fn!=null)selected.add(fn);
+                    }
+                    if(++seen>30)break;
+                }
             }
         }
         if(track.equals("targets-meta")) {
