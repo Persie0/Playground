@@ -191,6 +191,16 @@ def resize_native_center_and_focal(
     )
 
 
+
+def native_contrast_and_feather_start(
+    pyramid_levels: int, contrast_enabled: bool, configured_cap: int
+) -> int:
+    """Native FUN_0041c618 -> FUN_0041f140 shared mask/contrast level field."""
+    if pyramid_levels < 1 or configured_cap < 0:
+        raise ValueError("Invalid native rendering level options")
+    return min(pyramid_levels - 1, configured_cap) if contrast_enabled else 0
+
+
 class LightCycleStageFixtures(unittest.TestCase):
     def test_identity_rotation_and_transpose(self):
         i = (1., 0., 0., 0., 1., 0., 0., 0., 1.)
@@ -349,6 +359,16 @@ class LightCycleStageFixtures(unittest.TestCase):
         for computed,expected in zip((h4,fx4,fy4,cx4,cy4),direct):
             self.assertAlmostEqual(computed,expected)
 
+
+    def test_native_threshold_disabled_no_feather_start(self):
+        self.assertEqual(native_contrast_and_feather_start(6, False, 3), 0)
+
+    def test_native_threshold_config_cap_applies_to_both_operations(self):
+        self.assertEqual(native_contrast_and_feather_start(6, True, 2), 2)
+
+    def test_native_threshold_clamped_to_top_pyramid_level(self):
+        self.assertEqual(native_contrast_and_feather_start(4, True, 9), 3)
+        self.assertEqual(native_contrast_and_feather_start(1, True, 9), 0)
 
 
 if __name__ == "__main__":
