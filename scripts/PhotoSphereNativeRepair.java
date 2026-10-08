@@ -29,7 +29,8 @@ public class PhotoSphereNativeRepair extends GhidraScript {
     }
     private void analyze(long start, long[] seeds) {
         Function f=at(start);
-        Function next=fm.getFunctionAfter(toAddr(start));
+        FunctionIterator following=fm.getFunctions(toAddr(start+4),true);
+        Function next=following.hasNext()?following.next():null;
         long nextaddr=next==null?start+0x300:next.getEntryPoint().getOffset();
         emit("REGION start="+Long.toHexString(start)+" function="+(f==null?"null":f.getName())+
              " original_body="+(f==null?"null":f.getBody())+
