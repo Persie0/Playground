@@ -1,0 +1,71 @@
+name: Photo Sphere feather-start origin ARM64
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-feather-threshold-75.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Trace exact feather threshold object initialization
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/feather-threshold.txt
+          from pathlib import Path
+          from struct import unpack_from
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN
+          b=Path('liblightcycle.so').read_bytes()
+          phoff=unpack_from("<Q",b,32)[0]
+          pe,pn=unpack_from("<HH",b,54)
+          segs=[]
+          for n in range(pn):
+              typ,flags,offset,va,pa,fs,ms,align=unpack_from("<IIQQQQQQ",b,phoff+n*pe)
+              if typ==1:segs.append((va,va+fs,offset))
+          def mapped(va):
+              for lo,hi,o in segs:
+                  if lo<=va<hi:return o+va-lo
+              raise ValueError(hex(va))
+          decoder=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          for name,lo,hi in [
+              ('BLENDER_BASE_CONSTRUCTOR',0x320dec,0x32114c),
+              ('BLENDER_NEW_CHANNEL',0x3208c0,0x320dec),
+              ('BLENDER_THREE_PASS',0x321fb0,0x3221a0),
+              ('FIXED_POINT_FEATHER_CONSUMER',0x32a6a4,0x32ab80)
+          ]:
+              print(f'=== {name} {lo:#x}..{hi:#x} ===')
+              code=b[mapped(lo):mapped(hi-4)+4]
+              instructions=list(decoder.disasm(code,lo))
+              assert instructions
+              for i in instructions:
+                  if name in ('BLENDER_BASE_CONSTRUCTOR','BLENDER_NEW_CHANNEL') or (
+                    (i.mnemonic.startswith(('ldr','str','mov','cmp','bl')) and
+                    any(x in i.op_str for x in ('#0x10','#0x2','#0x1','w2','w8','w9','w10')))):
+                      print(f'{i.address:08x}: {i.mnemonic:8} {i.op_str}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-feather-threshold-75
+          path: out/
+          retention-days: 3
