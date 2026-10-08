@@ -1,0 +1,63 @@
+name: Photo Sphere session storage pointer relocations
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-storage-relocations-89.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Identify metadata storage vtables by relative relocations
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          readelf -Wr liblightcycle.so > out/rela.txt
+          python3 - <<'PY' | tee out/storage-vtable-addresses.txt
+          import re
+          from pathlib import Path
+          s=Path("out/rela.txt").read_text().splitlines()
+          targets={
+             0x319b74:"METADATA_WRITER",
+             0x319d40:"METADATA_READER",
+             0x31aa40:"SESSION_META_FILENAME_INITIALIZER",
+             0x3478b8:"PATH_JOIN",
+             0x31a6bc:"CAMERA_STITCHER",
+          }
+          for raw,name in targets.items():
+              print("===== TARGET",name,hex(raw),"=====")
+              hits=0
+              for line in s:
+                  m=re.match(r'^\s*([0-9a-fA-F]{8,16})\s+([0-9a-fA-F]{8,16})\s+([A-Z_0-9]+)\s+.*$',line)
+                  if not m:continue
+                  last=line.strip().split()[-1]
+                  if last.lower() == format(raw,'x') or re.search(r'(?<![0-9a-f])'+format(raw,'x')+r'(?![0-9a-f])',line.lower()):
+                      hits+=1
+                      print("RELOC",line)
+              print("MATCHED_RELOCATIONS",hits)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-storage-relocations-89
+          path: out/
+          retention-days: 3
