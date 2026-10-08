@@ -50,6 +50,14 @@ jobs:
           aarch64-linux-gnu-objdump -d -j .text \
             --start-address=0x1409b4 --stop-address=0x140a10 \
             liblightcycle.so > out/ibfs-terminal-second.S
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x33dc58 --stop-address=0x33e2e4 \
+            liblightcycle.so > out/ibfs-finalize-and-labels.S
+          echo '=== IBFS LABEL-ARRAY / FINALIZER LOCATIONS ==='
+          grep -n -C 13 -E '#0x158|#344|#0x1b8|#440|str.*\[.*#344|33dc58:|33df98:' \
+            out/ibfs-finalize-and-labels.S | head -330 || true
+          echo '=== IBFS FINALIZER FIRST INSTRUCTIONS ==='
+          sed -n '1,145p' out/ibfs-finalize-and-labels.S
           echo '=== CONSTRUCTOR VTABLE GOT RELOCATION ==='
           grep -Ei '0000000000414470|000000000040d9(7|8|9|a|b|c)' out/relocations.txt | head -35 || true
           echo '=== IBFS LABEL METHOD ==='
