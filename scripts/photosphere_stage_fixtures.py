@@ -172,6 +172,25 @@ def fisheye_equidistant_unproject(
     return (tan_a*dx/r,-tan_a*dy/r,-1.0)
 
 
+
+def resize_native_center_and_focal(
+    old_width: int, old_height: int, new_width: int,
+    fx: float, fy: float, cx: float, cy: float
+) -> tuple[int, float, float, float, float]:
+    """Recovered linear-camera FUN_00431690 positive-dimension resize semantics."""
+    if old_width <= 0 or old_height <= 0 or new_width <= 0:
+        raise ValueError("Positive camera dimensions required")
+    scale = new_width / old_width
+    new_height = int(old_height * scale + 0.5)
+    return (
+        new_height,
+        fx * scale,
+        fy * scale,
+        (cx + 0.5) * scale - 0.5,
+        (cy + 0.5) * scale - 0.5
+    )
+
+
 class LightCycleStageFixtures(unittest.TestCase):
     def test_identity_rotation_and_transpose(self):
         i = (1., 0., 0., 0., 1., 0., 0., 0., 1.)
@@ -304,6 +323,31 @@ class LightCycleStageFixtures(unittest.TestCase):
         self.assertIsNone(fisheye_equidistant_project((0.,0.,1.),f,cx,cy,fov))
         self.assertIsNone(fisheye_equidistant_project((2.,0.,-1.),f,cx,cy,fov))
         self.assertIsNotNone(fisheye_equidistant_project((0.2,0.,-1.),f,cx,cy,fov))
+
+
+    def test_linear_camera_resize_preserves_exact_center(self):
+        result = resize_native_center_and_focal(640, 480, 320, 550., 540., 319.5, 239.5)
+        self.assertEqual(result, (240, 275., 270., 159.5, 119.5))
+
+    def test_linear_camera_resize_nonsymmetric_center_not_naive_scale(self):
+        new_h, fx, fy, cx, cy = resize_native_center_and_focal(
+            640, 480, 320, 550., 540., 301.25, 199.75)
+        self.assertEqual(new_h, 240)
+        self.assertEqual((fx, fy), (275., 270.))
+        self.assertEqual(cx, 150.375)
+        self.assertEqual(cy, 99.625)
+        self.assertNotEqual(cx, 301.25 * 0.5)
+
+    def test_linear_camera_resize_center_scale_composition(self):
+        old = (640, 480, 1024., 512., 287.5, 209.5)
+        h2,fx2,fy2,cx2,cy2 = resize_native_center_and_focal(
+            old[0],old[1],320,*old[2:])
+        h4,fx4,fy4,cx4,cy4 = resize_native_center_and_focal(
+            320,h2,160,fx2,fy2,cx2,cy2)
+        direct = resize_native_center_and_focal(
+            old[0],old[1],160,*old[2:])
+        for computed,expected in zip((h4,fx4,fy4,cx4,cy4),direct):
+            self.assertAlmostEqual(computed,expected)
 
 
 
