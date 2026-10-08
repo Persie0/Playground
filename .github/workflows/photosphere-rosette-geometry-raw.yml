@@ -1,0 +1,75 @@
+name: Photo Sphere rosette geometry and seam byte tracing
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-rosette-geometry-raw.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install AArch64 disassembler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu
+      - name: Extract missing post-allocation instruction spans
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x343e74 --stop-address=0x3441e0 \
+            liblightcycle.so > out/rosette-constructor.S
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x31d3dc --stop-address=0x31e8ac \
+            liblightcycle.so > out/render-and-mask-marshal.S
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x320e0c --stop-address=0x321170 \
+            liblightcycle.so > out/blender-constructor.S
+          readelf -Wr liblightcycle.so > out/relocations.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          sections=[
+              ('rosette-constructor.S',r'\b(?:adrp|add|mov|movk|ldr|str|stp|blr|bl|ret)\b',150),
+              ('render-and-mask-marshal.S',r'\b(?:mov|movk|movz|strb|ldrb|blr|bl)\b',180),
+              ('blender-constructor.S',r'\b(?:mov|str|stp|ldr|bl|blr)\b',180)
+          ]
+          for name,regex,limit in sections:
+              lines=Path('out/'+name).read_text().splitlines()
+              print('===',name,'total',len(lines),'===')
+              chosen={i for i in range(min(len(lines),12))}
+              found=0
+              for i,line in enumerate(lines):
+                  if re.search(regex,line) and found<limit:
+                      chosen.update(range(max(0,i-1),min(len(lines),i+2)))
+                      found+=1
+              for i in sorted(chosen):print(lines[i])
+          print("===== ROSETTE DATA RELOCATION CANDIDATES =====")
+          lines=Path('out/relocations.txt').read_text().splitlines()
+          hits=[(i,l) for i,l in enumerate(lines) if re.search(r'(^|\s)(34[0-9a-fA-F]{4}|43[0-9a-fA-F]{4})(\s|$)',l)]
+          print('count',len(hits))
+          for i,l in hits[:150]:print(l)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-rosette-geometry
+          path: out/
+          retention-days: 3
