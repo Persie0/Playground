@@ -25,6 +25,8 @@ jobs:
           if [[ -n "${GH_TOKEN:-}" ]]; then AUTH_ARGS=(-H "Authorization: Bearer ${GH_TOKEN}"); fi
           curl -fL --retry 3 "${AUTH_ARGS[@]}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/Persie0/Playground/actions/artifacts/11523102017/zip" -o /tmp/android.zip
           unzip -Z1 /tmp/android.zip > /tmp/android-files.txt
+          curl -fL --retry 3 "${AUTH_ARGS[@]}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/Persie0/Playground/actions/artifacts/11523112460/zip" -o /tmp/native.zip
+          unzip -Z1 /tmp/native.zip > /tmp/native-files.txt
           echo "ANDROID SOURCE FILES OF INTEREST"
           grep -E '(bnj|bnc|boi|bnh)[.]java|LocalSessionStorage[.]java|preview-metadata-hits[.]txt' /tmp/android-files.txt | head -n 30
       - name: Print Java source context
@@ -43,4 +45,24 @@ jobs:
             if [[ -z "$SOURCE" ]]; then echo "Missing $NAME"; continue; fi
             echo "===== $SOURCE ====="
             sed -n '1,320p' "$SOURCE"
+          done
+      - name: Print native lead bodies, references, and vtable relocations
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -q /tmp/native.zip 'out/focused/*' -d /tmp/native
+          echo "===== relevant native function index rows ====="
+          awk -F '\t' '$1=="TARGET" || $1=="VTABLE" || ($1=="REF" && ($2=="00416a40" || $2=="00421c80" || $2=="004440ec"))' /tmp/native/out/focused/targets.tsv | head -n 500
+          echo "===== relevant vtable relocations ====="
+          grep -E '50d018|50d0d0|50d070|50d080|50d128|50d138|5118b8|50cfc0|MonolithicMultibandBlender|YUVMonolithicMultiband' /tmp/native/out/focused/relocations.txt /tmp/native/out/focused/symbols-demangled.txt || true
+          for ADDR in 004440ec 00421c80 0041133c 0041138c 004158f8 0040f0b8 00416a64 00416a40 00411b5f4; do
+            SOURCE=$(find /tmp/native/out/focused -type f -name "*_${ADDR}.c" -print -quit || true)
+            if [[ -z "$SOURCE" ]]; then continue; fi
+            echo "===== $SOURCE ====="
+            sed -n '1,420p' "$SOURCE"
+          done
+          echo "===== callers of the alternate point-scale predicate ====="
+          for ENTRY in $(awk -F '\t' '$1=="REF" && $2=="00416a40" {print $4}' /tmp/native/out/focused/targets.tsv | sort -u); do
+            SOURCE=$(find /tmp/native/out/focused -type f -name "*_${ENTRY}.c" -print -quit || true)
+            if [[ -n "$SOURCE" ]]; then echo "===== $SOURCE ====="; sed -n '1,700p' "$SOURCE"; fi
           done
