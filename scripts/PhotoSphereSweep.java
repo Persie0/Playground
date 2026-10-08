@@ -669,7 +669,7 @@ public class PhotoSphereSweep extends GhidraScript {
                 Object v=d.getValue();
                 if(!(v instanceof String))continue;
                 String q=(String)v;
-                if(!q.matches("(?is).*?(source_photos_count|orientations\\\\.txt|session\\\\.meta|cropped_area_left|filepath,%s).*"))continue;
+                if(!q.contains("source_photos_count") && !q.contains("orientations.txt") && !q.contains("session.meta") && !q.contains("cropped_area_left") && !q.contains("filepath,%s"))continue;
                 report.println("METADATA_KEY\\t"+d.getAddress()+"\\t"+q.replace((char)10,' '));
                 ReferenceIterator refs=rm.getReferencesTo(d.getAddress());
                 for(int k=0;refs.hasNext() && k<25;k++) {
