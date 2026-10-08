@@ -421,6 +421,16 @@ public class PhotoSphereSweep extends GhidraScript {
             0x00437498L,0x004332fcL,0x0043454cL,
             0x0041e8acL,0x0041c618L,0x00433294L
         });
+        FOCUS.put("source-lens-strings-79", new long[]{
+            0x00431344L,0x00431b54L,0x00431c38L,
+            0x0041a6bcL,0x004440ecL,0x00443e74L,
+            0x00430ec4L,0x00431030L,0x00441dc0L
+        });
+        FOCUS.put("session-model-inspection-79", new long[]{
+            0x0041a6bcL,0x004440ecL,0x00443e74L,
+            0x0041c618L,0x00431f20L,0x0043f3e0L,
+            0x00433478L,0x00434f20L,0x00431344L
+        });
     }
     private PrintWriter report;
     private File dir;
@@ -652,6 +662,29 @@ public class PhotoSphereSweep extends GhidraScript {
                     if(f!=null)selected.add(f);
                 }
                 if(++strings>120)break;
+            }
+        }
+        if(track.equals("source-lens-strings-79")) {
+            DataIterator it=currentProgram.getListing().getDefinedData(true);
+            ReferenceManager rm=currentProgram.getReferenceManager();
+            int matches=0;
+            while(it.hasNext()){
+                Data d=it.next();
+                if(!d.hasStringValue())continue;
+                Object value=d.getValue();
+                if(!(value instanceof String))continue;
+                String str=(String)value;
+                if(!str.matches("(?is).*?(distorti|undistort|camera_model|camera_intrins|radial|tangential|calibrat|pinhole).*"))continue;
+                report.println("LENS_STRING\\t"+d.getAddress()+"\\t"+str.replace('\\n',' '));
+                ReferenceIterator refs=rm.getReferencesTo(d.getAddress());
+                int count=0;
+                while(refs.hasNext() && count++ < 8){
+                    Reference ref=refs.next();
+                    Function caller=fm.getFunctionContaining(ref.getFromAddress());
+                    report.println("LENS_STRING_REF\\t"+ref.getFromAddress()+"\\t"+(caller==null?"NONE":caller.getEntryPoint()));
+                    if(caller!=null)selected.add(caller);
+                }
+                if(++matches>=85)break;
             }
         }
         if(track.equals("fov-final")) {
