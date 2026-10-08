@@ -1,0 +1,67 @@
+name: Photo Sphere saved session filenames 92
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-session-leaves-92.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Read image source filename format and nearby literals
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/session-filenames.txt
+          from pathlib import Path
+          from struct import unpack_from
+          import re
+          b=Path('liblightcycle.so').read_bytes()
+          phoff=unpack_from('<Q',b,32)[0]; ent,n=unpack_from('<HH',b,54)
+          segs=[]
+          for j in range(n):
+              ty,flags,off,va,pa,fs,ms,align=unpack_from('<IIQQQQQQ',b,phoff+j*ent)
+              if ty==1:segs.append((va,va+fs,off))
+          def resolve(va):
+              for lo,hi,o in segs:
+                  if lo<=va<hi:return o+va-lo
+              raise ValueError(hex(va))
+          for va in [0x5a1ba,0x5a1a0,0x5a000,0x5a1c0,0x5a1d0,0x5a1e0]:
+              offset=resolve(va)
+              chunk=b[offset:offset+120]
+              end=chunk.find(b'\0')
+              if end<0:end=len(chunk)
+              print(f'ELF_VA={va:#x} offset={offset:#x} string={chunk[:end]!r} hex={chunk[:64].hex()}')
+          print('===== session-related nearby printable strings =====')
+          beg=resolve(0x5a000)
+          data=b[beg:beg+0x1000]
+          for m in re.finditer(rb'[\x20-\x7e]{5,150}\x00',data):
+              val=m.group()[:-1]
+              if any(s in val.lower() for s in (b'jpg',b'jpeg',b'pano',b'cam',b'photo',b'rot',b'matrix',b'meta',b'txt',b'img')):
+                  print(hex(0x5a000+m.start()),repr(val))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-session-leaves-92
+          path: out/
+          retention-days: 3
