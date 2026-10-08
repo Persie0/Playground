@@ -1,0 +1,63 @@
+name: Photo Sphere constructor runtime arguments
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-runtime-arguments-90.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Disassemble actual runtime storage constructor callsite arguments
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/runtime-caller-arguments.txt
+          from pathlib import Path
+          from struct import unpack_from
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN
+          b=Path("liblightcycle.so").read_bytes()
+          phoff=unpack_from("<Q",b,32)[0]
+          ent,n=unpack_from("<HH",b,54)
+          segments=[]
+          for i in range(n):
+            ty,flags,off,va,pa,sz,ms,al=unpack_from("<IIQQQQQQ",b,phoff+i*ent)
+            if ty==1:segments.append((va,va+sz,off))
+          def mapped(va):
+            for lo,hi,off in segments:
+              if lo<=va<hi:return off+va-lo
+            raise ValueError(hex(va))
+          d=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          for target in (0x0f0858,0x11a2b0,0x11a394):
+            lo=target-0x140;hi=target+0x80
+            print(f'======= CALLSITE raw {target:#x} Ghidra {target+0x100000:#x} =======')
+            ins=list(d.disasm(b[mapped(lo):mapped(hi-4)+4],lo))
+            for x in ins:
+              if target-0x80 <= x.address <= target+0x60 or x.mnemonic=='bl':
+                print(f'{x.address:08x}: {x.mnemonic:7s} {x.op_str}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-runtime-arguments-90
+          path: out/
+          retention-days: 3
