@@ -1,0 +1,88 @@
+name: Photo Sphere source calibration ABI 95
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-source-calibration-abi-95.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [session-model, lens-correction]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Inspect native camera model registration and correction slot
+        shell: bash
+        env:
+          TRACK: \${{ matrix.track }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee "out/$TRACK.txt"
+          from pathlib import Path
+          from struct import unpack_from
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
+          import os
+          b=Path("liblightcycle.so").read_bytes()
+          phoff=unpack_from("<Q",b,32)[0]
+          pent,pnum=unpack_from("<HH",b,54)
+          segs=[]
+          for i in range(pnum):
+              typ,flags,offset,va,pa,fs,ms,align=unpack_from("<IIQQQQQQ",b,phoff+i*pent)
+              if typ==1:segs.append((va,va+fs,offset))
+          def at(va):
+              for start,end,off in segs:
+                  if start<=va<end:return off+va-start
+              raise ValueError(hex(va))
+          target=os.environ['TRACK']
+          ranges=(
+              [('RESTORED_SESSION_CAMERA',0x11a34c,0x11a5c0),
+               ('SESSION_ROSETTE_FACTORY',0x31a6bc,0x31ab20),
+               ('LINEAR_CAMERA_CONSTRUCTOR',0x331344,0x331490),
+               ('CAMERA_FOV_ATTEMPT',0xf0fc8,0xf1190)]
+              if target=='session-model' else
+              [('LINEAR_PROJECTION_CORRECTION',0x331b54,0x331c38),
+               ('LINEAR_UNPROJECTION_CORRECTION',0x331c38,0x331ce0),
+               ('LINEAR_WIDTH_SETTER',0x331690,0x3317bc),
+               ('LINEAR_DIMENSIONS_SETTER',0x3317bc,0x3318b0)]
+          )
+          dec=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          for name,start,end in ranges:
+              instructions=list(dec.disasm(b[at(start):at(end-4)+4],start))
+              print(f'===== {name} @ {start:#x}, insns {len(instructions)} =====')
+              if target=='lens-correction':
+                  for i in instructions:print(f'{i.address:08x} {i.mnemonic:8} {i.op_str}')
+              else:
+                  for idx,i in enumerate(instructions):
+                      if i.mnemonic in ('bl','blr','fmov','fcvtzs','movz','movk','str','strb','strh') and (
+                        i.mnemonic in ('bl','blr','fmov') or '#0x30' in i.op_str or
+                        '#0x1' in i.op_str or '#0x40' in i.op_str
+                      ):
+                          for c in instructions[max(0,idx-3):idx+2]:
+                              print(f'{c.address:08x} {c.mnemonic:8} {c.op_str}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-source-95-${{ matrix.track }}
+          path: out/
+          retention-days: 3
