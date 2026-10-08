@@ -18,7 +18,7 @@ permissions:
 
 env:
   APP_REPOSITORY: Persie0/3dimageapp
-  APP_REF: ${{ inputs.ref || 'fix/ondevice-capture-reconstruction-20261008' }}
+  APP_REF: ${{ inputs.ref || '92787249698b8499d56e9d4da92765be088682b3' }}
 
 jobs:
   core:
@@ -129,3 +129,33 @@ jobs:
         run: brew install xcodegen >/dev/null
       - name: Run private iOS harness
         run: bash private-ci/.github/playground/test-ios.sh private-app
+
+  report:
+    if: ${{ always() }}
+    needs: [core, android, ios]
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    steps:
+      - name: Publish a compact CI receipt on the public Playground commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_SHA: ${{ github.sha }}
+          CORE_RESULT: ${{ needs.core.result }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+          IOS_RESULT: ${{ needs.ios.result }}
+        shell: bash
+        run: |
+          state=success
+          if [[ "$CORE_RESULT" != success || "$ANDROID_RESULT" != success || "$IOS_RESULT" != success ]]; then state=failure; fi
+          description="core=$CORE_RESULT android=$ANDROID_RESULT ios=$IOS_RESULT"
+          jq -n --arg state "$state" --arg desc "$description" \
+              --arg context "scene3d/public-private-ci" \
+              '{state:$state,description:$desc,context:$context}' > "$RUNNER_TEMP/scene3d-status.json"
+          curl --fail --silent --show-error -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              --data-binary @"$RUNNER_TEMP/scene3d-status.json" \
+              "https://api.github.com/repos/Persie0/Playground/statuses/$COMMIT_SHA" >/dev/null
+          echo "$description ($state)"
