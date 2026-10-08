@@ -129,6 +129,35 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0043f544L,0x004488c8L,0x004488d0L,0x004488d8L,
             0x0044b2ecL,0x00448048L,0x00423f2cL,0x00433478L
         });
+        FOCUS.put("rle-receiver", new long[]{
+            0x0049c5d8L,0x0049ce64L,0x0049c2bcL,0x004380dcL,
+            0x0049c8e0L,0x0049c9b0L,0x0049cb08L,0x0049cc00L,
+            0x0049cd00L,0x0049ce00L,0x0049cf20L,0x0049d000L,
+            0x00437860L,0x00437958L,0x00437ab8L,0x00437e68L
+        });
+        FOCUS.put("graphcut-solver", new long[]{
+            0x004390a8L,0x00439600L,0x0043901cL,0x00438fecL,
+            0x00438fccL,0x004397b0L,0x00439a6cL,0x00439abcL,
+            0x00439b0cL,0x00433478L,0x00437e68L,0x00438468L,
+            0x00435f6cL,0x00435eb0L,0x004380dcL,0x0049c2bcL
+        });
+        FOCUS.put("blend-accumulator", new long[]{
+            0x004208c0L,0x00420998L,0x00421c80L,0x00421e6cL,
+            0x00421efcL,0x00423f2cL,0x0042a6a4L,0x0042a4fcL,
+            0x004286e0L,0x00428800L,0x00422208L,0x0042278cL,
+            0x004297ecL,0x0042ad24L,0x00421718L,0x0042368cL
+        });
+        FOCUS.put("source-camera-vtables", new long[]{
+            0x004405c8L,0x0043d52cL,0x0043d6f8L,0x0043e2e4L,
+            0x0043e524L,0x0043df98L,0x0043e53cL,0x0043e5a4L,
+            0x0043f4a4L,0x0043f4f4L,0x0043f544L,0x00423310L,
+            0x00433478L,0x0041a6bcL,0x00421fb0L
+        });
+        FOCUS.put("thread-join-detail", new long[]{
+            0x0044b6b0L,0x00448048L,0x00448978L,0x0044e5e8L,
+            0x0044b2ecL,0x004482f0L,0x004488d8L,0x0044834cL,
+            0x0043f3c8L,0x0043f3acL,0x0043eda4L,0x0043ea50L
+        });
     }
     private PrintWriter report;
     private File dir;
