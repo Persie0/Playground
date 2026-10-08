@@ -134,6 +134,44 @@ def equirect_pixel_to_ray(pixel: tuple[float, float], mosaic_height: int) -> tup
     return (-math.sin(theta) * cos_phi, math.sin(phi), math.cos(theta) * cos_phi)
 
 
+
+def fisheye_equidistant_project(
+    ray: tuple[float, float, float],
+    focal: float, cx: float, cy: float, fov_rad: float
+) -> tuple[float, float] | None:
+    """FUN_00430ec4, no optional distortion object or image-bounds check."""
+    x, y, z = ray
+    if z > 0.0 or focal <= 0.0:
+        return None
+    norm = math.sqrt(x*x + y*y + z*z)
+    if norm == 0.0:
+        return None
+    angle = math.acos(max(-1., min(1., -z / norm)))
+    if angle > fov_rad / 2:
+        return None
+    lateral = math.hypot(x, y)
+    mul = angle*focal / lateral if lateral else 0.0
+    return (cx + mul*x, cy - mul*y)
+
+
+def fisheye_equidistant_unproject(
+    pixel: tuple[float, float], focal: float, cx: float, cy: float, fov_rad: float
+) -> tuple[float, float, float] | None:
+    """FUN_00431030, no optional distortion object; ray Z=-1, not normalized."""
+    if focal <= 0.0:
+        return None
+    dx, dy = pixel[0]-cx, pixel[1]-cy
+    r = math.hypot(dx,dy)
+    alpha = r/focal
+    # The native inverse rejects boundary equality; forward uses a strict >.
+    if alpha >= fov_rad / 2:
+        return None
+    if not r:
+        return (0.0,0.0,-1.0)
+    tan_a=math.tan(alpha)
+    return (tan_a*dx/r,-tan_a*dy/r,-1.0)
+
+
 class LightCycleStageFixtures(unittest.TestCase):
     def test_identity_rotation_and_transpose(self):
         i = (1., 0., 0., 0., 1., 0., 0., 0., 1.)
@@ -233,6 +271,39 @@ class LightCycleStageFixtures(unittest.TestCase):
         b = equirect_pixel_to_ray((2*h-0.5, 127.5), h)
         for x, y in zip(a, b):
             self.assertAlmostEqual(x, y, places=10)
+
+
+    def test_fisheye_center_negative_z(self):
+        f, cx, cy, fov = 100., 199.5, 149.5, math.pi
+        pixel = fisheye_equidistant_project((0.,0.,-1.),f,cx,cy,fov)
+        self.assertAlmostEqual(pixel[0],cx)
+        self.assertAlmostEqual(pixel[1],cy)
+        self.assertEqual(fisheye_equidistant_unproject(pixel,f,cx,cy,fov),(0.,0.,-1.))
+
+    def test_fisheye_equidistant_horizontal_45_degree_ray(self):
+        f, cx, cy, fov = 100., 100., 100., math.pi
+        pixel = fisheye_equidistant_project((1.,0.,-1.),f,cx,cy,fov)
+        self.assertAlmostEqual(pixel[0],cx+f*math.pi/4)
+        self.assertAlmostEqual(pixel[1],cy)
+        inverse = fisheye_equidistant_unproject(pixel,f,cx,cy,fov)
+        for observed,expected in zip(inverse,(1.,0.,-1.)):
+            self.assertAlmostEqual(observed,expected)
+
+    def test_fisheye_vertical_sign_and_direction(self):
+        f,cx,cy,fov=200.,120.,80.,math.pi
+        pixel=fisheye_equidistant_project((0.,1.,-1.),f,cx,cy,fov)
+        self.assertAlmostEqual(pixel[0],cx)
+        self.assertLess(pixel[1],cy)
+        inverse=fisheye_equidistant_unproject(pixel,f,cx,cy,fov)
+        for got,expected in zip(inverse,(0.,1.,-1.)):
+            self.assertAlmostEqual(got,expected)
+
+    def test_fisheye_field_of_view_boundary_and_backfacing(self):
+        f,cx,cy,fov=100.,200.,150.,1.0
+        self.assertIsNone(fisheye_equidistant_unproject((cx+f*fov/2,cy),f,cx,cy,fov))
+        self.assertIsNone(fisheye_equidistant_project((0.,0.,1.),f,cx,cy,fov))
+        self.assertIsNone(fisheye_equidistant_project((2.,0.,-1.),f,cx,cy,fov))
+        self.assertIsNotNone(fisheye_equidistant_project((0.2,0.,-1.),f,cx,cy,fov))
 
 
 
