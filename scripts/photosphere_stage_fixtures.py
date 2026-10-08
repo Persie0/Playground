@@ -201,6 +201,22 @@ def native_contrast_and_feather_start(
     return min(pyramid_levels - 1, configured_cap) if contrast_enabled else 0
 
 
+
+def rust_current_positive_z_equirect_world(
+    pixel: tuple[float, float], panorama_height: int
+) -> tuple[float, float, float]:
+    """Current PhotosphereRust stitcher world-ray convention; W=2*H."""
+    u, v = pixel
+    width = 2 * panorama_height
+    longitude = (u + 0.5) / width * (2.0 * math.pi) - math.pi
+    latitude = math.pi / 2.0 - (v + 0.5) / panorama_height * math.pi
+    return (
+        math.cos(latitude) * math.sin(longitude),
+        math.sin(latitude),
+        math.cos(latitude) * math.cos(longitude)
+    )
+
+
 class LightCycleStageFixtures(unittest.TestCase):
     def test_identity_rotation_and_transpose(self):
         i = (1., 0., 0., 0., 1., 0., 0., 0., 1.)
@@ -369,6 +385,26 @@ class LightCycleStageFixtures(unittest.TestCase):
     def test_native_threshold_clamped_to_top_pyramid_level(self):
         self.assertEqual(native_contrast_and_feather_start(4, True, 9), 3)
         self.assertEqual(native_contrast_and_feather_start(1, True, 9), 0)
+
+    def test_rust_and_native_equirect_world_conventions_flip_z_only(self):
+        h = 256
+        for u, v in [(0.0, 0.0), (127.5, 64.5), (255.5, 127.5), (388.25, 190.75), (511.0, 254.0)]:
+            native = equirect_pixel_to_ray((u, v), h)
+            rust = rust_current_positive_z_equirect_world((u, v), h)
+            self.assertAlmostEqual(native[0], rust[0], places=11)
+            self.assertAlmostEqual(native[1], rust[1], places=11)
+            self.assertAlmostEqual(native[2], -rust[2], places=11)
+
+    def test_native_to_rust_z_reflection_is_not_pure_rotation(self):
+        # This world-frame flip has determinant -1, so pose conversion is
+        # needed before using native rosette matrices with Rust quaternions.
+        sign_matrix_diag = (1., 1., -1.)
+        self.assertEqual(math.prod(sign_matrix_diag), -1.)
+        native = equirect_pixel_to_ray((255.5, 127.5), 256)
+        rust = rust_current_positive_z_equirect_world((255.5, 127.5), 256)
+        self.assertLess(native[2], 0.)
+        self.assertGreater(rust[2], 0.)
+
 
 
 if __name__ == "__main__":
