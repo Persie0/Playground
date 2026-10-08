@@ -1,0 +1,63 @@
+name: Photo Sphere image accessor vtable ABI 92
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-accessor-vtable-92.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Resolve exact image accessor VTABLE
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          readelf -Wr liblightcycle.so > out/relocations.txt
+          python3 - <<'PY' | tee out/accessor-vtable.txt
+          from pathlib import Path
+          from struct import unpack_from
+          import re
+          s=Path('out/relocations.txt').read_text().splitlines()
+          for start,end,label in [(0x414490,0x4144d8,'CTOR_VPTR_INDIRECTION')]:
+            print('===',label,hex(start),hex(end),'===')
+            for line in s:
+              m=re.match(r'^\s*([0-9a-fA-F]{8,16})\s+',line)
+              if m and start<=int(m[1],16)<end: print(line)
+          # Read the relocation addend at 0x4144a8, then the concrete vtable.
+          hit=None
+          for line in s:
+            m=re.match(r'^\s*([0-9a-fA-F]{8,16})\s+\S+\s+R_AARCH64_RELATIVE\s+([0-9a-fA-F]+)',line)
+            if m and int(m.group(1),16)==0x4144a8:
+              hit=int(m.group(2),16);break
+          if hit is None:raise ValueError('missing accessor vtable relocation')
+          vptr=hit+0x10
+          print('vptr from +0x10',hex(vptr))
+          for line in s:
+            m=re.match(r'^\s*([0-9a-fA-F]{8,16})\s+',line)
+            if m and vptr-0x10<=int(m.group(1),16)<vptr+0xc0:print(line)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-accessor-vtable-92
+          path: out/
+          retention-days: 3
