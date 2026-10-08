@@ -1,0 +1,139 @@
+name: Antigravity IDE AUR sync
+
+on:
+  schedule:
+    - cron: '27 4 * * *' # daily UTC, on public Playground Actions minutes
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/antigravity-ide-aur.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: antigravity-ide-aur-sync
+  cancel-in-progress: false
+
+jobs:
+  update-build-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      PACKAGING_REPO: Persie0/antigravity-ide-arch
+    steps:
+      - name: Require packaging-repository write token
+        env:
+          REPO_WRITE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          if [[ -z "$REPO_WRITE_TOKEN" ]]; then
+            echo "::error::Configure PRIVATE_REPO_TOKEN or GH_TOKEN or GH_RELEASE_TOKEN with Contents write for $PACKAGING_REPO"
+            exit 1
+          fi
+
+      - name: Checkout packaging repository
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/antigravity-ide-arch
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 1
+          path: package
+
+      - name: Run offline release-detector tests
+        working-directory: package
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -v
+          python3 -m py_compile scripts/update_package.py
+
+      - name: Check Google for a newer standalone IDE
+        working-directory: package
+        run: |
+          set -euo pipefail
+          python3 scripts/update_package.py
+
+      - name: Check whether package version or build changed
+        id: changed
+        working-directory: package
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- PKGBUILD; then
+            echo "upstream_changed=false" >> "$GITHUB_OUTPUT"
+            echo "Upstream standalone IDE is current."
+          else
+            echo "upstream_changed=true" >> "$GITHUB_OUTPUT"
+            echo "New standalone IDE version or build ID detected."
+          fi
+
+      - name: Generate AUR metadata and build on Arch Linux
+        if: steps.changed.outputs.upstream_changed == 'true' || github.event_name != 'schedule'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Match Arch/CachyOS packaging rather than building with Ubuntu tools.
+          # The uid/gid is the unprivileged GitHub runner, not root.
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$PWD/package:/work" \
+            -w /work \
+            archlinux:base-devel \
+            bash -euo pipefail -c '
+              makepkg --printsrcinfo > .SRCINFO
+              makepkg --nodeps --noconfirm --cleanbuild
+            '
+
+      - name: Record and push verified package changes
+        id: gitpush
+        working-directory: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'antigravity-ide-aur-bot'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            echo "GitHub packaging repository is current."
+          else
+            git commit -m "Update standalone Antigravity IDE AUR package"
+            git push origin HEAD:main
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish verified recipe to AUR
+        if: steps.changed.outputs.upstream_changed == 'true' || github.event_name != 'schedule'
+        shell: bash
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_KNOWN_HOSTS: ${{ secrets.AUR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$AUR_SSH_PRIVATE_KEY" || -z "$AUR_KNOWN_HOSTS" ]]; then
+            echo "::notice::AUR publication not configured. Add AUR_SSH_PRIVATE_KEY and verified AUR_KNOWN_HOSTS secrets to Playground."
+            exit 0
+          fi
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > "$HOME/.ssh/aur_antigravity"
+          printf '%s\n' "$AUR_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/aur_antigravity" "$HOME/.ssh/known_hosts"
+          export GIT_SSH_COMMAND="ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -i $HOME/.ssh/aur_antigravity"
+          git clone ssh://aur@aur.archlinux.org/antigravity-ide-bin.git aur
+          cp package/PKGBUILD package/.SRCINFO \
+            package/antigravity-ide.desktop package/antigravity-ide-url-handler.desktop aur/
+          cd aur
+          git config user.name 'antigravity-ide-aur-bot'
+          git config user.email '76871553+Persie0@users.noreply.github.com'
+          git add PKGBUILD .SRCINFO antigravity-ide.desktop antigravity-ide-url-handler.desktop
+          if git diff --cached --quiet; then
+            echo "AUR is already current."
+          else
+            git commit -m "Update standalone Antigravity IDE to $(sed -n 's/^pkgver=//p' PKGBUILD)"
+            git push origin HEAD:master
+            echo "Published updated recipe to AUR."
+          fi
