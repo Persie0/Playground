@@ -1,0 +1,76 @@
+name: Photo Sphere checkpoint 113 Java thumbnail capture call tracing
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-checkpoint-113-java.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  jadx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Pinned camera APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+      - name: Install fixed JADX
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 "https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip" -o jadx.zip
+          unzip -q jadx.zip -d jadx-dist
+          chmod +x jadx-dist/bin/jadx
+      - name: Trace thumb sizes and native LightCycle calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/java out/report
+          set +e
+          jadx-dist/bin/jadx --no-res --threads-count 4 -d out/java camera.apk >out/jadx.log 2>&1
+          st=$?
+          set -e
+          count=$(find out/java/sources -name '*.java' | wc -l)
+          echo "JADX_STATUS=$st FILE_COUNT=$count"
+          test "$count" -ge 4000
+          if [[ "$st" != 0 && "$st" != 3 ]]; then exit "$st"; fi
+          python3 - <<'PY' | tee out/report/thumbnail-capture-java.txt
+          from pathlib import Path
+          root=Path("out/java/sources")
+          keys=("CreateThumbnailImage","CalibrateFieldOfViewDeg","GetThumbnail","thumbnailImage","thumbnail_width","createThumbnailImage","photoSphereCalibratedFieldOfView")
+          matches=[]
+          for p in root.rglob("*.java"):
+              if not any(k in p.name.lower() for k in ("lightcycle","exm","exk","exp","exf","foc","foa","eyb")):
+                  pass
+              data=p.read_text(errors="replace")
+              if any(key in data for key in keys):matches.append(p)
+          print("FILES_WITH_IDENTIFIERS",len(matches))
+          for p in matches[:55]:
+              rows=p.read_text(errors="replace").splitlines()
+              print(f"=== {p.relative_to(root)} ({len(rows)} lines) ===")
+              matchrows=[i for i,r in enumerate(rows) if any(k in r for k in keys)]
+              printed=set()
+              for i in matchrows[:12]:
+                  for j in range(max(0,i-15),min(len(rows),i+20)):
+                      if j not in printed:print(f"{j+1}: {rows[j]}");printed.add(j)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-113-java-thumbnail
+          path: |
+            out/report/
+            out/jadx.log
+          retention-days: 4
+          if-no-files-found: warn
