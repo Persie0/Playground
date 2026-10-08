@@ -1,0 +1,108 @@
+name: Photo Sphere session metadata string xrefs
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-session-writer-xrefs-87.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight ARM64 instruction reader
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Resolve session metadata literal references
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/metadata-writer-references.txt
+          from pathlib import Path
+          from struct import unpack_from
+          import re
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN
+          b=Path('liblightcycle.so').read_bytes()
+          assert b[:4]==b'\x7fELF'
+          phoff=unpack_from('<Q',b,32)[0]
+          entry,num=unpack_from('<HH',b,54)
+          segs=[]
+          for i in range(num):
+              t,flags,off,va,pa,fs,ms,align=unpack_from('<IIQQQQQQ',b,phoff+i*entry)
+              if t==1:segs.append((off,off+fs,va,flags))
+          print("LOAD_SEGMENTS",segs)
+          lookup=[
+              b"session.meta\x00",
+              b"full_pano_width,%d\x00",
+              b"full_pano_height,%d\x00",
+              b"cropped_area_width,%d\x00",
+              b"cropped_area_height,%d\x00",
+              b"cropped_area_top,%d\x00",
+              b"cropped_area_left,%d\x00",
+              b"source_photos_count\x00",
+              b"yaw_correction_deg,%d\x00",
+              b"orientations.txt\x00"
+          ]
+          targets={}
+          for q in lookup:
+              off=b.find(q)
+              if off<0:
+                  print("MISSING",q)
+                  continue
+              maps=[(va+off-start,flags) for start,end,va,flags in segs if start<=off<end]
+              if not maps:
+                  print("NOT_IN_SEGMENT",q,hex(off))
+                  continue
+              addr=maps[0][0]
+              targets[addr]=q
+              print("STRING",q.decode(errors='replace'),"file",hex(off),"rawVA",hex(addr),"GhidraVA",hex(addr+0x100000))
+          decoder=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          bypage={}
+          for addr,value in targets.items():bypage.setdefault(addr&~4095,[]).append((addr,value))
+          print("===== ADRP+ADD/LOAD references, candidate sites =====")
+          for start,end,va,flags in segs:
+              if not (flags & 1):continue
+              instrs=list(decoder.disasm(b[start:end],va))
+              matches=0
+              for ix,ins in enumerate(instrs):
+                  if ins.mnemonic!='adrp':continue
+                  m=re.match(r'([xw]\d+),\s*#?(0x[0-9a-f]+)',ins.op_str)
+                  if not m:continue
+                  register,page=m.group(1),int(m.group(2),16)
+                  if page not in bypage:continue
+                  for addr,what in bypage[page]:
+                      low=addr&4095
+                      for j in range(ix+1,min(ix+11,len(instrs))):
+                          op=instrs[j]
+                          if op.mnemonic not in ('add','ldr','ldrsw'):continue
+                          if register not in op.op_str:continue
+                          if op.mnemonic=='add':
+                              exp=r'^([xw]\d+),\s*'+re.escape(register)+r',\s*#?(0x[0-9a-f]+|\d+)'
+                              p=re.match(exp,op.op_str)
+                              if not p or int(p.group(2),0)!=low:continue
+                          elif not re.search(r'#0x%x(?:\]|[,\s]|$)'%low,op.op_str):continue
+                          matches+=1
+                          print('XREF',what.decode(errors='replace'),'Ghidra',hex(ins.address+0x100000),'ADRP',str(ins),'USE',hex(op.address+0x100000),str(op),'delta_instr',j-ix)
+                          break
+              print('SEGMENT_XREF_TOTAL',matches)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-equirect-constants
+          path: out/
+          retention-days: 3
