@@ -1,0 +1,70 @@
+name: Photo Sphere pyramid numeric ARM64
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-pyramid-numeric-raw.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install AArch64 disassembler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu
+      - name: Extract missing post-allocation instruction spans
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          readelf -W -S liblightcycle.so > out/sections.txt
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x32b438 --stop-address=0x32bf50 \
+            liblightcycle.so > out/base-quantization.S
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x32bf50 --stop-address=0x32c330 \
+            liblightcycle.so > out/pyramid-upsample.S
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x32cc34 --stop-address=0x32cd58 \
+            liblightcycle.so > out/special-correction.S
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for f in Path('out').glob('*.S'):
+            lines=f.read_text().splitlines()
+            print('===',f.name,'source lines',len(lines),'===')
+            interesting=('add','sub','sadd','ssub','smax','smin','sq','shrn','rshrn','fcvt','scvt','fmla','fmul','fadd',
+                         'fdiv','smul','smlal','smull','mul','asr','lsr','sxt','ushr','sshr','smov','sqxtn','saturat','ushll',
+                         'mla','mls','srshr','strb','strh','st1','bl','blr')
+            matches=[]
+            for i,line in enumerate(lines):
+              p=line.split('\t')
+              if len(p)>2 and any(k in p[2].lower() for k in interesting): matches.append(i)
+            select=set(range(min(12,len(lines))))
+            for i in matches[:155]:
+              select.update(range(max(0,i-1),min(i+2,len(lines))))
+            for i in sorted(select):
+              print(lines[i])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-pyramid-numeric-raw
+          path: out/
+          retention-days: 3
