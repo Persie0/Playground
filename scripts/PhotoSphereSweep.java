@@ -400,6 +400,17 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0043b7fcL,0x0041e1c8L,0x00437ab8L,
             0x00437e68L,0x004380dcL,0x0043ad54L
         });
+        FOCUS.put("rle-blender-mask-entry-77", new long[]{
+            0x0043605cL,0x004360b0L,0x0041e1c8L,
+            0x0043b7fcL,0x0041e8acL,0x0041c618L,
+            0x0041d3dcL,0x0043ad54L,0x0049ce64L,
+            0x004297ecL,0x0042a4fcL
+        });
+        FOCUS.put("blender-contrast-level-origin-77", new long[]{
+            0x0041f118L,0x0041f140L,0x0041c618L,
+            0x0041cc5cL,0x0041d3dcL,0x0042114cL,
+            0x00421fb0L,0x00420e0cL,0x0042a6a4L
+        });
     }
     private PrintWriter report;
     private File dir;
