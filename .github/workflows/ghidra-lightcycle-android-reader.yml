@@ -31,12 +31,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          unzip -q /tmp/android.zip 'decompiled/sources/*' -d /tmp/androidsrc
           echo "===== preview-metadata-hits.txt ====="
-          HITS=$(grep -E '(^|/)preview-metadata-hits.txt$' /tmp/android-files.txt | head -n 1 || true)
+          HITS=$(grep -E '(^|/)preview-metadata-hits.txt
+ /tmp/android-files.txt | head -n 1 || true)
           if [[ -n "$HITS" ]]; then unzip -p /tmp/android.zip "$HITS"; fi
-          for NAME in bnj.java bnc.java foc.java exm.java eyb.java LocalSessionStorage.java; do
-            SOURCE=$(grep -E "(^|/)$NAME$" /tmp/android-files.txt | head -n 1 || true)
+          echo "===== camera callback and metadata source context ====="
+          grep -R -n -C 12 -E 'onPreviewFrame|setPreviewCallback|setPreviewFormat|getPreviewFormat|metadataFilePath|session[.]meta|orientations[.]txt' /tmp/androidsrc/decompiled/sources > /tmp/source-context.txt || true
+          sed -n '1,900p' /tmp/source-context.txt
+          for NAME in bnj.java bnc.java boi.java bnh.java LocalSessionStorage.java; do
+            SOURCE=$(find /tmp/androidsrc/decompiled/sources -type f -name "$NAME" -print -quit || true)
             if [[ -z "$SOURCE" ]]; then echo "Missing $NAME"; continue; fi
             echo "===== $SOURCE ====="
-            unzip -p /tmp/android.zip "$SOURCE" | sed -n '1,280p'
+            sed -n '1,320p' "$SOURCE"
           done
