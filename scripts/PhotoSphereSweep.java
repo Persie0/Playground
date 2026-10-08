@@ -54,7 +54,7 @@ public class PhotoSphereSweep extends GhidraScript {
         FOCUS.put("blend-vtable", new long[]{
             0x0043e930L,0x00423310L,0x00433478L,0x004252b0L,
             0x0042a6a4L,0x0042b114L,0x00423f2cL,0x00421fb0L,
-            0x004380dcL,0x0043e870L,0x0043e990L,0x0043eda4L,0x004482f0L,0x004488d8L,0x004f19f4L
+            0x004380dcL,0x0043e870L,0x0043e990L,0x0043eda4L,0x00216f7cL,0x004482f0L,0x004488d8L,0x00448048L,0x0044b2ecL,0x004f19f4L
         });
         FOCUS.put("blend-pixel", new long[]{
             0x0043e930L,0x00423310L,0x004252b0L,0x00425770L,
