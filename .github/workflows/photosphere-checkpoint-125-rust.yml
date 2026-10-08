@@ -1,0 +1,38 @@
+name: Photo Sphere Gamma aperture full Rust regression 125
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-checkpoint-125-rust.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  full-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [default, portable, android-jni]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereRust
+          ref: f0025b6b284b40842461512e7c14726c8fe4ba45
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: PhotosphereRust
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run full all-target default portable Android-JNI tests for per-camera gamma angular cone
+        working-directory: PhotosphereRust
+        shell: bash
+        env:
+          CONFIG: ${{ matrix.config }}
+        run: |
+          set -euo pipefail
+          case "$CONFIG" in
+            default) cargo test --all-targets ;;
+            portable) cargo test --all-targets --no-default-features ;;
+            android-jni) cargo test --all-targets --features android-jni ;;
+          esac
+          # Existing unrelated whole-repo rustfmt differences are tracked separately; this lane verifies behavior.
