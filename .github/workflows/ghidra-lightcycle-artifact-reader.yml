@@ -1,0 +1,49 @@
+name: Read existing LightCycle blender artifact
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ghidra-lightcycle-artifact-reader.yml"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  print-focused-output:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download completed public Playground artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          AUTH_ARGS=()
+          if [[ -n "${GH_TOKEN:-}" ]]; then
+            AUTH_ARGS=(-H "Authorization: Bearer ${GH_TOKEN}")
+          fi
+          curl -fL --retry 3 "${AUTH_ARGS[@]}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/Persie0/Playground/actions/artifacts/11522080457/zip" \
+            -o /tmp/lightcycle.zip
+          unzip -Z1 /tmp/lightcycle.zip > /tmp/artifact-files.txt
+          echo "Artifact files containing focused target index:"
+          grep -E '(^|/)targets\.tsv$|(^|/)functions\.tsv$' /tmp/artifact-files.txt || true
+      - name: Print focused blender decompiles to logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t FILES < <(grep -E '(_0041fbe4|_0041fcd8|_0041fcf0|_0041fdcc|_00420058|_004208c0|_00420998|_00420dec|_00420e0c|_00420f2c|_0042114c|_0042169c|_00421718|_00421908|_00421c74|_00421c80|_00421e6c|_00421efc|_00421fb0|_0042a24c)\.c$' /tmp/artifact-files.txt || true)
+          if [[ ${#FILES[@]} -eq 0 ]]; then
+            echo "No address-named blender C files matched; listing target rows instead."
+            TARGETS=$(grep -E 'targets\.tsv$' /tmp/artifact-files.txt | head -n 1 || true)
+            if [[ -n "$TARGETS" ]]; then unzip -p /tmp/lightcycle.zip "$TARGETS"; fi
+            exit 0
+          fi
+          for FILE in "${FILES[@]}"; do
+            echo "===== $FILE ====="
+            unzip -p /tmp/lightcycle.zip "$FILE" | sed -n '1,360p'
+          done
