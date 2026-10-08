@@ -273,6 +273,21 @@ public class PhotoSphereSweep extends GhidraScript {
             0x004405c8L,0x004440ecL,0x0041a6bcL,
             0x0043f3e0L,0x0043ea50L,0x0043eda4L
         });
+        FOCUS.put("rosette-vtable-geometry", new long[]{
+            0x00443e74L,0x004440ecL,0x0041a6bcL,0x0041d3dcL,
+            0x0043f544L,0x0043f600L,0x0043f678L,
+            0x0043faccL,0x004405c8L,0x0043f3e0L
+        });
+        FOCUS.put("mask-rle-stitcher-bridge", new long[]{
+            0x0043ad54L,0x0049ca90L,0x0049ce64L,
+            0x0041d3dcL,0x0041e8acL,0x0042114cL,0x00421fb0L,
+            0x00437958L,0x00437ab8L,0x00437e68L,0x004380dcL
+        });
+        FOCUS.put("mask-level-threshold", new long[]{
+            0x00420e0cL,0x00421efcL,0x00421fb0L,
+            0x0042114cL,0x0042169cL,0x0042a6a4L,0x0042a4fcL,
+            0x004297ecL,0x00420decL,0x0041d3dcL
+        });
     }
     private PrintWriter report;
     private File dir;
