@@ -203,15 +203,17 @@ class LightCycleStageFixtures(unittest.TestCase):
 
     def test_equirect_cardinal_rays_and_pixel_center(self):
         h = 256
+        # At the poles longitude is undefined; atan2(+0,-0) may choose the seam.
         for ray, expected in [
             ((1., 0., 0.), (383.5, 127.5)),
             ((-1., 0., 0.), (127.5, 127.5)),
-            ((0., 1., 0.), (255.5, -0.5)),
-            ((0., -1., 0.), (255.5, 255.5)),
+            ((0., 1., 0.), (None, -0.5)),
+            ((0., -1., 0.), (None, 255.5)),
         ]:
             observed = equirect_ray_to_pixel(ray, h)
             for a, b in zip(observed, expected):
-                self.assertAlmostEqual(a, b, places=10)
+                if b is not None:
+                    self.assertAlmostEqual(a, b, places=10)
             recovered = equirect_pixel_to_ray(observed, h)
             for a, b in zip(recovered, ray):
                 self.assertAlmostEqual(a, b, places=10)
