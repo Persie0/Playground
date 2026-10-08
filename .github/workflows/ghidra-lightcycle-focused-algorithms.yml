@@ -17,9 +17,15 @@ jobs:
     steps:
       - name: Fetch exact native library
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
-          curl -fL --retry 3             "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"             -o camera.apk
+          AUTH_ARGS=()
+          if [[ -n "${GH_TOKEN:-}" ]]; then
+            AUTH_ARGS=(-H "Authorization: Bearer ${GH_TOKEN}")
+          fi
+          curl -fL --retry 3 "${AUTH_ARGS[@]}"             "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"             -o camera.apk
           echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
           unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
           echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
@@ -80,8 +86,12 @@ jobs:
                   0x002287c0L, 0x00229e80L,
                   // Seam mask / graphcut.
                   0x00433478L, 0x004390a8L, 0x00439600L,
-                  // Multiband / final encode.
-                  0x00420998L, 0x00420f2cL
+                  // Multiband blender vtable/setup and output methods.
+                  0x0041fbe4L, 0x0041fcd8L, 0x0041fcf0L, 0x0041fdccL,
+                  0x00420058L, 0x004208c0L, 0x00420998L, 0x00420decL,
+                  0x00420e0cL, 0x00420f2cL, 0x0042114cL, 0x0042169cL,
+                  0x00421718L, 0x00421908L, 0x00421c74L, 0x00421c80L,
+                  0x00421e6cL, 0x00421efcL, 0x00421fb0L, 0x0042a24cL
               };
 
               private static final long[] DATA = {
