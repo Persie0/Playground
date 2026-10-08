@@ -98,10 +98,10 @@ jobs:
                   // Encoder kernels delegated by the writer wrappers.
                   0x00452050L, 0x004527f8L,
                   // Preview-rosette construction, FIFO processing, and index/cardinality checks.
-                  0x004440ecL, 0x004f19f4L, 0x004f40fcL, 0x0021b5f4L, 0x0021e3e4L, 0x00218d54L,
+                  0x004440ecL, 0x00443e74L, 0x004f19f4L, 0x004f40fcL, 0x0021b5f4L, 0x0021e3e4L, 0x00218d54L,
                   0x0021b18cL, 0x0021be38L, 0x0021976cL, 0x00403cf8L,
                   // Generic target generator/config and native flow defaults/callers.
-                  0x002158fcL, 0x002159fcL, 0x001efb78L, 0x001f214cL,
+                  0x002158fcL, 0x002159fcL, 0x0021105cL, 0x002147c4L, 0x0020f6a0L, 0x001efb78L, 0x001f214cL,
                   0x001f327cL, 0x001f32b0L, 0x001f32bcL, 0x001f333cL,
                   0x001ed94cL, 0x001edb58L,
                   // Line endpoint transforms and alternate point-scale path.
@@ -291,7 +291,9 @@ jobs:
             sed -n "1,${limit}p" "$file"
           }
           grep '^VTABLE' out/focused/targets.tsv || true
-          for TARGET in 004440ec 004f19f4 004f40fc 0021b5f4 0021e3e4 00218d54 0021b18c 0021be38 0021976c 00403cf8 002158fc 002159fc 001efb78 001f214c 001f327c 001f32b0 001f32bc 001f333c 001ed94c 001edb58 00406504 004068d0 00406bc4 00406d64 0040f0b8 004158f8 00416a40 00416a64 0021d570 0021db38 0021df1c 00420058 00421c80 00421e6c 00421efc 00421fb0 0041b400 0042a24c 0042a3d8 0042278c; do
+          echo "===== target and containing-function map ====="
+          awk -F '\t' '$1=="TARGET" && ($2 ~ /00443e74|004440ec|0020f6a0|0021d570|0021db38|0021df1c/) {print} $1=="CONTAINING" && ($2 ~ /0021d570|0021db38|0021df1c/) {print}' out/focused/targets.tsv
+          for TARGET in 00443e74 004440ec 004f19f4 004f40fc 0021b5f4 0021e3e4 00218d54 0021b18c 0021be38 0021976c 00403cf8 002158fc 002159fc 0021105c 002147c4 0020f6a0 001efb78 001f214c 001f327c 001f32b0 001f32bc 001f333c 001ed94c 001edb58 00406504 004068d0 00406bc4 00406d64 0040f0b8 004158f8 00416a40 00416a64 0021d570 0021db38 0021df1c 00420058 00421c80 00421e6c 00421efc 00421fb0 0041b400 0042a24c 0042a3d8 0042278c; do
             print_body "$TARGET" 700
           done
           while IFS=$'\t' read -r KIND RAW ENTRY NAME; do
@@ -312,7 +314,7 @@ jobs:
             echo "===== objdump around raw ${raw} ====="
             sed -n "${start},${end}p" out/focused/objdump.txt
           }
-          for RAW in 003440ec 0011b5e0 0011db20 0011dcc0 0011df00; do print_disassembly_window "$RAW"; done
+          for RAW in 00343e74 003440ec 0011b5e0 0011d570 0011db20 0011db38 0011dcc0 0011df00 0011df1c; do print_disassembly_window "$RAW"; done
           for SLOT in 0050d070 0050d080 0050d128 0050d138; do
             ENTRY=$(awk -v slot="$SLOT" '$1=="VTABLE" && $2==slot {print $4; exit}' out/focused/targets.tsv)
             if [[ -n "$ENTRY" && "$ENTRY" != "-" ]]; then print_body "$ENTRY" 700; fi
