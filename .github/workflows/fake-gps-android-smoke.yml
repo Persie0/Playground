@@ -1,0 +1,55 @@
+name: Fake GPS Kotlin emulator smoke
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/fake-gps-android-smoke.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private Kotlin branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/fake_gps_detector
+          ref: fix/native-kotlin-functional-parity
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: fakegps
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: SDK basics
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.6.0
+      - name: Compile debug APK
+        working-directory: fakegps
+        run: ./gradlew --no-daemon :app:assembleDebug --console=plain
+      - name: Boot emulator, install and smoke native EULA
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_5
+          disable-animations: true
+          script: |
+            set -e
+            adb install -r fakegps/app/build/outputs/apk/debug/app-debug.apk
+            adb shell am start -W -n at.austriao.fake_gps_detector_app/.MainActivity
+            sleep 8
+            adb shell dumpsys activity activities | grep -q "at.austriao.fake_gps_detector_app"
+            adb shell uiautomator dump /sdcard/native_ui.xml
+            adb shell cat /sdcard/native_ui.xml | grep -qiE "EULA|Accept|terms|agreement"
+            adb logcat -d -b crash > /tmp/fake_gps_crashlog.txt || true
+            if grep -A12 "FATAL EXCEPTION" /tmp/fake_gps_crashlog.txt | grep -q "Process: at.austriao.fake_gps_detector_app"; then
+              cat /tmp/fake_gps_crashlog.txt
+              exit 1
+            fi
