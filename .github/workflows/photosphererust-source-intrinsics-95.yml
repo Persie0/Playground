@@ -1,0 +1,37 @@
+name: Photo Sphere calibrated source intrinsics 95
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphererust-source-intrinsics-95.yml"
+permissions:
+  contents: read
+jobs:
+  map:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [default, portable, android-jni]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereRust
+          ref: ef064a515acd73471f5bd959172741a364f72e70
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: PhotosphereRust
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate native frame and source camera mapping
+        working-directory: PhotosphereRust
+        shell: bash
+        env:
+          CONFIG: ${{ matrix.config }}
+        run: |
+          set -euo pipefail
+          case "$CONFIG" in
+            default) cargo test --lib projection -- --nocapture; cargo check --all-targets ;;
+            portable) cargo test --no-default-features --lib projection -- --nocapture; cargo check --all-targets --no-default-features ;;
+            android-jni) cargo test --features android-jni --lib projection -- --nocapture; cargo check --features android-jni ;;
+          esac
