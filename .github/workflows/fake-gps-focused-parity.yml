@@ -1,0 +1,86 @@
+name: Fake GPS focused parity verification
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fake-gps-focused-parity.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Validate explicit Appodeal CMP startup gating after Flutter migration.
+      - name: Validate secret
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$TOKEN"
+      - name: Checkout private Fake GPS branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/fake_gps_detector
+          ref: fix/native-ads-consent-and-scan-state
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: fakegps
+      - name: Checkout merged Kotlin release builder
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: builder
+      - name: Test Kotlin builder app routing
+        working-directory: builder
+        run: |
+          python -m unittest discover -s tests -p 'test_play*.py'
+          grep -q '          - fake_gps_detector' .github/workflows/play_kotlin_auto.yml
+          ! grep -q '          - fake_gps_detector' .github/workflows/play_auto.yml
+          ! grep -q '          - fake_gps_detector' .github/workflows/app_store_auto.yml
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install Android platform 36 (AGP resolves compile SDK 37)
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Setup Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      # Validate full Kotlin release build after declaring ad SDK notification permission.
+      - name: Verify original Flutter archive
+        working-directory: fakegps
+        run: |
+          set -euo pipefail
+          test -f old/pubspec.yaml
+          test -f old/lib/main.dart
+          test -f settings.gradle.kts
+          test -f app/src/main/java/at/austriao/fake_gps_detector_app/MainActivity.kt
+          test ! -f pubspec.yaml
+          test -x gradlew
+          test -f app/src/main/assets/open_source_notices.txt
+          test -f app/src/main/assets/eula/translations_eula/eula-en.html
+          if find app/src/main/assets -type f \( -name '*.dart' -o -name '*.py' \) | grep -q .; then
+            echo 'Flutter/Python assets still bundled in Kotlin app' >&2
+            exit 1
+          fi
+          test -f old/android/key.properties
+          test -f old/android/app/key.jks
+          grep -q 'old/android/key.properties' app/build.gradle.kts
+      - name: Compile Kotlin, execute unit tests and check debug lint
+        working-directory: fakegps
+        timeout-minutes: 23
+        run: |
+          ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --stacktrace --console=plain
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          find app/build/test-results/testDebugUnitTest -name '*.xml' | grep -q .
