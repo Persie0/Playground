@@ -15,7 +15,7 @@ jobs:
     steps:
       # Validate native functional parity after Flutter assets cleanup and consent fixes.
       # Verify native lifecycle fixes at latest branch head.
-      # Verify merged Fake GPS UMP consent fix on private master.
+      # Verify Appodeal Stack CMP without an AdMob account, matching old Flutter.
       - name: Validate secret
         env:
           TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/fake_gps_detector
-          ref: master
+          ref: fix/appodeal-only-stack-consent-20261008
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: fakegps
@@ -87,25 +87,27 @@ jobs:
           ./gradlew --no-daemon :app:bundleRelease --stacktrace --console=plain
           test -f app/build/outputs/apk/debug/app-debug.apk
           test -f app/build/outputs/bundle/release/app-release.aab
-      - name: Verify AdMob manifest integration for both configurations
+      - name: Verify Appodeal-only consent and no AdMob integration
         working-directory: fakegps
         timeout-minutes: 10
         run: |
           set -euo pipefail
-          # Default build has no AdMob account ID, so UMP must not receive empty metadata.
+          grep -q 'com.appodeal.ads.sdk:core:4.3.0' app/build.gradle.kts
+          ! grep -q 'ADMOB_APP_ID' app/build.gradle.kts
+          grep -q 'BuildConfig.APPODEAL_KEY' app/src/main/java/at/austriao/fake_gps_detector_app/AdsManager.kt
           ./gradlew --no-daemon :app:processDebugMainManifest --console=plain
-          merged=$(find app/build/intermediates -path '*merged_manifest*' -name AndroidManifest.xml -print -quit)
+          merged=$(find app/build/intermediates/merged_manifests -name AndroidManifest.xml -print -quit)
           test -n "$merged"
           if grep -q 'com.google.android.gms.ads.APPLICATION_ID' "$merged"; then
-            echo 'Invalid Google Ads metadata remains in the no-ID build' >&2
+            echo 'AdMob application ID must not be in the final merged manifest' >&2
             exit 1
           fi
-          # Syntax-only ID proves manifest merging. This is NOT a real publisher ID.
-          expected='ca-app-pub-1234567890123456~0123456789'
-          ./gradlew --no-daemon :app:processDebugMainManifest -PADMOB_APP_ID="$expected" --console=plain
-          merged=$(find app/build/intermediates -path '*merged_manifest*' -name AndroidManifest.xml -print -quit)
-          grep -q "$expected" "$merged"
-          grep -q 'com.google.android.gms.ads.APPLICATION_ID' "$merged"
+          ./gradlew --no-daemon :app:dependencies --configuration debugRuntimeClasspath --console=plain > /tmp/fakegps-dependencies.txt
+          if grep -Eq 'com.google.android.gms:play-services-ads(-lite)?:' /tmp/fakegps-dependencies.txt; then
+            echo 'AdMob SDK is still included in the runtime dependencies' >&2
+            grep 'com.google.android.gms:play-services-ads' /tmp/fakegps-dependencies.txt
+            exit 1
+          fi
 
       - name: Print full lint diagnostics on failure
         if: failure()
@@ -130,5 +132,5 @@ jobs:
             -H "Authorization: Bearer $TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/Persie0/Playground/statuses/$GITHUB_SHA" \
-            --data "$(printf '{"state":"%s","context":"fake-gps-kotlin-master","description":"Debug APK, unit tests, release lint and AAB"}' "$state")"
+            --data "$(printf '{"state":"%s","context":"fake-gps-stack-cmp-no-admob","description":"Debug APK, unit tests, release lint and AAB"}' "$state")"
 
