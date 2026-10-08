@@ -1,0 +1,105 @@
+name: Photo Sphere Java FOV read/write source 97
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-java-fov-readback-97.yml"
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Fetch and verify exact Google Camera APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+      - name: Fetch pinned JADX v1.5.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 "https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip" -o jadx.zip
+          mkdir -p jadx-dist
+          unzip -q jadx.zip -d jadx-dist
+          chmod +x jadx-dist/bin/jadx
+      - name: Decompile only in public Playground runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/java
+          set +e
+          jadx-dist/bin/jadx --no-res --threads-count 4 -d out/java camera.apk 2>&1 | tee out/jadx.log
+          jadx_status=${PIPESTATUS[0]}
+          set -e
+          test -d out/java/sources
+          java_files=$(find out/java/sources -name '*.java' | wc -l)
+          echo "JAVA_FILE_COUNT=$java_files"
+          test "$java_files" -ge 4000
+          if [[ "$jadx_status" != 0 ]]; then
+            echo "WARNING: JADX returned $jadx_status; scanning successfully generated classes only."
+            echo "WARNING: Unrecovered or errored classes are not evidence of missing behavior."
+          fi
+          if [[ "$jadx_status" != 0 && "$jadx_status" != 3 ]]; then exit "$jadx_status"; fi
+      - name: Trace exact FOV preference and native session reset input
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/fov
+          python3 - <<'PY' | tee out/fov/readback.txt
+          from pathlib import Path
+          root=Path('out/java/sources')
+          patterns=('photoSphereCalibratedFieldOfView','ResetForPhotoSphereCapture',
+                    'CalibrateFieldOfViewDeg','LightCycleNative.Init(',
+                    'SENSOR_INFO_PHYSICAL_SIZE','LENS_FOCAL_LENGTH')
+          files=set()
+          for path in root.rglob('*.java'):
+              try:content=path.read_text(errors='replace')
+              except OSError:continue
+              if any(p in content for p in patterns):files.add(path)
+          print('===== MATCH FILES',len(files),'=====')
+          for f in sorted(files):
+              print('FOUND',f.relative_to(root))
+              lines=f.read_text(errors='replace').splitlines()
+              indices=[i for i,l in enumerate(lines) if any(p in l for p in patterns)]
+              printed=set()
+              for i in indices[:35]:
+                  for j in range(max(0,i-12),min(len(lines),i+15)):
+                      if j not in printed:
+                          print(f'{f.relative_to(root)}:{j+1}: {lines[j]}')
+                          printed.add(j)
+          print('===== FOCUSED CLASSES =====')
+          for n,first,last in [
+              ('defpackage/exm.java',1,155),
+              ('defpackage/exd.java',1,220),
+              ('defpackage/foc.java',540,590),
+              ('defpackage/eym.java',1,90),
+              ('defpackage/exh.java',1,70),
+          ]:
+              p=root/n
+              if not p.exists():continue
+              print('===== CLASS',n,'=====')
+              lines=p.read_text(errors='replace').splitlines()
+              for i in range(first-1,min(last,len(lines))):
+                  print(f'{n}:{i+1}: {lines[i]}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-java-fov-readback-97
+          path: |
+            out/jadx.log
+            out/fov/readback.txt
+          retention-days: 3
+          if-no-files-found: warn
