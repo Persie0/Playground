@@ -1,0 +1,46 @@
+name: AnkiFlutter host filesystem and media smoke
+
+on:
+  push:
+    paths:
+      - ankiflutter-host-io-target.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-smoke:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Read AnkiFlutter commit
+        id: target
+        shell: bash
+        run: echo "sha=$(tr -d '\\r\\n' < ankiflutter-host-io-target.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          repository: Persie0/AnkiFlutter
+          ref: ${{ steps.target.outputs.sha }}
+          path: source
+          submodules: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+      - name: Resolve packages
+        working-directory: source/app
+        run: flutter pub get
+      - name: Verify collection import, media seeking, and persistence
+        working-directory: source/app
+        run: >
+          flutter test --reporter expanded
+          test/features/collection/mobile_collection_storage_test.dart
+          test/features/reviewer/media/review_media_server_test.dart
+          test/core/storage/atomic_state_file_test.dart
