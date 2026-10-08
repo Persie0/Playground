@@ -1,0 +1,75 @@
+name: Photo Sphere fisheye camera projection vtable
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-fisheye-vtable-76.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Read fisheye vtable and forward projection calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          readelf -Wr liblightcycle.so > out/relocations.txt
+          python3 - <<'PY' | tee out/fisheye-vtable.txt
+          from pathlib import Path
+          import re
+          from struct import unpack_from
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN
+          s=Path('out/relocations.txt').read_text().splitlines()
+          for lo,hi,name in [(0x40d468,0x40d580,"fisheye and adjacent camera classes"),(0x414438,0x414470,"fisheye ctor vptr slots")]:
+              print('===',name,'===')
+              for line in s:
+                  m=re.match(r'^\s*([0-9a-fA-F]{8,16})\s+',line)
+                  if m and lo<=int(m[1],16)<hi:print(line)
+          b=Path('liblightcycle.so').read_bytes()
+          off=unpack_from('<Q',b,32)[0]
+          ent,n=unpack_from('<HH',b,54)
+          segments=[]
+          for k in range(n):
+              t,f,o,v,p,fs,ms,a=unpack_from('<IIQQQQQQ',b,off+k*ent)
+              if t==1:segments.append((v,v+fs,o))
+          def foff(va):
+              for a,z,o in segments:
+                  if a<=va<z:return o+va-a
+              raise ValueError(hex(va))
+          cap=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          for label,a,z in [
+              ('FISHEYE_INVERSE',0x331030,0x331164),
+              ('FISHEYE_FWD_CANDIDATE',0x330e14,0x331030),
+              ('FISHEYE_CAMERA_INIT',0x330978,0x330a8c)
+          ]:
+              print('===',label,'===')
+              ins=list(cap.disasm(b[foff(a):foff(z-4)+4],a))
+              print('instructions:',len(ins))
+              for v in ins:
+                  if label=='FISHEYE_INVERSE' or v.mnemonic.startswith(('f','bl','ldr','str')):
+                      print(f'{v.address:08x}: {v.mnemonic:8} {v.op_str}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-fisheye-vtable-76
+          path: out/
+          retention-days: 3
