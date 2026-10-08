@@ -46,10 +46,10 @@ jobs:
               p=Path(f'out/{name}.S')
               lines=p.read_text().splitlines()
               print('===== KEY INSTRUCTIONS',name,len(lines),'=====')
-              terms=('\\tbl\\t','\\tblr\\t','\\tret','\\tbr\\t','\\tfmov\\t')
-              matches=[i for i,line in enumerate(lines) if any(term in line for term in terms)]
+              import re
+              matches=[i for i,line in enumerate(lines) if re.search(r'\\b(?:bl|blr|br|ret|fmov)\\b',line)]
               selected=set(range(min(16,len(lines))))
-              for hit in matches[:150]:
+              for hit in matches[:155]:
                   selected.update(range(max(hit-3,0),min(hit+4,len(lines))))
               for i in sorted(selected):
                   print(f'{i:04d} {lines[i]}')
