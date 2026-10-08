@@ -1,0 +1,87 @@
+name: Verify v4 resistor detector
+
+on:
+  push:
+    paths:
+      - '.github/workflows/verify_resistor_detector_v4.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout resistor_model feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor_model
+          ref: feature/v4-resistor-box-detector
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -q --upgrade pip
+          python -m pip install -q -e '.[dev,detection,export]' onnxruntime
+
+      - name: Run full tests
+        run: pytest -q
+
+      - name: Validate source and notebook syntax
+        run: |
+          python -m py_compile             src/resistor_model/detection.py             src/resistor_model/train_detection.py             src/resistor_model/export_detection.py             colab/train_resistor_detector_colab.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          json.loads(Path('colab/train_resistor_detector_colab.ipynb').read_text(encoding='utf-8'))
+          print('notebook JSON valid')
+          PY
+
+      - name: SSDLite training loss smoke test
+        run: |
+          python - <<'PY'
+          import torch
+          from resistor_model.detection import build_ssdlite_model
+
+          model = build_ssdlite_model(num_classes=2, pretrained_backbone=False)
+          model.train()
+          images = [torch.rand(3, 320, 320), torch.rand(3, 320, 320)]
+          targets = [
+              {'boxes': torch.tensor([[40., 100., 280., 220.]]), 'labels': torch.tensor([1])},
+              {'boxes': torch.tensor([[70., 80., 250., 240.]]), 'labels': torch.tensor([1])},
+          ]
+          losses = model(images, targets)
+          total = sum(losses.values())
+          assert torch.isfinite(total), losses
+          print({k: float(v.detach()) for k, v in losses.items()})
+          print('total_loss', float(total.detach()))
+          PY
+
+      - name: ONNX export and runtime smoke test
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import onnxruntime as ort
+          import torch
+          from resistor_model.detection import build_ssdlite_model
+          from resistor_model.export_detection import export_onnx
+
+          out = Path('/tmp/resistor_detector.onnx')
+          checkpoint = Path('/tmp/detector.pt')
+          model = build_ssdlite_model(num_classes=2, pretrained_backbone=False)
+          torch.save({
+              'architecture': 'ssdlite320_mobilenet_v3_large',
+              'num_classes': 2,
+              'model': model.state_dict(),
+              'image_size': 320,
+              'category_names': ['resistor'],
+              'pretrained_backbone': False,
+          }, checkpoint)
+          export_onnx(checkpoint, out)
+          assert out.is_file() and out.stat().st_size > 0
+          assert out.with_suffix('.onnx.json').is_file()
+          session = ort.InferenceSession(str(out), providers=['CPUExecutionProvider'])
+          print('inputs', [(x.name, x.shape, x.type) for x in session.get_inputs()])
+          print('outputs', [(x.name, x.shape, x.type) for x in session.get_outputs()])
+          PY
