@@ -41,6 +41,23 @@ jobs:
           aarch64-linux-gnu-objdump -d -j .text \
             --start-address=0x33d000 --stop-address=0x33d740 \
             liblightcycle.so > out/ibfs-construct-and-capacities.S
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x33e524 --stop-address=0x33e640 \
+            liblightcycle.so > out/ibfs-label-methods.S
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x13b148 --stop-address=0x13b1a0 \
+            liblightcycle.so > out/ibfs-terminal-first.S
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x1409b4 --stop-address=0x140a10 \
+            liblightcycle.so > out/ibfs-terminal-second.S
+          echo '=== CONSTRUCTOR VTABLE GOT RELOCATION ==='
+          grep -Ei '0000000000414470|000000000040d9(7|8|9|a|b|c)' out/relocations.txt | head -35 || true
+          echo '=== IBFS LABEL METHOD ==='
+          cat out/ibfs-label-methods.S
+          echo '=== IBFS TERMINAL A ==='
+          cat out/ibfs-terminal-first.S
+          echo '=== IBFS TERMINAL B ==='
+          cat out/ibfs-terminal-second.S
           echo '=== GRAPH BRIDGE / CONSTRUCTOR ==='
           cat out/graph-wrapper.S
           echo '=== IBFS CAPACITY ROUTES ==='
