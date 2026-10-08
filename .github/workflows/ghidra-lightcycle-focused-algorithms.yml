@@ -1,4 +1,4 @@
-name: LightCycle focused algorithm reverse engineering
+name: LightCycle focused native and Android analysis
 
 on:
   workflow_dispatch:
@@ -95,7 +95,20 @@ jobs:
                   // JPEG writer delegates reached by the multiband output path.
                   0x00450c9cL, 0x00451100L,
                   // Encoder kernels delegated by the writer wrappers.
-                  0x00452050L, 0x004527f8L
+                  0x00452050L, 0x004527f8L,
+                  // Preview-rosette construction, FIFO processing, and index/cardinality checks.
+                  0x003440ecL, 0x0021b5f4L, 0x0021e3e4L, 0x00218d54L,
+                  0x0021b18cL, 0x0021be38L, 0x0021976cL, 0x00403cf8L,
+                  0x000ef830L,
+                  // Generic target generator/config and native flow defaults/callers.
+                  0x002158fcL, 0x002159fcL, 0x000efb78L, 0x001f214cL,
+                  0x001f327cL, 0x001f32b0L, 0x001f32bcL, 0x001f333cL,
+                  0x001ed94cL, 0x001edb58L,
+                  // Line endpoint transforms and alternate point-scale path.
+                  0x00406504L, 0x004068d0L, 0x00406bc4L, 0x00406d64L,
+                  0x00416a40L, 0x0021db38L, 0x0021df1cL,
+                  // Pyramid filter helper.
+                  0x0042278cL
               };
 
               private static final long[] DATA = {
@@ -107,8 +120,12 @@ jobs:
                   0x00161de0L,0x00161df0L,0x00161e30L,0x00161fd0L,
                   0x00161fd8L,0x00161ff0L,0x001622f0L,0x001623a0L,
                   0x001624d0L,0x001625c0L,0x0016275bL,0x00162e30L,
-                  0x004fd1e8L,0x004fd1f8L
+                  0x004fd1e8L,0x004fd1f8L,
+                  // Blender vtable address points found in prior reference rows.
+                  0x0050d018L,0x0050d0d0L
               };
+
+              private static final long[] VTABLES = { 0x0050d018L, 0x0050d0d0L };
 
               public void run() throws Exception {
                   File outDir = new File(getScriptArgs()[0]);
@@ -130,6 +147,26 @@ jobs:
                       Function f=fm.getFunctionAt(a);
                       ix.println("TARGET\t"+a+"\t"+(f==null?"<none>":f.getName()+"\t"+f.getBody()));
                       if(f!=null) funcs.add(f);
+                  }
+
+                  // Resolve function pointers in the two blender vtable address points.
+                  // This captures concrete +0x58/+0x68 methods without guessing their addresses.
+                  for(long base:VTABLES){
+                      for(int off=0;off<=0x80;off+=8){
+                          Address slot=toAddr(base+off);
+                          try{
+                              long ptr=mem.getLong(slot);
+                              Address target=toAddr(ptr);
+                              Function vf=fm.getFunctionAt(target);
+                              if(vf==null) vf=fm.getFunctionContaining(target);
+                              String entry=(vf==null?"-":vf.getEntryPoint().toString());
+                              String name=(vf==null?"-":vf.getName());
+                              ix.println("VTABLE\\t"+slot+"\\t"+target+"\\t"+entry+"\\t"+name);
+                              if(vf!=null) funcs.add(vf);
+                          }catch(Exception e){
+                              ix.println("VTABLE\\t"+slot+"\\t<unreadable>\\t-\\t-");
+                          }
+                      }
                   }
 
                   Set<Function> seed=new LinkedHashSet<>(funcs);
@@ -209,10 +246,58 @@ jobs:
           aarch64-linux-gnu-objdump -d --no-show-raw-insn liblightcycle.so > out/focused/objdump.txt
           aarch64-linux-gnu-objdump -s -j .rodata liblightcycle.so > out/focused/rodata.txt || true
           readelf -Ws liblightcycle.so > out/focused/symbols.txt
+          readelf -rW liblightcycle.so > out/focused/relocations.txt
+          readelf -Ws liblightcycle.so | c++filt > out/focused/symbols-demangled.txt
+          objdump -h liblightcycle.so > out/focused/sections.txt
+          objdump -s -j .data.rel.ro liblightcycle.so > out/focused/data-rel-ro.txt || true
+          objdump -s -j .data.rel.ro.local liblightcycle.so > out/focused/data-rel-ro-local.txt || true
 
       - uses: actions/upload-artifact@v4
         with:
           name: pixel-camera-lightcycle-focused-algorithms
           path: out/
+          if-no-files-found: error
+          retention-days: 90
+
+  android-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Download and verify exact target APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/android
+          curl -fL --retry 3 "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -Z1 camera.apk | tee out/android/apk-members.txt
+          grep -E '^classes([0-9]+)?\.dex out/android/apk-members.txt > out/android/dex-files.txt || true
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Download and verify JADX
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 "https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip" -o jadx.zip
+          echo "545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974  jadx.zip" | sha256sum -c -
+          unzip -q jadx.zip -d jadx
+          chmod +x jadx/bin/jadx
+      - name: Decompile Java and search camera/metadata paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -s out/android/dex-files.txt ]]; then
+            jadx/bin/jadx --no-res --show-bad-code --threads-count 2 -d out/android/decompiled camera.apk
+            grep -R -n -i -E "setPreviewCallback|setPreviewFormat|getPreviewFormat|setPreviewTexture|metadataFilePath|LocalSessionStorage|PreviewFrameProcessor|ImageFormat\\.NV21|DEPTH16" out/android/decompiled/sources > out/android/preview-metadata-hits.txt || true
+          else
+            echo "The exact target APK has no classes*.dex entries; Java preview/runtime metadata cannot be traced from this asset." | tee out/android/preview-metadata-hits.txt
+          fi
+          sed -n '1,600p' out/android/preview-metadata-hits.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pixel-camera-android-static-preview-metadata
+          path: out/android/
           if-no-files-found: error
           retention-days: 90
