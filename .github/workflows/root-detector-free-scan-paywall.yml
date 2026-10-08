@@ -1,4 +1,4 @@
-name: Root Detector final free scans paywall verification
+name: Root Detector fifth-scan paywall review and emulator
 
 on:
   push:
@@ -43,3 +43,55 @@ jobs:
         run: gradle --no-daemon :app:testDebugUnitTest :app:lintRelease :app:assembleDebug :app:bundleRelease --stacktrace
       - name: Verify R8 release gates
         run: python3 release-builder/.github/scripts/verify_r8_min_scores.py root-detector/app/build/outputs/bundle/release/app-release.aab
+
+  emulator-fifth-attempt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/root_detection_app
+          ref: hard-paywall-after-four-scans
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: root-detector
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Install Android 37
+        run: |
+          set -euo pipefail
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37.0"
+      - name: Assemble Kotlin debug APK
+        working-directory: root-detector
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
+      - name: Allow hardware emulation
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod a+rw /dev/kvm; fi
+      - name: Verify fourth scan and fifth-attempt paywall on Android 13 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          target: default
+          profile: pixel_6
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: bash root-detector/scripts/emulator-paywall-fifth-attempt.sh
+      - name: Save scan sequence screenshots and debug logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: root-detector-fifth-scan-paywall-ui
+          path: |
+            paywall-results-after-four.png
+            paywall-restarted-before-fifth.png
+            paywall-fifth-attempt.png
+            root-detector-eula.png
+            root-detector-scan.png
+            root-detector-logcat.txt
+          retention-days: 3
+          if-no-files-found: ignore
