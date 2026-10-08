@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/fake_gps_detector
-          ref: fix/native-kotlin-functional-parity
+          ref: master
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: fakegps
@@ -46,10 +46,21 @@ jobs:
             set -e
             adb install -r fakegps/app/build/outputs/apk/debug/app-debug.apk
             adb shell am start -W -n at.austriao.fake_gps_detector_app/.MainActivity
-            sleep 8
+            sleep 12
             adb shell dumpsys activity activities | grep -q "at.austriao.fake_gps_detector_app"
-            adb shell uiautomator dump /sdcard/native_ui.xml
-            adb shell cat /sdcard/native_ui.xml | grep -qiE "EULA|Accept|terms|agreement"
+            adb shell uiautomator dump /sdcard/native_ui.xml || true
+            adb shell cat /sdcard/native_ui.xml > /tmp/native_ui.xml || true
+            echo "===== FULL NATIVE UI HIERARCHY ====="
+            cat /tmp/native_ui.xml || true
+            echo "===== ACTIVITY STATE ====="
+            adb shell dumpsys activity activities | grep -E "mResumed|topResumedActivity|mFocusedApp|MainActivity" | tail -25 || true
+            echo "===== ANDROID LOG ERRORS ====="
+            adb logcat -d -v brief -t 1000 | grep -Ei "FakeGps|MainActivity|WebView|EulaScreen|FATAL EXCEPTION|AndroidRuntime|Failed to load" | tail -80 || true
+            adb exec-out screencap -p > /tmp/fake-gps-native-smoke.png || true
+            if ! grep -qiE "EULA|Accept|terms|agreement" /tmp/native_ui.xml; then
+              echo "::error::Offline EULA not found in Android UI hierarchy"
+              exit 1
+            fi
             adb logcat -d -b crash > /tmp/fake_gps_crashlog.txt || true
             if grep -A12 "FATAL EXCEPTION" /tmp/fake_gps_crashlog.txt | grep -q "Process: at.austriao.fake_gps_detector_app"; then
               cat /tmp/fake_gps_crashlog.txt
