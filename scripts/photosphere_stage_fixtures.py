@@ -86,6 +86,28 @@ def wrap_horizontal_native(x: float, width: float) -> float:
     return x
 
 
+
+def project_negative_z_linear(
+    ray: tuple[float, float, float], fx: float, fy: float, cx: float, cy: float
+) -> tuple[float, float]:
+    """Raw FUN_00431b54 base projection with no optional distortion object.
+
+    Native validity/bounds checks are not modeled here; front-view rays have z<0.
+    """
+    x, y, z = ray
+    if z >= 0 or fx == 0 or fy == 0:
+        raise ValueError("Expected negative-Z ray and nonzero focal lengths")
+    return (cx - fx * x / z, cy + fy * y / z)
+
+
+def unproject_negative_z_linear(
+    pixel: tuple[float, float], inv_fx: float, inv_fy: float, cx: float, cy: float
+) -> tuple[float, float, float]:
+    """FUN_00431c38 linear unprojection before any camera-specific undistortion."""
+    px, py = pixel
+    return ((px - cx) * inv_fx, -(py - cy) * inv_fy, -1.0)
+
+
 class LightCycleStageFixtures(unittest.TestCase):
     def test_identity_rotation_and_transpose(self):
         i = (1., 0., 0., 0., 1., 0., 0., 0., 1.)
@@ -126,6 +148,24 @@ class LightCycleStageFixtures(unittest.TestCase):
         self.assertEqual(wrap_horizontal_native(7.5, 8.0), -0.5)
         self.assertEqual(wrap_horizontal_native(-0.5, 8.0), -0.5)
         self.assertEqual(wrap_horizontal_native(2.0, 8.0), 2.0)
+
+    def test_linear_camera_center_uses_negative_z(self):
+        f = (100.0, 110.0, 49.5, 59.5)
+        self.assertEqual(project_negative_z_linear((0., 0., -1.), *f), (49.5, 59.5))
+        self.assertEqual(unproject_negative_z_linear((49.5, 59.5), .01, 1/110, 49.5, 59.5), (0., 0., -1.))
+
+    def test_linear_camera_projection_and_unprojection(self):
+        fx, fy, cx, cy = 100., 200., 49.5, 30.5
+        ray = (0.25, -0.5, -1.)
+        pix = project_negative_z_linear(ray, fx, fy, cx, cy)
+        self.assertEqual(pix, (74.5, 130.5))
+        self.assertEqual(unproject_negative_z_linear(pix, 1/fx, 1/fy, cx, cy), ray)
+
+    def test_linear_camera_rejects_nonnegative_z(self):
+        with self.assertRaises(ValueError):
+            project_negative_z_linear((0., 0., 0.), 100., 100., 1., 1.)
+        with self.assertRaises(ValueError):
+            project_negative_z_linear((0., 0., 1.), 100., 100., 1., 1.)
 
 
 if __name__ == "__main__":
