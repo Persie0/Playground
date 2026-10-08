@@ -34,39 +34,29 @@ jobs:
           persist-credentials: false
           path: builder
 
-      - uses: actions/checkout@v5
-        with:
-          repository: Persie0/resistor_scanner
-          ref: tflite
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-          persist-credentials: false
-          path: legacy
-          sparse-checkout: |
-            android/key.properties
-            android/app/key.jks
-          sparse-checkout-cone-mode: false
-
-      - name: Verify release wiring
+      - name: Verify release wiring and signing identity
         run: |
           set -euo pipefail
           WF=builder/.github/workflows/play_kotlin_auto.yml
           GRADLE=apprepo/app/build.gradle.kts
+          KEY_B64=apprepo/.github/release-signing/resistor-scanner-upload-key.jks.b64
 
           grep -F -- '- resistor-scanner-android' "$WF"
           grep -F "inputs.app == 'resistor-scanner-android'" "$WF"
           grep -F 'RESISTOR_SCANNER_STORE_PASSWORD' "$WF"
           grep -F 'RESISTOR_SCANNER_KEY_PASSWORD' "$WF"
-          grep -F "repository: 'Persie0/resistor_scanner'" "$WF"
-          grep -F 'ref: tflite' "$WF"
-          grep -F 'android/key.properties' "$WF"
-          grep -F 'android/app/key.jks' "$WF"
+          grep -F "KEY_B64='.github/release-signing/resistor-scanner-upload-key.jks.b64'" "$WF"
+          grep -F 'base64 --decode "$KEY_B64" > app/key.jks' "$WF"
+          grep -F 'storePassword=#{KEYSTORE_PASS}#' "$WF"
+          grep -F 'keyPassword=#{KEYSTORE_KEY_PASS}#' "$WF"
 
-          test -f legacy/android/key.properties
-          test -f legacy/android/app/key.jks
-          grep -F 'keyAlias=key' legacy/android/key.properties
-          grep -F 'storeFile=./key.jks' legacy/android/key.properties
+          test -f "$KEY_B64"
+          base64 --decode "$KEY_B64" > /tmp/resistor-scanner-key.jks
+          test "$(git hash-object /tmp/resistor-scanner-key.jks)" = "9ff8f257464a8c54c046a82eb6700867185ebdef"
 
           grep -F 'applicationId = "at.austriao.resistor_scanner"' "$GRADLE"
+          grep -F 'versionCode = 1' "$GRADLE"
+          grep -F 'versionName = "1.0"' "$GRADLE"
           grep -F 'val keystorePropertiesFile = rootProject.file("key.properties")' "$GRADLE"
           grep -F 'create("release")' "$GRADLE"
           grep -F 'signingConfig = signingConfigs.getByName("release")' "$GRADLE"
@@ -76,10 +66,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Test and build unsigned release fallback
+      - name: Test, lint, and build unsigned release fallback
         working-directory: apprepo
         run: |
           set -euo pipefail
           chmod +x gradlew
           ./gradlew --no-daemon :app:testDebugUnitTest :app:lintRelease :app:bundleRelease
           test -f app/build/outputs/bundle/release/app-release.aab
+
+      - name: Verify global R8 release gate
+        run: |
+          set -euo pipefail
+          python3 builder/.github/scripts/verify_r8_min_scores.py             apprepo/app/build/outputs/bundle/release/app-release.aab
