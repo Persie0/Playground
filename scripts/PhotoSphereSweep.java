@@ -634,6 +634,16 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0041f140L,0x00441dc0L,0x0049a19cL,0x00431b54L,
             0x00431c38L,0x0043f544L
         });
+        FOCUS.put("gamma-lattice-unresolved-99", new long[]{
+            0x00440994L,0x00441dc0L,0x0049a19cL,
+            0x0049a3a0L,0x0049a77cL,0x0041c618L,
+            0x004404ecL,0x004405c8L,0x00441048L
+        });
+        FOCUS.put("dense-flow-jacobian-unresolved-99", new long[]{
+            0x001ff7dcL,0x001ffab0L,0x001fff14L,
+            0x001fd76cL,0x001fdf50L,0x001ff1c8L,
+            0x001fefdcL,0x001ffc30L
+        });
     }
     private PrintWriter report;
     private File dir;
