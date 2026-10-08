@@ -94,3 +94,20 @@ jobs:
           if [ -f "$REPORT" ]; then
             grep -E '^[^ ]+:[0-9]+: (Error|Warning):' "$REPORT" || cat "$REPORT"
           fi
+      - name: Publish PR21 validation status
+        if: always()
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          BUILD_RESULT: ${{ job.status }}
+        run: |
+          state="$BUILD_RESULT"
+          case "$state" in
+            success|failure|error|pending) ;;
+            *) state=error ;;
+          esac
+          curl --fail --silent --show-error --request POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/Persie0/Playground/statuses/$GITHUB_SHA" \
+            --data "$(printf '{"state":"%s","context":"fake-gps-kotlin-pr21","description":"Debug APK, unit tests, release lint and AAB"}' "$state")"
+
