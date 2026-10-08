@@ -68,13 +68,20 @@ jobs:
           test -f app/src/main/java/at/austriao/fake_gps_detector_app/MainActivity.kt
           test ! -f pubspec.yaml
           test -x gradlew
+          test -f app/src/main/assets/open_source_notices.txt
+          test -f app/src/main/assets/eula/translations_eula/eula-en.html
+          if find app/src/main/assets -type f \( -name '*.dart' -o -name '*.py' \) | grep -q .; then
+            echo 'Flutter/Python assets still bundled in Kotlin app' >&2
+            exit 1
+          fi
           test -f old/android/key.properties
           test -f old/android/app/key.jks
           grep -q 'old/android/key.properties' app/build.gradle.kts
       - name: Kotlin Android build and unit tests
         working-directory: fakegps
         run: |
-          ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintRelease :app:bundleRelease --stacktrace --console=plain
+          ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintRelease --stacktrace --console=plain
+          ./gradlew --no-daemon :app:bundleRelease --stacktrace --console=plain
           test -f app/build/outputs/apk/debug/app-debug.apk
           test -f app/build/outputs/bundle/release/app-release.aab
       - name: Print full lint diagnostics on failure
