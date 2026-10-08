@@ -51,6 +51,11 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0020f448L,0x00216948L,0x00419d40L,0x00419b74L,
             0x0041aa40L,0x0041a6bcL
         });
+        FOCUS.put("blend-vtable", new long[]{
+            0x0043e930L,0x00423310L,0x00433478L,0x004252b0L,
+            0x0042a6a4L,0x0042b114L,0x00423f2cL,0x00421fb0L,
+            0x004380dcL,0x0043e870L,0x0043e990L,0x004f19f4L
+        });
         FOCUS.put("blend-pixel", new long[]{
             0x0043e930L,0x00423310L,0x004252b0L,0x00425770L,
             0x004121bcL,0x0042368cL,0x0042a4fcL,0x0042a6a4L,
@@ -137,6 +142,15 @@ public class PhotoSphereSweep extends GhidraScript {
                 report.println("ALLOCATOR_AFTER\t"+allocator.getEntryPoint()+"\tnoReturn="+allocator.hasNoReturn()+"\treturn="+allocator.getReturnType());
                 outputFunction(rosette,"after");
             }
+        }
+        if(track.equals("blend-vtable")) {
+            Function allocator=find(0x004f19f4L);
+            if(allocator==null) throw new IllegalStateException("Cannot resolve native allocator");
+            report.println("ALLOCATOR_BEFORE\t"+allocator.getEntryPoint()+"\tnoReturn="+allocator.hasNoReturn());
+            allocator.setNoReturn(false);
+            allocator.setReturnType(new PointerDataType(),SourceType.USER_DEFINED);
+            dec.flushCache();
+            report.println("ALLOCATOR_AFTER\t"+allocator.getEntryPoint()+"\tnoReturn="+allocator.hasNoReturn());
         }
         if(track.equals("rosette-access")) {
             Function allocator=find(0x004f19f4L);
