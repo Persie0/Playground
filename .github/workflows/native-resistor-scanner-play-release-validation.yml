@@ -1,0 +1,85 @@
+name: Native Resistor Scanner Play release setup validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/native-resistor-scanner-play-release-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: feat/play-release-signing
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: apprepo
+
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: feat/native-resistor-scanner-play-release
+          persist-credentials: false
+          path: builder
+
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor_scanner
+          ref: tflite
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: legacy
+          sparse-checkout: |
+            android/key.properties
+            android/app/key.jks
+          sparse-checkout-cone-mode: false
+
+      - name: Verify release wiring
+        run: |
+          set -euo pipefail
+          WF=builder/.github/workflows/play_kotlin_auto.yml
+          GRADLE=apprepo/app/build.gradle.kts
+
+          grep -F -- '- resistor-scanner-android' "$WF"
+          grep -F "inputs.app == 'resistor-scanner-android'" "$WF"
+          grep -F 'RESISTOR_SCANNER_STORE_PASSWORD' "$WF"
+          grep -F 'RESISTOR_SCANNER_KEY_PASSWORD' "$WF"
+          grep -F "repository: 'Persie0/resistor_scanner'" "$WF"
+          grep -F 'ref: tflite' "$WF"
+          grep -F 'android/key.properties' "$WF"
+          grep -F 'android/app/key.jks' "$WF"
+
+          test -f legacy/android/key.properties
+          test -f legacy/android/app/key.jks
+          grep -F 'keyAlias=key' legacy/android/key.properties
+          grep -F 'storeFile=./key.jks' legacy/android/key.properties
+
+          grep -F 'applicationId = "at.austriao.resistor_scanner"' "$GRADLE"
+          grep -F 'val keystorePropertiesFile = rootProject.file("key.properties")' "$GRADLE"
+          grep -F 'create("release")' "$GRADLE"
+          grep -F 'signingConfig = signingConfigs.getByName("release")' "$GRADLE"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Test and build unsigned release fallback
+        working-directory: apprepo
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:lintRelease :app:bundleRelease
+          test -f app/build/outputs/bundle/release/app-release.aab
