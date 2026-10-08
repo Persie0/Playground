@@ -27,7 +27,7 @@ jobs:
           fi
           curl -fL --retry 3 "${AUTH_ARGS[@]}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/Persie0/Playground/actions/artifacts/11522355803/zip" \
+            "https://api.github.com/repos/Persie0/Playground/actions/artifacts/11522820479/zip" \
             -o /tmp/lightcycle.zip
           unzip -Z1 /tmp/lightcycle.zip > /tmp/artifact-files.txt
           echo "TARGET AND FUNCTION INDEXES"
@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t FILES < <(grep -E '(_0041fbe4|_0041fcd8|_0041fcf0|_0041fdcc|_00420058|_004208c0|_00420998|_00420dec|_00420e0c|_00420f2c|_0042114c|_0042169c|_00421718|_00421908|_00421c74|_00421c80|_00421e6c|_00421efc|_00421fb0|_0042a24c|_0041fb10|_004121bc|_0021792c|_00406830|_00423bc4|_00423f2c|_0042a4fc|_0042a6a4|_004297ec|_00423310|_0042368c|_00422ffc|_0042278c|_0042cd58|_00428b78|_00447c9c|_00447d74|_00450c9c|_00451100)\.c$' /tmp/artifact-files.txt || true)
+          mapfile -t FILES < <(grep -E '(_0041fbe4|_0041fcd8|_0041fcf0|_0041fdcc|_00420058|_004208c0|_00420998|_00420dec|_00420e0c|_00420f2c|_0042114c|_0042169c|_00421718|_00421908|_00421c74|_00421c80|_00421e6c|_00421efc|_00421fb0|_0042a24c|_0041fb10|_004121bc|_0021792c|_00406830|_00423bc4|_00423f2c|_0042a4fc|_0042a6a4|_004297ec|_00423310|_0042368c|_00422ffc|_0042278c|_0042cd58|_00428b78|_00447c9c|_00447d74|_00450c9c|_00451100|_00452050|_004527f8)\.c$' /tmp/artifact-files.txt || true)
           if [[ ${#FILES[@]} -eq 0 ]]; then
             echo "No address-named blender C files matched; listing target rows instead."
             TARGETS=$(grep -E 'targets\.tsv$' /tmp/artifact-files.txt | head -n 1 || true)
@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for TARGET in 00450c9c 00451100; do
+          for TARGET in 00450c9c 00451100 00452050 004527f8; do
             SOURCE=$(grep -E "_${TARGET}\\.c$" /tmp/artifact-files.txt | head -n 1 || true)
             if [[ -z "$SOURCE" ]]; then
               echo "No decompile for target ${TARGET}"
