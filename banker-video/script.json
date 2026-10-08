@@ -1,0 +1,628 @@
+[
+  {
+    "chapter": "INTRODUCTION",
+    "title": "THE BANKER'S ALGORITHM",
+    "kind": "intro",
+    "narration": "Should the operating system always grant a request when resources are available? No. A decision that looks harmless right now can leave the system with no guaranteed way for its processes to finish. The Banker's Algorithm solves this problem by testing the consequences before granting resources.",
+    "data": {}
+  },
+  {
+    "chapter": "INTRODUCTION",
+    "title": "DEADLOCK: EVERYONE WAITS",
+    "kind": "cycle",
+    "narration": "Consider four processes arranged in a cycle. Each process holds a resource and waits for the next process to release another one. Nobody can proceed, and nobody releases what they have. This is the core intuition of deadlock: progress becomes impossible because the processes depend on each other in a circle.",
+    "data": {}
+  },
+  {
+    "chapter": "INTRODUCTION",
+    "title": "AVOIDANCE, NOT DETECTION",
+    "kind": "intro",
+    "narration": "Deadlock prevention prohibits one of the necessary conditions. Deadlock detection discovers an existing deadlock and tries to recover. The Banker's Algorithm is different: it is an avoidance algorithm. It evaluates requests before granting them, using each process's known maximum resource claim.",
+    "data": {}
+  },
+  {
+    "chapter": "RESOURCE MODEL",
+    "title": "TOTAL RESOURCES R",
+    "kind": "vector",
+    "narration": "Our lecture example has three resource types. The total resource vector is nine, three, six. There are nine units of R one, three units of R two, and six units of R three. These are distinct categories. One resource type can never substitute for another during the safety test.",
+    "data": {
+      "nums": [
+        9,
+        3,
+        6
+      ],
+      "lab": "R = (9, 3, 6) — TOTAL RESOURCES"
+    }
+  },
+  {
+    "chapter": "RESOURCE MODEL",
+    "title": "MAXIMUM CLAIM C",
+    "kind": "matrices",
+    "narration": "The claim matrix C tells us the maximum total number of units that each process may ever hold. Process P one claims three, two, two. P two claims six, one, three. P three claims three, one, four, and P four claims four, two, two. These are total holdings, not additional requests.",
+    "data": {}
+  },
+  {
+    "chapter": "RESOURCE MODEL",
+    "title": "CURRENT ALLOCATION A",
+    "kind": "matrices",
+    "narration": "The allocation matrix A records the resources already assigned. P one holds one, zero, zero. P two holds five, one, one. P three holds two, one, one. P four holds zero, zero, two. Notice that adding the allocation columns gives eight, two, four resources currently allocated.",
+    "data": {}
+  },
+  {
+    "chapter": "RESOURCE MODEL",
+    "title": "AVAILABLE VECTOR V",
+    "kind": "vector",
+    "narration": "Subtract allocated resources from the totals. Eight of our nine R one units are already allocated. Two of the three R two units are allocated. Four of the six R three units are allocated. Therefore the available vector is one, one, two.",
+    "data": {
+      "nums": [
+        1,
+        1,
+        2
+      ],
+      "lab": "V = (1, 1, 2) — AVAILABLE"
+    }
+  },
+  {
+    "chapter": "RESOURCE MODEL",
+    "title": "NEED = CLAIM − ALLOCATION",
+    "kind": "matrices",
+    "narration": "Remaining Need, called N in the lecture, is calculated component by component by subtracting A from C. For P two, the maximum six, one, three minus allocation five, one, one gives remaining need one, zero, two. The complete Need matrix contains two two two, one zero two, one zero three, and four two zero.",
+    "data": {}
+  },
+  {
+    "chapter": "RESOURCE MODEL",
+    "title": "EVERY RESOURCE MUST FIT",
+    "kind": "comparison",
+    "narration": "A process may finish only when its remaining Need is less than or equal to Work in every resource category. For instance, P two with Need one, zero, two fits Work one, one, two. The comparison is element-wise. Never compare the sums: excess R two cannot compensate for missing R one.",
+    "data": {
+      "need": [
+        1,
+        0,
+        2
+      ],
+      "work": [
+        1,
+        1,
+        2
+      ]
+    }
+  },
+  {
+    "chapter": "SAFETY ALGORITHM",
+    "title": "STEP ONE: INITIALIZE WORK",
+    "kind": "safety",
+    "narration": "The safety algorithm starts by marking every process unfinished and copying the available vector into a temporary Work vector. Work is not the actual free resource pool during real execution. It is a simulation variable used to determine whether there is an order in which all processes can finish.",
+    "data": {
+      "focus": 0
+    }
+  },
+  {
+    "chapter": "SAFETY ALGORITHM",
+    "title": "STEP TWO: FIND A CANDIDATE",
+    "kind": "safety",
+    "narration": "Find any unfinished process whose complete remaining Need fits within Work. If one exists, assume that it receives the rest of its required resources, completes, and gives back all resources it holds. The net update is Work equals Work plus that process's currently allocated resources.",
+    "data": {
+      "focus": 1
+    }
+  },
+  {
+    "chapter": "SAFETY ALGORITHM",
+    "title": "REPEAT UNTIL ALL FINISH",
+    "kind": "safety",
+    "narration": "Mark the simulated process finished. Keep searching for another eligible process using the updated Work vector. If every process can be marked finished, the state is safe. If the algorithm gets stuck while some processes are unfinished, the state is unsafe. A single successful completion order is sufficient.",
+    "data": {
+      "focus": 4
+    }
+  },
+  {
+    "chapter": "RESOURCE REQUEST",
+    "title": "THREE CHECKS BEFORE COMMITTING",
+    "kind": "request",
+    "narration": "Now consider a new request Q by process P k. First check that Q does not exceed its remaining Need. Second, check that Q does not exceed the available vector. Third, tentatively update Available, Allocation, and Need, run the full safety algorithm, and commit only if the resulting state is safe.",
+    "data": {
+      "focus": 0
+    }
+  },
+  {
+    "chapter": "EXAMPLE A — SAFE",
+    "title": "P2 REQUESTS (1, 0, 1)",
+    "kind": "example",
+    "narration": "Here is the first complete example from the Technical University of Vienna lecture. Process P two requests one unit of R one, zero of R two, and one of R three. We start from the original available vector one, one, two. We will check legality, availability, and safety in that order.",
+    "data": {
+      "p": 2,
+      "w0": [
+        1,
+        1,
+        2
+      ],
+      "w1": [
+        1,
+        1,
+        2
+      ],
+      "need": [
+        1,
+        0,
+        2
+      ],
+      "alloc": [
+        5,
+        1,
+        1
+      ]
+    }
+  },
+  {
+    "chapter": "EXAMPLE A — SAFE",
+    "title": "P2 PASSES THE CLAIM CHECK",
+    "kind": "comparison",
+    "narration": "P two's remaining Need is one, zero, two. Its request is one, zero, one. One fits inside one, zero fits inside zero, and one fits inside two. Therefore P two has not exceeded its declared maximum claim. The first test succeeds.",
+    "data": {
+      "need": [
+        1,
+        0,
+        1
+      ],
+      "work": [
+        1,
+        0,
+        2
+      ]
+    }
+  },
+  {
+    "chapter": "EXAMPLE A — SAFE",
+    "title": "P2 PASSES THE AVAILABILITY CHECK",
+    "kind": "comparison",
+    "narration": "The request one, zero, one also fits the original available vector one, one, two. After a tentative grant, the system would have zero, one, one free resources. But the request is not yet approved, because availability alone does not establish safety.",
+    "data": {
+      "need": [
+        1,
+        0,
+        1
+      ],
+      "work": [
+        1,
+        1,
+        2
+      ]
+    }
+  },
+  {
+    "chapter": "EXAMPLE A — SAFE",
+    "title": "THE TENTATIVE P2 GRANT",
+    "kind": "example",
+    "narration": "Apply the hypothetical change. P two's allocation becomes six, one, two. Its remaining Need becomes zero, zero, one. The available vector becomes zero, one, one, which is copied into Work. We must now see whether all four processes can still finish.",
+    "data": {
+      "p": 2,
+      "w0": [
+        1,
+        1,
+        2
+      ],
+      "w1": [
+        0,
+        1,
+        1
+      ],
+      "need": [
+        0,
+        0,
+        1
+      ],
+      "alloc": [
+        6,
+        1,
+        2
+      ]
+    }
+  },
+  {
+    "chapter": "EXAMPLE A — SAFE",
+    "title": "P2 CAN FINISH FIRST",
+    "kind": "comparison",
+    "narration": "P two needs just zero, zero, one additional units. Work is zero, one, one. Every comparison passes: zero at most zero, zero at most one, and one at most one. P two is an eligible first process in the safety sequence.",
+    "data": {
+      "need": [
+        0,
+        0,
+        1
+      ],
+      "work": [
+        0,
+        1,
+        1
+      ]
+    }
+  },
+  {
+    "chapter": "EXAMPLE A — SAFE",
+    "title": "P2 RELEASES SIX, ONE, TWO",
+    "kind": "example",
+    "narration": "Simulate P two finishing and releasing all of its current allocation, six, one, two. Work began at zero, one, one. After the release it becomes six, two, three. Mark P two finished. This is a hypothetical completion used by the algorithm, not an actual process termination.",
+    "data": {
+      "p": 2,
+      "w0": [
+        0,
+        1,
+        1
+      ],
+      "w1": [
+        6,
+        2,
+        3
+      ],
+      "need": [
+        0,
+        0,
+        1
+      ],
+      "alloc": [
+        6,
+        1,
+        2
+      ],
+      "release": true
+    }
+  },
+  {
+    "chapter": "EXAMPLE A — SAFE",
+    "title": "P1 NOW FINISHES",
+    "kind": "example",
+    "narration": "P one needs two, two, two, and Work is now six, two, three. All three resource requirements fit. P one can finish and return its one allocated unit of R one. Work increases from six, two, three to seven, two, three.",
+    "data": {
+      "p": 1,
+      "w0": [
+        6,
+        2,
+        3
+      ],
+      "w1": [
+        7,
+        2,
+        3
+      ],
+      "need": [
+        2,
+        2,
+        2
+      ],
+      "alloc": [
+        1,
+        0,
+        0
+      ],
+      "done": [
+        2
+      ],
+      "release": true
+    }
+  },
+  {
+    "chapter": "EXAMPLE A — SAFE",
+    "title": "P3 NOW FINISHES",
+    "kind": "example",
+    "narration": "P three needs one, zero, three. With Work seven, two, three, it can also finish. Returning its allocation of two, one, one increases Work to nine, three, four. We have now simulated the completion of P two, P one, and P three.",
+    "data": {
+      "p": 3,
+      "w0": [
+        7,
+        2,
+        3
+      ],
+      "w1": [
+        9,
+        3,
+        4
+      ],
+      "need": [
+        1,
+        0,
+        3
+      ],
+      "alloc": [
+        2,
+        1,
+        1
+      ],
+      "done": [
+        2,
+        1
+      ],
+      "release": true
+    }
+  },
+  {
+    "chapter": "EXAMPLE A — SAFE",
+    "title": "P4 FINISHES LAST",
+    "kind": "example",
+    "narration": "P four needs four, two, zero. Work is nine, three, four, so every requirement fits. P four releases zero, zero, two, restoring Work to nine, three, six: exactly the total resource vector. All four processes are now marked finished.",
+    "data": {
+      "p": 4,
+      "w0": [
+        9,
+        3,
+        4
+      ],
+      "w1": [
+        9,
+        3,
+        6
+      ],
+      "need": [
+        4,
+        2,
+        0
+      ],
+      "alloc": [
+        0,
+        0,
+        2
+      ],
+      "done": [
+        2,
+        1,
+        3
+      ],
+      "release": true
+    }
+  },
+  {
+    "chapter": "EXAMPLE A — SAFE",
+    "title": "THE SAFE SEQUENCE",
+    "kind": "sequence",
+    "narration": "The order P two, P one, P three, P four is a valid safe sequence. This is a proof that everyone can finish after P two's tentative request. The operating system may therefore grant the request. More than one safe sequence may exist, but we only need one.",
+    "data": {
+      "order": [
+        2,
+        1,
+        3,
+        4
+      ]
+    }
+  },
+  {
+    "chapter": "EXAMPLE B — UNSAFE",
+    "title": "RESET AND REQUEST FROM P1",
+    "kind": "example",
+    "narration": "We now reset all values to the original state and give the identical request, one, zero, one, to P one instead. This is the crucial comparison. The quantity requested is unchanged, and the original available vector is unchanged. Only the requesting process changes.",
+    "data": {
+      "p": 1,
+      "w0": [
+        1,
+        1,
+        2
+      ],
+      "w1": [
+        1,
+        1,
+        2
+      ],
+      "need": [
+        2,
+        2,
+        2
+      ],
+      "alloc": [
+        1,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "chapter": "EXAMPLE B — UNSAFE",
+    "title": "P1 PASSES BOTH SIMPLE CHECKS",
+    "kind": "comparison",
+    "narration": "P one's original Need is two, two, two. Request one, zero, one does not exceed that Need. The available vector one, one, two is also sufficient to supply the request. Thus both simple checks pass. We still cannot decide that the grant is safe.",
+    "data": {
+      "need": [
+        1,
+        0,
+        1
+      ],
+      "work": [
+        1,
+        1,
+        2
+      ]
+    }
+  },
+  {
+    "chapter": "EXAMPLE B — UNSAFE",
+    "title": "TENTATIVE GRANT TO P1",
+    "kind": "example",
+    "narration": "If we provisionally grant the request to P one, its allocation becomes two, zero, one and its remaining Need becomes one, two, one. Available, and therefore the initial Work vector, becomes zero, one, one. Let us test each process in turn.",
+    "data": {
+      "p": 1,
+      "w0": [
+        1,
+        1,
+        2
+      ],
+      "w1": [
+        0,
+        1,
+        1
+      ],
+      "need": [
+        1,
+        2,
+        1
+      ],
+      "alloc": [
+        2,
+        0,
+        1
+      ]
+    }
+  },
+  {
+    "chapter": "EXAMPLE B — UNSAFE",
+    "title": "P1 CANNOT FINISH",
+    "kind": "comparison",
+    "narration": "P one still needs one, two, one, while Work is zero, one, one. The first resource requirement fails, and the second resource requirement also fails. P one cannot finish and therefore cannot release its allocation during this safety test.",
+    "data": {
+      "need": [
+        1,
+        2,
+        1
+      ],
+      "work": [
+        0,
+        1,
+        1
+      ]
+    }
+  },
+  {
+    "chapter": "EXAMPLE B — UNSAFE",
+    "title": "P2 CANNOT FINISH",
+    "kind": "comparison",
+    "narration": "P two still needs one, zero, two. There are zero units of R one and only one of R three in Work. Both of those categories are insufficient. P two cannot finish either, so the Work vector remains zero, one, one.",
+    "data": {
+      "need": [
+        1,
+        0,
+        2
+      ],
+      "work": [
+        0,
+        1,
+        1
+      ]
+    }
+  },
+  {
+    "chapter": "EXAMPLE B — UNSAFE",
+    "title": "P3 CANNOT FINISH",
+    "kind": "comparison",
+    "narration": "P three needs one, zero, three. Again, R one is missing, and R three is insufficient. Since no earlier process has been able to finish, Work has not increased. P three is not eligible to complete.",
+    "data": {
+      "need": [
+        1,
+        0,
+        3
+      ],
+      "work": [
+        0,
+        1,
+        1
+      ]
+    }
+  },
+  {
+    "chapter": "EXAMPLE B — UNSAFE",
+    "title": "P4 CANNOT FINISH",
+    "kind": "comparison",
+    "narration": "P four needs four, two, zero. Work holds zero, one, one. The first two requirements fail. We have now tested all four processes, and not one process can be safely marked finished. The safety algorithm terminates without a completion sequence.",
+    "data": {
+      "need": [
+        4,
+        2,
+        0
+      ],
+      "work": [
+        0,
+        1,
+        1
+      ]
+    }
+  },
+  {
+    "chapter": "EXAMPLE B — UNSAFE",
+    "title": "THE REQUEST MUST BE POSTPONED",
+    "kind": "example",
+    "narration": "The tentative P one state is unsafe. The banker rolls back the provisional changes, restoring P one's original allocation one, zero, zero, its Need two, two, two, and available resources one, one, two. It postpones the request instead of granting it.",
+    "data": {
+      "p": 1,
+      "w0": [
+        0,
+        1,
+        1
+      ],
+      "w1": [
+        1,
+        1,
+        2
+      ],
+      "need": [
+        2,
+        2,
+        2
+      ],
+      "alloc": [
+        2,
+        0,
+        1
+      ]
+    }
+  },
+  {
+    "chapter": "DEEPER INSIGHT",
+    "title": "UNSAFE DOES NOT MEAN DEADLOCK",
+    "kind": "intro",
+    "narration": "An unsafe state is not necessarily an existing deadlock. It means there is no guaranteed completion order under the declared maximum claims. The processes might never actually request their full maxima. But the avoidance algorithm refuses to take that risk.",
+    "data": {}
+  },
+  {
+    "chapter": "DEEPER INSIGHT",
+    "title": "WHY WE ADD ALLOCATION TO WORK",
+    "kind": "example",
+    "narration": "When a process hypothetically completes, the net effect is to return all resources currently allocated to it. We therefore add Allocation to Work, not Need, and not maximum Claim. The remaining Need is considered temporarily available for the simulated completion; it is not permanently consumed.",
+    "data": {
+      "p": 2,
+      "w0": [
+        0,
+        1,
+        1
+      ],
+      "w1": [
+        6,
+        2,
+        3
+      ],
+      "need": [
+        0,
+        0,
+        1
+      ],
+      "alloc": [
+        6,
+        1,
+        2
+      ],
+      "release": true
+    }
+  },
+  {
+    "chapter": "FINAL RECAP",
+    "title": "THE BANKER'S DECISION FLOW",
+    "kind": "request",
+    "narration": "For every new resource request, follow this sequence. Reject requests exceeding the process's remaining Need. Wait if sufficient resources are not currently available. Otherwise provisionally allocate, search for a safe completion sequence, and either commit a safe request or roll back an unsafe one.",
+    "data": {
+      "focus": 4
+    }
+  },
+  {
+    "chapter": "FINAL RECAP",
+    "title": "SAME REQUEST. DIFFERENT OUTCOME.",
+    "kind": "sequence",
+    "narration": "P two asking for one, zero, one is granted, because P two, P one, P three, P four is a valid safe order. P one asking for the exact same vector is postponed, because nobody can finish after its tentative grant. Always test safety, not merely current availability.",
+    "data": {
+      "order": [
+        2,
+        1,
+        3,
+        4
+      ]
+    }
+  },
+  {
+    "chapter": "FINAL RECAP",
+    "title": "THE ESSENTIAL FORMULAS",
+    "kind": "intro",
+    "narration": "The essential equations are straightforward. Remaining Need is Claim minus Allocation. Available is the resource total minus the allocations held by every process. Work begins equal to Available, and increases by a finished process's Allocation. Safety means a complete finishing sequence exists. These are the tools needed for an exam exercise.",
+    "data": {}
+  }
+]
