@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/photosphere-checkpoint-103-ghidra.yml"
+      - "scripts/PhotoSphereFlow103.java"
   workflow_dispatch:
 permissions:
   contents: read
@@ -42,7 +43,7 @@ jobs:
           "$GHIDRA_HOME/support/analyzeHeadless" /tmp/photosphere-flow103 flow103 -import "$PWD/liblightcycle.so" -analysisTimeoutPerFile 1200 -scriptPath "$PWD/scripts" -postScript PhotoSphereFlow103.java "$PWD/out" -deleteProject > out/ghidra.log 2>&1
           test -s out/flow-index.tsv
           cat out/flow-index.tsv
-          for address in 1ffc30 1fdcc0 1fd76c 1f44c8; do
+          for address in 1ffc30 1fdcc0 1fd76c 1f44c8 1f327c 1f3378 1f4010; do
             echo "=== $address ==="
             sed -n '1,260p' "out/$address.c" || true
           done
