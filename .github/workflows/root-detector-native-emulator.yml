@@ -46,46 +46,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-boot-timeout: 600
-          script: |
-            set -eu
-            adb install root-detector/app/build/outputs/apk/debug/app-debug.apk
-            adb shell am start -W -n at.persie0.root_detection_app/.MainActivity
-            sleep 8
-            adb shell pidof at.persie0.root_detection_app
-            adb exec-out screencap -p > root-detector-eula.png
-            python3 - <<'PY'
-            import re
-            import subprocess
-            import xml.etree.ElementTree as ET
-
-            def tap_label(label):
-                subprocess.check_call(
-                    ["adb", "shell", "uiautomator", "dump", "/sdcard/root-detector-ui.xml"],
-                    timeout=45
-                )
-                xml = subprocess.check_output(
-                    ["adb", "shell", "cat", "/sdcard/root-detector-ui.xml"], text=True
-                )
-                for node in ET.fromstring(xml).iter("node"):
-                    desc = node.attrib.get("text", "") + " " + node.attrib.get("content-desc", "")
-                    if label.casefold() not in desc.casefold():
-                        continue
-                    coords = [int(v) for v in re.findall(r"\d+", node.attrib.get("bounds", ""))]
-                    if len(coords) == 4:
-                        a, b, c, d = coords
-                        subprocess.check_call([
-                            "adb", "shell", "input", "tap",
-                            str((a+c)//2), str((b+d)//2)
-                        ])
-                        return
-                raise RuntimeError("UI label not found: " + label)
-
-            tap_label("I have read and agree")
-            tap_label("Accept and Continue")
-            PY
-            sleep 12
-            adb shell pidof at.persie0.root_detection_app
-            adb exec-out screencap -p > root-detector-scan.png
+          script: bash root-detector/scripts/emulator-smoke.sh
       - name: Upload screenshots for UI comparison
         if: always()
         uses: actions/upload-artifact@v4
@@ -94,5 +55,6 @@ jobs:
           path: |
             root-detector-eula.png
             root-detector-scan.png
+            root-detector-logcat.txt
           if-no-files-found: ignore
           retention-days: 3
