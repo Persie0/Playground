@@ -92,21 +92,22 @@ jobs:
                   0x00420e0cL, 0x00420f2cL, 0x0042114cL, 0x0042169cL,
                   0x00421718L, 0x00421908L, 0x00421c74L, 0x00421c80L,
                   0x00421e6cL, 0x00421efcL, 0x00421fb0L, 0x0042a24cL,
+                  0x0042a3d8L, 0x0041b400L, 0x00420058L,
                   // JPEG writer delegates reached by the multiband output path.
                   0x00450c9cL, 0x00451100L,
                   // Encoder kernels delegated by the writer wrappers.
                   0x00452050L, 0x004527f8L,
                   // Preview-rosette construction, FIFO processing, and index/cardinality checks.
-                  0x003440ecL, 0x0021b5f4L, 0x0021e3e4L, 0x00218d54L,
+                  0x004440ecL, 0x0021b5f4L, 0x0021e3e4L, 0x00218d54L,
                   0x0021b18cL, 0x0021be38L, 0x0021976cL, 0x00403cf8L,
-                  0x000ef830L,
                   // Generic target generator/config and native flow defaults/callers.
-                  0x002158fcL, 0x002159fcL, 0x000efb78L, 0x001f214cL,
+                  0x002158fcL, 0x002159fcL, 0x001efb78L, 0x001f214cL,
                   0x001f327cL, 0x001f32b0L, 0x001f32bcL, 0x001f333cL,
                   0x001ed94cL, 0x001edb58L,
                   // Line endpoint transforms and alternate point-scale path.
                   0x00406504L, 0x004068d0L, 0x00406bc4L, 0x00406d64L,
-                  0x00416a40L, 0x0021db38L, 0x0021df1cL,
+                  0x0040f0b8L, 0x004158f8L, 0x00416a40L, 0x00416a64L,
+                  0x0021d570L, 0x0021db38L, 0x0021df1cL,
                   // Pyramid filter helper.
                   0x0042278cL
               };
@@ -122,7 +123,7 @@ jobs:
                   0x001624d0L,0x001625c0L,0x0016275bL,0x00162e30L,
                   0x004fd1e8L,0x004fd1f8L,
                   // Blender vtable address points found in prior reference rows.
-                  0x0050d018L,0x0050d0d0L
+                  0x0050d008L,0x0050d018L,0x0050d0c0L,0x0050d0d0L,0x0050d128L,0x0050d130L,0x0050d138L,0x0050d140L,0x0050d148L,0x0050d150L,0x0050d158L
               };
 
               private static final long[] VTABLES = { 0x0050d018L, 0x0050d0d0L };
@@ -145,14 +146,19 @@ jobs:
                   for(long raw:TARGETS){
                       Address a=toAddr(raw);
                       Function f=fm.getFunctionAt(a);
-                      ix.println("TARGET\t"+a+"\t"+(f==null?"<none>":f.getName()+"\t"+f.getBody()));
-                      if(f!=null) funcs.add(f);
+                      boolean containing=false;
+                      if(f==null){ f=fm.getFunctionContaining(a); containing=(f!=null); }
+                      ix.println("TARGET\\t"+a+"\\t"+(f==null?"<none>":f.getName()+"\\t"+f.getBody()));
+                      if(f!=null){
+                          if(containing) ix.println("CONTAINING\\t"+a+"\\t"+f.getEntryPoint()+"\\t"+f.getName());
+                          funcs.add(f);
+                      }
                   }
 
                   // Resolve function pointers in the two blender vtable address points.
                   // This captures concrete +0x58/+0x68 methods without guessing their addresses.
                   for(long base:VTABLES){
-                      for(int off=0;off<=0x80;off+=8){
+                      for(int off=0;off<=0x90;off+=8){
                           Address slot=toAddr(base+off);
                           try{
                               long ptr=mem.getLong(slot);
@@ -272,9 +278,25 @@ jobs:
             sed -n "1,${limit}p" "$file"
           }
           grep '^VTABLE' out/focused/targets.tsv || true
-          for TARGET in 003440ec 0021b5f4 0021e3e4 00218d54 0021b18c 0021be38 0021976c 00403cf8 000ef830 002158fc 002159fc 000efb78 001f214c 001f327c 001f32b0 001f32bc 001f333c 001ed94c 001edb58 00406504 004068d0 00406bc4 00406d64 00416a40 0021db38 0021df1c 0042278c; do
+          for TARGET in 004440ec 0021b5f4 0021e3e4 00218d54 0021b18c 0021be38 0021976c 00403cf8 002158fc 002159fc 001efb78 001f214c 001f327c 001f32b0 001f32bc 001f333c 001ed94c 001edb58 00406504 004068d0 00406bc4 00406d64 0040f0b8 004158f8 00416a40 00416a64 0021d570 0021db38 0021df1c 00420058 0041b400 0042a24c 0042a3d8 0042278c; do
             print_body "$TARGET" 700
           done
+          while IFS=$'\\t' read -r KIND RAW ENTRY NAME; do
+            print_body "$ENTRY" 700
+          done < <(awk -F '\\t' '$1=="CONTAINING" {print $0}' out/focused/targets.tsv)
+          echo "===== vtable data values ====="
+          grep -E '^DATA\\t0050d|^VAL8\\t0050d|^XREF\\t.*0050d' out/focused/data-xrefs.txt || true
+          print_disassembly_window() {
+            local raw="$1" normalized line start end
+            normalized=$(printf '%x' "$((16#$raw))")
+            line=$(grep -n -m 1 -E "^[[:space:]]*0*${normalized}:" out/focused/objdump.txt | cut -d: -f1 || true)
+            if [[ -z "$line" ]]; then echo "No objdump line for raw ${raw}"; return; fi
+            start=$((line > 10 ? line - 10 : 1))
+            end=$((line + 28))
+            echo "===== objdump around raw ${raw} ====="
+            sed -n "${start},${end}p" out/focused/objdump.txt
+          }
+          for RAW in 003440ec 0011db20 0011dcc0 0011df00; do print_disassembly_window "$RAW"; done
           for SLOT in 0050d070 0050d080 0050d128 0050d138; do
             ENTRY=$(awk -v slot="$SLOT" '$1=="VTABLE" && $2==slot {print $4; exit}' out/focused/targets.tsv)
             if [[ -n "$ENTRY" && "$ENTRY" != "-" ]]; then print_body "$ENTRY" 700; fi
