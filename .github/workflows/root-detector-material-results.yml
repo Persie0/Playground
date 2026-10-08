@@ -45,7 +45,7 @@ jobs:
           repository: Persie0/root_detection_app
           ref: material-you-readable-results
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-          path: app-source
+          path: root-detector
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -58,7 +58,7 @@ jobs:
           set -euo pipefail
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37.0"
       - name: Assemble debug
-        working-directory: app-source
+        working-directory: root-detector
         run: gradle --no-daemon :app:assembleDebug --stacktrace
       - name: Enable KVM
         run: |
@@ -75,7 +75,7 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 600
           script: |
-            bash app-source/scripts/emulator-smoke.sh
+            bash root-detector/scripts/emulator-smoke.sh
             adb shell settings put system font_scale 1.5
             adb shell am force-stop at.persie0.root_detection_app
             adb shell am start -W -n at.persie0.root_detection_app/.MainActivity
