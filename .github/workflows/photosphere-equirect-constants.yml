@@ -1,0 +1,61 @@
+name: Photo Sphere equirectangular numerical constants
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-equirect-constants.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Decode ELF-backed double constants
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/native-constants.txt
+          from pathlib import Path
+          from struct import unpack_from
+          data=Path('liblightcycle.so').read_bytes()
+          assert data[:4] == b'\x7fELF' and data[4] == 2 and data[5] == 1
+          off=unpack_from('<Q',data,32)[0]
+          phentsize=unpack_from('<H',data,54)[0]
+          phnum=unpack_from('<H',data,56)[0]
+          segments=[]
+          for i in range(phnum):
+              base=off+i*phentsize
+              ty,flags,fo,va,pa,fs,ms,align=unpack_from('<IIQQQQQQ',data,base)
+              if ty==1:segments.append((va,va+fs,fo,flags))
+          print('segments=',segments)
+          for va in (0x617a8,0x61a10,0x61ae0,0x61b48):
+              candidates=[(fo+(va-start),flags) for start,end,fo,flags in segments if start<=va<end]
+              if not candidates:
+                  print(hex(va),'NOT_FILE_BACKED')
+                  continue
+              fileoff,flags=candidates[0]
+              bits=unpack_from('<Q',data,fileoff)[0]
+              val=unpack_from('<d',data,fileoff)[0]
+              print(f'ELF_VA={va:#x} file_offset={fileoff:#x} bits={bits:#018x} double={val:.18g}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-equirect-constants
+          path: out/
+          retention-days: 3
