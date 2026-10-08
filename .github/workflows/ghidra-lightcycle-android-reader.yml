@@ -25,16 +25,15 @@ jobs:
           if [[ -n "${GH_TOKEN:-}" ]]; then AUTH_ARGS=(-H "Authorization: Bearer ${GH_TOKEN}"); fi
           curl -fL --retry 3 "${AUTH_ARGS[@]}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/Persie0/Playground/actions/artifacts/11523102017/zip" -o /tmp/android.zip
           unzip -Z1 /tmp/android.zip > /tmp/android-files.txt
-          echo "ANDROID ARTIFACT FILES"
-          cat /tmp/android-files.txt
+          echo "ANDROID SOURCE FILES OF INTEREST"
+          grep -E '(bnj|bnc|boi|bnh)[.]java|LocalSessionStorage[.]java|preview-metadata-hits[.]txt' /tmp/android-files.txt | head -n 30
       - name: Print Java source context
         shell: bash
         run: |
           set -euo pipefail
           unzip -q /tmp/android.zip 'decompiled/sources/*' -d /tmp/androidsrc
           echo "===== preview-metadata-hits.txt ====="
-          HITS=$(grep -E '(^|/)preview-metadata-hits.txt
- /tmp/android-files.txt | head -n 1 || true)
+          HITS=$(grep -F 'preview-metadata-hits.txt' /tmp/android-files.txt | head -n 1 || true)
           if [[ -n "$HITS" ]]; then unzip -p /tmp/android.zip "$HITS"; fi
           echo "===== camera callback and metadata source context ====="
           grep -R -n -C 12 -E 'onPreviewFrame|setPreviewCallback|setPreviewFormat|getPreviewFormat|metadataFilePath|session[.]meta|orientations[.]txt' /tmp/androidsrc/decompiled/sources > /tmp/source-context.txt || true
