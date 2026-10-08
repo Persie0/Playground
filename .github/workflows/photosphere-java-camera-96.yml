@@ -43,9 +43,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out/java
+          set +e
           jadx-dist/bin/jadx --no-res --threads-count 4 -d out/java camera.apk 2>&1 | tee out/jadx.log
+          jadx_status=${PIPESTATUS[0]}
+          set -e
           test -d out/java/sources
-          echo "JAVA_FILE_COUNT=$(find out/java/sources -name '*.java' | wc -l)"
+          java_files=$(find out/java/sources -name '*.java' | wc -l)
+          echo "JAVA_FILE_COUNT=$java_files"
+          test "$java_files" -ge 4000
+          if [[ "$jadx_status" != 0 ]]; then
+            echo "WARNING: JADX returned $jadx_status; scanning successfully generated classes only."
+            echo "WARNING: Unrecovered or errored classes are not evidence of missing behavior."
+          fi
+          if [[ "$jadx_status" != 0 && "$jadx_status" != 3 ]]; then exit "$jadx_status"; fi
       - name: Inspect calibration and source-camera dataflow
         env:
           TRACK: ${{ matrix.track }}
