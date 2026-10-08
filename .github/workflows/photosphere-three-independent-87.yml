@@ -1,0 +1,80 @@
+name: Photo Sphere render defaults metadata and lens
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-three-independent-87.yml"
+permissions:
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [render-options-native-87, session-metadata-native-87, lens-correction-native-87]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact LightCycle library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Fetch pinned Ghidra
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 \
+            "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip" -o ghidra.zip
+          unzip -q ghidra.zip
+          echo "GHIDRA_HOME=$PWD/ghidra_12.1.4_PUBLIC" >> "$GITHUB_ENV"
+      - name: Follow native dispatch and control flow
+        env:
+          TRACK: ${{ matrix.track }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "out/$TRACK" /tmp/photosphere-next
+          "$GHIDRA_HOME/support/analyzeHeadless" /tmp/photosphere-next "next-$TRACK" \
+            -import "$PWD/liblightcycle.so" \
+            -analysisTimeoutPerFile 1200 \
+            -scriptPath "$PWD/scripts" \
+            -postScript PhotoSphereSweep.java "$PWD/out" "$TRACK" \
+            -deleteProject > "out/$TRACK/ghidra.log" 2>&1
+          test -s "out/$TRACK/index.tsv"
+          echo "=== TRACK $TRACK ==="
+          cat "out/$TRACK/index.tsv"
+          case "$TRACK" in
+            render-options-native-87)
+              addrs="0041c618 0041f140 0041d3dc 00423f2c 0042a6a4"
+              ;;
+            session-metadata-native-87)
+              addrs="0021976c 0021b5f4 00419b74 0041a6bc 00447bd4 00450c1c"
+              ;;
+            lens-correction-native-87)
+              addrs="00431b54 00431c38 00431344 00431690 00430ec4 00431030"
+              ;;
+          esac
+          for addr in $addrs; do
+            p="out/$TRACK/${addr}_investigate.c"
+            if [[ -s "$p" ]]; then echo "=== C $addr ==="; sed -n '1,1250p' "$p"; fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-independent-87-${{ matrix.track }}
+          path: out/
+          retention-days: 3
+          if-no-files-found: warn
