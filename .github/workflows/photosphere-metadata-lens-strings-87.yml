@@ -1,0 +1,66 @@
+name: Photo Sphere metadata strings lens RTTI audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-metadata-lens-strings-87.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Inspect actual session metadata and lens provenance strings
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          strings -a -t x -n 5 liblightcycle.so > out/strings-offsets.txt
+          readelf -Wr liblightcycle.so > out/relocations.txt
+          readelf -Ws liblightcycle.so > out/dynsymbols.txt
+          python3 - <<'PY' | tee out/metadata-lens-audit.txt
+          from pathlib import Path
+          import re
+          s=Path('out/strings-offsets.txt').read_text(errors='replace').splitlines()
+          patterns=[
+            re.compile(x,re.I) for x in [
+              r'session\.meta',r'orientations\.txt',r'full_pano_',r'cropped_area_',
+              r'(first|last)_photo_time',r'source_photos_count',r'yaw_correction_deg',
+              r'pose_heading',r'field.of.view',r'camera_calibrat',
+              r'(radial|tangential|fisheye|distortion|undistort|lens_)',
+              r'contrast_matching_levels_',r'jpeg_quality',r'lightcycle_session'
+            ]
+          ]
+          print('===== STRING HITS WITH FILE OFFSETS =====')
+          for line in s:
+            if any(p.search(line) for p in patterns):
+              print(line[:330])
+          print('===== CAMERA/SESSION DYNAMIC SYMBOLS =====')
+          for line in Path('out/dynsymbols.txt').read_text(errors='replace').splitlines():
+            if re.search(r'(Session|PhotoSphere|Lens|Camera|Distort|Metadata|FinishCapture)',line,re.I):
+              print(line[:380])
+          print('===== RELOCATION COUNT / FINGERPRINT =====')
+          lines=Path('out/relocations.txt').read_text().splitlines()
+          print('total_relocations=',len(lines))
+          print('correct_liblightcycle_sha256_verification_was_enforced_upstream')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-equirect-constants
+          path: out/
+          retention-days: 3
