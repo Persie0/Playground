@@ -163,6 +163,10 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0044b2ecL,0x004482f0L,0x004488d8L,0x0044834cL,
             0x0043f3c8L,0x0043f3acL,0x0043eda4L,0x0043ea50L
         });
+        FOCUS.put("seam-rle-methods", new long[]{
+            0x0049c5d8L,0x0049ce64L,0x0049ca90L,0x004380dcL,
+            0x0049d07cL,0x0049c604L,0x0049c7a0L,0x0049d108L
+        });
     }
     private PrintWriter report;
     private File dir;
@@ -347,6 +351,21 @@ public class PhotoSphereSweep extends GhidraScript {
                     "\t"+(method==null?"":method.getName()));
                 if(method!=null && (slot==1||slot==13||slot==14||slot==16))
                     selected.add(method);
+            }
+        }
+        if(track.equals("seam-rle-methods")) {
+            long base=0x0050ed00L;
+            report.println("RLE_VTABLE\t0x"+Long.toHexString(base));
+            for(int slot=0;slot<23;slot++) {
+                long offset=(long)slot*8;
+                try {
+                    long ptr=currentProgram.getMemory().getLong(toAddr(base+offset));
+                    Function target=(ptr>=0x00100000L&&ptr<0x00500000L)?find(ptr):null;
+                    report.println("RLE_SLOT\t+0x"+Long.toHexString(offset)+"\t0x"+Long.toHexString(ptr)+"\t"+
+                          (target==null?"none":target.getName()));
+                    if(target!=null && (offset==0x50||offset==0x58||offset==0x68||
+                         offset==0x70||offset==0x80||offset==0x78))selected.add(target);
+                } catch(Exception e) {report.println("RLE_SLOT_ERROR\t"+e);}
             }
         }
         if(track.equals("targets-meta")) {
