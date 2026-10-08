@@ -1,0 +1,58 @@
+name: AnkiFlutter parallel workstreams
+
+on:
+  push:
+    paths:
+      - ankiflutter-parallel-targets.json
+      - .github/workflows/ankiflutter-parallel-workstreams.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ankiflutter-parallel-workstreams
+  cancel-in-progress: true
+
+jobs:
+  targets:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.parse.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Read exact independent workstream SHAs
+        id: parse
+        shell: bash
+        run: |
+          python3 -m json.tool ankiflutter-parallel-targets.json >/dev/null
+          echo "matrix=$(tr -d '\\r\\n' < ankiflutter-parallel-targets.json)" >> "$GITHUB_OUTPUT"
+
+  flutter:
+    needs: targets
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: Persie0/AnkiFlutter
+          ref: ${{ matrix.sha }}
+          path: source
+          submodules: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+      - name: Resolve Flutter packages
+        working-directory: source/app
+        run: flutter pub get
+      - name: Analyze
+        working-directory: source/app
+        run: flutter analyze
+      - name: Run entire Flutter test suite
+        working-directory: source/app
+        run: flutter test --reporter expanded
