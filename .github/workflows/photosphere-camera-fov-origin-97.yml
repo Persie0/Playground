@@ -62,9 +62,9 @@ jobs:
           import re
           root=Path('out/java/sources')
           targets={
-              'defpackage/exm.java':(r'\\bthis\\.K\\s*=',r'\\bthis\\.K\\b',r'\\bdin\\.a\\b',r'\\bexd\\.a\\('),
-              'defpackage/foc.java':(r'\\bbnqVar\\.e\\(\\)\\.u',r'\\bexd\\.a\\(',r'\\bLightCycleNative\\.Init\\('),
-              'defpackage/exd.java':(r'\\bpublic static float a\\(',r'Build.MANUFACTURER',r'Build.DEVICE'),
+              'defpackage/exm.java':('this.K', 'din.a', 'exd.a('),
+              'defpackage/foc.java':('bnqVar.e().u','exd.a(', 'LightCycleNative.Init('),
+              'defpackage/exd.java':('public static float a(', 'Build.MANUFACTURER','Build.DEVICE'),
           }
           for name,patterns in targets.items():
               p=root/name
@@ -73,7 +73,7 @@ jobs:
               lines=p.read_text(errors='replace').splitlines()
               print('===== CLASS',name,'TOTAL',len(lines),'=====')
               for pat in patterns:
-                  match=[i for i,l in enumerate(lines) if re.search(pat,l)]
+                  match=[i for i,l in enumerate(lines) if pat in l]
                   print('PATTERN',pat,'MATCHES',len(match))
                   printed=set()
                   for i in match[:30]:
