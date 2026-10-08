@@ -1,0 +1,21 @@
+name: Photo Sphere clean-room stage fixtures
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/photosphere_stage_fixtures.py"
+      - ".github/workflows/photosphere-stage-fixtures.yml"
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Verify deterministic reference stages
+        run: python3 scripts/photosphere_stage_fixtures.py -v
