@@ -1,0 +1,67 @@
+name: Photo Sphere equirectangular Capstone ARM64
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-equirect-capstone.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Disassemble exact native projection spans
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/equirect-native-arm64.txt
+          from pathlib import Path
+          from struct import unpack_from
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
+          b=Path("liblightcycle.so").read_bytes()
+          assert b[:4]==b'\x7fELF' and b[4:6]==b'\x02\x01'
+          phoff=unpack_from("<Q",b,32)[0]
+          phent,phnum=unpack_from("<HH",b,54)
+          segs=[]
+          for n in range(phnum):
+              typ,flags,offset,vaddr,paddr,filesz,memsz,align=unpack_from("<IIQQQQQQ",b,phoff+n*phent)
+              if typ==1:segs.append((vaddr,vaddr+filesz,offset))
+          def mapped_offset(va):
+              for start,end,offset in segs:
+                  if start<=va<end:return offset+va-start
+              raise RuntimeError(f"unmapped {va:#x}")
+          decoder=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          for label,start,end in [
+              ("EQUIRECT_RAY_TO_PIXEL",0x330800,0x3308c0),
+              ("EQUIRECT_PIXEL_TO_RAY",0x3308c0,0x330970),
+              ("EQUIRECT_CONSTRUCTOR",0x330668,0x33070c),
+          ]:
+              print("======",label,hex(start),hex(end),"======")
+              chunk=b[mapped_offset(start):mapped_offset(end-4)+4]
+              ops=list(decoder.disasm(chunk,start))
+              assert ops and ops[0].address==start
+              for i in ops:print(f"{i.address:08x}: {i.mnemonic:8} {i.op_str}")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-equirect-capstone
+          path: out/
+          retention-days: 3
