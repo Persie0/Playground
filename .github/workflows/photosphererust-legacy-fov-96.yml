@@ -1,0 +1,37 @@
+name: Photo Sphere legacy capture FOV 96
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphererust-legacy-fov-96.yml"
+permissions:
+  contents: read
+jobs:
+  map:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [default, portable, android-jni]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereRust
+          ref: 1e1ad8690c52ae3cb49fc6e779918c7539e1dd44
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: PhotosphereRust
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate native frame and source camera mapping
+        working-directory: PhotosphereRust
+        shell: bash
+        env:
+          CONFIG: ${{ matrix.config }}
+        run: |
+          set -euo pipefail
+          case "$CONFIG" in
+            default) cargo test --lib projection -- --nocapture; cargo test --lib google_lightcycle -- --nocapture; cargo check --all-targets ;;
+            portable) cargo test --no-default-features --lib projection -- --nocapture; cargo test --no-default-features --lib google_lightcycle -- --nocapture; cargo check --all-targets --no-default-features ;;
+            android-jni) cargo test --features android-jni --lib projection -- --nocapture; cargo test --features android-jni --lib google_lightcycle -- --nocapture; cargo check --features android-jni ;;
+          esac
