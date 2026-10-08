@@ -480,6 +480,12 @@ public class PhotoSphereSweep extends GhidraScript {
             0x001f0e48L,0x001f0fc8L,0x001f3c80L,
             0x00447b0cL,0x0041a6bcL
         });
+        FOCUS.put("fov-flow-update-84", new long[]{
+            0x001ffc30L,0x001ff1c8L,0x001fefdcL,
+            0x001f40f0L,0x001f3e34L,0x001f2e54L,
+            0x001f4eb0L,0x001f5040L,0x00431c38L,
+            0x00431b54L
+        });
     }
     private PrintWriter report;
     private File dir;
