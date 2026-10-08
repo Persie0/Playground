@@ -1,0 +1,39 @@
+name: Root Detector icon palette sample
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/root-icon-palette.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  palette:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/root_detection_app
+          ref: master
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: root-detector
+      - run: python3 -m pip install --quiet Pillow
+      - name: Sample green shades from actual launcher icon
+        run: |
+          python3 - <<'PY'
+          from collections import Counter
+          from PIL import Image
+          for fn in [
+              "root-detector/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+              "root-detector/app/src/main/res/drawable-xxxhdpi/ic_launcher_foreground.png",
+          ]:
+              image=Image.open(fn).convert('RGBA')
+              colors=Counter()
+              for r,g,b,a in image.getdata():
+                  if a<190: continue
+                  # Most common recognizable green pixels, ignoring background.
+                  if g>r*1.13 and g>b*1.08 and 40<g<245:
+                      colors[(r//10*10,g//10*10,b//10*10)]+=1
+              print(fn, 'size', image.size)
+              print('TOP GREENS', [(f'#{r:02X}{g:02X}{b:02X}',n) for (r,g,b),n in colors.most_common(15)])
+          PY
