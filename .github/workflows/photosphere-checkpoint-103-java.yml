@@ -1,0 +1,90 @@
+name: Photo Sphere checkpoint 103 Java orientation writer trace
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-checkpoint-103-java.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  jadx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Verify pinned Camera APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+      - name: Install jadx 1.5.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 "https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip" -o jadx.zip
+          unzip -q jadx.zip -d jadx-dist
+          chmod +x jadx-dist/bin/jadx
+      - name: Decompile pinned Camera Java classes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/java
+          set +e
+          jadx-dist/bin/jadx --no-res --threads-count 4 -d out/java camera.apk >out/jadx.log 2>&1
+          status=$?
+          set -e
+          count=$(find out/java/sources -name '*.java' | wc -l)
+          echo "JADX_STATUS=$status JAVA_FILES=$count"
+          test "$count" -ge 4000
+          if [[ "$status" != 0 && "$status" != 3 ]]; then exit "$status"; fi
+      - name: Inspect orientation formatting, writer and undo paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/report
+          python3 - <<'PY' | tee out/report/java-orientation-trace.txt
+          from pathlib import Path
+          root=Path('out/java/sources')
+          terms=('orientations.txt','localSessionStorage.i','.write(','.append(','.flush(','.close(', 'String.format(', 'Float.toString(', 'new FileWriter(', 'new PrintWriter(', 'new BufferedWriter(')
+          focus=['defpackage/exm.java','defpackage/exk.java','defpackage/exf.java','defpackage/eyb.java','defpackage/ewo.java','defpackage/exp.java','defpackage/foc.java','defpackage/foa.java']
+          for name in focus:
+              p=root/name
+              if not p.is_file():print("MISSING",name);continue
+              rows=p.read_text(errors='replace').splitlines()
+              print(f"=== CLASS {name} LINES {len(rows)} ===")
+              seen=set()
+              for i,line in enumerate(rows):
+                  if any(t in line for t in terms):
+                      if name.endswith(('exm.java','exk.java','exf.java')): extra=16
+                      else:extra=8
+                      for j in range(max(0,i-10),min(len(rows),i+extra)):
+                          if j not in seen:
+                              print(f"{name}:{j+1}: {rows[j]}")
+                              seen.add(j)
+              print(f"PRINTED={len(seen)}")
+          print("=== GLOBAL SPECIFIC ORIENTATION FILE REFERENCES ===")
+          needles=('orientations.txt','source_photos_count', 'photoSphereCalibratedFieldOfView')
+          for p in root.rglob('*.java'):
+              if p.as_posix().endswith(('exm.java','exk.java','exf.java','eyb.java','ewo.java','exp.java','foc.java','foa.java')):continue
+              try:src=p.read_text(errors='replace')
+              except OSError:continue
+              if not any(n in src for n in needles):continue
+              print('MATCH',p.relative_to(root),','.join(n for n in needles if n in src))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-103-java-orientation
+          path: |
+            out/jadx.log
+            out/report/
+          retention-days: 4
+          if-no-files-found: warn
