@@ -1,5 +1,5 @@
 name: Noise Remover Android long-file worker
-# Validate per-chunk streaming, combined foreground routing, and deterministic emulator fixture.
+# Final integrated short, bulk, and long background-worker regression and formatting.
 # Verify final model cancellation, resilient events, and background result auto-save.
 on:
   push:
@@ -35,7 +35,7 @@ jobs:
           GH_ACCESS_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
-          files=(lib/services/android_long_foreground_worker.dart lib/services/android_media_processing_task.dart integration_test/foreground_long_file_processing_test.dart)
+          files=(lib/services/android_long_foreground_worker.dart lib/services/android_bulk_foreground_worker.dart lib/services/android_media_processing_task.dart integration_test/foreground_long_file_processing_test.dart test/services/android_bulk_foreground_worker_test.dart)
           dart format "${files[@]}"
           if ! git diff --quiet -- "${files[@]}"; then
             git config user.name 'Persie0 CI'
@@ -57,6 +57,7 @@ jobs:
           lib/services/long_file_job_service.dart
           lib/screens/home_screen.dart
           integration_test/foreground_long_file_processing_test.dart
+          test/services/android_bulk_foreground_worker_test.dart
       - name: Existing foreground and long-file regressions
         working-directory: app
         run: >-
