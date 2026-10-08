@@ -27,7 +27,7 @@ jobs:
           fi
           curl -fL --retry 3 "${AUTH_ARGS[@]}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/Persie0/Playground/actions/artifacts/11522080457/zip" \
+            "https://api.github.com/repos/Persie0/Playground/actions/artifacts/11522355803/zip" \
             -o /tmp/lightcycle.zip
           unzip -Z1 /tmp/lightcycle.zip > /tmp/artifact-files.txt
           echo "TARGET AND FUNCTION INDEXES"
@@ -49,4 +49,24 @@ jobs:
           for FILE in "${FILES[@]}"; do
             echo "===== $FILE ====="
             unzip -p /tmp/lightcycle.zip "$FILE" | sed -n '1,360p'
+          done
+      - name: Print direct callees of JPEG writer delegates
+        shell: bash
+        run: |
+          set -euo pipefail
+          for TARGET in 00450c9c 00451100; do
+            SOURCE=$(grep -E "_${TARGET}\\.c$" /tmp/artifact-files.txt | head -n 1 || true)
+            if [[ -z "$SOURCE" ]]; then
+              echo "No decompile for target ${TARGET}"
+              continue
+            fi
+            echo "===== direct calls from ${SOURCE} ====="
+            CALLS=$(unzip -p /tmp/lightcycle.zip "$SOURCE" | grep -oE 'FUN_[0-9a-f]{8}' | sed 's/^FUN_//' | sort -u || true)
+            while IFS= read -r ADDR; do
+              [[ -z "$ADDR" || "$ADDR" == "$TARGET" ]] && continue
+              FILE=$(grep -E "_${ADDR}\\.c$" /tmp/artifact-files.txt | head -n 1 || true)
+              [[ -z "$FILE" ]] && continue
+              echo "===== $FILE ====="
+              unzip -p /tmp/lightcycle.zip "$FILE" | sed -n '1,260p'
+            done <<< "$CALLS"
           done
