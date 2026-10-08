@@ -173,6 +173,24 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0043ae00L,0x0043af80L,0x0043b000L,0x0043b330L,
             0x0049ca90L,0x0049ce64L,0x0043ad20L
         });
+        FOCUS.put("seam-success-helpers", new long[]{
+            0x0043ad54L,0x0043bcd8L,0x0043bd4cL,0x0043bd68L,
+            0x0043bd94L,0x004080c4L,0x00439b0cL,0x00439a6cL,
+            0x00439abcL,0x00439838L,0x00439c00L,0x0043c6c0L,
+            0x0043cad0L,0x0043df98L,0x0043dc58L,0x0049d170L
+        });
+        FOCUS.put("ibfs-label-output", new long[]{
+            0x0043df98L,0x0043dc58L,0x0043c6c0L,0x0043cad0L,
+            0x0043d33cL,0x0043bcd8L,0x0043bd4cL,0x0043bd68L,
+            0x0043bd94L,0x0043ad54L,0x0043c104L,0x0043d1a4L,
+            0x0043e53cL,0x0043e5a4L,0x00439b0cL
+        });
+        FOCUS.put("blend-normalization-helpers", new long[]{
+            0x00423f2cL,0x0042368cL,0x00423bc4L,0x0042a6a4L,
+            0x0042ad24L,0x004286e0L,0x00428800L,0x0042278cL,
+            0x0042cd58L,0x00422ffcL,0x00421718L,0x00421fb0L,
+            0x0042114cL,0x0042b114L,0x0042a474L
+        });
     }
     private PrintWriter report;
     private File dir;
