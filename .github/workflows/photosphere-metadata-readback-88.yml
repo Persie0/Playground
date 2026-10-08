@@ -1,0 +1,40 @@
+name: Photo Sphere checkpoint 88 metadata readback
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-metadata-readback-88.yml"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  readback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Retrieve Ghidra evidence and inspect source-count and path getters
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          for id in 11572032644 11572457043; do
+            curl -fLsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/Persie0/Playground/actions/artifacts/$id/zip" -o "/tmp/$id.zip"
+            mkdir -p "evidence/$id"
+            unzip -q "/tmp/$id.zip" -d "evidence/$id"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          for target in ["00419d40","0041aa40","00419b74","0041a6bc"]:
+              candidates=list(Path("evidence").rglob(f"{target}_investigate.c"))
+              print(f"=== TARGET {target} MATCHES {len(candidates)} ===")
+              if not candidates: continue
+              path=candidates[0]
+              s=path.read_text(errors="replace").splitlines()
+              print("SOURCE",path,"LINES",len(s))
+              for k,line in enumerate(s[:1100]):
+                  print(f"{k+1:04d}: {line}")
+          PY
