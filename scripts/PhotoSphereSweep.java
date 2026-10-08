@@ -451,6 +451,20 @@ public class PhotoSphereSweep extends GhidraScript {
             0x001f0fc8L,0x001f1450L,0x001f1cd0L,
             0x001f213cL,0x001f3848L,0x001f40f0L
         });
+        FOCUS.put("fov-pair-registration-82", new long[]{
+            0x001f1d48L,0x001f3d64L,0x001f40f0L,0x001ff1c8L,
+            0x001f4eb0L,0x001f5040L,0x004441e0L,
+            0x0021c284L,0x001f0fc8L,0x001f3848L
+        });
+        FOCUS.put("fov-feature-preprocess-82", new long[]{
+            0x001f3848L,0x001f5564L,0x001f5710L,0x001f3bc0L,
+            0x001f4eb0L,0x001f5040L,0x0021c284L,0x001f1d48L
+        });
+        FOCUS.put("fov-solver-state-82", new long[]{
+            0x001f1344L,0x001f153cL,0x001f1638L,0x001f1764L,
+            0x001f17b0L,0x001f0e48L,0x001f0fc8L,0x00225b08L,
+            0x00225b00L,0x00225b20L
+        });
     }
     private PrintWriter report;
     private File dir;
