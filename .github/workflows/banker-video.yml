@@ -1,0 +1,85 @@
+name: Banker's Algorithm Manim Neural Voice
+on:
+  push:
+    paths:
+      - 'banker-video/**'
+      - '.github/workflows/banker-video.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: banker-video-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Manim dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg pkg-config libcairo2-dev libpango1.0-dev fonts-dejavu-core
+          python -m pip install --upgrade pip
+          python -m pip install 'manim==0.19.1' 'edge-tts>=7.0,<9'
+      - name: Generate English neural narration and subtitles
+        run: python banker-video/prepare.py
+      - name: Verify Banker's Algorithm numerical cases
+        run: |
+          python - <<'PY'
+          C=[[3,2,2],[6,1,3],[3,1,4],[4,2,2]]
+          A=[[1,0,0],[5,1,1],[2,1,1],[0,0,2]]
+          V=[1,1,2]
+          def run(p):
+            a=[row[:] for row in A];v=V[:];N=[[c-x for c,x in zip(cr,ar)] for cr,ar in zip(C,A)]
+            for j,q in enumerate((1,0,1)):v[j]-=q;a[p][j]+=q;N[p][j]-=q
+            work=v[:];seq=[]
+            for i in range(4):
+              q=next((k for k in range(4) if k not in seq and all(N[k][j]<=work[j] for j in range(3))),None)
+              if q is None:break
+              seq.append(q)
+              work=[work[j]+a[q][j] for j in range(3)]
+            return [x+1 for x in seq]
+          assert run(1)==[2,1,3,4]
+          assert run(0)==[]
+          print('Both lecture examples verified')
+          PY
+      - name: Render using Manim Community Edition (1080p 30fps)
+        run: |
+          manim -qm -r 1920,1080 --fps 30 banker-video/render.py BankersExplainer -o bankermanim.mp4
+      - name: Package MP4 with selectable English subtitles
+        run: |
+          set -euo pipefail
+          VIDEO=$(find media -type f -name 'bankermanim.mp4' | head -n1)
+          test -n "$VIDEO"
+          ffmpeg -y -hide_banner -loglevel error \
+            -i "$VIDEO" -i banker-video/subtitles.srt \
+            -map 0:v:0 -map 0:a:0 -map 1:s:0 \
+            -c:v copy -c:a copy -c:s mov_text \
+            -movflags +faststart Bankers_Algorithm_Manim_Neural_1080p.mp4
+          ffprobe -v error -show_entries format=duration,size -of json Bankers_Algorithm_Manim_Neural_1080p.mp4
+          cp banker-video/subtitles.srt Bankers_Algorithm_Neural_Subtitles.srt
+          cp banker-video/narration.txt Bankers_Algorithm_Neural_Script.txt
+      - name: Upload output (3 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bankers-Algorithm-Manim-Video
+          path: |
+            Bankers_Algorithm_Manim_Neural_1080p.mp4
+            Bankers_Algorithm_Neural_Subtitles.srt
+            Bankers_Algorithm_Neural_Script.txt
+          retention-days: 3
+      - name: Publish public MP4 download
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          gh release create "banker-manim-${{ github.run_id }}" \
+            Bankers_Algorithm_Manim_Neural_1080p.mp4 \
+            Bankers_Algorithm_Neural_Subtitles.srt \
+            Bankers_Algorithm_Neural_Script.txt \
+            --title "Banker's Algorithm — Manim + Neural Narration" \
+            --notes "Animated Banker's Algorithm lesson based on the TU Wien deadlock slides. Includes English neural narration and downloadable subtitles." \
+            --latest=false
