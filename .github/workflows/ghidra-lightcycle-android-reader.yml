@@ -36,9 +36,9 @@ jobs:
           HITS=$(grep -F 'preview-metadata-hits.txt' /tmp/android-files.txt | head -n 1 || true)
           if [[ -n "$HITS" ]]; then unzip -p /tmp/android.zip "$HITS"; fi
           echo "===== camera callback and metadata source context ====="
-          grep -R -n -C 12 -E 'onPreviewFrame|setPreviewCallback|setPreviewFormat|getPreviewFormat|metadataFilePath|session[.]meta|orientations[.]txt' /tmp/androidsrc/decompiled/sources > /tmp/source-context.txt || true
+          grep -R -n -C 12 -E 'onPreviewFrame|ProcessFrame|AlignNextImage|setPreviewCallback|setPreviewFormat|getPreviewFormat|metadataFilePath|session[.]meta|orientations[.]txt' /tmp/androidsrc/decompiled/sources > /tmp/source-context.txt || true
           sed -n '1,900p' /tmp/source-context.txt
-          for NAME in bnj.java bnc.java boi.java bnh.java LocalSessionStorage.java; do
+          for NAME in bnj.java bnc.java boi.java bnh.java bnf.java bey.java LocalSessionStorage.java; do
             SOURCE=$(find /tmp/androidsrc/decompiled/sources -type f -name "$NAME" -print -quit || true)
             if [[ -z "$SOURCE" ]]; then echo "Missing $NAME"; continue; fi
             echo "===== $SOURCE ====="
