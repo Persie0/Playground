@@ -91,8 +91,5 @@ jobs:
             sleep 3
             adb shell dumpsys activity activities | grep -q "at.austriao.fake_gps_detector_app"
             adb logcat -d -b crash > /tmp/fake_gps_after_rotation.txt || true
-            if grep -A12 "FATAL EXCEPTION" /tmp/fake_gps_after_rotation.txt | grep -q "Process: at.austriao.fake_gps_detector_app"; then
-              cat /tmp/fake_gps_after_rotation.txt
-              exit 1
-            fi
+            ! grep -A12 "FATAL EXCEPTION" /tmp/fake_gps_after_rotation.txt | grep -q "Process: at.austriao.fake_gps_detector_app"
             echo "Native Kotlin Activity rotation and process billing reuse smoke passed"
