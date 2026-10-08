@@ -526,6 +526,21 @@ public class PhotoSphereSweep extends GhidraScript {
             0x00431b54L,0x00431c38L,0x00431344L,
             0x00431690L,0x0042a6a4L,0x00423f2cL
         });
+        FOCUS.put("session-storage-vtables-89", new long[]{
+            0x0041aa40L,0x00419d40L,0x00419b74L,
+            0x004478b8L,0x00447a54L,0x0041a988L,
+            0x0041a9a8L,0x0041a84cL,0x0041ae0cL
+        });
+        FOCUS.put("storage-path-reset-89", new long[]{
+            0x0041aa40L,0x0041aa8cL,0x0041a988L,
+            0x0041a9a8L,0x0041a84cL,0x00419d40L,
+            0x004478b8L,0x0041ae0cL,0x0041af30L
+        });
+        FOCUS.put("capture-metadata-writer-89", new long[]{
+            0x00419b74L,0x00419d40L,0x0041a6bcL,
+            0x0021b5f4L,0x0021976cL,0x0041c618L,
+            0x0041d3dcL,0x0041aa40L
+        });
     }
     private PrintWriter report;
     private File dir;
@@ -679,6 +694,21 @@ public class PhotoSphereSweep extends GhidraScript {
                     if(caller!=null)selected.add(caller);
                 }
                 if(++hits>48)break;
+            }
+        }
+        if(track.equals("session-storage-vtables-89")) {
+            ReferenceManager references=currentProgram.getReferenceManager();
+            for(long va:new long[]{0x0041aa40L,0x00419d40L,0x00419b74L,0x004478b8L}) {
+                ReferenceIterator itr=references.getReferencesTo(toAddr(va));
+                int n=0;
+                while(itr.hasNext() && n++<75) {
+                    Reference ref=itr.next();
+                    Function caller=fm.getFunctionContaining(ref.getFromAddress());
+                    report.println("STORAGE_REFERENCE\\t0x"+Long.toHexString(va)+
+                         "\\t"+ref.getFromAddress()+"\\t"+ref.getReferenceType()+
+                         "\\t"+(caller==null?"DATA_OR_UNKNOWN":caller.getEntryPoint()));
+                    if(caller!=null)selected.add(caller);
+                }
             }
         }
         if(track.equals("rle-fill-calls-77")) {
