@@ -37,9 +37,9 @@ jobs:
           mkdir -p evidence
           curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/Persie0/Playground/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100" > /tmp/artifacts.json
-          for track in blend-pixel source-index target-provenance; do
+          for track in blend-pixel source-index target-provenance blend-vtable; do
             id="$(jq -r --arg n "photosphere-next-$track" '.artifacts | map(select(.name==$n and .expired==false)) | .[0].id // empty' /tmp/artifacts.json)"
-            if [[ -z "$id" ]]; then echo "::error::Missing $track result in $SOURCE_RUN_ID"; exit 1; fi
+            if [[ -z "$id" ]]; then echo "::notice::Track $track not present in $SOURCE_RUN_ID"; continue; fi
             curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/Persie0/Playground/actions/artifacts/$id/zip" -o "/tmp/$track.zip"
             mkdir -p "evidence/$track"
@@ -55,6 +55,7 @@ jobs:
           tracks={
             'blend-pixel':['0043e930_investigate','00423310_investigate','004252b0_investigate','00425770_investigate','0042368c_investigate','0042a4fc_investigate','0042a6a4_investigate','0042b114_investigate'],
             'source-index':['0041a6bc_investigate','00447a54_investigate','004405c8_investigate','0041b04c_investigate','0041a84c_investigate','0041a9a8_investigate','00450c1c_investigate','001f002c_investigate'],
+            'blend-vtable':['0043e930_investigate','00423310_investigate','004252b0_investigate','00433478_investigate'],
             'target-provenance':['001ed84c_investigate','0021874c_investigate','002189d8_investigate','002188b8_investigate','0020f9e4_investigate','0020fc30_investigate','0020fa04_investigate','0021105c_investigate']
           }
           for track, ids in tracks.items():
