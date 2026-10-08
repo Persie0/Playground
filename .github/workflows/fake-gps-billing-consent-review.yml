@@ -15,7 +15,7 @@ jobs:
     steps:
       # Validate native functional parity after Flutter assets cleanup and consent fixes.
       # Verify native lifecycle fixes at latest branch head.
-      # Verify PR #25: UMP configuration, consent-fail-closed behavior and manifest variants.
+      # Verify merged Fake GPS UMP consent fix on private master.
       - name: Validate secret
         env:
           TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/fake_gps_detector
-          ref: fix/ump-consent-admob-app-id-20261008
+          ref: master
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: fakegps
@@ -130,5 +130,5 @@ jobs:
             -H "Authorization: Bearer $TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/Persie0/Playground/statuses/$GITHUB_SHA" \
-            --data "$(printf '{"state":"%s","context":"fake-gps-ump-config-pr25","description":"Debug APK, unit tests, release lint and AAB"}' "$state")"
+            --data "$(printf '{"state":"%s","context":"fake-gps-kotlin-master","description":"Debug APK, unit tests, release lint and AAB"}' "$state")"
 
