@@ -431,6 +431,16 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0041c618L,0x00431f20L,0x0043f3e0L,
             0x00433478L,0x00434f20L,0x00431344L
         });
+        FOCUS.put("fov-calibration-kernels-80", new long[]{
+            0x001f0e48L,0x001f0fc8L,0x001f3848L,
+            0x001f40f0L,0x001f0de4L,0x001f1400L,
+            0x001f2800L,0x001f3a00L
+        });
+        FOCUS.put("camera-lens-session-80", new long[]{
+            0x0041a6bcL,0x00443e74L,0x004440ecL,
+            0x00431344L,0x00431118L,0x00431b54L,
+            0x00431c38L,0x004405c8L,0x0044587cL
+        });
     }
     private PrintWriter report;
     private File dir;
