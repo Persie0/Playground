@@ -1,6 +1,11 @@
 name: Photo Sphere gap evidence reader
 on:
   workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Optional native gap sweep run ID"
+        required: false
+        type: string
   push:
     branches: [investigate/photosphere-oct08-gaps]
     paths: [".github/workflows/photosphere-gap-results-reader.yml"]
@@ -15,23 +20,36 @@ jobs:
       - name: Download focused analysis artifacts
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p evidence
-          while read -r name ident; do
-            curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+          if [[ -z "$SOURCE_RUN_ID" ]]; then
+            SOURCE_RUN_ID="$(curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/Persie0/Playground/actions/runs?per_page=100" |
+              jq -r '.workflow_runs | map(select(.name=="Photo Sphere native gap sweep" and .conclusion=="success")) | .[0].id // empty')"
+          fi
+          if [[ -z "$SOURCE_RUN_ID" ]]; then
+            echo "::error::No successful native gap sweep run found."
+            exit 1
+          fi
+          echo "Reading evidence from workflow run $SOURCE_RUN_ID"
+          curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/Persie0/Playground/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100" > /tmp/artifacts.json
+          for name in seams flow-line targets-meta rosette; do
+            ident="$(jq -r --arg n "photosphere-gap-$name" '.artifacts | map(select(.name==$n and .expired==false)) | .[0].id // empty' /tmp/artifacts.json)"
+            if [[ -z "$ident" ]]; then
+              echo "::error::Missing or expired $name artifact in run $SOURCE_RUN_ID. Re-run the native gap sweep."
+              exit 1
+            fi
+            curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/Persie0/Playground/actions/artifacts/$ident/zip" -o "/tmp/$name.zip"
             mkdir -p "evidence/$name"
             unzip -q "/tmp/$name.zip" -d "evidence/$name"
             echo "Downloaded $name with $(find "evidence/$name" -name '*.c' | wc -l) Ghidra bodies"
-          done <<'IDS'
-          seams 11547811798
-          flow-line 11548211640
-          targets-meta 11548540995
-          rosette 11548021895
-          IDS
+          done
       - name: Print focused bodies and excerpts
         shell: bash
         run: |
