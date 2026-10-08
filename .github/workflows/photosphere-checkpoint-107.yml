@@ -1,0 +1,64 @@
+name: Photo Sphere checkpoint 107 recovered gamma constructor Ghidra
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-checkpoint-107.yml"
+permissions:
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [constructor, gamma-render]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download pinned verified library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install pinned Ghidra
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip" -o ghidra.zip
+          unzip -q ghidra.zip
+          echo "GHIDRA_HOME=$PWD/ghidra_12.1.4_PUBLIC" >> "$GITHUB_ENV"
+      - name: Recover full source-mapping after allocator patch
+        shell: bash
+        env:
+          TRACK: ${{ matrix.track }}
+        run: |
+          set -euo pipefail
+          mkdir -p out /tmp/photosphere-gamma107
+          "$GHIDRA_HOME/support/analyzeHeadless" /tmp/photosphere-gamma107 "gamma107-$TRACK" \
+            -import "$PWD/liblightcycle.so" -analysisTimeoutPerFile 1200 -scriptPath "$PWD/scripts" \
+            -postScript PhotoSphereGamma107.java "$PWD/out" "$TRACK" \
+            -deleteProject > "out/$TRACK-ghidra.log" 2>&1
+          test -s "out/$TRACK/index.txt"
+          cat "out/$TRACK/index.txt"
+          for file in "out/$TRACK"/*.c; do
+            echo "=== $file ==="
+            sed -n '1,980p' "$file"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-107-${{ matrix.track }}
+          path: out/
+          retention-days: 4
+          if-no-files-found: warn
