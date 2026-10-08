@@ -50,19 +50,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          unzip -q /tmp/native.zip 'out/focused/*' -d /tmp/native
+          unzip -q /tmp/native.zip -d /tmp/native
+          NATIVE_ROOT=$(dirname "$(find /tmp/native -type f -name targets.tsv -print -quit)")
+          if [[ ! -f "$NATIVE_ROOT/targets.tsv" ]]; then echo "Native targets.tsv was not found" >&2; exit 1; fi
+          echo "Native artifact root: $NATIVE_ROOT"
           echo "===== relevant native function index rows ====="
-          awk -F '\t' '$1=="TARGET" || $1=="VTABLE" || ($1=="REF" && ($2=="00416a40" || $2=="00421c80" || $2=="004440ec"))' /tmp/native/out/focused/targets.tsv | head -n 500
+          awk -F '\t' '$1=="TARGET" || $1=="VTABLE" || ($1=="REF" && ($2=="00416a40" || $2=="00421c80" || $2=="004440ec"))' "$NATIVE_ROOT/targets.tsv" | head -n 500
           echo "===== relevant vtable relocations ====="
-          grep -E '50d018|50d0d0|50d070|50d080|50d128|50d138|5118b8|50cfc0|MonolithicMultibandBlender|YUVMonolithicMultiband' /tmp/native/out/focused/relocations.txt /tmp/native/out/focused/symbols-demangled.txt || true
-          for ADDR in 004440ec 00421c80 0041133c 0041138c 004158f8 0040f0b8 00416a64 00416a40 00411b5f4; do
-            SOURCE=$(find /tmp/native/out/focused -type f -name "*_${ADDR}.c" -print -quit || true)
+          grep -E '50d018|50d0d0|50d070|50d080|50d128|50d138|5118b8|50cfc0|MonolithicMultibandBlender|YUVMonolithicMultiband' "$NATIVE_ROOT/relocations.txt" "$NATIVE_ROOT/symbols-demangled.txt" || true
+          for ADDR in 004440ec 0021b5f4 0021e3e4 00421c80 0041133c 0041138c 004158f8 0040f0b8 00416a64 00416a40 0042a24c 0042a3d8 0042278c 00406504 004068d0 00406bc4 00406d64; do
+            SOURCE=$(find "$NATIVE_ROOT" -type f -name "*_${ADDR}.c" -print -quit || true)
             if [[ -z "$SOURCE" ]]; then continue; fi
             echo "===== $SOURCE ====="
-            sed -n '1,420p' "$SOURCE"
+            sed -n '1,700p' "$SOURCE"
           done
           echo "===== callers of the alternate point-scale predicate ====="
-          for ENTRY in $(awk -F '\t' '$1=="REF" && $2=="00416a40" {print $4}' /tmp/native/out/focused/targets.tsv | sort -u); do
-            SOURCE=$(find /tmp/native/out/focused -type f -name "*_${ENTRY}.c" -print -quit || true)
+          for ENTRY in $(awk -F '\t' '$1=="REF" && $2=="00416a40" {print $4}' "$NATIVE_ROOT/targets.tsv" | sort -u); do
+            SOURCE=$(find "$NATIVE_ROOT" -type f -name "*_${ENTRY}.c" -print -quit || true)
             if [[ -n "$SOURCE" ]]; then echo "===== $SOURCE ====="; sed -n '1,700p' "$SOURCE"; fi
           done
