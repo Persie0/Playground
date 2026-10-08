@@ -63,12 +63,16 @@ jobs:
             echo "===== ANDROID LOG ERRORS ====="
             adb logcat -d -v brief -t 1000 | grep -Ei "FakeGps|MainActivity|WebView|EulaScreen|FATAL EXCEPTION|AndroidRuntime|Failed to load" | tail -80 || true
             adb exec-out screencap -p > /tmp/fake-gps-native-smoke.png || true
-            if ! grep -qiE "EULA|Accept|terms|agreement" /tmp/native_ui.xml; then
-              echo "::error::Offline EULA not found in Android UI hierarchy"
-              exit 1
-            fi
+            grep -qiE "EULA|Accept|terms|agreement" /tmp/native_ui.xml
             adb logcat -d -b crash > /tmp/fake_gps_crashlog.txt || true
-            if grep -A12 "FATAL EXCEPTION" /tmp/fake_gps_crashlog.txt | grep -q "Process: at.austriao.fake_gps_detector_app"; then
-              cat /tmp/fake_gps_crashlog.txt
-              exit 1
-            fi
+            ! grep -A12 "FATAL EXCEPTION" /tmp/fake_gps_crashlog.txt | grep -q "Process: at.austriao.fake_gps_detector_app"
+            adb shell input tap 540 2220
+            sleep 3
+            adb shell uiautomator dump /sdcard/native_language.xml
+            adb shell cat /sdcard/native_language.xml > /tmp/native_language.xml
+            grep -qiE "English|Español|Deutsch|Français" /tmp/native_language.xml
+            adb shell input tap 540 415
+            sleep 3
+            adb shell dumpsys activity activities | grep -q "at.austriao.fake_gps_detector_app"
+            adb logcat -d -b crash > /tmp/fake_gps_crashlog.txt || true
+            ! grep -A12 "FATAL EXCEPTION" /tmp/fake_gps_crashlog.txt | grep -q "Process: at.austriao.fake_gps_detector_app"
