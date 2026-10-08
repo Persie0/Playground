@@ -99,6 +99,10 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0043eda4L,0x0043e970L,0x0043e9e0L,0x0043e114L,
             0x004380dcL,0x0043e800L
         });
+        FOCUS.put("fov-final", new long[]{
+            0x00431954L,0x00431118L,0x00431344L,0x004305bcL,
+            0x00430978L,0x002189d8L,0x002158fcL,0x0041c5e0L
+        });
     }
     private PrintWriter report;
     private File dir;
@@ -252,6 +256,15 @@ public class PhotoSphereSweep extends GhidraScript {
                     if(f!=null)selected.add(f);
                 }
                 if(++strings>120)break;
+            }
+        }
+        if(track.equals("fov-final")) {
+            for(long addr:new long[]{0x00161ae0L,0x00161ae8L,0x00161b48L}) {
+                try {
+                    long bits=currentProgram.getMemory().getLong(toAddr(addr));
+                    report.println("READ_DOUBLE\t0x"+Long.toHexString(addr)+"\t0x"+
+                        Long.toHexString(bits)+"\t"+Double.longBitsToDouble(bits));
+                }catch(Exception e){report.println("READ_ERROR\t0x"+Long.toHexString(addr)+"\t"+e);}
             }
         }
         if(track.equals("flow-line")) {
