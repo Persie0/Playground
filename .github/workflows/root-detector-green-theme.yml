@@ -1,0 +1,93 @@
+name: Root Detector fixed green brand theme verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/root-detector-green-theme.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/root_detection_app
+          ref: fixed-brand-green-theme
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: root-detector
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: release-builder
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Install Android API 37
+        run: |
+          set -euo pipefail
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37.0"
+      - name: Kotlin unit tests, lint, debug APK, release AAB
+        working-directory: root-detector
+        run: gradle --no-daemon :app:testDebugUnitTest :app:lintRelease :app:assembleDebug :app:bundleRelease --stacktrace
+      - name: Verify R8 release minimums
+        run: python3 release-builder/.github/scripts/verify_r8_min_scores.py root-detector/app/build/outputs/bundle/release/app-release.aab
+
+  emulator-appearance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/root_detection_app
+          ref: fixed-brand-green-theme
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: root-detector
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Install Android API 37
+        run: |
+          set -euo pipefail
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37.0"
+      - name: Assemble debug
+        working-directory: root-detector
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
+      - name: Enable KVM
+        run: if [ -e /dev/kvm ]; then sudo chmod a+rw /dev/kvm; fi
+      - name: Screenshot green theme in light and dark
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          target: default
+          profile: pixel_6
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: bash root-detector/scripts/emulator-green-theme.sh
+      - name: Save screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: root-detector-green-light-dark-ui
+          path: |
+            root-detector-green-light.png
+            root-detector-green-dark.png
+            root-detector-green-logcat.txt
+          retention-days: 3
+          if-no-files-found: ignore
