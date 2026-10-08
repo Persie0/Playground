@@ -1,0 +1,49 @@
+name: Photo Sphere seam native control flow readback
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-seam-native-readback.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Read verified native control-flow artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/Persie0/Playground/actions/artifacts/11553346799/zip" -o /tmp/native-evidence.zip
+          unzip -q /tmp/native-evidence.zip -d evidence
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for filename, intervals in {
+            "seam-selection-full.S": [
+              (0x33aecc,0x33b190),
+              (0x33b190,0x33b3d0),
+              (0x33b3d0,0x33b5e4),
+              (0x33b5e4,0x33b824),
+              (0x33b824,0x33b9b0),
+            ],
+            "ibfs-solver-full.S": [(0x33c7a0,0x33ca5c)]
+          }.items():
+            paths=list(Path("evidence").rglob(filename))
+            if not paths:
+              raise FileNotFoundError(filename)
+            lines=paths[0].read_text().splitlines()
+            print(f"=== VERIFIED FULL RAW {filename} ({len(lines)} lines) ===")
+            for start,stop in intervals:
+              print(f"=== SPAN {start:08x}-{stop:08x} ===")
+              for line in lines:
+                m=re.search(r"^\s*([a-f0-9]+):\s",line)
+                if m and start<=int(m.group(1),16)<stop:
+                  print(line)
+          PY
