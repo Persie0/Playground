@@ -75,34 +75,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-boot-timeout: 600
-          script: |
-            set -eu
-            bash root-detector/scripts/emulator-smoke.sh
-            wait_for_results() {
-              for attempt in $(seq 1 36); do
-                adb shell pidof at.persie0.root_detection_app >/dev/null
-                adb shell uiautomator dump /sdcard/root-detector-results.xml >/dev/null 2>&1 || true
-                if adb shell cat /sdcard/root-detector-results.xml 2>/dev/null | grep -q 'Scan Again'; then
-                  echo "Material 3 results screen ready after $attempt checks"
-                  return 0
-                fi
-                sleep 5
-              done
-              echo "::error::Results never appeared after 180 seconds"
-              return 1
-            }
-            wait_for_results
-            adb exec-out screencap -p > results-normal.png
-            adb shell settings put system font_scale 1.5
-            adb shell am force-stop at.persie0.root_detection_app
-            adb shell am start -W -n at.persie0.root_detection_app/.MainActivity
-            wait_for_results
-            adb exec-out screencap -p > results-large-text.png
-            adb shell cmd uimode night yes
-            adb shell am force-stop at.persie0.root_detection_app
-            adb shell am start -W -n at.persie0.root_detection_app/.MainActivity
-            wait_for_results
-            adb exec-out screencap -p > results-large-text-dark.png
+          script: bash root-detector/scripts/emulator-results-readability.sh
       - name: Save accessibility evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -115,5 +88,7 @@ jobs:
             results-large-text.png
             results-large-text-dark.png
             root-detector-logcat.txt
+            results-timeout.png
+            results-timeout-logcat.txt
           retention-days: 3
           if-no-files-found: ignore
