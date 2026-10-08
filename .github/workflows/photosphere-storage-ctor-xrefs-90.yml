@@ -1,0 +1,87 @@
+name: Photo Sphere storage ctor and count native xrefs
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-storage-ctor-xrefs-90.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Probe constructor and metadata count native control flow
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/storage-ctor-xrefs.txt
+          from pathlib import Path
+          from struct import unpack_from
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
+          import re
+          buf=Path("liblightcycle.so").read_bytes()
+          assert buf[:4]==b'\x7fELF' and buf[4:6]==b'\x02\x01'
+          phoff=unpack_from('<Q',buf,32)[0]
+          ent,n=unpack_from('<HH',buf,54)
+          sections=[]
+          for i in range(n):
+            typ,flags,off,va,pa,fs,ms,align=unpack_from('<IIQQQQQQ',buf,phoff+i*ent)
+            if typ==1:sections.append((va,va+fs,off,flags))
+          def mapped(a):
+            for lo,hi,off,flags in sections:
+              if lo<=a<hi:return off+a-lo
+            raise ValueError(hex(a))
+          md=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          for name,lo,hi in [
+            ("STORAGE_METHOD_REGION",0x319400,0x319b74),
+            ("META_WRITER_APPEND",0x319b74,0x319d40),
+            ("META_READER",0x319d40,0x31a160),
+            ("STORAGE_FILENAME",0x31a8c4,0x31aaac)
+          ]:
+            print("===== REGION",name,hex(lo),hex(hi),"=====")
+            ins=list(md.disasm(buf[mapped(lo):mapped(hi-4)+4],lo))
+            print("instructions",len(ins))
+            selected=set(range(min(len(ins),8)))
+            for j,v in enumerate(ins):
+              if v.mnemonic in ('bl','blr','ret','adrp','str','strb','movz','movk') or ('#0x50' in v.op_str):
+                selected.update(range(max(0,j-1),min(len(ins),j+2)))
+            for j in sorted(selected)[:260]:
+              v=ins[j];print(f"{v.address:08x}: {v.mnemonic:7} {v.op_str}")
+          print("===== VTABLE_REFS executable ADRP page 0x40c000 =====")
+          count=0
+          for lo,hi,off,flags in sections:
+            if not flags&1:continue
+            ins=list(md.disasm(buf[off:off+(hi-lo)],lo))
+            for j,v in enumerate(ins):
+              if v.mnemonic=='adrp' and '#0x40c000' in v.op_str:
+                near=ins[j:j+12]
+                if any(n.mnemonic in ('add','ldr') and ('#0xc50' in n.op_str or '#0xc48' in n.op_str or '#0xcc50' in n.op_str) for n in near):
+                  count+=1
+                  print("VTABLE_NEAR",hex(v.address))
+                  for n in ins[max(0,j-2):min(len(ins),j+13)]:
+                    print(f"{n.address:08x}: {n.mnemonic:7} {n.op_str}")
+          print("VTABLE_ADRP+OFFSET_CANDIDATES",count)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-storage-ctor-xrefs-90
+          path: out/
+          retention-days: 3
