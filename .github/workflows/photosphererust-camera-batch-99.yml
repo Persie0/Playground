@@ -1,0 +1,49 @@
+name: Photo Sphere batched camera mapping 99
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphererust-camera-batch-99.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [default, portable, android-jni]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereRust
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: PhotosphereRust
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test single and batch camera map API
+        working-directory: PhotosphereRust
+        shell: bash
+        env:
+          CONFIG: ${{ matrix.config }}
+        run: |
+          set -euo pipefail
+          case "$CONFIG" in
+            default)
+              cargo test --lib ffi::tests::camera_map -- --nocapture
+              cargo test --lib projection::tests -- --nocapture
+              cargo check --all-targets
+              ;;
+            portable)
+              cargo test --no-default-features --lib ffi::tests::camera_map -- --nocapture
+              cargo test --no-default-features --lib projection::tests -- --nocapture
+              cargo check --all-targets --no-default-features
+              ;;
+            android-jni)
+              cargo test --features android-jni --lib ffi::tests::camera_map -- --nocapture
+              cargo test --features android-jni --lib projection::tests -- --nocapture
+              cargo check --all-targets --features android-jni
+              ;;
+          esac
