@@ -1,0 +1,91 @@
+name: Photo Sphere native session constructor callers
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-session-constructor-callers-90.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install lightweight pinned ARM64 decoder
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6
+      - name: Full executable direct callers and constructor vtable references
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/storage-constructor-callers.txt
+          from pathlib import Path
+          from struct import unpack_from
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN
+          buf=Path("liblightcycle.so").read_bytes()
+          phoff=unpack_from("<Q",buf,32)[0]
+          ent,n=unpack_from("<HH",buf,54)
+          segments=[]
+          for k in range(n):
+              typ,flags,fo,va,pa,fs,ms,al=unpack_from("<IIQQQQQQ",buf,phoff+k*ent)
+              if typ==1 and flags&1:segments.append((va,fo,fs))
+          funcs={
+              0x3195c8:'CONSTRUCTOR',
+              0x319694:'VTABLE_METHOD_0_DESTRUCTOR',
+              0x3196d4:'VTABLE_METHOD_8_DESTRUCTOR',
+              0x319714:'VTABLE_METHOD_10',
+              0x319b74:'META_WRITER_18',
+              0x319d40:'META_READER_20',
+              0x31aa40:'META_PATH_50',
+          }
+          from collections import defaultdict
+          calls=defaultdict(list)
+          # AArch64 BL imm26 signed relative offset
+          for addr,fo,length in segments:
+              for off in range(0,length-3,4):
+                  w=unpack_from('<I',buf,fo+off)[0]
+                  if w&0xfc000000 != 0x94000000:continue
+                  imm=w&0x3ffffff
+                  if imm&(1<<25):imm-=1<<26
+                  pc=addr+off;target=pc+imm*4
+                  if target in funcs:
+                      calls[target].append(pc)
+          for addr,name in funcs.items():
+              print('CALLERS',name,hex(addr),'count',len(calls[addr]))
+              for x in calls[addr][:70]:print('  raw',hex(x),'Ghidra',hex(x+0x100000))
+          cap=Cs(CS_ARCH_ARM64,CS_MODE_LITTLE_ENDIAN)
+          # Find true ADRP+ADD vptr constructor references even across invalid-code gaps.
+          matches=[]
+          for addr,fo,length in segments:
+              for off in range(0,length-16,4):
+                  head=list(cap.disasm(buf[fo+off:fo+off+4],addr+off))
+                  if not head or head[0].mnemonic!='adrp' or '#0x40c000' not in head[0].op_str:continue
+                  tail=list(cap.disasm(buf[fo+off:fo+off+64],addr+off))
+                  for m in tail[1:]:
+                      if m.mnemonic=='add' and '#0xc50' in m.op_str:
+                          matches.append((addr+off,tail[:16]))
+                          break
+          print('VPTR_ADRP_ADD_MATCHES',len(matches))
+          for address,items in matches[:40]:
+              print('VPTR_REF',hex(address))
+              for x in items:print(f' {x.address:08x} {x.mnemonic:7s} {x.op_str}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-session-constructor-callers-90
+          path: out/
+          retention-days: 3
