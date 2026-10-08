@@ -1,0 +1,55 @@
+name: ImagePdfScaler precision audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/imagepdfscaler-precision-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-precision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IMAGEPDFSCALER_GEOMETRY_DIR: ${{ github.workspace }}/pdf-fixtures
+    steps:
+      - name: Check private repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout ImagePdfScaler privately
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/ImagePdfScaler
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: imagepdfscaler
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Fetch packages
+        working-directory: imagepdfscaler
+        run: flutter pub get
+      - name: Analyze Dart
+        working-directory: imagepdfscaler
+        run: flutter analyze --no-pub
+      - name: Run all Flutter tests and generate PDFs
+        working-directory: imagepdfscaler
+        run: flutter test
+      - name: Inspect actual PDF geometry
+        run: |
+          python3 -m pip install --user pymupdf
+          python3 imagepdfscaler/tool/verify_pdf_geometry.py "$IMAGEPDFSCALER_GEOMETRY_DIR"
+      - name: Upload synthetic geometry fixtures on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: imagepdfscaler-geometry-fixtures
+          path: pdf-fixtures/
+          if-no-files-found: ignore
