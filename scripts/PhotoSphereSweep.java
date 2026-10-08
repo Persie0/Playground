@@ -511,6 +511,21 @@ public class PhotoSphereSweep extends GhidraScript {
             0x00431690L,0x004317bcL,0x00430ec4L,0x00431030L,
             0x00430e14L,0x00430978L,0x004405c8L,0x00443e74L
         });
+        FOCUS.put("session-writer-callers-88", new long[]{
+            0x00419b74L,0x00419b00L,0x00419910L,0x00419cf0L,
+            0x0021976cL,0x0021b5f4L,0x0041a6bcL,0x00447bd4L,
+            0x00450c1cL,0x0041c618L
+        });
+        FOCUS.put("metadata-count-path-88", new long[]{
+            0x0021976cL,0x0021b5f4L,0x00419b74L,0x00419cf0L,
+            0x0041a6bcL,0x00443e74L,0x00447bd4L,
+            0x00419f0cL,0x0041b154L
+        });
+        FOCUS.put("render-lens-defaults-88", new long[]{
+            0x0041c618L,0x0041d3dcL,0x0041f140L,0x0041f118L,
+            0x00431b54L,0x00431c38L,0x00431344L,
+            0x00431690L,0x0042a6a4L,0x00423f2cL
+        });
     }
     private PrintWriter report;
     private File dir;
@@ -632,6 +647,39 @@ public class PhotoSphereSweep extends GhidraScript {
             Function f=find(va);
             report.println("TARGET\t"+Long.toHexString(va)+"\t"+(f==null?"MISSING":f.getEntryPoint()+"\t"+f.getName()));
             if(f!=null)selected.add(f);
+        }
+        if(track.equals("session-writer-callers-88")) {
+            for(long va:new long[]{0x00419b74L,0x0021976cL}) {
+                Function focus=find(va);
+                if(focus==null)continue;
+                int n=0;
+                for(Function c:focus.getCallingFunctions(monitor)) {
+                    report.println("DIRECT_CALLER\\t"+focus.getEntryPoint()+"\\t"+c.getEntryPoint()+"\\t"+c.getName());
+                    if(n++<24)selected.add(c);
+                }
+            }
+        }
+        if(track.equals("metadata-count-path-88")) {
+            DataIterator it=currentProgram.getListing().getDefinedData(true);
+            ReferenceManager rm=currentProgram.getReferenceManager();
+            int hits=0;
+            while(it.hasNext()) {
+                Data d=it.next();
+                if(!d.hasStringValue())continue;
+                Object v=d.getValue();
+                if(!(v instanceof String))continue;
+                String q=(String)v;
+                if(!q.matches("(?is).*?(source_photos_count|orientations\\\\.txt|session\\\\.meta|cropped_area_left|filepath,%s).*"))continue;
+                report.println("METADATA_KEY\\t"+d.getAddress()+"\\t"+q.replace((char)10,' '));
+                ReferenceIterator refs=rm.getReferencesTo(d.getAddress());
+                for(int k=0;refs.hasNext() && k<25;k++) {
+                    Reference rr=refs.next();
+                    Function caller=fm.getFunctionContaining(rr.getFromAddress());
+                    report.println("METADATA_KEY_XREF\\t"+rr.getFromAddress()+"\\t"+(caller==null?"NONE":caller.getEntryPoint()));
+                    if(caller!=null)selected.add(caller);
+                }
+                if(++hits>48)break;
+            }
         }
         if(track.equals("rle-fill-calls-77")) {
             for(long va:new long[]{0x004360d8L,0x004373c0L,0x004376acL,
