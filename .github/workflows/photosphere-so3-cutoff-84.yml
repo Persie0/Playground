@@ -1,0 +1,56 @@
+name: Photo Sphere SO3 log singular threshold
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-so3-cutoff-84.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  raw-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify exact APK and native library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Decode SO3 near-zero and near-pi numerical threshold
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY' | tee out/so3-cutoff.txt
+          from pathlib import Path
+          from struct import unpack_from
+          b=Path("liblightcycle.so").read_bytes()
+          assert b[:4]==b'\x7fELF' and b[4:6]==b'\x02\x01'
+          off=unpack_from("<Q",b,32)[0]
+          ent,n=unpack_from("<HH",b,54)
+          segs=[]
+          for i in range(n):
+              ty,fl,p,v,pa,fs,ms,al=unpack_from("<IIQQQQQQ",b,off+i*ent)
+              if ty==1:segs.append((v,v+fs,p))
+          def fileoffset(v):
+              for lo,hi,off in segs:
+                  if lo<=v<hi:return off+v-lo
+              raise ValueError(hex(v))
+          for va in [0x61a70,0x61a78,0x61a80,0x61a88,0x61ae0]:
+              o=fileoffset(va)
+              print(f'elf={va:#x} file={o:#x} double_bits={unpack_from("<Q",b,o)[0]:#018x} double={unpack_from("<d",b,o)[0]:.18g} float32={unpack_from("<f",b,o)[0]:.12g}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-equirect-constants
+          path: out/
+          retention-days: 3
