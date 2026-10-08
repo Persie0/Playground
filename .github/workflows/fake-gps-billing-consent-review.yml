@@ -14,7 +14,7 @@ jobs:
     steps:
       # Validate native functional parity after Flutter assets cleanup and consent fixes.
       # Verify native lifecycle fixes at latest branch head.
-      # Verify the current merged Kotlin mainline, including Activity state restoration.
+      # Verify PR #22: fullscreen horizontal padding and Settings gesture/back navigation.
       - name: Validate secret
         env:
           TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/fake_gps_detector
-          ref: master
+          ref: fix/native-home-width-settings-back-20261008
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: fakegps
@@ -109,5 +109,5 @@ jobs:
             -H "Authorization: Bearer $TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/Persie0/Playground/statuses/$GITHUB_SHA" \
-            --data "$(printf '{"state":"%s","context":"fake-gps-kotlin-master","description":"Debug APK, unit tests, release lint and AAB"}' "$state")"
+            --data "$(printf '{"state":"%s","context":"fake-gps-kotlin-pr22","description":"Debug APK, unit tests, release lint and AAB"}' "$state")"
 
