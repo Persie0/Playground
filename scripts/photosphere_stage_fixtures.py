@@ -231,6 +231,31 @@ def native_fov_calibration_seed_policy(attempt) -> float:
     return -1.0
 
 
+
+def native_fov_raw_gradient_interior(
+    patch: tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]
+) -> tuple[int, int]:
+    """Native FOV image registration separable derivative/smoothing at an interior pixel.
+
+    From FUN_001f5564 horizontal and FUN_001f5710 vertical. This pipeline passes
+    mode=0 to the vertical stage, which stores unnormalized float32 sums.
+    Integer outputs represent the exact sums before float32 conversion.
+    """
+    if len(patch) != 3 or any(len(row) != 3 for row in patch):
+        raise ValueError("Three rows of three image samples are required")
+    differentiation = (-1, 0, 1)
+    smoothing = (3, 10, 3)
+    gx = sum(
+        patch[y][x] * smoothing[y] * differentiation[x]
+        for y in range(3) for x in range(3)
+    )
+    gy = sum(
+        patch[y][x] * differentiation[y] * smoothing[x]
+        for y in range(3) for x in range(3)
+    )
+    return gx, gy
+
+
 class LightCycleStageFixtures(unittest.TestCase):
     def test_identity_rotation_and_transpose(self):
         i = (1., 0., 0., 0., 1., 0., 0., 0., 1.)
@@ -451,6 +476,26 @@ class LightCycleStageFixtures(unittest.TestCase):
             return False, 0.0
         self.assertEqual(native_fov_calibration_seed_policy(attempt), -1.0)
         self.assertEqual(called, [55.0, 65.0, 45.0])
+
+
+    def test_fov_gradient_native_kernel_uniform_image_is_zero(self):
+        patch = ((100, 100, 100), (100, 100, 100), (100, 100, 100))
+        self.assertEqual(native_fov_raw_gradient_interior(patch), (0, 0))
+
+    def test_fov_gradient_native_unscaled_horizontal_ramp(self):
+        patch = ((20, 30, 40), (20, 30, 40), (20, 30, 40))
+        self.assertEqual(native_fov_raw_gradient_interior(patch), (320, 0))
+
+    def test_fov_gradient_native_unscaled_vertical_ramp(self):
+        patch = ((10, 10, 10), (17, 17, 17), (24, 24, 24))
+        self.assertEqual(native_fov_raw_gradient_interior(patch), (0, 224))
+
+    def test_fov_gradient_native_separable_sign_and_magnitude(self):
+        patch = tuple(
+            tuple(100 - 5*x + 3*y for x in range(3))
+            for y in range(3)
+        )
+        self.assertEqual(native_fov_raw_gradient_interior(patch), (-160, 96))
 
 
 
