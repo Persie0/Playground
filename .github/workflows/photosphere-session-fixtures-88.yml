@@ -1,0 +1,21 @@
+name: Photo Sphere session metadata fixtures
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/photosphere_session_metadata_fixtures.py"
+      - ".github/workflows/photosphere-session-fixtures-88.yml"
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Test recovered session meta contracts
+        run: python3 scripts/photosphere_session_metadata_fixtures.py -v
