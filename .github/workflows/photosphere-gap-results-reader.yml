@@ -1,0 +1,82 @@
+name: Photo Sphere gap evidence reader
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Optional native gap sweep run ID"
+        required: false
+        type: string
+  push:
+    branches: [investigate/photosphere-oct08-gaps]
+    paths: [".github/workflows/photosphere-gap-results-reader.yml"]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download focused analysis artifacts
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          if [[ -z "$SOURCE_RUN_ID" ]]; then
+            SOURCE_RUN_ID="$(curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/Persie0/Playground/actions/runs?per_page=100" |
+              jq -r '.workflow_runs | map(select(.name=="Photo Sphere native gap sweep" and .conclusion=="success")) | .[0].id // empty')"
+          fi
+          if [[ -z "$SOURCE_RUN_ID" ]]; then
+            echo "::error::No successful native gap sweep run found."
+            exit 1
+          fi
+          echo "Reading evidence from workflow run $SOURCE_RUN_ID"
+          curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/Persie0/Playground/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100" > /tmp/artifacts.json
+          for name in seams flow-line targets-meta rosette; do
+            ident="$(jq -r --arg n "photosphere-gap-$name" '.artifacts | map(select(.name==$n and .expired==false)) | .[0].id // empty' /tmp/artifacts.json)"
+            if [[ -z "$ident" ]]; then
+              echo "::error::Missing or expired $name artifact in run $SOURCE_RUN_ID. Re-run the native gap sweep."
+              exit 1
+            fi
+            curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/Persie0/Playground/actions/artifacts/$ident/zip" -o "/tmp/$name.zip"
+            mkdir -p "evidence/$name"
+            unzip -q "/tmp/$name.zip" -d "evidence/$name"
+            echo "Downloaded $name with $(find "evidence/$name" -name '*.c' | wc -l) Ghidra bodies"
+          done
+      - name: Print focused bodies and excerpts
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          wanted={
+            'seams':['004390a8','00439600','00421718','00421c80','0042114c'],
+            'flow-line':['00416a40','00416a64','00403cf8','001ffc30'],
+            'targets-meta':['0020f448','002159fc','001efb78','00419b74','0041aa40','00419d40'],
+            'rosette':['004440ec','00443e74','0021b5f4']
+          }
+          for track, addresses in wanted.items():
+            for addr in addresses:
+              matches=list(Path('evidence',track).rglob(addr+'_investigate.c'))
+              if not matches: 
+                print('MISSING',track,addr)
+                continue
+              contents=matches[0].read_text(errors='replace').splitlines()
+              print('===== BODY',track,addr,'LINES',len(contents),'=====')
+              if addr in {'00403cf8','001ffc30','002159fc','00419d40','0021b5f4','0042114c','00421c80'}:
+                lines=[i for i,line in enumerate(contents) if any(t in line for t in ('FUN_004390','FUN_00439','FUN_00416','FUN_004068','FUN_004440','FUN_00215','FUN_00214','FUN_00419','FUN_004f19','param_1 + 0x60','return','+ 0x14','+ 0x10','+ 0x48','+ 0x70'))]
+                chosen=set(range(min(45,len(contents))))
+                for i in lines[:85]:
+                  chosen.update(range(max(0,i-5),min(len(contents),i+6)))
+                for i in sorted(chosen)[:430]:
+                  print(f'{i+1:04d} {contents[i]}')
+              else:
+                for i,line in enumerate(contents[:520]):
+                  print(f'{i+1:04d} {line}')
+          PY
