@@ -74,11 +74,11 @@ jobs:
               ;;
           esac
           echo "=== TRACK $TRACK ==="
-          mapfile -t paths < <(rg -l -i -e "$patterns" out/java/sources --glob '*.java' || true)
+          mapfile -t paths < <(grep -RliE --include='*.java' -e "$patterns" out/java/sources || true)
           echo "MATCHING_FILES=${#paths[@]}"
           for file in "${paths[@]:0:85}"; do
             echo "===== $file ====="
-            rg -n -i -C 6 -e "$patterns" "$file" | head -n 110 || true
+            grep -niE -C 6 -e "$patterns" "$file" | head -n 110 || true
           done
       - uses: actions/upload-artifact@v4
         if: always()
