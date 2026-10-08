@@ -123,6 +123,11 @@ public class PhotoSphereSweep extends GhidraScript {
             0x00421fb0L,0x0042114cL,0x00431a24L,0x00431344L,
             0x00430e14L,0x00431690L,0x0041a6bcL
         });
+        FOCUS.put("mask-generator", new long[]{
+            0x0049c5d8L,0x004380dcL,0x00433478L,
+            0x00437958L,0x004390a8L,0x00439600L,
+            0x0049c604L,0x0049c654L
+        });
         FOCUS.put("warp-threads", new long[]{
             0x0043ea50L,0x0043eda4L,0x004482f0L,0x004488d8L,
             0x0044834cL,0x0043e930L,0x0043f4a4L,0x0043f4f4L,
@@ -309,6 +314,39 @@ public class PhotoSphereSweep extends GhidraScript {
                           base==0x0050d988L||base==0x0050d9b8L||base==0x0050d708L))selected.add(target);
                     }catch(Exception e){report.println("VTABLE_READ_ERROR\t"+e);}
                 }
+            }
+        }
+        if(track.equals("mask-generator")) {
+            Function allocator=find(0x004f19f4L);
+            if(allocator==null)throw new IllegalStateException("Allocator function missing");
+            allocator.setNoReturn(false);
+            allocator.setReturnType(new PointerDataType(),SourceType.USER_DEFINED);
+            dec.flushCache();
+            Function factory=find(0x0049c5d8L);
+            if(factory!=null) {
+                for(long va=0x0049c5e4L;va<=0x0049c600L;va+=4) {
+                    Address addr=toAddr(va);
+                    if(currentProgram.getListing().getInstructionAt(addr)==null)disassemble(addr);
+                    Instruction ins=currentProgram.getListing().getInstructionAt(addr);
+                    report.println("MASK_FACTORY_ARM64\t"+addr+"\t"+(ins==null?"MISSING":ins.toString()));
+                }
+                try {
+                    factory.setBody(new AddressSet(toAddr(0x0049c5d8L),toAddr(0x0049c603L)));
+                    dec.flushCache();
+                }catch(Exception ex){report.println("MASK_FACTORY_BODY_ERROR\t"+ex);}
+            }
+            Address vt=toAddr(0x0050ed00L);
+            report.println("MASK_FACTORY_VPTR\t"+vt);
+            for(int slot=0;slot<22;slot++){
+                long pointer=currentProgram.getMemory().getLong(vt.add(8L*slot));
+                Function method=(pointer>=0x00100000L && pointer<0x00500000L)?
+                    fm.getFunctionAt(toAddr(pointer)):null;
+                report.println("MASK_VTABLE\t0x"+Integer.toHexString(slot*8)+
+                    "\t0x"+Long.toHexString(pointer)+"\t"+
+                    (method==null?"UNRESOLVED":method.getEntryPoint().toString())+
+                    "\t"+(method==null?"":method.getName()));
+                if(method!=null && (slot==1||slot==13||slot==14||slot==16))
+                    selected.add(method);
             }
         }
         if(track.equals("targets-meta")) {
