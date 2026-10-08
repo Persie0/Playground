@@ -1,0 +1,79 @@
+name: Photo Sphere raw instruction readback
+on:
+  workflow_run:
+    workflows: ["Photo Sphere downstream dispatch sweep"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Optional completed sweep run ID"
+        required: false
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Retrieve downstream native-analysis results
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id || inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SOURCE_RUN_ID" ]]; then
+            SOURCE_RUN_ID="$(curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/Persie0/Playground/actions/runs?per_page=100" \
+              | jq -r '.workflow_runs | map(select(.name == "Photo Sphere downstream dispatch sweep" and .conclusion == "success")) | .[0].id // empty')"
+          fi
+          if [[ -z "$SOURCE_RUN_ID" ]]; then
+            echo "::error::No successful native gap sweep run has completed."
+            exit 1
+          fi
+          echo "Evidence source: $SOURCE_RUN_ID"
+          mkdir -p evidence
+          curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/Persie0/Playground/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100" > /tmp/artifacts.json
+          for track in blend-pixel source-index target-provenance; do
+            id="$(jq -r --arg n "photosphere-next-$track" '.artifacts | map(select(.name==$n and .expired==false)) | .[0].id // empty' /tmp/artifacts.json)"
+            if [[ -z "$id" ]]; then echo "::error::Missing $track result in $SOURCE_RUN_ID"; exit 1; fi
+            curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/Persie0/Playground/actions/artifacts/$id/zip" -o "/tmp/$track.zip"
+            mkdir -p "evidence/$track"
+            unzip -q "/tmp/$track.zip" -d "evidence/$track"
+            echo "### $track"
+            find "evidence/$track" -name index.tsv -exec cat {} +
+          done
+      - name: Print key raw ARM64 instructions for downstream dispatch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          keys={
+            "blend-pixel": ["00423310", "0043e930", "004252b0", "0042b114", "00425770"],
+            "source-index": ["001f002c", "0041a6bc", "00447a54"],
+            "target-provenance": ["002189d8", "0021874c", "001ed84c", "0020fa04"]
+          }
+          for track, addrs in keys.items():
+            for addr in addrs:
+              p=list(Path("evidence",track).rglob(addr+"_investigate.asm"))
+              if not p:
+                print("MISSING",track,addr)
+                continue
+              lines=p[0].read_text(errors="replace").splitlines()
+              print("===== ASM",track,addr,"rows",len(lines),"=====")
+              if len(lines)<350:
+                show=range(len(lines))
+              else:
+                terms=("BLR ","BL ","BR ","MOVK ","ADRP ","LDR ","STR ","STP ","RET")
+                points=[i for i,line in enumerate(lines) if any(t in line for t in terms)]
+                selected=set(range(min(45,len(lines))))
+                for i in points[:85]:
+                  selected.update(range(max(0,i-3),min(len(lines),i+4)))
+                show=sorted(selected)[:400]
+              for i in show:
+                print(f"{i+1:04d} {lines[i]}")
+          PY
