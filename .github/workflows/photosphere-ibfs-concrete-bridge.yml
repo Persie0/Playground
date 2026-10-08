@@ -60,6 +60,16 @@ jobs:
           sed -n '140,225p' out/ibfs-finalize-and-labels.S
           echo '=== IBFS FINALIZER FIRST INSTRUCTIONS ==='
           sed -n '1,145p' out/ibfs-finalize-and-labels.S
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x33ad54 --stop-address=0x33aeb8 \
+            liblightcycle.so > out/seam-args.S
+          aarch64-linux-gnu-objdump -d -j .text \
+            --start-address=0x33b7e0 --stop-address=0x33b980 \
+            liblightcycle.so > out/seam-label-to-image.S
+          echo '=== SEAM INPUT ARGUMENT SETUP ==='
+          sed -n '1,125p' out/seam-args.S
+          echo '=== SEAM LABEL TO IMAGE REGISTER TRACE ==='
+          cat out/seam-label-to-image.S
           echo '=== CONSTRUCTOR VTABLE GOT RELOCATION ==='
           grep -Ei '0000000000414470|000000000040d9(7|8|9|a|b|c)' out/relocations.txt | head -35 || true
           echo '=== IBFS LABEL METHOD ==='
