@@ -76,8 +76,13 @@ public class PhotoSphereSweep extends GhidraScript {
         });
         FOCUS.put("blend-final", new long[]{
             0x0043ea50L,0x0043e930L,0x0043e970L,0x0043e9e0L,
-            0x00423310L,0x0043ed00L,0x0043ec00L,0x0043ef00L,
+            0x00423310L,0x0043eda4L,0x0043ed00L,0x0043ec00L,0x0043ef00L,
             0x0043f4a4L,0x0042a6a4L,0x004252b0L,0x00425770L
+        });
+        FOCUS.put("projection-model", new long[]{
+            0x002189d8L,0x004305bcL,0x0041b154L,0x00431344L,
+            0x00430978L,0x0021874cL,0x0041c5e0L,0x002188b8L,
+            0x002158fcL,0x00440560L
         });
     }
     private PrintWriter report;
