@@ -395,6 +395,11 @@ public class PhotoSphereSweep extends GhidraScript {
             0x00430ec4L,0x00431030L,0x00430c24L,0x00430ddcL,
             0x00430978L,0x00430b40L,0x00430a8cL,0x00431b54L
         });
+        FOCUS.put("rle-fill-calls-77", new long[]{
+            0x0043605cL,0x00437300L,0x00437600L,
+            0x0043b7fcL,0x0041e1c8L,0x00437ab8L,
+            0x00437e68L,0x004380dcL,0x0043ad54L
+        });
     }
     private PrintWriter report;
     private File dir;
@@ -516,6 +521,16 @@ public class PhotoSphereSweep extends GhidraScript {
             Function f=find(va);
             report.println("TARGET\t"+Long.toHexString(va)+"\t"+(f==null?"MISSING":f.getEntryPoint()+"\t"+f.getName()));
             if(f!=null)selected.add(f);
+        }
+        if(track.equals("rle-fill-calls-77")) {
+            for(long va:new long[]{0x004360d8L,0x004373c0L,0x004376acL,
+                                    0x0043b80cL,0x0043b824L,0x0041e1e8L}) {
+                Function enclosing=fm.getFunctionContaining(toAddr(va));
+                report.println("RLE_FILL_CALLSITE\\t0x"+Long.toHexString(va)+
+                    "\\t"+(enclosing==null?"UNKNOWN":enclosing.getEntryPoint()+
+                    "\\t"+enclosing.getName()));
+                if(enclosing!=null)selected.add(enclosing);
+            }
         }
         if(track.equals("blend-vtable")) {
             Address vt=toAddr(0x0050da08L);
