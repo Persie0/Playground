@@ -1,0 +1,113 @@
+name: Resistor Scanner categorized settings validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-scanner-categorized-settings-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: feat/categorized-settings-sheet
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
+
+      - name: Verify categorized Android settings
+        working-directory: app
+        run: |
+          set -euo pipefail
+          FILE=app/src/main/java/at/austriao/resistorscanner/ui/ScannerScreen.kt
+          LEGAL=app/src/main/java/at/austriao/resistorscanner/ui/LegalUi.kt
+          grep -F 'Modifier.fillMaxHeight(0.875f)' "$FILE"
+          grep -F 'skipPartiallyExpanded = true' "$FILE"
+          grep -F 'SettingsCategory.SCANNER' "$FILE"
+          grep -F 'SettingsCategory.PRO' "$FILE"
+          grep -F 'SettingsCategory.LEGAL' "$FILE"
+          grep -F 'label = "Scanner"' "$FILE"
+          grep -F 'label = "Pro"' "$FILE"
+          grep -F 'label = "Legal"' "$FILE"
+          grep -F 'LegalSettingsSection(showHeader = false)' "$FILE"
+          grep -F 'fun LegalSettingsSection(showHeader: Boolean = true)' "$LEGAL"
+
+      - name: Unit tests and debug build
+        working-directory: app
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug
+
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 80
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/resistor-scanner-ios
+          ref: feat/categorized-settings-sheet
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 1
+          path: app
+
+      - name: Verify categorized iOS settings
+        working-directory: app
+        run: |
+          set -euo pipefail
+          SETTINGS=ResistorScanner/UI/SettingsSheet.swift
+          VIEW=ResistorScanner/UI/ScannerView.swift
+          grep -F 'case scanner' "$SETTINGS"
+          grep -F 'case pro' "$SETTINGS"
+          grep -F 'case legal' "$SETTINGS"
+          grep -F 'slider.horizontal.3' "$SETTINGS"
+          grep -F 'star.fill' "$SETTINGS"
+          grep -F 'doc.text.fill' "$SETTINGS"
+          grep -F '.presentationDetents([.fraction(0.875)])' "$VIEW"
+          grep -F '.presentationDragIndicator(.visible)' "$VIEW"
+
+      - name: Swift tests
+        working-directory: app
+        run: swift test
+
+      - name: Resolve packages
+        working-directory: app
+        run: xcodebuild -resolvePackageDependencies -project ResistorScanner.xcodeproj -scheme ResistorScanner
+
+      - name: Build iOS simulator
+        working-directory: app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ResistorScanner.xcodeproj \
+            -scheme ResistorScanner \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tee "$RUNNER_TEMP/ios-build.log"
