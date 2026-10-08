@@ -391,6 +391,10 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0041c618L,0x0043f3e0L,0x0041b400L,
             0x004405c8L,0x0041a0e8L
         });
+        FOCUS.put("fisheye-projection-exact-76", new long[]{
+            0x00430ec4L,0x00431030L,0x00430c24L,0x00430ddcL,
+            0x00430978L,0x00430b40L,0x00430a8cL,0x00431b54L
+        });
     }
     private PrintWriter report;
     private File dir;
