@@ -15,7 +15,7 @@ public class PhotoSphereFlow103 extends GhidraScript {
     long[] addrs={
       0x001f44c8L, 0x001ffc30L,0x001fdcc0L,0x001fd76cL,
       0x001f3848L,0x001fdf50L,0x001ff7dcL,0x001ffab0L,
-      0x001fd9acL,0x001f40f0L
+      0x001fd9acL,0x001f40f0L,0x001f327cL,0x001f3378L,0x001f4010L
     };
     try(PrintWriter report=new PrintWriter(new File(out,"flow-index.tsv"))) {
       for(long x:addrs) {
