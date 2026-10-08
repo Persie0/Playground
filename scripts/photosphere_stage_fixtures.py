@@ -279,10 +279,13 @@ def so3_log_rotation_matrix_generic_nonpi(
     if cosine <= -1.0:
         raise ValueError("Near-180-degree branch must be handled separately")
     angle = math.acos(cosine)
-    divisor = 2.0 * math.sin(angle)
-    if abs(divisor) < 1e-12:
-        raise ValueError("Unstable singular rotation")
-    scale = angle / divisor
+    sine = math.sin(angle)
+    # Native FUN_001f2e54 compares sinf(theta) to binary64 1e-5.
+    if sine < 1e-5:
+        if cosine > 0.0:
+            return (0.0, 0.0, 0.0)
+        raise ValueError("Native near-pi fallback must be handled separately")
+    scale = angle / (2.0 * sine)
     return (
         (m[7] - m[5]) * scale,
         (m[2] - m[6]) * scale,
@@ -552,6 +555,24 @@ class LightCycleStageFixtures(unittest.TestCase):
         self.assertAlmostEqual(x, 0.)
         self.assertAlmostEqual(y, 0.)
         self.assertAlmostEqual(z, math.pi/2)
+
+
+    def test_so3_log_native_near_identity_cutoff(self):
+        angle = 2e-6
+        m = (math.cos(angle), -math.sin(angle), 0.,
+             math.sin(angle), math.cos(angle), 0.,
+             0., 0., 1.)
+        self.assertEqual(so3_log_rotation_matrix_generic_nonpi(m), (0., 0., 0.))
+
+    def test_so3_log_rotation_above_native_cutoff(self):
+        angle = 0.001
+        m = (math.cos(angle), -math.sin(angle), 0.,
+             math.sin(angle), math.cos(angle), 0.,
+             0., 0., 1.)
+        x, y, z = so3_log_rotation_matrix_generic_nonpi(m)
+        self.assertAlmostEqual(x, 0., places=10)
+        self.assertAlmostEqual(y, 0., places=10)
+        self.assertAlmostEqual(z, angle, places=9)
 
     def test_so3_log_explicitly_separates_180_degree_case(self):
         half_turn_x = (1.,0.,0., 0.,-1.,0., 0.,0.,-1.)
