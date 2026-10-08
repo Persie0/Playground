@@ -675,7 +675,7 @@ public class PhotoSphereSweep extends GhidraScript {
                 if(!(value instanceof String))continue;
                 String str=(String)value;
                 if(!str.matches("(?is).*?(distorti|undistort|camera_model|camera_intrins|radial|tangential|calibrat|pinhole).*"))continue;
-                report.println("LENS_STRING\\t"+d.getAddress()+"\\t"+str.replace('\\n',' '));
+                report.println("LENS_STRING\\t"+d.getAddress()+"\\t"+str.replace((char)10,' '));
                 ReferenceIterator refs=rm.getReferencesTo(d.getAddress());
                 int count=0;
                 while(refs.hasNext() && count++ < 8){
