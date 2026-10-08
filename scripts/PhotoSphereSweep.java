@@ -639,6 +639,24 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0049a3a0L,0x0049a77cL,0x0041c618L,
             0x004404ecL,0x004405c8L,0x00441048L
         });
+        FOCUS.put("flow-owner-104", new long[]{
+            0x001f327cL,0x001f3378L,0x001f25f4L,
+            0x001f230cL,0x001f23b4L,0x001f2638L,
+            0x001f2af8L,0x001f4010L,0x001f40f0L,
+            0x001ffc30L,0x001fdcc0L,0x001fd76cL
+        });
+        FOCUS.put("gamma-sampling-consumer-104", new long[]{
+            0x004404ecL,0x00440994L,0x00441048L,
+            0x00441dc0L,0x0041c618L,0x0049a19cL,
+            0x0049a3a0L,0x0049a77cL,0x004405c8L,
+            0x004441e0L,0x004440ecL,0x00443e74L
+        });
+        FOCUS.put("metadata-session-104", new long[]{
+            0x004195c8L,0x00419694L,0x00419b74L,
+            0x00419d40L,0x0041aa40L,0x0041a84cL,
+            0x0021a0e8L,0x0021a204L,0x0021a2b0L,
+            0x0021a394L,0x001f0858L,0x0041a6bcL
+        });
         FOCUS.put("dense-flow-jacobian-unresolved-99", new long[]{
             0x001ff7dcL,0x001ffab0L,0x001fff14L,
             0x001fd76cL,0x001fdf50L,0x001ff1c8L,
