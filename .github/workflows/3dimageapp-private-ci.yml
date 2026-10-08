@@ -95,10 +95,32 @@ jobs:
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
-      - name: Install Android build tools
+      - name: Install Android SDK platform and select a valid preinstalled NDK
+        shell: bash
         run: |
+          set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1" >/dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "cmake;3.22.1" >/dev/null
+          select_ndk() {
+            local candidate
+            while IFS= read -r candidate; do
+              if [[ -f "$candidate/source.properties" && \
+                    -x "$candidate/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++" ]]; then
+                echo "${candidate##*/}"
+                return 0
+              fi
+            done < <(find "$ANDROID_SDK_ROOT/ndk" -mindepth 1 -maxdepth 1 \
+                       -type d 2>/dev/null | sort -Vr)
+            return 1
+          }
+          if ! ndk_version="$(select_ndk)"; then
+            echo "::warning::No valid preinstalled NDK found; downloading once."
+            sdkmanager "ndk;28.2.13676358" >/dev/null
+            ndk_version="$(select_ndk)"
+          fi
+          test -n "$ndk_version"
+          echo "SCENE3D_NDK_VERSION=$ndk_version" >> "$GITHUB_ENV"
+          echo "Using validated Android NDK $ndk_version"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
