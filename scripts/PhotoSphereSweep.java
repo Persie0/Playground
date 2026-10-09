@@ -64,6 +64,22 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0021a0e8L,0x0021a17cL,0x0021b584L,0x0021b75cL,
             0x00419b74L,0x00419d40L,0x0041aa40L,0x004195c8L
         });
+        FOCUS.put("camera-correction-150", new long[]{
+            0x00431630L,0x0043166cL,0x00431690L,0x00431b2cL,
+            0x00431d80L,0x00431344L,0x0041a6bcL,0x004440ecL,
+            0x00431b54L,0x00431c38L,0x0021a34cL
+        });
+        FOCUS.put("meta-writer-150", new long[]{
+            0x0021a080L,0x0021a17cL,0x0021b584L,0x0021b75cL,
+            0x0021b8a8L,0x0021ba60L,0x0021c2f4L,0x0021cd64L,
+            0x00419b74L,0x0041aa40L,0x0021a204L
+        });
+        FOCUS.put("session-lifecycle-150", new long[]{
+            0x001ee5d4L,0x001edb8cL,0x001f0784L,
+            0x0021a204L,0x0021a34cL,0x0021a0e8L,
+            0x004195c8L,0x00419714L,0x00419d40L,
+            0x0041a6bcL,0x0041a8c4L,0x0041aa40L
+        });
         FOCUS.put("flow-config", new long[]{
             0x001f214cL,0x001f327cL,0x001f32b0L,0x001f32bcL,
             0x001f333cL,0x001f40f0L,0x001ffc30L,0x001fff14L,
@@ -764,7 +780,7 @@ public class PhotoSphereSweep extends GhidraScript {
         report=new PrintWriter(new File(dir,"index.tsv"));
         report.println("TRACK\t"+track);
         report.println("BINARY\t"+currentProgram.getName()+"\t"+currentProgram.getImageBase());
-        if(track.startsWith("thumbnail-")) {
+        if(track.startsWith("thumbnail-") || track.endsWith("-150")) {
             for(long address : new long[]{0x004f19f4L,0x004f1a90L}) {
                 Function allocator=find(address);
                 if(allocator!=null && allocator.hasNoReturn()) {
@@ -776,6 +792,16 @@ public class PhotoSphereSweep extends GhidraScript {
             }
         }
 
+        if(track.endsWith("-150")) {
+            // Inspection targets include INSTRUCTION ADDRESSES, not guaranteed function entries.
+            // Log the enclosing function explicitly so an address in the middle of a vmethod
+            // is not silently skipped or mislabeled.
+            for(long va:targets){
+                Function containing=find(va);
+                report.println("FOCUS_ENCLOSING\\t0x"+Long.toHexString(va)+"\\t"+
+                    (containing==null?"UNRESOLVED":containing.getEntryPoint()+"\\t"+containing.getName()));
+            }
+        }
         if(track.equals("rosette")) {
             Function allocator=find(0x004f19f4L);
             Function rosette=find(0x004440ecL);
