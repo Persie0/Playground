@@ -657,6 +657,16 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0021a0e8L,0x0021a204L,0x0021a2b0L,
             0x0021a394L,0x001f0858L,0x0041a6bcL
         });
+        FOCUS.put("thumbnail-fixedpoint-130", new long[]{
+            0x0049e5c8L,0x0049e718L,0x0049e91cL,
+            0x0049e9dcL,0x0049eae4L,0x0049eb94L,
+            0x00217b10L,0x0040aee4L
+        });
+        FOCUS.put("thumbnail-contract-130", new long[]{
+            0x00217b10L,0x00217bbcL,0x0040aee4L,
+            0x00419308L,0x004193fcL,0x002188b8L,
+            0x001ed84cL,0x0049e5c8L
+        });
         FOCUS.put("dense-flow-jacobian-unresolved-99", new long[]{
             0x001ff7dcL,0x001ffab0L,0x001fff14L,
             0x001fd76cL,0x001fdf50L,0x001ff1c8L,
@@ -718,6 +728,18 @@ public class PhotoSphereSweep extends GhidraScript {
         report=new PrintWriter(new File(dir,"index.tsv"));
         report.println("TRACK\t"+track);
         report.println("BINARY\t"+currentProgram.getName()+"\t"+currentProgram.getImageBase());
+        if(track.startsWith("thumbnail-")) {
+            for(long address : new long[]{0x004f19f4L,0x004f1a90L}) {
+                Function allocator=find(address);
+                if(allocator!=null && allocator.hasNoReturn()) {
+                    report.println("ALLOCATOR_FIX\t"+allocator.getEntryPoint()+"\twasNoReturn=true");
+                    allocator.setNoReturn(false);
+                    allocator.setReturnType(new PointerDataType(),SourceType.USER_DEFINED);
+                    dec.flushCache();
+                }
+            }
+        }
+
         if(track.equals("rosette")) {
             Function allocator=find(0x004f19f4L);
             Function rosette=find(0x004440ecL);
