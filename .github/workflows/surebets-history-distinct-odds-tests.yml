@@ -1,0 +1,63 @@
+name: Surebets distinct odds history regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/surebets-history-distinct-odds-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-history-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check private repository access token
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$REPO_TOKEN"
+
+      - name: Checkout private Surebets fix branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: fix/bet-history-distinct-odds-20261009
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Authenticate Git dependencies
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: git config --global url."https://x-access-token:${REPO_TOKEN}@github.com/".insteadOf https://github.com/
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Format check for history files
+        working-directory: app
+        run: |
+          dart format --output=none --set-exit-if-changed lib/services/bet_history_service.dart lib/bet_history_screen.dart lib/calculator_screen.dart test/logical_bet_history_test.dart test/history_paywall_cadence_test.dart test/history_persistence_regression_test.dart test/history_screen_dismissal_regression_test.dart
+
+      - name: Flutter analyzer
+        working-directory: app
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run history regressions
+        working-directory: app
+        run: |
+          flutter test test/bet_history_service_test.dart test/logical_bet_history_test.dart test/history_paywall_cadence_test.dart test/history_paywall_repeat_test.dart test/history_paywall_recovery_test.dart test/history_navigation_flush_test.dart test/history_odds_precision_test.dart test/history_persistence_regression_test.dart test/history_screen_dismissal_regression_test.dart
+
+      - name: Run full Flutter test suite
+        working-directory: app
+        run: flutter test
