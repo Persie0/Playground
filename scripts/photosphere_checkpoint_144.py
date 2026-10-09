@@ -42,6 +42,10 @@ for address,value in rel.items():
 lookup={**direct}
 for g,names in got.items():lookup[g]="GOT("+",".join(names)+")"
 print("TRACK",track,"TARGETS",targets[track],"GOT",dict(got))
+if track == "flow":
+    print("FLOW_CTOR_RAW_F32A4_GOT_4120F0",hex(rel[0x4120f0]) if 0x4120f0 in rel else None,
+          "OFFSET_PLUS_0X10",hex(rel[0x4120f0]+0x10) if 0x4120f0 in rel else None)
+    print("FLOW_RAW_CTOR_SEQUENCE", "ADRP x9, #0x412000; LDR x9,[x9,#0xf0]; ADD x9,x9,#0x10; STR x9,[x10,#0x58]")
 def signed(v,bits):
     return v-(1<<bits) if v&(1<<(bits-1)) else v
 def adrp(op,pc):
