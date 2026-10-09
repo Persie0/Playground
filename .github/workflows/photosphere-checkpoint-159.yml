@@ -1,0 +1,67 @@
+name: Photo Sphere checkpoint 159 original DEX metadata math
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-checkpoint-159.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dex:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Verify pinned stock APK and extract original DEX
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk classes.dex > classes.dex
+          ls -lh classes.dex
+      - name: Build baksmali runtime via pinned Maven dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > pom.xml <<'POM'
+          <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>org.photosphere.probe</groupId>
+            <artifactId>baksmali-inspect</artifactId>
+            <version>1.0</version>
+            <dependencies><dependency><groupId>org.smali</groupId><artifactId>baksmali</artifactId><version>2.5.2</version></dependency></dependencies>
+          </project>
+          POM
+          mkdir -p out/smali
+          mvn -B -ntp -q org.codehaus.mojo:exec-maven-plugin:3.3.0:java -Dexec.mainClass=org.jf.baksmali.Main -Dexec.args="disassemble -o out/smali classes.dex"
+      - name: Assert and print original DEX metadata math
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=$(find out/smali -type f -name 'eyb.smali' | head -n 1)
+          test -n "$f"
+          echo "SMALI_FILE=$f"
+          echo "===== method boundaries and metadata key ops ====="
+          grep -n -E '(^\.method |\.end method|cropped_area_width|full_pano_width|div-int|div-float|int-to-float|const/high16.*0x43b4|Ljava/util/Map;->put|Ljava/util/HashMap;->put)' "$f" | head -n 180
+          echo "===== metadata width key, exact nearby DEX instructions ====="
+          grep -n -A 95 -B 22 -F 'cropped_area_width' "$f" | head -n 230
+          echo "===== all integer and float divisions in eyb ====="
+          grep -n -B 18 -A 18 -E 'div-int|div-float|int-to-float' "$f" | head -n 240
+          echo "===== verify class contains meta width references ====="
+          grep -qF '"cropped_area_width"' "$f"
+          grep -qF '"full_pano_width"' "$f"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-159-original-eyb-smali
+          path: out/smali/eyb.smali
+          retention-days: 7
+          if-no-files-found: warn
