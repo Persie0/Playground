@@ -1,0 +1,68 @@
+name: Photo Sphere checkpoint 146 source-model, thumbnail, and metadata provenance
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-checkpoint-146.yml"
+      - "scripts/PhotoSphereSweep.java"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ghidra:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [thumbnail-upstream-146, source-camera-146, metadata-provenance-146]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: SHA-verify pinned Camera 8.8.225 original
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install pinned Ghidra 12.1.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip" -o ghidra.zip
+          unzip -q ghidra.zip
+          echo "GHIDRA_HOME=$PWD/ghidra_12.1.4_PUBLIC" >> "$GITHUB_ENV"
+      - name: Trace selected native call graph and class internals
+        shell: bash
+        env:
+          TRACK: ${{ matrix.track }}
+        run: |
+          set -euo pipefail
+          mkdir -p "out/$TRACK" /tmp/photosphere-146
+          "$GHIDRA_HOME/support/analyzeHeadless" /tmp/photosphere-146 "deep-$TRACK" -import "$PWD/liblightcycle.so" -analysisTimeoutPerFile 1200 -scriptPath "$PWD/scripts" -postScript PhotoSphereSweep.java "$PWD/out" "$TRACK" -deleteProject > "out/$TRACK/ghidra.log" 2>&1
+          test -s "out/$TRACK/index.tsv"
+          echo "=== TRACK $TRACK ==="
+          cat "out/$TRACK/index.tsv"
+          case "$TRACK" in
+            thumbnail-upstream-146) funcs="001edb8c 001ed84c 0020f0fc 0020f310 0021a204 00419308" ;;
+            source-camera-146) funcs="0021b964 004440ec 00443e74 00431344 00431118 0021a34c" ;;
+            metadata-provenance-146) funcs="00419b74 00419d40 0041aa40 004195c8 0021a204 0021a34c" ;;
+          esac
+          for id in $funcs; do
+            file="out/$TRACK/${id}_investigate.c"
+            if [[ -s "$file" ]]; then echo "=== C $id ==="; sed -n '1,550p' "$file"; fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-146-${{ matrix.track }}
+          path: out/
+          retention-days: 4
+          if-no-files-found: warn
