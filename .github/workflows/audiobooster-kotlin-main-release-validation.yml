@@ -1,0 +1,59 @@
+name: Audiobooster Kotlin main release validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/audiobooster-kotlin-main-release-validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout fixed Audiobooster source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: 017ed89eff083c36965be172f10a43aae8b33936
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install compile SDK
+        run: sdkmanager 'platforms;android-36'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test, release lint and release bundle
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:lintRelease :app:bundleRelease --stacktrace
+
+      - name: Show lint diagnostics on failure
+        if: failure()
+        working-directory: app
+        shell: bash
+        run: |
+          if [ -f app/build/reports/lint-results-release.txt ]; then
+            cat app/build/reports/lint-results-release.txt
+          fi
