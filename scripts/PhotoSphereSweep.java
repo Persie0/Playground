@@ -40,6 +40,22 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0042278cL,0x0042a4fcL,0x0042a6a4L,0x0049c2bcL,
             0x0043901cL,0x00438fecL
         });
+        // Checkpoint 146: independent app/native ownership and provenance paths.
+        FOCUS.put("thumbnail-upstream-146", new long[]{
+            0x001edb8cL,0x001ed84cL,0x001eda20L,0x001edca8L,
+            0x0020f0fcL,0x0020f310L,0x0021a204L,0x0021ccf4L,
+            0x00419308L,0x0021874cL
+        });
+        FOCUS.put("source-camera-146", new long[]{
+            0x0021b964L,0x004440ecL,0x00443e74L,
+            0x00431344L,0x00431118L,0x00431b54L,0x00431c38L,
+            0x0021a34cL,0x0021a204L,0x0041a6bcL
+        });
+        FOCUS.put("metadata-provenance-146", new long[]{
+            0x00419b74L,0x00419d40L,0x0041aa40L,
+            0x004195c8L,0x0021a204L,0x0021a34cL,
+            0x0021b964L,0x001ee5d4L,0x0021a0e8L
+        });
         FOCUS.put("flow-config", new long[]{
             0x001f214cL,0x001f327cL,0x001f32b0L,0x001f32bcL,
             0x001f333cL,0x001f40f0L,0x001ffc30L,0x001fff14L,
