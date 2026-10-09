@@ -61,6 +61,28 @@ jobs:
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-36" "build-tools;36.0.0"
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37" || \
             "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37.0" || true
+      - name: Use Android 36 only if Android 37 SDK is unavailable
+        shell: bash
+        working-directory: target/${{ matrix.dir }}
+        run: |
+          set -euo pipefail
+          if [ ! -d "${ANDROID_HOME}/platforms/android-37" ] && [ ! -d "${ANDROID_HOME}/platforms/android-37.0" ]; then
+            echo "::warning::SDK 37 not present on runner; compiling with SDK 36 only for validation (no source repo changes)"
+            python3 - <<'PY'
+          from pathlib import Path
+          p = Path("app/build.gradle.kts")
+          data = p.read_text()
+          data = data.replace("compileSdk = 37", "compileSdk = 36")
+          data = data.replace("""    compileSdk {
+                  version = release(37) {
+                      minorApiLevel = 0
+                  }
+              }""", "    compileSdk = 36")
+          data = data.replace("targetSdk = 37", "targetSdk = 36")
+          p.write_text(data)
+          print("CI-only build SDK fallback applied to", p)
+          PY
+          fi
       - name: Build Android Kotlin debug APK
         shell: bash
         working-directory: target/${{ matrix.dir }}
