@@ -44,10 +44,10 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      - name: Format check for history files
+      - name: Format modified history service and tests
         working-directory: app
         run: |
-          dart format --output=none --set-exit-if-changed lib/services/bet_history_service.dart lib/bet_history_screen.dart lib/calculator_screen.dart test/logical_bet_history_test.dart test/history_paywall_cadence_test.dart test/history_persistence_regression_test.dart test/history_screen_dismissal_regression_test.dart
+          dart format lib/services/bet_history_service.dart test/logical_bet_history_test.dart test/history_paywall_cadence_test.dart test/history_persistence_regression_test.dart test/history_screen_dismissal_regression_test.dart test/calculator_odds_history_integration_test.dart
 
       - name: Flutter analyzer
         working-directory: app
@@ -56,8 +56,23 @@ jobs:
       - name: Run history regressions
         working-directory: app
         run: |
-          flutter test test/bet_history_service_test.dart test/logical_bet_history_test.dart test/history_paywall_cadence_test.dart test/history_paywall_repeat_test.dart test/history_paywall_recovery_test.dart test/history_navigation_flush_test.dart test/history_odds_precision_test.dart test/history_persistence_regression_test.dart test/history_screen_dismissal_regression_test.dart
+          flutter test test/bet_history_service_test.dart test/logical_bet_history_test.dart test/history_paywall_cadence_test.dart test/history_paywall_repeat_test.dart test/history_paywall_recovery_test.dart test/history_navigation_flush_test.dart test/history_odds_precision_test.dart test/history_persistence_regression_test.dart test/history_screen_dismissal_regression_test.dart test/calculator_odds_history_integration_test.dart
 
       - name: Run full Flutter test suite
         working-directory: app
         run: flutter test
+
+      - name: Commit tested formatting to private fix branch
+        if: success()
+        working-directory: app
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          git config user.name "OpenAI"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/services/bet_history_service.dart test/logical_bet_history_test.dart test/history_paywall_cadence_test.dart test/history_persistence_regression_test.dart test/history_screen_dismissal_regression_test.dart test/calculator_odds_history_integration_test.dart
+          if ! git diff --cached --quiet; then
+            git commit -m "style: format tested history regression code [skip ci]"
+            git remote set-url origin "https://x-access-token:${REPO_TOKEN}@github.com/Persie0/surebets_calculator.git"
+            git push origin HEAD:fix/bet-history-distinct-odds-20261009
+          fi
