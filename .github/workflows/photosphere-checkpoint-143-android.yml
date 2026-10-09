@@ -1,0 +1,43 @@
+name: Photo Sphere checkpoint 143 calibrated Gamma Android targets
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-checkpoint-143-android.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android-cross-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-linux-android, x86_64-linux-android]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereRust
+          ref: 2c25f51c157c2dbf05eec5e407214da5deea02b4
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: PhotosphereRust
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Check NDK toolchain availability
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "ANDROID_NDK_HOME=${ANDROID_NDK_HOME:-<unset>}"
+          ls -d /usr/local/lib/android/sdk/ndk/* 2>/dev/null || true
+      - name: Cross-check full streaming JPEG and native Gamma shared-ray pairing on Android
+        working-directory: PhotosphereRust
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          # cargo check verifies Android-specific cfg/FFI and codegen without
+          # linking a host executable or requiring hardware emulation.
+          cargo check --target "$TARGET" --lib --features android-jni
+          cargo check --target "$TARGET" --lib --no-default-features --features android-jni
