@@ -657,6 +657,18 @@ public class PhotoSphereSweep extends GhidraScript {
             0x0021a0e8L,0x0021a204L,0x0021a2b0L,
             0x0021a394L,0x001f0858L,0x0041a6bcL
         });
+        FOCUS.put("seam-final-mask-138", new long[]{
+            0x0043608cL,0x00437370L,0x00437668L,
+            0x00433310L,0x00433b78L,0x00421d00L,
+            0x00421fb0L,0x00421fb10L,0x004121bcL,
+            0x0049ce64L,0x0042a6a4L,0x00423310L
+        });
+        FOCUS.put("calibration-correction-138", new long[]{
+            0x00431344L,0x00431118L,0x00431b54L,0x00431c38L,
+            0x00431690L,0x004317bcL,0x0041a6bcL,
+            0x002188b8L,0x002189d8L,0x004440ecL,
+            0x00443e74L,0x00445798L,0x0044587cL
+        });
         FOCUS.put("thumbnail-fixedpoint-130", new long[]{
             0x0049e5c8L,0x0049e718L,0x0049e91cL,
             0x0049e9dcL,0x0049eae4L,0x0049eb94L,
