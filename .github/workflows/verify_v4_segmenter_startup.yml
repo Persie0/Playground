@@ -1,0 +1,84 @@
+name: Verify v4 segmenter startup
+
+on:
+  push:
+    paths:
+      - '.github/workflows/verify_v4_segmenter_startup.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout resistor_model fix branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor_model
+          ref: fix/v4-segmentation-silent-startup
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -q --upgrade pip
+          python -m pip install -q -e '.[dev,segmentation,export]'
+
+      - name: Run full unit test suite
+        run: pytest -q
+
+      - name: Check Colab and trainer source
+        run: |
+          python -m py_compile colab/train_resistor_segmentation_colab.py src/resistor_model/train_segmentation.py src/resistor_model/segmentation.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          nb=json.loads(Path("colab/train_resistor_segmentation_colab.ipynb").read_text())
+          assert nb["nbformat"]==4
+          print("notebook valid")
+          PY
+
+      - name: Train one real LR-ASPP epoch on tiny v4 SAM PNG masks
+        timeout-minutes: 5
+        run: |
+          python - <<'PY'
+          import json
+          import numpy as np
+          from pathlib import Path
+          from PIL import Image
+          root=Path('/tmp/v4_training_smoke')
+          for split in ('train','valid','test'):
+              base=root/split
+              (base/'images').mkdir(parents=True,exist_ok=True)
+              (base/'masks_semantic').mkdir(exist_ok=True)
+              for index in range(2):
+                  mask=np.zeros((64,64),dtype=np.uint8)
+                  mask[14:45,20:42]=255
+                  image=np.full((64,64,3),160,dtype=np.uint8)
+                  image[14:45,20:42]=[80,100,45]
+                  Image.fromarray(image).save(base/'images'/f'{index}.png')
+                  Image.fromarray(mask).save(base/'masks_semantic'/f'{index}.png')
+              (base/'_annotations.coco.json').write_text('{}')
+          PY
+          python -u -m resistor_model.train_segmentation \
+            --dataset-root /tmp/v4_training_smoke \
+            --output-dir /tmp/v4_segmenter_smoke_result \
+            --epochs 1 \
+            --batch-size 2 \
+            --image-size 64 \
+            --num-workers 0 \
+            --progress-every 1 \
+            --checkpoint-every 1 \
+            --category resistor --cpu
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('/tmp/v4_segmenter_smoke_result')
+          assert (root/'best.pt').is_file()
+          assert (root/'last.pt').is_file()
+          summary=json.loads((root/'summary.json').read_text())
+          assert 'validation' in summary and 'test' in summary
+          print('one-epoch trainer smoke passed')
+          PY
