@@ -10,7 +10,7 @@ with open("liblightcycle.so","rb") as f:
  seg=[(int(p["p_vaddr"]),int(p["p_vaddr"]+p["p_filesz"]),int(p["p_offset"]),int(p["p_flags"])) for p in e.iter_segments() if p["p_type"]=="PT_LOAD"]
  if track=="symbol-jni":
   for sec in e.iter_sections():
-   if not hasattr(sec,"iter_symbols"):continue
+   if sec.header["sh_type"] not in ("SHT_SYMTAB","SHT_DYNSYM"):continue
    for sym in sec.iter_symbols():
     n=sym.name
     if any(x in n for x in ["ResetForPhotoSphereCapture","ResetForHorizontalCapture","InitPhoto","LightCycleNative","photoSphere"]):
