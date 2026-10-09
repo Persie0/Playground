@@ -39,9 +39,15 @@ jobs:
       - name: Analyze Dart
         working-directory: imagepdfscaler
         run: flutter analyze --no-pub
+      - name: Validate all corner-resize interactions
+        working-directory: imagepdfscaler
+        run: flutter test test/paper_canvas_interaction_test.dart --reporter expanded
       - name: Run all Flutter tests and generate PDFs
         working-directory: imagepdfscaler
         run: flutter test
+      - name: Build Android debug APK
+        working-directory: imagepdfscaler
+        run: flutter build apk --debug --no-pub
       - name: Inspect actual PDF geometry
         run: |
           python3 -m pip install --user pymupdf
