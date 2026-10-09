@@ -1,0 +1,72 @@
+name: Kotlin app translation compile verification
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/kotlin-app-translation-validation.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compile:
+    name: ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - app: Audiobooster
+            repository: Persie0/Audiobooster
+            dir: .
+          - app: Root Detector
+            repository: Persie0/root_detection_app
+            dir: .
+          - app: Fake GPS Detector
+            repository: Persie0/fake_gps_detector
+            dir: .
+          - app: Resistor Scanner
+            repository: Persie0/resistor-scanner-android
+            dir: .
+          - app: EarnMeter
+            repository: Persie0/paymeter
+            dir: .
+          - app: ExtractAudioFromVideo
+            repository: Persie0/ExtractAudioFromVideo
+            dir: kotlin-android
+          - app: SkipSilencePlayer
+            repository: Persie0/SkipSilencePlayer
+            dir: kotlin-android
+    steps:
+      - name: Check out app (with protected private repository token)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.app == 'Audiobooster' && 'main' || matrix.app == 'Root Detector' && 'master' || matrix.app == 'Fake GPS Detector' && 'master' || matrix.app == 'Resistor Scanner' && 'main' || matrix.app == 'EarnMeter' && 'master' || 'main' }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: target
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Install SDK platforms
+        shell: bash
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-36" "platforms;android-37" "build-tools;36.0.0"
+      - name: Build Android Kotlin debug APK
+        shell: bash
+        working-directory: target/${{ matrix.dir }}
+        run: |
+          set -euo pipefail
+          if test -f ./gradlew; then
+            chmod +x ./gradlew
+            ./gradlew --no-daemon :app:assembleDebug --stacktrace --console=plain
+          else
+            gradle --no-daemon :app:assembleDebug --stacktrace --console=plain
+          fi
