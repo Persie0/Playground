@@ -45,6 +45,18 @@ jobs:
       - name: Run all Flutter tests and generate PDFs
         working-directory: imagepdfscaler
         run: flutter test
+      - name: Accept Android NDK licenses and install required version
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          # The Android hosted runner can have NDK 29 missing and its
+          # preview license unaccepted. Accept it before Gradle configures.
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses > /dev/null
+          set -o pipefail
+          "$SDKMANAGER" --install "ndk;29.0.13599879"
       - name: Build Android debug APK
         working-directory: imagepdfscaler
         run: flutter build apk --debug --no-pub
