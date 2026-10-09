@@ -56,6 +56,14 @@ public class PhotoSphereSweep extends GhidraScript {
             0x004195c8L,0x0021a204L,0x0021a34cL,
             0x0021b964L,0x001ee5d4L,0x0021a0e8L
         });
+        FOCUS.put("camera-correction-writer-148", new long[]{
+            0x00431620L,0x00431644L,0x0043166cL,0x00431690L,
+            0x00431344L,0x00431b54L,0x00431c38L,0x0041a6bcL
+        });
+        FOCUS.put("session-meta-dispatch-148", new long[]{
+            0x0021a0e8L,0x0021a17cL,0x0021b584L,0x0021b75cL,
+            0x00419b74L,0x00419d40L,0x0041aa40L,0x004195c8L
+        });
         FOCUS.put("flow-config", new long[]{
             0x001f214cL,0x001f327cL,0x001f32b0L,0x001f32bcL,
             0x001f333cL,0x001f40f0L,0x001ffc30L,0x001fff14L,
