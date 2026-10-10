@@ -1,0 +1,61 @@
+name: Resistor Scanner settings sheet validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/resistor-scanner-settings-sheet-validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout updated Resistor Scanner
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: 25752772560d34356811d32f709ace38d218aa3d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install compile SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
+
+      - name: Unit tests, release lint, compile
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:lintRelease :app:assembleDebug --stacktrace
+
+      - name: Print lint errors on failure
+        if: failure()
+        working-directory: app
+        shell: bash
+        run: |
+          if [ -f app/build/reports/lint-results-release.txt ]; then
+            grep -n -E 'Error:|Warning:' app/build/reports/lint-results-release.txt | head -80 || true
+          fi
