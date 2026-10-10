@@ -1,0 +1,80 @@
+name: Resistor Scanner persistent zoom validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/resistor-scanner-persistent-zoom.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout fixed private app through public Playground runner
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: 8fcd974ec53fd680fed40a50729db73880356dac
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Check zoom retention integration
+        working-directory: app
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          screen = Path("app/src/main/java/at/austriao/resistorscanner/ui/ScannerScreen.kt").read_text()
+          camera = Path("app/src/main/java/at/austriao/resistorscanner/camera/CameraController.kt").read_text()
+          strings = Path("app/src/main/res/values/strings.xml").read_text()
+          policy = Path("app/src/main/java/at/austriao/resistorscanner/ui/ScannerDisplayPolicy.kt").read_text()
+          assert 'getBoolean("keep_zoom_between_scans", false)' in screen
+          assert 'onKeepZoomBetweenScansChange = ::updateKeepZoomBetweenScans' in screen
+          assert 'onCheckedChange = onKeepZoomBetweenScansChange' in screen
+          assert 'putFloat("remembered_camera_zoom", ratio)' in screen
+          assert 'putFloat("remembered_frozen_zoom", stillZoom)' in screen
+          assert 'initialZoomRatio = if (keepZoomBetweenScans) rememberedCameraZoom else 1f' in screen
+          assert 'keepZoomBetweenScans, rememberedFrozenZoom, 1f, 4f' in screen
+          assert "stillPan = Offset.Zero" in screen
+          assert 'attachZoomObserver(bound, lifecycleOwner, initialZoomRatio)' in camera
+          assert 'restorationPending = false' in camera
+          assert 'ui_keep_zoom_between_scans_description' in strings
+          assert 'mode == ScannerMode.FROZEN' in policy
+          PY
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android platform
+        run: sdkmanager 'platforms;android-36'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Kotlin unit tests, lint, debug APK
+        working-directory: app
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:lintRelease :app:assembleDebug --stacktrace
+
+      - name: Show lint details on failure
+        if: failure()
+        working-directory: app
+        run: |
+          if [ -f app/build/reports/lint-results-release.txt ]; then
+            cat app/build/reports/lint-results-release.txt
+          fi
