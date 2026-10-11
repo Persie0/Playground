@@ -31,3 +31,30 @@ jobs:
       - name: Run Android unit tests and build
         working-directory: source/android
         run: gradle --no-daemon testDebugUnitTest assembleDebug --stacktrace
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout private source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/SubtitleGenerator
+          ref: feat/native-offline-subtitles
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - name: Install XcodeGen and whisper.cpp XCFramework
+        working-directory: source/ios
+        run: |
+          brew install xcodegen
+          ./scripts/prepare-whisper.sh
+          xcodegen generate
+      - name: Build for simulator
+        working-directory: source/ios
+        run: |
+          xcodebuild -project SubtitleGenerator.xcodeproj -scheme SubtitleGenerator -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+      - name: Run Swift unit tests
+        working-directory: source/ios
+        run: |
+          xcodebuild -project SubtitleGenerator.xcodeproj -scheme SubtitleGenerator -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' CODE_SIGNING_ALLOWED=NO test
