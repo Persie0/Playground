@@ -1,0 +1,93 @@
+name: Audio Loudness Normalizer PR review
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/audio-loudness-normalizer-review.yml
+      - audio-loudness-normalizer-review-target.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GH_PAT: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - name: Check out private Audio Loudness Normalizer
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/AudioLoudnessNormalizer
+          ref: feat/flutter-audio-video-normalizer
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - name: Authorize Git Flutter dependencies (only if private)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$GH_PAT" ]; then
+            git config --global url."https://x-access-token:${GH_PAT}@github.com/".insteadOf "https://github.com/"
+          fi
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+      - name: Generate native runner projects
+        working-directory: source
+        run: bash tool/bootstrap.sh
+      - name: Analyze Dart code
+        working-directory: source
+        run: flutter analyze
+      - name: Unit tests
+        working-directory: source
+        run: flutter test --reporter expanded
+      - name: Build Android debug APK
+        working-directory: source
+        run: flutter build apk --debug
+      - name: Upload debug build
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-loudness-normalizer-debug
+          path: source/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+
+  ios-check:
+    needs: flutter-check
+    runs-on: macos-15
+    timeout-minutes: 50
+    env:
+      GH_PAT: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - name: Check out private source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/AudioLoudnessNormalizer
+          ref: feat/flutter-audio-video-normalizer
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - name: Authorize Git Flutter dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$GH_PAT" ]; then
+            git config --global url."https://x-access-token:${GH_PAT}@github.com/".insteadOf "https://github.com/"
+          fi
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+      - name: Generate native runner projects
+        working-directory: source
+        run: bash tool/bootstrap.sh
+      - name: Build iOS without signing
+        working-directory: source
+        run: flutter build ios --no-codesign
