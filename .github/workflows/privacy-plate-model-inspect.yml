@@ -1,0 +1,32 @@
+name: Inspect permissive plate TFLite model
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/privacy-plate-model-inspect.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Download and inspect upstream TFLite model
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o /tmp/plate.tflite 'https://huggingface.co/autolane/yolox-s-alpr/resolve/main/yolox_plates_s_int8.tflite'
+          echo 'Checksum:'
+          sha256sum /tmp/plate.tflite
+          python3 -m pip install -q --break-system-packages flatbuffers tflite
+          python3 - <<'PY'
+          import tflite
+          blob=open('/tmp/plate.tflite','rb').read()
+          model=tflite.Model.GetRootAsModel(blob,0)
+          graph=model.Subgraphs(0)
+          for side,indices in [('INPUT',graph.InputsAsNumpy()),('OUTPUT',graph.OutputsAsNumpy())]:
+              for i in indices:
+                  tensor=graph.Tensors(int(i))
+                  print(side,tensor.Name().decode(),list(tensor.ShapeAsNumpy()),'type',tensor.Type(),
+                        'quant',tensor.Quantization().ScaleAsNumpy().tolist() if tensor.Quantization() else None,
+                        'zero',tensor.Quantization().ZeroPointAsNumpy().tolist() if tensor.Quantization() else None)
+          PY
