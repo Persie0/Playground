@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 jobs:
-  macos-swiftpm-build:
+  ios-swiftpm-build:
     runs-on: macos-15
     timeout-minutes: 90
     steps:
@@ -41,10 +41,10 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Enable macOS and Swift Package Manager
+      - name: Enable iOS and Swift Package Manager
         run: |
-          flutter config --enable-macos-desktop --enable-swift-package-manager
-          flutter precache --macos
+          flutter config --enable-ios --enable-swift-package-manager
+          flutter precache --ios
           flutter --version
           xcodebuild -version
 
@@ -52,6 +52,6 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      - name: Build macOS app using SPM
+      - name: Build unsigned iOS app using SwiftPM
         working-directory: app
-        run: flutter build macos --debug --no-pub
+        run: flutter build ios --debug --no-codesign --no-pub
