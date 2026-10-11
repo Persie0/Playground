@@ -1,0 +1,37 @@
+name: Subtitle Generator iOS Intel simulator validation
+on:
+  push:
+    branches: [ci/subtitle-generator-validation]
+    paths:
+      - subtitle-generator-test-target.txt
+      - .github/workflows/subtitle-generator-ios-intel.yml
+permissions:
+  contents: read
+jobs:
+  ios-intel:
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read pinned revision
+        id: revision
+        run: echo "sha=$(cat subtitle-generator-test-target.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/SubtitleGenerator
+          ref: ${{ steps.revision.outputs.sha }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - name: Prepare framework and XcodeGen
+        working-directory: source/ios
+        run: |
+          brew install xcodegen
+          ./scripts/prepare-whisper.sh
+          xcodegen generate
+      - name: Build and run iOS tests on Intel simulator
+        working-directory: source/ios
+        run: |
+          xcodebuild -project SubtitleGenerator.xcodeproj -scheme SubtitleGenerator \
+            -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' \
+            CODE_SIGNING_ALLOWED=NO test
