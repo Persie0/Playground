@@ -1,0 +1,40 @@
+name: netwworkDoc build + tests
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/netwworkdoc-build-test.yml']
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private netwworkDoc
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/netwworkDoc
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: netwworkdoc
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: SDK basics
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Assemble debug + release
+        working-directory: netwworkdoc
+        run: ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease --console=plain
+      - name: Unit tests
+        working-directory: netwworkdoc
+        run: ./gradlew --no-daemon :app:testDebugUnitTest --console=plain
+      - name: Lint
+        working-directory: netwworkdoc
+        run: ./gradlew --no-daemon :app:lintDebug --console=plain
