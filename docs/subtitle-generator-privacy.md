@@ -10,4 +10,4 @@ The app does not collect or sell personal information. Users can remove subtitle
 
 For support or privacy requests, use the developer contact information listed in the app's official Google Play or Apple App Store listing after publication.
 
-Updated: October 2026. This source document should be published at a publicly accessible URL before submitting to app stores.
+Updated: October 2026.
