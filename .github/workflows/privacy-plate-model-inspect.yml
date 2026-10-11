@@ -30,3 +30,25 @@ jobs:
                         'quant',tensor.Quantization().ScaleAsNumpy().tolist() if tensor.Quantization() else None,
                         'zero',tensor.Quantization().ZeroPointAsNumpy().tolist() if tensor.Quantization() else None)
           PY
+      - name: Probe quantized YOLOX runtime on a blank image
+        run: |
+          python3 -m pip install -q --break-system-packages ai-edge-litert numpy
+          python3 - <<'PY'
+          import numpy as np
+          from ai_edge_litert.interpreter import Interpreter
+          runtime=Interpreter(model_path='/tmp/plate.tflite',num_threads=2)
+          runtime.allocate_tensors()
+          a=runtime.get_input_details()[0]
+          b=runtime.get_output_details()[0]
+          print("RUNTIME INPUT", a["shape"],a["dtype"],a["quantization"])
+          print("RUNTIME OUTPUT", b["shape"],b["dtype"],b["quantization"])
+          data=np.zeros(tuple(a["shape"]),dtype=a["dtype"])
+          runtime.set_tensor(a['index'],data)
+          runtime.invoke()
+          out=runtime.get_tensor(b['index']).astype(np.float32)
+          out=(out-b["quantization"][1])*b["quantization"][0]
+          print("PREDICTION RANGE",np.percentile(out,[0,5,25,50,75,95,100]))
+          print("FIRST BOXES",out[0,:12,:].tolist())
+          print("LAST BOXES",out[0,-4:,:].tolist())
+          print("MAX SCORES",np.max(out[...,4]*out[...,5]),"HIGH SCORES",int(((out[...,4]*out[...,5])>.2).sum()))
+          PY
