@@ -1,0 +1,57 @@
+name: Noise Remover PR 206 Apple SPM validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-pr206-apple.yml'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Noise Remover branch or revision
+        required: false
+        default: feature/upgrade-deps-sentry-v10
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  macos-swiftpm-build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Validate private repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout PR #206 from private repository
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: ${{ inputs.ref || 'feature/upgrade-deps-sentry-v10' }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable macOS and Swift Package Manager
+        run: |
+          flutter config --enable-macos-desktop --enable-swift-package-manager
+          flutter precache --macos
+          flutter --version
+          xcodebuild -version
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Build macOS app using SPM
+        working-directory: app
+        run: flutter build macos --debug --no-pub
