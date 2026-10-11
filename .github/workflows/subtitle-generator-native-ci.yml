@@ -1,4 +1,4 @@
-name: Subtitle Generator Android validation
+name: Subtitle Generator native validation
 on:
   push:
     branches: [ci/subtitle-generator-validation]
@@ -13,11 +13,15 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+      - name: Read pinned private revision
+        id: revision
+        shell: bash
+        run: echo "sha=$(tr -d '\\r\\n' < subtitle-generator-test-target.txt)" >> "$GITHUB_OUTPUT"
       - name: Checkout private source
         uses: actions/checkout@v4
         with:
           repository: Persie0/SubtitleGenerator
-          ref: feat/release-readiness
+          ref: ${{ steps.revision.outputs.sha }}
           path: source
           persist-credentials: false
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -36,11 +40,15 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Read pinned private revision
+        id: revision
+        shell: bash
+        run: echo "sha=$(tr -d '\\r\\n' < subtitle-generator-test-target.txt)" >> "$GITHUB_OUTPUT"
       - name: Checkout private source
         uses: actions/checkout@v4
         with:
           repository: Persie0/SubtitleGenerator
-          ref: feat/release-readiness
+          ref: ${{ steps.revision.outputs.sha }}
           path: source
           persist-credentials: false
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -58,3 +66,27 @@ jobs:
         working-directory: source/ios
         run: |
           xcodebuild -project SubtitleGenerator.xcodeproj -scheme SubtitleGenerator -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' CODE_SIGNING_ALLOWED=NO test
+  windows-wrapper:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read pinned private revision
+        id: revision
+        shell: bash
+        run: echo "sha=$(tr -d '\\r\\n' < subtitle-generator-test-target.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/SubtitleGenerator
+          ref: ${{ steps.revision.outputs.sha }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify Windows Gradle wrapper
+        working-directory: source/android
+        shell: pwsh
+        run: .\\gradlew.bat --version
