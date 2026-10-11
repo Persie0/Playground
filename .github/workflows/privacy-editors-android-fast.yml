@@ -1,0 +1,56 @@
+name: Privacy editors Android quick validation (public runner)
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/privacy-editors-android-fast.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: [DashcamBlur, VideoFaceBlur]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/${{ matrix.repo }}
+          ref: feat/offline-video-privacy-editor
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: editor
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Bootstrap hosts
+        working-directory: editor
+        run: python3 tool/bootstrap.py
+      - name: Resolve dependencies
+        working-directory: editor
+        run: flutter pub get
+      - name: Format checked Dart files
+        working-directory: editor
+        run: dart format lib test
+      - name: Analyze source
+        working-directory: editor
+        run: flutter analyze --no-pub
+      - name: Unit tests
+        working-directory: editor
+        run: flutter test --no-pub
+      - name: Exercise FFmpeg privacy masks
+        working-directory: editor
+        run: python3 tool/test_ffmpeg.py
+      - name: Android debug APK
+        working-directory: editor
+        run: flutter build apk --debug --no-pub
