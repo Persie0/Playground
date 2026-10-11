@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/AudioLoudnessNormalizer
-          ref: feat/flutter-audio-video-normalizer
+          ref: feat/complete-normalizer-features
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: source
@@ -48,20 +48,6 @@ jobs:
       - name: Unit tests
         working-directory: source
         run: flutter test --reporter expanded
-      - name: Persist generated Android and iOS runners to the PR branch
-        working-directory: source
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$GH_PAT"
-          git config user.name "Playground CI"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- android ios
-          if ! git diff --cached --quiet; then
-            git commit -m "Add generated Flutter Android and iOS runner projects"
-            git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/Persie0/AudioLoudnessNormalizer.git"
-            git push origin HEAD:feat/flutter-audio-video-normalizer
-          fi
       - name: Build Android debug APK
         working-directory: source
         run: flutter build apk --debug
@@ -73,9 +59,8 @@ jobs:
           if-no-files-found: error
 
   ios-check:
-    needs: flutter-check
     runs-on: macos-15
-    timeout-minutes: 50
+    timeout-minutes: 80
     env:
       GH_PAT: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
     steps:
@@ -83,7 +68,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/AudioLoudnessNormalizer
-          ref: feat/flutter-audio-video-normalizer
+          ref: feat/complete-normalizer-features
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: source
