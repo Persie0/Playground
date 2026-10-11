@@ -1,0 +1,66 @@
+name: ImagePdfScaler export-gate PR validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "ImagePdfScaler branch/tag/SHA to check"
+        required: true
+        default: feature/trial-gated-export-no-ads
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/imagepdfscaler-export-gate-validation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      APP_REF: ${{ inputs.ref || 'feature/trial-gated-export-no-ads' }}
+    steps:
+      - name: Checkout private app via public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/ImagePdfScaler
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: imagepdfscaler
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+        working-directory: imagepdfscaler
+      - name: Analyze source
+        run: flutter analyze --no-pub
+        working-directory: imagepdfscaler
+      - name: Run Flutter tests
+        run: flutter test --no-pub --reporter expanded
+        working-directory: imagepdfscaler
+      - name: Prepare Android NDK
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          set -o pipefail
+          "$SDKMANAGER" --install "ndk;29.0.13599879"
+      - name: Build Android debug APK
+        run: flutter build apk --debug --no-pub
+        working-directory: imagepdfscaler
