@@ -29,13 +29,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      # ubuntu-24.04 already contains the Android command-line tools.
-      # setup-android@v3 incorrectly requests the obsolete "tools" package.
-      - name: Verify preinstalled Android SDK
-        run: |
-          test -n "${ANDROID_HOME:-}"
-          command -v sdkmanager
-          sdkmanager --version
+      - name: Configure Android SDK without obsolete SDK tools package
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
       - name: Install Android 36
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - name: Android unit tests
