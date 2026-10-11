@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: background-video-remover-native-validation
+  cancel-in-progress: true
+
 jobs:
   android:
     runs-on: ubuntu-latest
@@ -37,6 +41,21 @@ jobs:
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Android unit tests and debug build
         run: gradle --no-daemon -p android :app:testDebugUnitTest :app:assembleDebug
+
+  swift-parse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout private implementation
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/BackgroundVideoRemover
+          ref: feat/native-mobile-background-removal
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Parse Swift syntax
+        run: |
+          swiftc -frontend -parse ios/BackgroundVideoRemover/*.swift
 
   ios:
     runs-on: macos-15
