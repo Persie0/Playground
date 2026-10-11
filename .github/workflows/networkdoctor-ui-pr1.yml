@@ -1,0 +1,28 @@
+name: NetworkDoctor UI PR1 validation
+on:
+  push:
+    branches: [validate/networkdoctor-ui-pr1]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/NetworkDoctor
+          ref: redesign/material-you-accessible-navigation
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and run JVM tests
+        run: ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest
