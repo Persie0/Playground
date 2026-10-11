@@ -1,0 +1,101 @@
+name: Privacy editors review (public runner)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/privacy-editors-review.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: privacy-editors-review
+  cancel-in-progress: true
+
+jobs:
+  android-and-flutter:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: [DashcamBlur, VideoFaceBlur]
+    steps:
+      - name: Verify private repository token
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$TOKEN"
+      - name: Checkout private editor
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/${{ matrix.repo }}
+          ref: feat/offline-video-privacy-editor
+          path: editor
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android/iOS host
+        working-directory: editor
+        run: python3 tool/bootstrap.py
+      - name: Fetch packages
+        working-directory: editor
+        run: flutter pub get
+      - name: Check Dart formatting
+        working-directory: editor
+        run: dart format --output=none --set-exit-if-changed lib test
+      - name: Dart analysis
+        working-directory: editor
+        run: flutter analyze --no-pub
+      - name: Unit tests
+        working-directory: editor
+        run: flutter test --no-pub
+      - name: Test FFmpeg command pipeline
+        working-directory: editor
+        run: python3 tool/test_ffmpeg.py
+      - name: Build Android APK
+        working-directory: editor
+        run: flutter build apk --debug --no-pub
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.repo }}-debug-apk
+          path: editor/build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 2
+
+  ios-compile:
+    runs-on: macos-15
+    timeout-minutes: 85
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: [DashcamBlur, VideoFaceBlur]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/${{ matrix.repo }}
+          ref: feat/offline-video-privacy-editor
+          path: editor
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Bootstrap hosts and dependencies
+        working-directory: editor
+        run: |
+          python3 tool/bootstrap.py
+          flutter pub get
+      - name: Compile iOS simulator without signing
+        working-directory: editor
+        run: flutter build ios --simulator --debug --no-pub
