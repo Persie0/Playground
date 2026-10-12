@@ -1,0 +1,44 @@
+name: Import Video Upscaler comparison examples
+on:
+  push:
+    paths:
+      - .github/workflows/video-upscaler-android-import-examples.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/video_upscaler
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: macsrc
+          persist-credentials: false
+      - name: Copy original demonstration images to Android PR branch
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          import json, base64, os
+          for name,fromName in [('original','original'),('upscaled','upscaled')]:
+              local=Path(f'macsrc/Sources/VideoUpscalerApp/Resources/Assets.xcassets/Example{fromName.capitalize()}.imageset/example-{fromName}.png')
+              assert local.is_file(), local
+              url=f'https://api.github.com/repos/Persie0/video_upscaler_android/contents/app/src/main/assets/examples/{name}.png'
+              payload=json.dumps(dict(message=f'feat(ui): preserve original macOS {name} demo image',
+                   content=base64.b64encode(local.read_bytes()).decode(),
+                   branch='feat/native-android-upscaler')).encode()
+              request=Request(url,data=payload,method='PUT',headers={
+                   'Authorization':'Bearer '+os.environ['PRIVATE_TOKEN'],
+                   'Accept':'application/vnd.github+json',
+                   'X-GitHub-Api-Version':'2022-11-28',
+                   'Content-Type':'application/json'})
+              with urlopen(request,timeout=90) as response:
+                   assert response.status in (200,201), response.status
+              print(f'Copied {name}.png into private Android feature branch')
+          PY
