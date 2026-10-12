@@ -230,7 +230,10 @@ jobs:
           for name in AS.db.enc BQ.db.enc BH.db.enc ID.db.enc IE.db.enc MY.db.enc africa.db.enc antarctica.db.enc asia.db.enc australia-oceania.db.enc central-america.db.enc europe.db.enc north-america.db.enc south-america.db.enc manifest.json SHA256SUMS; do
             grep -Fx "$name" /tmp/published-assets.txt >/dev/null
           done
-          test "$(grep -Ec '^[A-Z]{2}\.db\.enc
+          test "$(grep -Ec '^[A-Z]{2}\.db\.enc$' /tmp/published-assets.txt)" -eq 249
+          if grep -Eq '\.db$' /tmp/published-assets.txt; then
+            echo "::error::Plaintext database was published"; exit 1
+          fi
           python3 - <<'PY'
           import json
           manifest = json.load(open('release/manifest.json'))
