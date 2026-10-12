@@ -1,0 +1,38 @@
+name: Photo Sphere seam unit mask corrected regression 20261012
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/photosphere-seam-unit-mask-corrected-20261012.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  full-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [default, portable, android-jni]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereRust
+          ref: f45484c419f5c9111c47dd4d046cda0ba1273dbd
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: PhotosphereRust
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify native pyramid L0 hard mask and L1 3x3 binary wrap feather in all Rust configurations
+        working-directory: PhotosphereRust
+        shell: bash
+        env:
+          CONFIG: ${{ matrix.config }}
+        run: |
+          set -euo pipefail
+          case "$CONFIG" in
+            default) cargo test --all-targets ;;
+            portable) cargo test --all-targets --no-default-features ;;
+            android-jni) cargo test --all-targets --features android-jni ;;
+          esac
+          # Existing unrelated whole-repo rustfmt differences are tracked separately; this lane verifies behavior.
