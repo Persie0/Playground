@@ -1,0 +1,56 @@
+name: NetworkDoctor Android validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'NetworkDoctor branch, tag or commit'
+        required: false
+        default: main
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/networkdoctor-validation.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: networkdoctor-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout NetworkDoctor source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/NetworkDoctor
+          ref: ${{ inputs.ref || 'main' }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-36' 'build-tools;36.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug, test and lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
