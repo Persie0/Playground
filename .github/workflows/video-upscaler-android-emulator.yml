@@ -37,6 +37,11 @@ jobs:
             -t 1.2 -c:v libx264 -preset ultrafast -profile:v baseline -level 3.0 \
             -pix_fmt yuv420p -r 6 -c:a aac -b:a 64k -ac 1 -shortest \
             -movflags +faststart -y appsrc/app/src/androidTest/assets/fixture.mp4
+          ffmpeg -hide_banner -loglevel error -i appsrc/app/src/androidTest/assets/fixture.mp4 \
+            -map 0 -c copy -metadata:s:v:0 rotate=90 -y \
+            appsrc/app/src/androidTest/assets/fixture-rotated.mp4
+          ffprobe -v error -select_streams v:0 -show_entries stream_side_data=rotation \
+            -of default=noprint_wrappers=1 appsrc/app/src/androidTest/assets/fixture-rotated.mp4
           ffprobe -hide_banner -loglevel error -show_streams \
             appsrc/app/src/androidTest/assets/fixture.mp4 | head -45
       - name: Enable KVM
