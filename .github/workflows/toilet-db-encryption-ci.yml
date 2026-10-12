@@ -16,6 +16,40 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
+      - name: Checkout public publisher contract
+        uses: actions/checkout@v5
+        with:
+          path: workflows
+      - name: Checkout Android/iOS builder contract
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: feat/toilet-db-key-injection
+          path: builder
+      - name: Validate publisher and release-builder YAML
+        run: |
+          python3 -m pip install PyYAML
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml
+          monthly = yaml.safe_load(Path('workflows/.github/workflows/toiletcompass-monthly-databases.yml').read_text())
+          assert list(monthly['jobs']) == ['build']
+          steps = monthly['jobs']['build']['steps']
+          script = '\n'.join(str(step.get('run', '')) for step in steps)
+          assert 'ENABLE_ENCRYPTED_DB_PUBLISHING' in str(steps)
+          assert 'encrypted_assets.py encrypt' in script
+          assert 'encrypted_assets.py verify' in script
+          assert 'release/countries/*.db.enc' in script
+          assert 'release/continents/*.db.enc' in script
+          assert 'Plaintext database was published' in script
+          assert 'schema_version' in script
+          for name in ('play_auto.yml', 'app_store_auto.yml'):
+              builder = yaml.safe_load(Path('builder/.github/workflows', name).read_text())
+              assert builder['jobs']
+              body = str(builder['jobs'])
+              assert 'TOILET_DB_KEY_B64' in body, name
+              assert '--dart-define=TOILET_DB_KEY_B64=' in body, name
+          PY
       - name: Check out private feature branch
         uses: actions/checkout@v5
         with:
