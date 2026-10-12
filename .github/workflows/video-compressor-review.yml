@@ -43,7 +43,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
 
   ios:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - name: Check out private VideoCompressor without persisting token
@@ -54,6 +54,8 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: source
+      - name: Select Xcode 16
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project
