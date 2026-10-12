@@ -87,6 +87,11 @@ jobs:
           for shader in app/src/main/assets/shaders/*.frag; do
             glslangValidator -S frag "$shader"
           done
+      - name: Validate physical-device and Metal quality tools
+        working-directory: appsrc
+        run: |
+          bash -n scripts/verify_physical_android.sh
+          python3 -m py_compile scripts/compare_metal_android.py
       - name: Build and test Android
         working-directory: appsrc
         run: gradle :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
