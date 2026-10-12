@@ -34,7 +34,7 @@ jobs:
           gradle-version: '8.11.1'
       - name: Run Android unit tests and build
         working-directory: source/android
-        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug --stacktrace
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug assembleRelease --stacktrace
   ios:
     runs-on: macos-15
     timeout-minutes: 45
@@ -62,6 +62,10 @@ jobs:
         working-directory: source/ios
         run: |
           xcodebuild -project SubtitleGenerator.xcodeproj -scheme SubtitleGenerator -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+      - name: Validate optimized iOS Release build
+        working-directory: source/ios
+        run: |
+          xcodebuild -project SubtitleGenerator.xcodeproj -scheme SubtitleGenerator -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
       - name: Run Swift unit tests
         working-directory: source/ios
         run: |
