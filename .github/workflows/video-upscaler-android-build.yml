@@ -35,6 +35,18 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Validate OpenGL ES shaders
+        working-directory: appsrc
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq glslang-tools
+          for shader in app/src/main/assets/shaders/*.comp; do
+            glslangValidator -S comp "$shader"
+          done
+          glslangValidator -S vert app/src/main/assets/shaders/quad.vert
+          for shader in app/src/main/assets/shaders/*.frag; do
+            glslangValidator -S frag "$shader"
+          done
       - name: Build and test Android
         working-directory: appsrc
         run: gradle :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace
