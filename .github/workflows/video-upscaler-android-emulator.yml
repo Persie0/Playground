@@ -40,6 +40,11 @@ jobs:
           ffmpeg -hide_banner -loglevel error -i appsrc/app/src/androidTest/assets/fixture.mp4 \
             -map 0 -c copy -metadata:s:v:0 rotate=90 -y \
             appsrc/app/src/androidTest/assets/fixture-rotated.mp4
+          ffmpeg -hide_banner -loglevel error \
+            -i appsrc/app/src/androidTest/assets/fixture.mp4 \
+            -f lavfi -i sine=frequency=530:sample_rate=44100 \
+            -map 0:v:0 -map 0:a:0 -map 1:a:0 -c:v copy -c:a aac \
+            -b:a 64k -t 1.2 -y appsrc/app/src/androidTest/assets/fixture-dual-audio.mp4
           ffprobe -v error -select_streams v:0 -show_entries stream_side_data=rotation \
             -of default=noprint_wrappers=1 appsrc/app/src/androidTest/assets/fixture-rotated.mp4
           ffprobe -hide_banner -loglevel error -show_streams \
