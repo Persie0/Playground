@@ -1,0 +1,45 @@
+name: Import Video Upscaler launcher artwork
+on:
+  push:
+    paths:
+      - .github/workflows/video-upscaler-android-icon.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  icon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/video_upscaler
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: macsrc
+      - name: Copy original Mac app icon into Android drawable
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          import os, base64, json
+          source = Path('macsrc/Design/AppIcon.png')
+          assert source.is_file()
+          target = 'https://api.github.com/repos/Persie0/video_upscaler_android/contents/app/src/main/res/drawable-nodpi/app_icon.png'
+          payload = json.dumps(dict(
+              message='feat(branding): preserve original 1024px Video Upscaler app artwork',
+              content=base64.b64encode(source.read_bytes()).decode(),
+              branch='feat/native-android-upscaler'
+          )).encode()
+          request=Request(target,data=payload,method='PUT',headers={
+              'Authorization':'Bearer '+os.environ['PRIVATE_TOKEN'],
+              'Accept':'application/vnd.github+json',
+              'X-GitHub-Api-Version':'2022-11-28',
+              'Content-Type':'application/json'})
+          with urlopen(request,timeout=90) as response:
+              assert response.status == 201
+          print('Icon copied from original macOS project to Android')
+          PY
