@@ -22,6 +22,35 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: appsrc
+      - name: Checkout original macOS model weights for parity verification
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/video_upscaler
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: macsrc
+      - name: Verify model-weight parity and dimensions
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for detail in ('s', 'm'):
+              for profile in ('rl', 'an', '3d'):
+                  filename = f'cnn-2x-{detail}-{profile}.json'
+                  original = Path('macsrc/Sources/VideoUpscalerApp/Resources/Weights') / filename
+                  android = Path('appsrc/app/src/main/assets/models') / filename
+                  assert original.read_bytes() == android.read_bytes(), f'Weight mismatch: {filename}'
+                  model = json.loads(android.read_text())['layers']
+                  expected = ({'conv2d_tf':144, 'conv2d_1_tf':288, 'conv2d_2_tf':288,
+                              'conv2d_last_tf':288} if detail == 's' else
+                              {'conv2d_tf':144, **{f'conv2d_{i}_tf':288 for i in range(1,7)},
+                               **{name:224 for name in ['conv2d_7_tf','conv2d_7_tf1','conv2d_7_tf2']}})
+                  for layer,size in expected.items():
+                      assert len(model[layer]['weights']) == size
+                      assert len(model[layer]['bias']) == 4
+                  print(f'{filename}: exact match')
+          PY
       - name: Install Java 17
         uses: actions/setup-java@v4
         with:
