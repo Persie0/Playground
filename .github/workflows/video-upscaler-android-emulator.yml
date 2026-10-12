@@ -31,8 +31,10 @@ jobs:
           gradle-version: '8.11.1'
       - name: Generate tiny offline H.264 and AAC fixture
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -qq -y ffmpeg
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -qq -y ffmpeg
+          fi
           mkdir -p appsrc/app/src/androidTest/assets
           ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=64x64:rate=6 \
             -f lavfi -i sine=frequency=1000:sample_rate=44100 \
