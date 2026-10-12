@@ -1,5 +1,5 @@
 name: Video Upscaler Android build (private repo)
-# Parity review: rerun latest Android branch with sample gallery and multi-audio fixes
+# Parity review: validate original images, model weights, GPU shaders, Kotlin build and tests
 on:
   push:
     paths:
@@ -50,6 +50,11 @@ jobs:
                       assert len(model[layer]['weights']) == size
                       assert len(model[layer]['bias']) == 4
                   print(f'{filename}: exact match')
+          for name in ('original','upscaled'):
+              reference = Path(f'macsrc/Sources/VideoUpscalerApp/Resources/Assets.xcassets/Example{name.capitalize()}.imageset/example-{name}.png')
+              android = Path('appsrc/app/src/main/assets/examples') / f'{name}.png'
+              assert reference.read_bytes() == android.read_bytes(), f'Image mismatch: {name}'
+              print(f'{name}.png: exact match')
           PY
       - name: Install Java 17
         uses: actions/setup-java@v4
