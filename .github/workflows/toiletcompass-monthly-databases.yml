@@ -247,34 +247,3 @@ jobs:
           assert not missing, sorted(missing)
           PY
           test "$(gh api repos/Persie0/toilets/releases/latest --jq '.tag_name')" = "$DB_RELEASE_VERSION"
- /tmp/published-assets.txt)" -eq 249
-          if grep -Eq '\.db
-          python3 - <<'PY'
-          import json
-          manifest = json.load(open('release/manifest.json'))
-          published = set(open('/tmp/published-assets.txt').read().splitlines())
-          expected = {
-              item['file'] for item in manifest['countries'].values()
-          } | {
-              item['file'] for item in manifest['continents'].values()
-          } | {'manifest.json', 'SHA256SUMS'}
-          missing = expected - published
-          assert not missing, sorted(missing)
-          PY
-          test "$(gh api repos/Persie0/toilets/releases/latest --jq '.tag_name')" = "$DB_RELEASE_VERSION"
- /tmp/published-assets.txt; then
-            echo "::error::Plaintext database was published"; exit 1
-          fi
-          python3 - <<'PY'
-          import json
-          manifest = json.load(open('release/manifest.json'))
-          published = set(open('/tmp/published-assets.txt').read().splitlines())
-          expected = {
-              item['file'] for item in manifest['countries'].values()
-          } | {
-              item['file'] for item in manifest['continents'].values()
-          } | {'manifest.json', 'SHA256SUMS'}
-          missing = expected - published
-          assert not missing, sorted(missing)
-          PY
-          test "$(gh api repos/Persie0/toilets/releases/latest --jq '.tag_name')" = "$DB_RELEASE_VERSION"
