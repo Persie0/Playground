@@ -1,0 +1,44 @@
+name: ToiletCompass encryption PR validation
+
+on:
+  push:
+    branches: [feat/toilet-db-encryption-publisher]
+    paths:
+      - '.github/workflows/toilet-db-encryption-ci.yml'
+      - '.github/workflows/toiletcompass-monthly-databases.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out private feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/toiletcompass
+          ref: feat/toilet-db-encryption
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Install Python encryption runtime
+        run: python3 -m pip install cryptography==46.0.4
+      - name: Python database tests
+        working-directory: app
+        run: python3 -m unittest discover -s database/tests -v
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Flutter static analysis
+        working-directory: app
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Flutter regression suite
+        working-directory: app
+        run: flutter test
