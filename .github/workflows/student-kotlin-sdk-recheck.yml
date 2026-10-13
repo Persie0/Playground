@@ -1,4 +1,4 @@
-name: Student Flutter SDK dependency recheck
+name: Student Flutter SDK final plugin recheck
 on:
   pull_request:
     paths: [.github/workflows/student-kotlin-sdk-recheck.yml]
@@ -31,11 +31,15 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install 'platforms;android-37.0' || "$SDKMANAGER" --install 'platforms;android-37'
           "$SDKMANAGER" --install 'ndk;29.0.13599879'
-      - name: Resolve upgraded video thumbnail plugin
+      - name: Clean generated plugin registrant
+        working-directory: app
+        run: flutter clean
+      - name: Resolve dependency plugins
         working-directory: app
         run: |
           flutter pub get
           grep -A10 'video_thumbnail_gdx_plus:' pubspec.lock
+          if grep -q '  file_picker:' pubspec.lock; then echo 'Unexpected legacy file_picker plugin in lockfile' >&2; exit 1; fi
       - name: Build Android APK
         working-directory: app
         run: flutter build apk --debug --no-pub
