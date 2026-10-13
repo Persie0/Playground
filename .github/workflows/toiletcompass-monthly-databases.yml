@@ -4,6 +4,11 @@ name: ToiletCompass monthly databases
 # Source priority: Geofabrik -> published ISO PBF -> ISO-scoped Overpass fallback.
 # Automatic full publication runs once per month, on day 1 (UTC).
 on:
+  # Temporary one-commit trigger: remove after the initial encrypted build starts.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toiletcompass-monthly-databases.yml'
   schedule:
     - cron: '17 3 1 * *'
   workflow_dispatch:
@@ -33,6 +38,7 @@ env:
 
 jobs:
   build:
+    if: "github.event_name != 'push' || github.event.head_commit.message == 'ci publish initial encrypted databases'"
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
@@ -127,6 +133,8 @@ jobs:
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
             FULL=true
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_build }}" == "true" ]]; then
+            FULL=true
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.head_commit.message }}" == "ci publish initial encrypted databases" ]]; then
             FULL=true
           fi
           echo "enabled=$FULL" >> "$GITHUB_OUTPUT"
