@@ -122,12 +122,21 @@ jobs:
       - name: Decide full build
         id: full
         shell: bash
+        env:
+          ENABLE_ENCRYPTED_DB_PUBLISHING: ${{ vars.ENABLE_ENCRYPTED_DB_PUBLISHING }}
         run: |
-          FULL=false
+          REQUESTED=false
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            FULL=true
+            REQUESTED=true
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_build }}" == "true" ]]; then
+            REQUESTED=true
+          fi
+
+          FULL=false
+          if [[ "$REQUESTED" == "true" && "$ENABLE_ENCRYPTED_DB_PUBLISHING" == "true" ]]; then
             FULL=true
+          elif [[ "$REQUESTED" == "true" ]]; then
+            echo "::notice::Encrypted DB publishing is not enabled; skipping publication, preserving the existing latest release."
           fi
           echo "enabled=$FULL" >> "$GITHUB_OUTPUT"
 
@@ -136,9 +145,7 @@ jobs:
         working-directory: app
         env:
           TOILET_DB_KEY_B64: ${{ secrets.TOILET_DB_KEY_B64 }}
-          ENABLE_ENCRYPTED_DB_PUBLISHING: ${{ vars.ENABLE_ENCRYPTED_DB_PUBLISHING }}
         run: |
-          test "$ENABLE_ENCRYPTED_DB_PUBLISHING" = "true" || { echo "::error::Encrypted DB rollout is not enabled"; exit 1; }
           python3 -c "import sys; sys.path.insert(0, 'database'); from encrypted_assets import load_key; load_key()"
 
       - name: Verify release token permissions
@@ -203,7 +210,7 @@ jobs:
                   assert len(item['plaintext_sha256']) == 64
           PY
 
-      - name: Publish dated public toilets release
+      - name: Upload encrypted database release as a draft
         if: steps.full.outputs.enabled == 'true'
         working-directory: app
         env:
@@ -211,6 +218,7 @@ jobs:
         shell: bash
         run: |
           gh release create "$DB_RELEASE_VERSION" \
+            --draft \
             release/countries/*.db.enc \
             release/continents/*.db.enc \
             release/manifest.json \
@@ -219,7 +227,7 @@ jobs:
             --title "Toilet database $DB_RELEASE_VERSION" \
             --notes "Public monthly ToiletCompass OpenStreetMap database release."
 
-      - name: Verify published release is latest
+      - name: Verify uploaded draft before publishing
         if: steps.full.outputs.enabled == 'true'
         working-directory: app
         env:
@@ -244,7 +252,18 @@ jobs:
           } | {
               item['file'] for item in manifest['continents'].values()
           } | {'manifest.json', 'SHA256SUMS'}
-          missing = expected - published
-          assert not missing, sorted(missing)
+          assert len(expected) == 259, len(expected)
+          assert published == expected, {
+              'missing': sorted(expected - published),
+              'unexpected': sorted(published - expected),
+          }
           PY
+
+      - name: Publish verified encrypted release
+        if: steps.full.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          gh release edit "$DB_RELEASE_VERSION" --repo "$PUBLIC_RELEASE_REPOSITORY" --draft=false --latest
           test "$(gh api repos/Persie0/toilets/releases/latest --jq '.tag_name')" = "$DB_RELEASE_VERSION"
