@@ -1,0 +1,45 @@
+name: Student Flutter SDK dependency recheck
+on:
+  pull_request:
+    paths: [.github/workflows/student-kotlin-sdk-recheck.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/student
+          ref: chore/flutter-kotlin-2421-20261013
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Android SDK and NDK
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install 'platforms;android-37.0' || "$SDKMANAGER" --install 'platforms;android-37'
+          "$SDKMANAGER" --install 'ndk;29.0.13599879'
+      - name: Resolve upgraded video thumbnail plugin
+        working-directory: app
+        run: |
+          flutter pub get
+          grep -A10 'video_thumbnail_gdx_plus:' pubspec.lock
+      - name: Build Android APK
+        working-directory: app
+        run: flutter build apk --debug --no-pub
+      - name: Run Flutter tests if present
+        working-directory: app
+        run: |
+          if [ -d test ]; then flutter test --no-pub; else echo 'No Flutter tests defined'; fi
