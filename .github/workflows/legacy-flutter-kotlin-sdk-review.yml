@@ -44,6 +44,11 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install 'platforms;android-37.0' || "$SDKMANAGER" --install 'platforms;android-37'
           "$SDKMANAGER" --install 'ndk;29.0.13599879'
+      - name: Verify Android modernization versions
+        working-directory: app
+        run: |
+          grep -q 'gradle-9.6.0-' android/gradle/wrapper/gradle-wrapper.properties
+          grep -Eq '2.4.21' android/settings.gradle
       - name: Restore Dart packages
         working-directory: app
         run: flutter pub get
