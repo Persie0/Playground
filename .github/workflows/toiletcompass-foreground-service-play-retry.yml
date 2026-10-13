@@ -1,17 +1,14 @@
-name: ToiletCompass foreground-service fix and Play retry
+name: ToiletCompass release manifest verification
 
 # Keep all CI activity in this public Playground repository.
 on:
-  push:
-    paths:
-      - .github/workflows/toiletcompass-foreground-service-play-retry.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  verify-and-dispatch:
+  verify-manifest:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -84,35 +81,3 @@ jobs:
                   raise SystemExit("ERROR: foreground-service permissions remain in merged release manifest")
           PY
 
-      - name: Dispatch public Firebase builder release
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${GH_TOKEN:-}" || { echo "::error::Missing repository token"; exit 1; }
-          STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          gh workflow run play_auto.yml \
-            --repo Persie0/firebase_tester_builder \
-            --ref main \
-            -f app=toiletcompass \
-            -f build_apk=true \
-            -f run_tests=false \
-            -f branch=main
-
-          RUN_ID=""
-          for attempt in $(seq 1 60); do
-            RUN_ID="$(gh run list \
-              --repo Persie0/firebase_tester_builder \
-              --workflow play_auto.yml \
-              --event workflow_dispatch \
-              --limit 30 \
-              --json databaseId,createdAt,displayTitle \
-              --jq ".[] | select(.createdAt >= \"${STARTED_AT}\" and (.displayTitle | contains(\"Deploy toiletcompass\"))) | .databaseId" \
-              | head -n 1)"
-            test -z "$RUN_ID" || break
-            sleep 5
-          done
-          test -n "$RUN_ID" || { echo "::error::Dispatched release run not found"; exit 1; }
-          echo "Play release run: https://github.com/Persie0/firebase_tester_builder/actions/runs/$RUN_ID"
-          gh run watch "$RUN_ID" --repo Persie0/firebase_tester_builder --exit-status
