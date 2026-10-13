@@ -1,0 +1,60 @@
+name: Flutter Kotlin 2.4.21 SDK upgrade validation
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/flutter-kotlin-2421-review.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - repo: norwegian_app
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: ImagePdfScaler
+            ref: chore/flutter-kotlin-2421-20261013
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/${{ matrix.repo }}
+          ref: ${{ matrix.ref }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install Android platform API 37
+        shell: bash
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMANAGER" --install 'platforms;android-37.0' || "$SDKMANAGER" --install 'platforms;android-37'
+      - name: Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Kotlin SDK guard
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'org.jetbrains.kotlin.android.*2.4.21' android/settings.gradle.kts
+          grep -q 'android.builtInKotlin=false' android/gradle.properties
+          grep -q 'android.newDsl=false' android/gradle.properties
+      - name: Android debug APK build
+        working-directory: app
+        run: flutter build apk --debug --no-pub
+      - name: Flutter tests
+        working-directory: app
+        run: flutter test --no-pub
