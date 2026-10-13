@@ -1,4 +1,4 @@
-name: 3dimageapp v7 scan-check private release
+name: 3dimageapp v8 scan-check private release
 
 on:
   push:
@@ -12,8 +12,8 @@ permissions:
 
 env:
   PRIVATE_REPOSITORY: Persie0/3dimageapp
-  PRIVATE_REF: 9abf970a86280b57ecbcb33e647d02b1e7e3dabb
-  PRIVATE_RELEASE_TAG: scancheck-v7-20261013
+  PRIVATE_REF: 5724395c6a4834feee3b5992ba4ee2ecd8b95a1a
+  PRIVATE_RELEASE_TAG: scancheck-v8-20261014
 
 jobs:
   build-and-publish-to-private-repo:
@@ -70,9 +70,9 @@ jobs:
           test -s "$apk"
           "$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt" dump badging "$apk" |
             grep -F "package: name='com.persie.scene3d.scancheck'"
-          cp "$apk" "$RUNNER_TEMP/Scene3D-ScanCheck-v7.apk"
-          sha256sum "$RUNNER_TEMP/Scene3D-ScanCheck-v7.apk" >"$RUNNER_TEMP/Scene3D-ScanCheck-v7.sha256"
-          ls -lh "$RUNNER_TEMP/Scene3D-ScanCheck-v7.apk"
+          cp "$apk" "$RUNNER_TEMP/Scene3D-ScanCheck-v8.apk"
+          sha256sum "$RUNNER_TEMP/Scene3D-ScanCheck-v8.apk" >"$RUNNER_TEMP/Scene3D-ScanCheck-v8.sha256"
+          ls -lh "$RUNNER_TEMP/Scene3D-ScanCheck-v8.apk"
       - name: Publish APK to PRIVATE 3dimageapp GitHub Release
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -81,8 +81,8 @@ jobs:
           set -euo pipefail
           notes="$RUNNER_TEMP/scene3d-release-notes.md"
           cat > "$notes" <<'NOTES'
-          Android scan-check build of the v7 timestamp-synchronized ARCore depth pipeline.
-          Visible in app setup: hybrid-v7-time-synced-depth.
+          Android scan-check build of the v8 ARCore hybrid acquisition and timestamp-aligned depth pipeline.
+          Visible in app setup: hybrid-v8-capture-gates.
 
           Install as a SECOND app (com.persie.scene3d.scancheck). The original
           com.persie.scene3d app and its saved scans are left unchanged.
@@ -92,13 +92,13 @@ jobs:
           Test with Object scan (recommended), an EMPTY bin on a raised surface,
           and level-angle views from all four sides.
           NOTES
-          apk="$RUNNER_TEMP/Scene3D-ScanCheck-v7.apk"
+          apk="$RUNNER_TEMP/Scene3D-ScanCheck-v8.apk"
           if gh release view "$PRIVATE_RELEASE_TAG" --repo "$PRIVATE_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$PRIVATE_RELEASE_TAG" "$apk" --clobber --repo "$PRIVATE_REPOSITORY"
           else
             gh release create "$PRIVATE_RELEASE_TAG" "$apk" --repo "$PRIVATE_REPOSITORY" \
               --target "$PRIVATE_REF" --prerelease \
-              --title "Scene3D v7 scan-check APK (Android)" --notes-file "$notes"
+              --title "Scene3D v8 scan-check APK (Android)" --notes-file "$notes"
           fi
           gh release view "$PRIVATE_RELEASE_TAG" --repo "$PRIVATE_REPOSITORY" --json url,assets \
             --jq '{url: .url, assets: [.assets[].name]}'
