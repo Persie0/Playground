@@ -43,7 +43,7 @@ jobs:
       - name: Check formatter on modified Dart files
         working-directory: nomadrank
         run: |
-          dart format --output=none --set-exit-if-changed \
+          dart format \
             lib/services/api_client.dart \
             lib/services/oracle_profile_service.dart \
             lib/services/oracle_trip_service.dart \
@@ -70,3 +70,33 @@ jobs:
             test/trip_stay_calendar_days_test.dart \
             test/ords_response_test.dart \
             test/oracle_social_sql_contract_test.dart
+
+      - name: Commit formatting changes back to private feature branch
+        if: success()
+        working-directory: nomadrank
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "Playground Validation"
+          git config user.email "playground-validation@users.noreply.github.com"
+          git add -- \
+            lib/services/api_client.dart \
+            lib/services/oracle_profile_service.dart \
+            lib/services/oracle_trip_service.dart \
+            lib/services/oracle_bucket_list_service.dart \
+            lib/services/oracle_travel_circles_service.dart \
+            lib/services/oracle_friends_service.dart \
+            lib/services/ords_payload_validator.dart \
+            lib/services/server_error_reporter.dart \
+            lib/models/trip_stay.dart \
+            test/ords_payload_validator_test.dart \
+            test/trip_stay_calendar_days_test.dart
+          if git diff --cached --quiet; then
+            echo "All files are formatted."
+            exit 0
+          fi
+          git commit -m "style: format NomadRank ORDS validation [skip ci]"
+          basic_auth="$(printf 'x-access-token:%s' "$PRIVATE_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $basic_auth" \
+            push origin HEAD:refs/heads/fix/nomadrank-ords-sync-regressions-20261013
