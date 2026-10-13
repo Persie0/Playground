@@ -1,0 +1,105 @@
+name: 3dimageapp v7 scan-check private release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/3dimageapp-v7-scancheck-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PRIVATE_REPOSITORY: Persie0/3dimageapp
+  PRIVATE_REF: 9abf970a86280b57ecbcb33e647d02b1e7e3dabb
+  PRIVATE_RELEASE_TAG: scancheck-v7-20261013
+
+jobs:
+  build-and-publish-to-private-repo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Ensure authorized private repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Check out pinned private app revision
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.PRIVATE_REPOSITORY }}
+          ref: ${{ env.PRIVATE_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: private-app
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Locate Android SDK
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -perm -u+x 2>/dev/null | sort -V | tail -n 1)"
+          test -x "$SDKMANAGER"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+      - name: Install Android build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "cmake;3.22.1" >/dev/null
+          if ! find "$ANDROID_SDK_ROOT/ndk" -mindepth 2 -maxdepth 2 -name source.properties -type f 2>/dev/null | grep -q .; then
+            sdkmanager "ndk;28.2.13676358" >/dev/null
+          fi
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Build separately installable debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gradle -p private-app/android :app:assembleDebug --no-daemon --console plain >"$RUNNER_TEMP/scene3d-build.log" 2>&1; then
+            echo "::error::Private scan-check Android build failed"
+            grep -E 'FAILED|FAILURE:|error:|What went wrong:|Execution failed' "$RUNNER_TEMP/scene3d-build.log" | tail -n 30 || true
+            exit 1
+          fi
+          apk="private-app/android/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$apk"
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt" dump badging "$apk" |
+            grep -F "package: name='com.persie.scene3d.scancheck'"
+          cp "$apk" "$RUNNER_TEMP/Scene3D-ScanCheck-v7.apk"
+          sha256sum "$RUNNER_TEMP/Scene3D-ScanCheck-v7.apk" >"$RUNNER_TEMP/Scene3D-ScanCheck-v7.sha256"
+          ls -lh "$RUNNER_TEMP/Scene3D-ScanCheck-v7.apk"
+      - name: Publish APK to PRIVATE 3dimageapp GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/scene3d-release-notes.md"
+          cat > "$notes" <<'NOTES'
+          Android scan-check build of the v7 timestamp-synchronized ARCore depth pipeline.
+          Visible in app setup: hybrid-v7-time-synced-depth.
+
+          Install as a SECOND app (com.persie.scene3d.scancheck). The original
+          com.persie.scene3d app and its saved scans are left unchanged.
+          Since this uses a CI debug signing key, a future scan-check APK may
+          require uninstalling this test app first. Export your debug ZIPs before uninstalling.
+
+          Test with Object scan (recommended), an EMPTY bin on a raised surface,
+          and level-angle views from all four sides.
+          NOTES
+          apk="$RUNNER_TEMP/Scene3D-ScanCheck-v7.apk"
+          if gh release view "$PRIVATE_RELEASE_TAG" --repo "$PRIVATE_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$PRIVATE_RELEASE_TAG" "$apk" --clobber --repo "$PRIVATE_REPOSITORY"
+          else
+            gh release create "$PRIVATE_RELEASE_TAG" "$apk" --repo "$PRIVATE_REPOSITORY" \
+              --target "$PRIVATE_REF" --prerelease \
+              --title "Scene3D v7 scan-check APK (Android)" --notes-file "$notes"
+          fi
+          gh release view "$PRIVATE_RELEASE_TAG" --repo "$PRIVATE_REPOSITORY" --json url,assets \
+            --jq '{url: .url, assets: [.assets[].name]}'
+          echo "Private APK release: https://github.com/$PRIVATE_REPOSITORY/releases/tag/$PRIVATE_RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
