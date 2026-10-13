@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/video_upscaler_android
-          ref: main
+          ref: chore/hardcode-revenuecat-android-public-sdk-key
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: appsrc
@@ -103,6 +103,14 @@ jobs:
           test -s "$apk"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "package: name='at.persie0.VideoUpscaler'"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree "$apk" AndroidManifest.xml | grep -F "at.persie0.VideoUpscaler"
+      - name: Verify embedded Android RevenueCat public key
+        working-directory: appsrc
+        run: |
+          set -euo pipefail
+          config=$(find app/build/generated/source/buildConfig -type f -name BuildConfig.java | head -1)
+          test -n "$config"
+          grep -Fq 'goog_qAYxboiOcgmerORFBvFRaKuoBnf' "$config"
+          grep -Fq 'at.persie0.VideoUpscaler' "$config"
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
