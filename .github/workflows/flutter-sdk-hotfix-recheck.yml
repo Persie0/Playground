@@ -1,0 +1,60 @@
+name: Flutter SDK hotfix regression (public runner)
+on:
+  pull_request:
+    paths: [.github/workflows/flutter-sdk-hotfix-recheck.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - repo: stem
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: whisper_offline_transcribe
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: student
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: punisher
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: resistor_scanner
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: norwegian_app
+            ref: chore/flutter-kotlin-2421-20261013
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/${{ matrix.repo }}
+          ref: ${{ matrix.ref }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install SDK and NDK
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install 'platforms;android-37.0' || "$SDKMANAGER" --install 'platforms;android-37'
+          "$SDKMANAGER" --install 'ndk;29.0.13599879'
+      - name: Flutter pub get
+        working-directory: app
+        run: flutter pub get
+      - name: Android APK
+        working-directory: app
+        run: flutter build apk --debug --no-pub
+      - name: Tests
+        working-directory: app
+        run: |
+          if [ -d test ]; then flutter test --no-pub; else echo 'No Flutter tests defined'; fi
