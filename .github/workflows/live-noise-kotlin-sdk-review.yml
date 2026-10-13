@@ -1,0 +1,42 @@
+name: Live Noise Cancelling Kotlin SDK verification
+on:
+  pull_request:
+    paths: [.github/workflows/live-noise-kotlin-sdk-review.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/live_noise_cancelling
+          ref: chore/flutter-kotlin-2421-20261013
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install SDK and NDK
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install 'platforms;android-37.0' || "$SDKMANAGER" --install 'platforms;android-37'
+          "$SDKMANAGER" --install 'ndk;29.0.13599879'
+      - name: Flutter pub get and Android debug APK
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build apk --debug --no-pub
+      - name: Flutter tests
+        working-directory: app
+        run: |
+          if test -d test; then flutter test --no-pub; else echo 'No Flutter tests defined'; fi
