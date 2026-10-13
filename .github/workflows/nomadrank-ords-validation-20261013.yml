@@ -1,0 +1,72 @@
+name: NomadRank ORDS preflight validation
+
+on:
+  push:
+    branches:
+      - nomadrank-ords-validation-20261013
+    paths:
+      - .github/workflows/nomadrank-ords-validation-20261013.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-ords:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check private repository checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout NomadRank PR branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/skratch_clone
+          ref: fix/nomadrank-ords-sync-regressions-20261013
+          path: nomadrank
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve packages
+        working-directory: nomadrank
+        run: flutter pub get
+
+      - name: Check formatter on modified Dart files
+        working-directory: nomadrank
+        run: |
+          dart format --output=none --set-exit-if-changed \
+            lib/services/api_client.dart \
+            lib/services/oracle_profile_service.dart \
+            lib/services/oracle_trip_service.dart \
+            lib/services/oracle_bucket_list_service.dart \
+            lib/services/oracle_travel_circles_service.dart \
+            lib/services/oracle_friends_service.dart \
+            lib/services/ords_payload_validator.dart \
+            lib/services/server_error_reporter.dart \
+            lib/models/trip_stay.dart \
+            test/ords_payload_validator_test.dart \
+            test/trip_stay_calendar_days_test.dart
+
+      - name: Analyze payload validator and error reporter
+        working-directory: nomadrank
+        run: |
+          dart analyze lib/services/ords_payload_validator.dart
+          dart analyze lib/services/server_error_reporter.dart
+
+      - name: Run focused tests
+        working-directory: nomadrank
+        run: |
+          flutter test \
+            test/ords_payload_validator_test.dart \
+            test/trip_stay_calendar_days_test.dart \
+            test/ords_response_test.dart \
+            test/oracle_social_sql_contract_test.dart
