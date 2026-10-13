@@ -132,6 +132,20 @@ jobs:
         run: |
           gradle -p private-app/android :app:testDebugUnitTest --console plain > "$RUNNER_TEMP/scene3d-gradle.log" 2>&1 || true
           grep -E '(^> Task .*FAILED|FAILURE:|Execution failed|^\* What went wrong:|error:|\.java:[0-9]+:|[0-9]+ tests? completed|There were failing tests|> [A-Za-z0-9._]+ > .*FAILED|Could not |^Caused by:)' "$RUNNER_TEMP/scene3d-gradle.log" | tail -n 55 || true
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          for path in glob.glob("private-app/android/app/build/test-results/testDebugUnitTest/TEST-*.xml"):
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception:
+                  continue
+              for case in root.iter("testcase"):
+                  failure = case.find("failure")
+                  if failure is not None:
+                      print("FAIL:", case.get("classname"), case.get("name"),
+                            (failure.get("message") or "").replace("\\n", " ")[:300])
+          PY
 
   ios:
     runs-on: macos-latest
