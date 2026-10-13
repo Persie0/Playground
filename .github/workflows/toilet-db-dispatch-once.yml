@@ -1,0 +1,25 @@
+name: Dispatch initial encrypted toilet database release
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toilet-db-dispatch-once.yml'
+permissions:
+  contents: read
+jobs:
+  dispatch:
+    if: github.event.head_commit.message == 'chore(ci): request initial encrypted toilets release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request encrypted full release on production workflow
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          gh workflow run toiletcompass-monthly-databases.yml \
+            --repo Persie0/Playground \
+            --ref main \
+            -f app_ref=main \
+            -f full_build=true
+          echo "Triggered production encrypted database generation."
