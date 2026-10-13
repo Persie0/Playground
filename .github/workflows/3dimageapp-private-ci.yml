@@ -132,6 +132,8 @@ jobs:
         run: |
           gradle -p private-app/android :app:testDebugUnitTest --console plain > "$RUNNER_TEMP/scene3d-gradle.log" 2>&1 || true
           grep -E '(^> Task .*FAILED|FAILURE:|Execution failed|^\* What went wrong:|error:|\.java:[0-9]+:|[0-9]+ tests? completed|There were failing tests|> [A-Za-z0-9._]+ > .*FAILED|Could not |^Caused by:)' "$RUNNER_TEMP/scene3d-gradle.log" | tail -n 55 || true
+          sed -n '/^FAILURE: Build failed/,+14p' "$RUNNER_TEMP/scene3d-gradle.log" | head -n 17 || true
+          grep -E '(^e: |^w: |\.gradle\.kts:[0-9]+:|^> .*|^\* Where:)' "$RUNNER_TEMP/scene3d-gradle.log" | tail -n 30 || true
           python3 - <<'PY'
           import glob
           import xml.etree.ElementTree as ET
