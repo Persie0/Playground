@@ -1,0 +1,70 @@
+name: Noise Remover review and free export validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-review-export-20261014.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Require private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private Noise Remover into the public runner
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: feat/review-prompt-free-export-5min
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Configure private git dependencies
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          git config --global url."https://x-access-token:${PRIVATE_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve pub dependencies and code generation
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter gen-l10n
+
+      - name: Check Dart formatting of new services and tests
+        working-directory: app
+        run: dart format --output=none --set-exit-if-changed lib/services/export_access_policy.dart lib/services/review_prompt_service.dart test/services/free_export_and_review_policy_test.dart
+
+      - name: Run export and review regression tests
+        working-directory: app
+        run: flutter test --no-pub test/services/free_export_and_review_policy_test.dart
+
+      - name: Analyze changed Dart implementation
+        working-directory: app
+        run: flutter analyze --no-pub lib/services/export_access_policy.dart lib/services/review_prompt_service.dart lib/screens/home_screen.dart lib/screens/result_screen.dart lib/screens/bulk_processing_screen.dart lib/services/subscription_service.dart lib/main.dart test/services/free_export_and_review_policy_test.dart
+
+      - name: Compile Android debug APK
+        working-directory: app
+        run: flutter build apk --debug --no-pub
