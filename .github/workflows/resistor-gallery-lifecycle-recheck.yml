@@ -1,0 +1,32 @@
+name: Resistor Scanner Gallery lifecycle regression
+on:
+  pull_request:
+    paths: [.github/workflows/resistor-gallery-lifecycle-recheck.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor_scanner
+          ref: chore/flutter-kotlin-2421-20261013
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Restore dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Verify late gallery inference cannot notify disposed provider
+        working-directory: app
+        run: flutter test test/pages/gallery_lifecycle_test.dart --no-pub --reporter expanded
+      - name: Run all Flutter tests
+        working-directory: app
+        run: flutter test --no-pub
