@@ -1,0 +1,107 @@
+name: Kotlin SDK 2026 upgrade matrix
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/kotlin-sdk-refresh-matrix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-kotlin-android:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: root_detection_app
+            repo: Persie0/root_detection_app
+            ref: fix/play-console-outdated-fragment-20261013
+            dir: .
+          - name: fake_gps_detector
+            repo: Persie0/fake_gps_detector
+            ref: chore/kotlin-sdk-refresh-20261013
+            dir: .
+          - name: Audiobooster
+            repo: Persie0/Audiobooster
+            ref: chore/kotlin-sdk-refresh-20261013
+            dir: .
+          - name: NetworkDoctor
+            repo: Persie0/NetworkDoctor
+            ref: chore/kotlin-sdk-refresh-20261013
+            dir: .
+          - name: video_upscaler_android
+            repo: Persie0/video_upscaler_android
+            ref: chore/kotlin-sdk-refresh-20261013
+            dir: .
+          - name: VideoCompressor
+            repo: Persie0/VideoCompressor
+            ref: chore/kotlin-sdk-refresh-20261013
+            dir: android
+          - name: SubtitleGenerator
+            repo: Persie0/SubtitleGenerator
+            ref: chore/kotlin-sdk-refresh-20261013
+            dir: android
+          - name: resistor-scanner-android
+            repo: Persie0/resistor-scanner-android
+            ref: chore/kotlin-sdk-refresh-20261013
+            dir: .
+          - name: paymeter
+            repo: Persie0/paymeter
+            ref: chore/kotlin-sdk-refresh-20261013
+            dir: .
+          - name: ExtractAudioFromVideo
+            repo: Persie0/ExtractAudioFromVideo
+            ref: chore/kotlin-sdk-refresh-20261013
+            dir: kotlin-android
+          - name: SkipSilencePlayer
+            repo: Persie0/SkipSilencePlayer
+            ref: main
+            dir: kotlin-android
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    name: ${{ matrix.name }}
+    steps:
+      - name: Checkout Kotlin app
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.ref }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: kotlin-app
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Install Android API 37
+        run: |
+          set -euo pipefail
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMANAGER" --install 'platforms;android-37.0' || "$SDKMANAGER" --install 'platforms;android-37'
+      - name: Resolve release dependencies and reject old Fragment
+        working-directory: kotlin-app/${{ matrix.dir }}
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:dependencies --configuration releaseRuntimeClasspath > "$RUNNER_TEMP/release-deps.txt"
+          cat "$RUNNER_TEMP/release-deps.txt" | grep -E 'androidx.fragment:(fragment|fragment-ktx)' || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, os
+          report=Path(os.environ["RUNNER_TEMP"],"release-deps.txt").read_text()
+          for line in report.splitlines():
+              m=re.search(r"androidx\.fragment:(fragment(?:-ktx)?):([0-9][\w.+-]*)", line)
+              if not m: continue
+              rest=line[m.end():]
+              if re.match(r"\s*->\s*",rest): continue
+              if m.group(2)!="1.9.1":
+                  raise SystemExit("Outdated Fragment resolved: "+line.strip())
+          print("No outdated resolved Fragment artifacts")
+          PY
+      - name: Compile and unit test
+        working-directory: kotlin-app/${{ matrix.dir }}
+        run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest --stacktrace
