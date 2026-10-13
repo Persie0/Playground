@@ -23,6 +23,23 @@ jobs:
         run: |
           python3 -m pip install cryptography==46.0.4
           python3 -m unittest discover -s database/tests -v
+      - name: Live verified MP recovery from published release
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          import sys
+          import tempfile
+          from pathlib import Path
+          sys.path.insert(0, 'database')
+          from previous_release_fallback import PreviousReleaseFallback
+          from toilet_pipeline import validate_app_db
+          with tempfile.TemporaryDirectory() as scratch:
+              target = Path(scratch) / 'MP.db'
+              recovered = PreviousReleaseFallback().recover('MP', target)
+              details = validate_app_db(target)
+              print('Verified fallback from', recovered['version'], 'MP rows:', details['rows'])
+          PY
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
