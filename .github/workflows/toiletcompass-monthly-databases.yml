@@ -122,25 +122,16 @@ jobs:
       - name: Decide full build
         id: full
         shell: bash
-        env:
-          ENABLE_ENCRYPTED_DB_PUBLISHING: ${{ vars.ENABLE_ENCRYPTED_DB_PUBLISHING }}
         run: |
-          REQUESTED=false
-          if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            REQUESTED=true
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_build }}" == "true" ]]; then
-            REQUESTED=true
-          fi
-
           FULL=false
-          if [[ "$REQUESTED" == "true" && "$ENABLE_ENCRYPTED_DB_PUBLISHING" == "true" ]]; then
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
             FULL=true
-          elif [[ "$REQUESTED" == "true" ]]; then
-            echo "::notice::Encrypted DB publishing is not enabled; skipping publication, preserving the existing latest release."
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_build }}" == "true" ]]; then
+            FULL=true
           fi
           echo "enabled=$FULL" >> "$GITHUB_OUTPUT"
 
-      - name: Gate encrypted database publication
+      - name: Verify required encryption key
         if: steps.full.outputs.enabled == 'true'
         working-directory: app
         env:
