@@ -126,6 +126,12 @@ jobs:
           gradle-version: '9.6.0'
       - name: Run private Android harness
         run: bash private-ci/.github/playground/test-android.sh private-app
+      - name: Summarize Android failure without dumping private source
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          gradle -p private-app/android :app:testDebugUnitTest --tests 'com.persie.scene3d.KeyframeSelectorTest' --console plain > "$RUNNER_TEMP/scene3d-gradle.log" 2>&1 || true
+          grep -E '(^> Task .*FAILED|FAILURE:|Execution failed|^\* What went wrong:|error:|\.java:[0-9]+:|[0-9]+ tests? completed|There were failing tests|Could not |^Caused by:)' "$RUNNER_TEMP/scene3d-gradle.log" | tail -n 35 || true
 
   ios:
     runs-on: macos-latest
