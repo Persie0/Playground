@@ -1,0 +1,59 @@
+name: Image Enhancer interstitial and rewarded fallback review
+
+on:
+  push:
+    paths:
+      - .github/workflows/image_enhancer_rewarded_fallback_review.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout app PR branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: fix/interstitial-rewarded-fallback
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: image_enhancer
+          fetch-depth: 1
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: Format changed Dart files and show patch
+        working-directory: image_enhancer
+        run: |
+          dart format \
+            lib/adbanner.dart \
+            lib/main.dart \
+            lib/services/ad_supported_processing.dart \
+            lib/super_resolution_home_page.dart \
+            test/ad_supported_processing_test.dart
+          git diff -- lib/adbanner.dart lib/main.dart lib/services/ad_supported_processing.dart lib/super_resolution_home_page.dart test/ad_supported_processing_test.dart
+
+      - name: Targeted ad and quota regression tests
+        working-directory: image_enhancer
+        run: |
+          flutter test test/ad_supported_processing_test.dart --reporter expanded
+          flutter test test/free_enhancement_quota_test.dart --reporter expanded
+
+      - name: Full Flutter regression suite
+        working-directory: image_enhancer
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
+
+      - name: Flutter analyzer
+        working-directory: image_enhancer
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
