@@ -1,0 +1,80 @@
+name: Root Detector Fragment SDK audit (public runner)
+# One-time verification of Play Console's androidx.fragment:fragment:1.1.0 warning.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/root-detector-fragment-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout private Root Detector code on public runner
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/root_detection_app
+          ref: fix/play-console-outdated-fragment-20261013
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: root-detector
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Install Android API 37
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-37.0'
+
+      - name: Inspect release Fragment dependency and build AAB
+        shell: bash
+        working-directory: root-detector
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency androidx.fragment:fragment | tee fragment-insight.txt
+          gradle --no-daemon :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency androidx.fragment:fragment-ktx | tee fragment-ktx-insight.txt
+          gradle --no-daemon :app:dependencies --configuration releaseRuntimeClasspath > release-dependencies.txt
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          report = Path("release-dependencies.txt").read_text()
+          found = set()
+          for line in report.splitlines():
+              for artifact in ("fragment", "fragment-ktx"):
+                  # Only check selected versions, not requests rewritten by Gradle's '->'.
+                  pattern = r"androidx\.fragment:" + re.escape(artifact) + r":([\w.+-]+)"
+                  match = re.search(pattern, line)
+                  if not match or "->" in line[match.end():match.end()+12]:
+                      continue
+                  found.add((artifact, match.group(1)))
+                  if match.group(1) != "1.9.1":
+                      raise SystemExit("Unexpected selected version: " + artifact + " " + match.group(1))
+          print("Selected fragment modules:", sorted(found) if found else "none")
+          build = Path("app/build.gradle.kts").read_text()
+          assert "versionCode = 37" in build, "Play update versionCode must exceed 36"
+          PY
+          gradle --no-daemon :app:testDebugUnitTest :app:bundleRelease --stacktrace
+
+      - name: Upload dependency evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: root-fragment-release-dependencies
+          path: |
+            root-detector/fragment-insight.txt
+            root-detector/fragment-ktx-insight.txt
+            root-detector/release-dependencies.txt
+          if-no-files-found: ignore
+          retention-days: 7
