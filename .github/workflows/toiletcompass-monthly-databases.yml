@@ -50,6 +50,9 @@ jobs:
           persist-credentials: false
           path: app
 
+      - name: Install Python authenticated encryption dependency
+        run: python3 -m pip install cryptography==46.0.4
+
       - name: Run Python database tests
         working-directory: app
         run: python3 -m unittest discover -s database/tests -v
@@ -110,18 +113,40 @@ jobs:
           test "$BH_COUNTRY" -gt 0
           test "$EUROPE" -gt 0
           echo "LU=$LU_COUNTRY; BH=$BH_COUNTRY; AS=$AS_COUNTRY; BQ=$BQ_COUNTRY; Europe=$EUROPE"
+          # The pilot exercises encrypted output and decrypt/SQLite validation
+          # with an ephemeral test key. It never publishes that key or assets.
+          export TOILET_DB_KEY_B64="$(python3 -c 'import os,base64; print(base64.b64encode(os.urandom(32)).decode())')"
+          python3 database/encrypted_assets.py encrypt --output /tmp/toiletcompass-db-pilot
+          python3 database/encrypted_assets.py verify --output /tmp/toiletcompass-db-pilot
 
       - name: Decide full build
         id: full
         shell: bash
+        env:
+          ENABLE_ENCRYPTED_DB_PUBLISHING: ${{ vars.ENABLE_ENCRYPTED_DB_PUBLISHING }}
         run: |
-          FULL=false
+          REQUESTED=false
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            FULL=true
+            REQUESTED=true
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_build }}" == "true" ]]; then
+            REQUESTED=true
+          fi
+
+          FULL=false
+          if [[ "$REQUESTED" == "true" && "$ENABLE_ENCRYPTED_DB_PUBLISHING" == "true" ]]; then
             FULL=true
+          elif [[ "$REQUESTED" == "true" ]]; then
+            echo "::notice::Encrypted DB publishing is not enabled; skipping publication, preserving the existing latest release."
           fi
           echo "enabled=$FULL" >> "$GITHUB_OUTPUT"
+
+      - name: Gate encrypted database publication
+        if: steps.full.outputs.enabled == 'true'
+        working-directory: app
+        env:
+          TOILET_DB_KEY_B64: ${{ secrets.TOILET_DB_KEY_B64 }}
+        run: |
+          python3 -c "import sys; sys.path.insert(0, 'database'); from encrypted_assets import load_key; load_key()"
 
       - name: Verify release token permissions
         if: steps.full.outputs.enabled == 'true'
@@ -151,6 +176,8 @@ jobs:
       - name: Build all country and continent databases sequentially
         if: steps.full.outputs.enabled == 'true'
         working-directory: app
+        env:
+          TOILET_DB_KEY_B64: ${{ secrets.TOILET_DB_KEY_B64 }}
         run: |
           rm -rf release
           python3 database/monthly_country_pipeline.py build-all \
@@ -168,8 +195,22 @@ jobs:
               assert isinstance(country.get('continents'), list), (iso, country)
           assert manifest['countries']['AT']['continents'] == ['europe']
           PY
+          python3 database/encrypted_assets.py encrypt --output release
+          python3 database/encrypted_assets.py verify --output release
+          test -z "$(find release -type f -name '*.db' -print -quit)"
+          python3 - <<'PY'
+          import json
+          m = json.load(open('release/manifest.json'))
+          assert m['schema_version'] == 2
+          for kind in ('countries', 'continents'):
+              for item in m[kind].values():
+                  assert item['file'].endswith('.db.enc')
+                  assert item['encryption'] == 'aes-256-gcm-chunked-v1'
+                  assert item['plaintext_size'] > 0
+                  assert len(item['plaintext_sha256']) == 64
+          PY
 
-      - name: Publish dated public toilets release
+      - name: Upload encrypted database release as a draft
         if: steps.full.outputs.enabled == 'true'
         working-directory: app
         env:
@@ -177,15 +218,16 @@ jobs:
         shell: bash
         run: |
           gh release create "$DB_RELEASE_VERSION" \
-            release/countries/*.db \
-            release/continents/*.db \
+            --draft \
+            release/countries/*.db.enc \
+            release/continents/*.db.enc \
             release/manifest.json \
             release/SHA256SUMS \
             --repo "$PUBLIC_RELEASE_REPOSITORY" \
             --title "Toilet database $DB_RELEASE_VERSION" \
             --notes "Public monthly ToiletCompass OpenStreetMap database release."
 
-      - name: Verify published release is latest
+      - name: Verify uploaded draft before publishing
         if: steps.full.outputs.enabled == 'true'
         working-directory: app
         env:
@@ -194,10 +236,13 @@ jobs:
         run: |
           gh release view "$DB_RELEASE_VERSION" --repo "$PUBLIC_RELEASE_REPOSITORY" --json assets \
             --jq '.assets[].name' > /tmp/published-assets.txt
-          for name in AS.db BQ.db BH.db ID.db IE.db MY.db africa.db antarctica.db asia.db australia-oceania.db central-america.db europe.db north-america.db south-america.db manifest.json SHA256SUMS; do
+          for name in AS.db.enc BQ.db.enc BH.db.enc ID.db.enc IE.db.enc MY.db.enc africa.db.enc antarctica.db.enc asia.db.enc australia-oceania.db.enc central-america.db.enc europe.db.enc north-america.db.enc south-america.db.enc manifest.json SHA256SUMS; do
             grep -Fx "$name" /tmp/published-assets.txt >/dev/null
           done
-          test "$(grep -Ec '^[A-Z]{2}\.db$' /tmp/published-assets.txt)" -eq 249
+          test "$(grep -Ec '^[A-Z]{2}\.db\.enc$' /tmp/published-assets.txt)" -eq 249
+          if grep -Eq '\.db$' /tmp/published-assets.txt; then
+            echo "::error::Plaintext database was published"; exit 1
+          fi
           python3 - <<'PY'
           import json
           manifest = json.load(open('release/manifest.json'))
@@ -207,7 +252,28 @@ jobs:
           } | {
               item['file'] for item in manifest['continents'].values()
           } | {'manifest.json', 'SHA256SUMS'}
-          missing = expected - published
-          assert not missing, sorted(missing)
+          assert len(expected) == 259, len(expected)
+          assert published == expected, {
+              'missing': sorted(expected - published),
+              'unexpected': sorted(published - expected),
+          }
           PY
-          test "$(gh api repos/Persie0/toilets/releases/latest --jq '.tag_name')" = "$DB_RELEASE_VERSION"
+
+      - name: Publish verified encrypted release
+        if: steps.full.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          gh release edit "$DB_RELEASE_VERSION" --repo "$PUBLIC_RELEASE_REPOSITORY" --draft=false --latest
+          # GitHub's latest-release endpoint can briefly lag release publication.
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            latest="$(gh api repos/Persie0/toilets/releases/latest --jq '.tag_name')"
+            if [[ "$latest" == "$DB_RELEASE_VERSION" ]]; then
+              echo "Published release is latest: $latest"
+              exit 0
+            fi
+            sleep 6
+          done
+          echo "::error::Published release did not become latest"
+          exit 1
