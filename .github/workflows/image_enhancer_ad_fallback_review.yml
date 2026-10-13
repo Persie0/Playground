@@ -33,17 +33,16 @@ jobs:
         working-directory: image_enhancer
         run: flutter pub get
 
-      - name: Format changed Dart files and show patch
+      - name: Verify changed Dart files are formatted
         working-directory: image_enhancer
         run: |
-          dart format \
+          dart format --output=none --set-exit-if-changed \
             lib/services/ad_supported_processing.dart \
             lib/adbanner.dart \
             lib/model_selection_page.dart \
             lib/super_resolution_home_page.dart \
             test/ad_supported_processing_test.dart \
             test/engagement_soft_paywall_pro_guard_test.dart
-          git diff -- lib/adbanner.dart lib/services/ad_supported_processing.dart lib/model_selection_page.dart lib/super_resolution_home_page.dart test/ad_supported_processing_test.dart test/engagement_soft_paywall_pro_guard_test.dart
 
       - name: Targeted regressions
         working-directory: image_enhancer
@@ -51,6 +50,10 @@ jobs:
           flutter test test/ad_supported_processing_test.dart --reporter expanded
           flutter test test/free_enhancement_quota_test.dart --reporter expanded
           flutter test test/engagement_soft_paywall_pro_guard_test.dart --reporter expanded
+
+      - name: Full Flutter regression suite
+        working-directory: image_enhancer
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
 
       - name: Analyze changed code and dependencies
         working-directory: image_enhancer
