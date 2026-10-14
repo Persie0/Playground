@@ -1,0 +1,36 @@
+name: ToiletCompass static continent layout verification
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toiletcompass-static-continents-ci.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/toiletcompass
+          ref: fix/static-continent-country-scroll
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Analyze Flutter
+        working-directory: app
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Focus and static continent tests
+        working-directory: app
+        run: flutter test test/onboarding_keyboard_focus_test.dart test/database_region_selector_test.dart
+      - name: Full Flutter regression suite
+        working-directory: app
+        run: flutter test
