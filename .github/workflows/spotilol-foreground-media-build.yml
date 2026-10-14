@@ -47,14 +47,14 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import pathlib, subprocess, sys, tempfile
+          import pathlib, re, subprocess, sys, tempfile
           root = pathlib.Path('app/src/main/java/com/project/lol/webview/injections')
           files = ['SpotilolPlayer.kt', 'SearchOverlay.kt', 'PowerSave.kt', 'MainLoop.kt', 'WebPrefs.kt']
           for name in files:
               source = (root / name).read_text()
-              marker = 'const val CONTENT = """'
-              assert marker in source, name
-              body = source.split(marker, 1)[1].split('"""', 1)[0]
+              parts = re.findall(r'const val (?:CONTENT|PART_[0-9]+)\\s*=\\s*"""(.*?)"""', source, flags=re.S)
+              assert parts, name
+              body = ''.join(parts)
               with tempfile.NamedTemporaryFile('w', suffix='.js', encoding='utf-8') as f:
                   f.write(body)
                   f.flush()
