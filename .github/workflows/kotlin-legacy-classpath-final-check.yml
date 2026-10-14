@@ -35,6 +35,12 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Accept Android SDK licenses and install NDK
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install 'platforms;android-37.0' || "$SDKMANAGER" --install 'platforms;android-37'
+          "$SDKMANAGER" --install 'ndk;29.0.13599879'
       - name: Resolve Flutter dependencies
         working-directory: app
         run: flutter pub get
