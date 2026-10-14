@@ -1,0 +1,64 @@
+name: Flutter AGP9 ProGuard and plugin compatibility recheck
+on:
+  pull_request:
+    paths: [.github/workflows/flutter-sdk-proguard-regression.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - repo: pareader
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: chill_with_me
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: QR-Code-Scanner
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: Food-Portion-Price-Calulator
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: finger_chooser
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: double_tap_king
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: secret_audio_message
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: neon_snake_matrix
+            ref: chore/flutter-kotlin-2421-20261013
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/${{ matrix.repo }}
+          ref: ${{ matrix.ref }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install Android SDK and NDK
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install 'platforms;android-37.0' || "$SDKMANAGER" --install 'platforms;android-37'
+          "$SDKMANAGER" --install 'ndk;29.0.13599879'
+      - name: Restore Dart dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Android Debug APK
+        working-directory: app
+        run: flutter build apk --debug --no-pub
+      - name: Run unit and widget tests
+        working-directory: app
+        run: |
+          if [ -d test ]; then flutter test --no-pub; else echo 'No Flutter tests defined'; fi
