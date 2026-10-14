@@ -1,0 +1,47 @@
+name: Final legacy Kotlin 2.4.21 classpath alignment
+on:
+  pull_request:
+    paths:
+      - .github/workflows/kotlin-legacy-classpath-final-check.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        repo:
+          - resistor-calc
+          - double_tap_king
+          - secret_audio_message
+          - neon_snake_matrix
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/${{ matrix.repo }}
+          ref: fix/align-root-kotlin-2421-20261014
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Build debug APK
+        working-directory: app
+        run: flutter build apk --debug --no-pub
+      - name: Run Flutter tests
+        working-directory: app
+        run: |
+          if [ -d test ]; then flutter test --no-pub; else echo 'No tests defined'; fi
