@@ -26,7 +26,11 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list --channel=3 | grep -E 'platforms;android-37|build-tools;37' || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --channel=3 --install 'platforms;android-37' 'build-tools;37.0.0'
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --channel=3 --install 'platforms;android-37.0' 'build-tools;37.0.0'
+          # Numeric compileSdk=37 may still look for the unsuffixed SDK directory.
+          if [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
+            ln -s "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
+          fi
       - name: Create harmless CI-only Firebase project configuration
         run: |
           python3 - <<'PY'
