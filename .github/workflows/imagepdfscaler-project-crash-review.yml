@@ -39,6 +39,16 @@ jobs:
       - name: Full Flutter suite
         working-directory: app
         run: flutter test --no-pub
+      - name: Install required Android NDK
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          set -o pipefail
+          "$SDKMANAGER" --install "ndk;29.0.13599879"
       - name: Android debug build
         working-directory: app
         run: flutter build apk --debug --no-pub
