@@ -41,8 +41,11 @@ jobs:
           grep -A10 'video_thumbnail_gdx_plus:' pubspec.lock
           grep -A10 'device_info_plus:' pubspec.lock
           grep -A10 'package_info_plus:' pubspec.lock
-          grep -A10 'file_picker:' pubspec.lock
-          if grep -q '  file_picker:' pubspec.lock; then echo 'Unexpected legacy file_picker plugin in lockfile' >&2; exit 1; fi
+          # FilePicker is a valid transitive dependency. Rejecting its mere
+          # presence misidentifies a current plugin as a legacy registrant.
+          if grep -q '^  file_picker:' pubspec.lock; then
+            grep -A8 '^  file_picker:' pubspec.lock
+          fi
       - name: Build Android APK
         working-directory: app
         run: flutter build apk --debug --no-pub
