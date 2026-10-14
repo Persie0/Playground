@@ -1,0 +1,38 @@
+name: ToiletCompass UI and monthly update verification
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toiletcompass-ui-monthly-ci.yml'
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/toiletcompass
+          ref: fix/eula-region-maps-monthly-update-prompt
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Dart/Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Flutter static analysis
+        working-directory: app
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Flutter regression suite
+        working-directory: app
+        run: flutter test
+      - name: Python database regression tests
+        working-directory: app
+        run: |
+          python3 -m pip install cryptography==46.0.4
+          python3 -m unittest discover -s database/tests -v
