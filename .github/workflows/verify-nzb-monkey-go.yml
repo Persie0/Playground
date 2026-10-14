@@ -1,0 +1,42 @@
+name: Verify NZB Monkey Go PR
+
+on:
+  push:
+    branches:
+      - verify-nzb-monkey-go-20261014
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+      - name: Check out public NZB Monkey Go PR branch
+        run: |
+          git clone --depth 1 --branch feat/metadata-assisted-directsearch https://github.com/Persie0/nzb-monkey-go.git nzb-monkey-go
+      - name: Formatting
+        run: |
+          cd nzb-monkey-go
+          UNFORMATTED="$(gofmt -l metadata_match.go metadata_match_test.go metadata_search.go arguments.go nzbdirectsearch.go)"
+          if [ -n "$UNFORMATTED" ]; then
+            echo "Files require gofmt:"
+            echo "$UNFORMATTED"
+            exit 1
+          fi
+      - name: Unit tests
+        run: |
+          cd nzb-monkey-go
+          go test ./...
+      - name: Vet
+        run: |
+          cd nzb-monkey-go
+          go vet ./...
+      - name: Build
+        run: |
+          cd nzb-monkey-go
+          go build ./...
