@@ -18,15 +18,15 @@ jobs:
           go-version: '1.25.x'
       - name: Check out public NZB Monkey Go PR branch
         run: |
-          git clone --depth 1 --branch feat/metadata-assisted-directsearch https://github.com/Persie0/nzb-monkey-go.git nzb-monkey-go
+          git clone --depth 1 --branch fix/diagnose-zero-poster-hits https://github.com/Persie0/nzb-monkey-go.git nzb-monkey-go
       - name: Formatting
         run: |
           cd nzb-monkey-go
-          UNFORMATTED="$(gofmt -l metadata_match.go metadata_match_test.go metadata_search.go arguments.go nzbdirectsearch.go)"
+          UNFORMATTED="$(gofmt -l metadata_match.go metadata_match_test.go metadata_search.go metadata_discovery.go metadata_discovery_test.go arguments.go nzbdirectsearch.go)"
           if [ -n "$UNFORMATTED" ]; then
             echo "Files require gofmt:"
             echo "$UNFORMATTED"
-            gofmt -d metadata_match.go metadata_match_test.go metadata_search.go arguments.go nzbdirectsearch.go
+            gofmt -d metadata_match.go metadata_match_test.go metadata_search.go metadata_discovery.go metadata_discovery_test.go arguments.go nzbdirectsearch.go
             echo "::warning::Formatting changes required in the PR"
             # Check build and tests even when formatting needs attention.
           fi
