@@ -1,0 +1,117 @@
+name: Noise Remover encrypted ONNX release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-encrypted-model-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  encrypt-test-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - name: Require cross-repository token
+        shell: bash
+        run: test -n "$GH_TOKEN"
+
+      - name: Checkout private app without persisting credentials
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: feat/encrypted-model-delivery
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Authenticate private git dependencies without printing token
+        shell: bash
+        run: git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter gen-l10n
+
+      - name: Verify native encryption and downloader regression tests
+        working-directory: app
+        run: |
+          dart format --output=none --set-exit-if-changed \
+            DPDFNet_flutter/lib/src/model_cipher.dart \
+            scripts/encrypt_models_for_release.py \
+            test/services/model_cipher_test.dart \
+            test/services/model_download_service_test.dart
+          flutter test --no-pub \
+            test/services/model_cipher_test.dart \
+            test/services/model_download_service_test.dart
+
+      - name: Analyze encryption integration
+        working-directory: app
+        run: |
+          flutter analyze --no-pub \
+            DPDFNet_flutter/lib/src/model_cipher.dart \
+            DPDFNet_flutter/lib/src/dpdfnet_engine.dart \
+            lib/services/model_download_service.dart \
+            test/services/model_cipher_test.dart \
+            test/services/model_download_service_test.dart
+
+      - name: Compile Android debug APK
+        working-directory: app
+        run: flutter build apk --debug --no-pub
+
+      - name: Fetch original ONNX assets (existing public release)
+        shell: bash
+        run: |
+          mkdir -p originals
+          gh release download v1_2 --repo Persie0/OnnxModels --dir originals \
+            --pattern 'dpdfnet8.onnx' --pattern 'dpdfnet2_48khz_hr.onnx'
+          test -s originals/dpdfnet8.onnx
+          test -s originals/dpdfnet2_48khz_hr.onnx
+
+      - name: Authenticated AES-256-GCM packaging
+        shell: bash
+        run: |
+          python3 -m pip install --disable-pip-version-check 'cryptography>=44,<48'
+          python3 app/scripts/encrypt_models_for_release.py \
+            --project-root app --source-dir originals --output-dir encrypted
+          test -s encrypted/dpdfnet8.onnx.enc
+          test -s encrypted/dpdfnet2_48khz_hr.onnx.enc
+
+      - name: Publish encrypted assets without replacing legacy release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view v1_3_encrypted --repo Persie0/OnnxModels >/dev/null 2>&1; then
+            gh release create v1_3_encrypted --repo Persie0/OnnxModels \
+              --title "DPDFNet encrypted model assets (v1_3)" \
+              --notes "AES-256-GCM authenticated envelopes for compatible Noise Remover app builds. Older clients continue using v1_2."
+          fi
+          gh release upload v1_3_encrypted --repo Persie0/OnnxModels \
+            encrypted/dpdfnet8.onnx.enc \
+            encrypted/dpdfnet2_48khz_hr.onnx.enc --clobber
+          gh release view v1_3_encrypted --repo Persie0/OnnxModels --json assets \
+            --jq '.assets[].name'
+          rm -rf originals encrypted
+
+      - name: Remove credential rewrite
+        if: always()
+        run: git config --global --unset-all url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf || true
