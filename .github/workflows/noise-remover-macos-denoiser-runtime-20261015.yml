@@ -1,0 +1,66 @@
+name: Noise Remover macOS denoiser runtime smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-macos-denoiser-runtime-20261015.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-macos-denoiser:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - name: Checkout Noise Remover fix from private repo
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: 76d7dcd7c79febffc90653de86d654f094640cab
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure Flutter macOS
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter config --enable-macos-desktop
+          flutter precache --macos
+          flutter pub get
+          if [ ! -f macos/Runner.xcodeproj/project.pbxproj ]; then
+            flutter create --platforms=macos --org at.persie0 .
+            flutter pub get
+          fi
+          python3 tool/setup_macos.py
+          dart run flutter_launcher_icons
+          (cd macos && pod install)
+
+      - name: Run macOS and error-handling regression tests
+        working-directory: app
+        run: |
+          flutter test test/services/macos_platform_integration_test.dart
+          flutter test test/full_error_hardening_regression_test.dart
+
+      - name: Compile macOS native binaries
+        working-directory: app
+        run: flutter build macos --debug
+
+      - name: Process WAV with bundled FFmpeg and Rust RNNoise on macOS
+        working-directory: app
+        run: flutter test integration_test/macos_noise_removal_smoke_test.dart -d macos
+
+      - name: Compile macOS release
+        working-directory: app
+        run: flutter build macos --release
