@@ -1,0 +1,68 @@
+name: PureMic Apple Review validation v2
+
+on:
+  push:
+    paths:
+      - '.github/workflows/puremic-apple-review-validate-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check private repo token
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$REPO_TOKEN"
+
+      - name: Checkout PureMic feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/recorder_noise_remove
+          ref: fix/apple-review-privacy-iap-oct2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Format targeted changes
+        working-directory: app
+        run: dart format lib/screens/eula_page.dart lib/screens/paywall_screen.dart lib/services/ad_service.dart test/apple_review_regression_test.dart
+
+      - name: Analyze targeted changes
+        working-directory: app
+        run: dart analyze lib/screens/eula_page.dart lib/screens/paywall_screen.dart lib/services/ad_service.dart test/apple_review_regression_test.dart
+
+      - name: Test Apple review regressions
+        working-directory: app
+        run: flutter test test/apple_review_regression_test.dart
+
+      - name: Test existing suite
+        working-directory: app
+        run: flutter test
+
+      - name: Commit formatted files on private feature branch
+        working-directory: app
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          git add lib/screens/eula_page.dart lib/screens/paywall_screen.dart lib/services/ad_service.dart test/apple_review_regression_test.dart
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name "OpenAI"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style: format Apple Review fixes [skip ci]"
+          git remote set-url origin "https://x-access-token:${REPO_TOKEN}@github.com/Persie0/recorder_noise_remove.git"
+          git push origin HEAD:fix/apple-review-privacy-iap-oct2026
