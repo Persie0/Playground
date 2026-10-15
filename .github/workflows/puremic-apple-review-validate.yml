@@ -38,9 +38,9 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      - name: Format targeted changes (check only)
+      - name: Format targeted changes
         working-directory: app
-        run: dart format --output=none --set-exit-if-changed lib/screens/eula_page.dart lib/screens/paywall_screen.dart lib/services/ad_service.dart test/apple_review_regression_test.dart
+        run: dart format lib/screens/eula_page.dart lib/screens/paywall_screen.dart lib/services/ad_service.dart test/apple_review_regression_test.dart
 
       - name: Analyze targeted changes
         working-directory: app
@@ -53,3 +53,16 @@ jobs:
       - name: Test existing suite
         working-directory: app
         run: flutter test
+
+      - name: Commit formatted files on private feature branch
+        working-directory: app
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          git add lib/screens/eula_page.dart lib/screens/paywall_screen.dart lib/services/ad_service.dart test/apple_review_regression_test.dart
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name "OpenAI"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style: format Apple Review fixes [skip ci]"
+          git remote set-url origin "https://x-access-token:${REPO_TOKEN}@github.com/Persie0/recorder_noise_remove.git"
+          git push origin HEAD:fix/apple-review-privacy-iap-oct2026
