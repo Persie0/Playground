@@ -1,0 +1,41 @@
+name: PureMic PR merge check
+
+on:
+  push:
+    paths:
+      - '.github/workflows/puremic-pr-merge-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout private PR branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/recorder_noise_remove
+          ref: fix/revenuecat-hardening
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze modified source
+        working-directory: app
+        run: dart analyze lib/services/subscription_service.dart
+
+      - name: Run all tests
+        working-directory: app
+        run: flutter test
