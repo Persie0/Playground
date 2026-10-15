@@ -1,0 +1,153 @@
+name: Image Enhancer macOS build and notarization
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Private image_enhancer branch, tag or SHA
+        type: string
+        required: false
+        default: feat/macos-desktop-release
+      sign_notarize:
+        description: Sign with Developer ID and notarize (requires configured Apple secrets)
+        type: boolean
+        required: false
+        default: false
+  push:
+    branches: [main]
+    paths: [.github/workflows/image-enhancer-macos-release.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 100
+    env:
+      APP_REF: ${{ inputs.ref || 'feat/macos-desktop-release' }}
+    steps:
+      - name: Validate private repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          if [ -z "$PRIVATE_TOKEN" ]; then
+            echo "::error::Configure PRIVATE_REPO_TOKEN, GH_TOKEN, or GH_RELEASE_TOKEN with read access to Persie0/image_enhancer."
+            exit 1
+          fi
+
+      - name: Checkout private Image Enhancer
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/image_enhancer
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Tool versions
+        working-directory: app
+        run: |
+          flutter --version
+          xcodebuild -version
+          pod --version
+          git rev-parse HEAD
+
+      - name: Install and validate
+        working-directory: app
+        run: |
+          flutter config --enable-macos-desktop
+          flutter pub get
+          flutter analyze
+          flutter test
+
+      - name: Generate complete macOS app icon catalog
+        working-directory: app
+        run: bash macos/scripts/generate-icons.sh
+
+      - name: Build macOS debug and release apps
+        working-directory: app
+        run: |
+          flutter build macos --debug --no-pub
+          flutter build macos --release --no-pub
+
+      - name: Verify app bundle and entitlement configuration
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find build/macos/Build/Products/Release -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")" = 'at.persie0.imageenhancer'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP_PATH/Contents/Info.plist")" = '14.0'
+          codesign --verify --deep --verbose=2 "$APP_PATH"
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+
+      - name: Import Developer ID certificate and notarize
+        if: ${{ inputs.sign_notarize == true }}
+        working-directory: app
+        shell: bash
+        env:
+          CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          for name in CERT_P12_BASE64 CERT_PASSWORD SIGNING_IDENTITY APPLE_KEY_P8_BASE64 APPLE_KEY_ID APPLE_ISSUER_ID; do
+            test -n "${!name:-}" || { echo "::error::Missing $name"; exit 1; }
+          done
+          SECURITY_DIR="$RUNNER_TEMP/macos-codesign"
+          mkdir -p "$SECURITY_DIR"
+          chmod 700 "$SECURITY_DIR"
+          printf '%s' "$CERT_P12_BASE64" | base64 -D > "$SECURITY_DIR/cert.p12"
+          printf '%s' "$APPLE_KEY_P8_BASE64" | base64 -D > "$SECURITY_DIR/AuthKey_$APPLE_KEY_ID.p8"
+          KEYCHAIN="$SECURITY_DIR/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$SECURITY_DIR/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          codesign --force --deep --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$APP_PATH"
+          codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" \
+            --entitlements macos/Runner/Release.entitlements "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          mkdir -p build/macos/release
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" build/macos/release/ImageEnhancer-notary.zip
+          xcrun notarytool submit build/macos/release/ImageEnhancer-notary.zip \
+            --key "$SECURITY_DIR/AuthKey_$APPLE_KEY_ID.p8" \
+            --key-id "$APPLE_KEY_ID" --issuer "$APPLE_ISSUER_ID" --wait
+          xcrun stapler staple "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          echo "NOTARIZED=true" >> "$GITHUB_ENV"
+          rm -rf "$SECURITY_DIR"
+
+      - name: Archive release app
+        working-directory: app
+        shell: bash
+        run: |
+          mkdir -p build/macos/release
+          if [ "${NOTARIZED:-false}" = true ]; then
+            DEST=build/macos/release/ImageEnhancer-macOS-signed-notarized.zip
+          else
+            DEST=build/macos/release/ImageEnhancer-macOS-UNSIGNED-testing-only.zip
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$DEST"
+          echo "ARCHIVE_PATH=$DEST" >> "$GITHUB_ENV"
+
+      - name: Upload macOS build archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-enhancer-macos-${{ github.run_id }}
+          path: app/${{ env.ARCHIVE_PATH }}
+          retention-days: 7
+          if-no-files-found: error
