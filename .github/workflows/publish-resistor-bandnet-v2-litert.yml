@@ -1,0 +1,58 @@
+name: Publish verified BandNet V2 LiteRT model
+
+on:
+  push:
+    paths:
+      - .github/workflows/publish-resistor-bandnet-v2-litert.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download verified conversion artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p model
+          gh run download 38967879608 --repo Persie0/Playground \
+            --name bandnet-v2-litert-verified --dir model
+          find model -maxdepth 2 -type f -printf '%p %s bytes\n'
+          test -s model/resistor_bandnet.tflite
+          test -s model/resistor_bandnet.outputs.json
+          test -s model/resistor_bandnet.onnx.json
+          test -s model/bandnet-v2-conversion-report.json
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import hashlib
+          path=Path("model/resistor_bandnet.tflite")
+          assert path.read_bytes()[4:8] == b"TFL3"
+          sha=hashlib.sha256(path.read_bytes()).hexdigest()
+          report=json.loads(Path("model/bandnet-v2-conversion-report.json").read_text())
+          assert sha == report["tflite_sha256"], (sha,report["tflite_sha256"])
+          assert sha == "65772f1d0273defc542efbb63ca571d82febef1dd1488a2f6212278926d1eb26"
+          print("Checked known-good BandNet V2 SHA256", sha)
+          PY
+
+      - name: Publish permanent public GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="resistor-bandnet-v2-litert-20261016"
+          if ! gh release view "$tag" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release create "$tag" --repo Persie0/Playground \
+              --title "BandNet V2 FP32 LiteRT (verified conversion)" \
+              --notes "Verifiable conversion of Persie0/resistor_model release ee BandNet V2 (128x768, ConvNeXt+Transformer). Original ONNX and converted TFLite output parity checked across all six tensor heads. SHA256 of TFLite: 65772f1d0273defc542efbb63ca571d82febef1dd1488a2f6212278926d1eb26. This is a model conversion check, not a guarantee of Google Play services runtime or on-device recognition correctness."
+          fi
+          gh release upload "$tag" --repo Persie0/Playground \
+            model/resistor_bandnet.tflite \
+            model/resistor_bandnet.outputs.json \
+            model/resistor_bandnet.onnx.json \
+            model/bandnet-v2-conversion-report.json --clobber
