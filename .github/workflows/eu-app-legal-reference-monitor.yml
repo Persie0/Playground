@@ -1,0 +1,83 @@
+name: Track EU app legal references
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly at 07:20 UTC; no runs on private app repositories.
+    - cron: '20 7 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eu-app-legal-reference-monitor
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - name: Require cross-repository write token
+        shell: bash
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "Configure PRIVATE_REPO_TOKEN, GH_TOKEN or GH_RELEASE_TOKEN in public Playground secrets." >&2
+            exit 1
+          fi
+
+      - name: Check out public legal repository
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/legal
+          ref: main
+          path: legal
+          fetch-depth: 0
+          persist-credentials: true
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+
+      - name: Fingerprint permitted sources only (no policy copies)
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 legal/references/eu-app-legal/check.py --update --delay 1.5 | tee /tmp/legal-reference-report.txt
+          {
+            echo '### Austrian and EU mobile app legal references'
+            echo
+            echo 'Tracks changed hashes only. Review all proposed changes manually.'
+            echo
+            echo '~~~'
+            cat /tmp/legal-reference-report.txt
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Propose changes to legal repo (no direct merge)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd legal
+          if git diff --quiet -- references/eu-app-legal/fingerprints.json; then
+            echo "No tracked fingerprint changes."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B chore/eu-app-legal-fingerprints
+          git add references/eu-app-legal/fingerprints.json
+          git commit -m "chore: refresh EU app legal reference fingerprints"
+          git push --force-with-lease --set-upstream origin HEAD:refs/heads/chore/eu-app-legal-fingerprints
+
+          if [ "$(gh pr list --repo Persie0/legal --state open --head chore/eu-app-legal-fingerprints --json number --jq 'length')" = "0" ]; then
+            gh pr create \
+              --repo Persie0/legal \
+              --base main \
+              --head chore/eu-app-legal-fingerprints \
+              --title "chore: check Austrian and EU app legal references" \
+              --body "Scheduled external legal-document fingerprint check from public Persie0/Playground. Includes initial baselines and/or changed SHA-256 values, not legal text. Review publisher pages, website access errors and document versions before merging. Entries marked manual are not fetched."
+          else
+            echo "Existing reference-monitoring PR updated."
+          fi
