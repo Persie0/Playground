@@ -1,0 +1,39 @@
+name: Video Upscaler PR17 review build (public runner)
+on:
+  push:
+    paths:
+      - .github/workflows/video-upscaler-pr17-review.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private Android PR branch using Playground secrets
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/video_upscaler_android
+          ref: feat/noise-remover-home-history
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: appsrc
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Gradle 9.6
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Install Android API 37
+        run: |
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-37.0' || "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-37'
+      - name: Compile app and instrumentation tests, run unit tests and lint
+        working-directory: appsrc
+        run: |
+          gradle --no-daemon --stacktrace :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug
