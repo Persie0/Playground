@@ -72,7 +72,7 @@ jobs:
           if [ -d model ]; then MODEL_REPO="--model-repo $GITHUB_WORKSPACE/model"; fi
           python scanner/tools/import_litert_models.py \
             --only-bandnet \
-            --bandnet-v2-zip scanner/.model-cache/resistor-bandnet-r1-v2-colab.zip \
+            --bandnet-zip scanner/.model-cache/resistor-bandnet-r1-v2-colab.zip \
             $MODEL_REPO
           python scanner/tools/inspect_litert.py scanner/app/src/main/assets/models/resistor_bandnet.tflite
           ls -lh scanner/app/src/main/assets/models/resistor_bandnet.tflite
@@ -92,9 +92,9 @@ jobs:
       - name: Optionally publish converted model to resistor_model Releases
         shell: bash
         env:
-          GH_TOKEN: \${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: |
-          if [ -z "\${GH_TOKEN:-}" ]; then
+          if [ -z "${GH_TOKEN:-}" ]; then
             echo "No release-upload token available; the verified artifact is still uploaded"
             exit 0
           fi
@@ -107,6 +107,6 @@ jobs:
           fi
           gh release upload "$tag" --repo Persie0/resistor_model \
             resistor_bandnet.tflite resistor_bandnet.outputs.json \
-            resistor_bandnet.onnx.json --clobber
+            resistor_bandnet.onnx.json
           gh release upload "$tag" --repo Persie0/resistor_model \
-            "$GITHUB_WORKSPACE/scanner/.model-cache/bandnet-v2-conversion-report.json" --clobber
+            "$GITHUB_WORKSPACE/scanner/.model-cache/bandnet-v2-conversion-report.json"
