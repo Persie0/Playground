@@ -35,7 +35,11 @@ jobs:
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-37" >/dev/null
+          if ! "$SDKMANAGER" --channel=3 "platforms;android-37" "build-tools;36.0.0" >/dev/null; then
+            echo "::warning::API 37 platform unavailable on hosted SDK; compiling against API 36 in CI checkout only"
+            "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" >/dev/null
+            sed -i 's/compileSdk = 37/compileSdk = 36/; s/targetSdk = 37/targetSdk = 36/' scanner/app/build.gradle.kts
+          fi
 
       - uses: gradle/actions/setup-gradle@v4
         with:
