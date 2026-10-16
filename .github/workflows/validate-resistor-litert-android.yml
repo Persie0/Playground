@@ -28,12 +28,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install compile SDK
+      - name: Install compile SDK with Android 17 package fallback
         run: |
           set -euo pipefail
-          sdkmanager --install 'platforms;android-37' 'build-tools;36.0.0'
+          SDKMANAGER="${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager"
+          if ! "$SDKMANAGER" --channel=3 --install 'platforms;android-37.0' 'build-tools;37.0.0'; then
+            echo "SDK 37.0 is unavailable on this CI host; compile with SDK 36 in this temporary checkout."
+            "$SDKMANAGER" --install 'platforms;android-36' 'build-tools;36.0.0'
+            sed -i 's/compileSdk = 37/compileSdk = 36/' scanner/app/build.gradle.kts
+            sed -i 's/targetSdk = 37/targetSdk = 36/' scanner/app/build.gradle.kts
+          fi
 
       - name: Import both SHA256-verified published TFLite models
         run: |
