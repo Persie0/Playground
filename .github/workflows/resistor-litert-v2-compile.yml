@@ -6,7 +6,7 @@ on:
       - .github/workflows/resistor-litert-v2-compile.yml
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   compile-and-unit-test:
@@ -40,6 +40,7 @@ jobs:
             echo "::warning::API 37 platform unavailable on hosted SDK; compiling against API 36 in CI checkout only"
             "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" >/dev/null
             sed -i 's/compileSdk = 37/compileSdk = 36/; s/targetSdk = 37/targetSdk = 36/' scanner/app/build.gradle.kts
+            echo "SKIP_SDK37_AAR_CHECKS=true" >> "$GITHUB_ENV"
           fi
 
       - uses: gradle/actions/setup-gradle@v4
@@ -52,5 +53,42 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew
+          args=()
+          if [ "${SKIP_SDK37_AAR_CHECKS:-false}" = "true" ]; then
+            echo "::warning::Skipping AAR API37 metadata checks only for API36 fallback test APK; never use this workaround for production."
+            args+=(-x :app:checkDebugAarMetadata -x :app:checkDebugAndroidTestAarMetadata)
+          fi
           ./gradlew --no-daemon --stacktrace \
-            :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest
+            :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest "${args[@]}"
+
+      - name: Verify APK and publish GitHub Actions artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s scanner/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum scanner/app/build/outputs/apk/debug/app-debug.apk
+          ls -lh scanner/app/build/outputs/apk/debug/app-debug.apk
+          cp scanner/app/build/outputs/apk/debug/app-debug.apk resistor-scanner-litert-pr22-debug.apk
+
+      - name: Upload PR 22 APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-scanner-litert-pr22-debug
+          path: resistor-scanner-litert-pr22-debug.apk
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish direct APK download in public Playground release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="resistor-scanner-litert-pr22-debug"
+          notes="TEST-ONLY debug APK built from Persie0/resistor-scanner-android PR #22 feat/play-services-litert-mobile1d. Google Play services LiteRT with BandNet V2 and PP-LiteSeg. Google Play services device tests not completed. If CI fell back to compileSdk 36 from 37, AndroidX AAR metadata checks were bypassed for this test APK; not production safe. Install only for testing. Build source commit: $(git -C scanner rev-parse HEAD)"
+          if gh release view "$tag" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$tag" resistor-scanner-litert-pr22-debug.apk --repo Persie0/Playground --clobber
+          else
+            gh release create "$tag" resistor-scanner-litert-pr22-debug.apk --repo Persie0/Playground --title "Resistor Scanner LiteRT PR #22 test APK" --notes "$notes" --prerelease
+          fi
