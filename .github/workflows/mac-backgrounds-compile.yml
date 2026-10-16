@@ -29,6 +29,7 @@ jobs:
         run: |
           plutil -lint Config/Info.plist Config/LivingDesktop.entitlements
           xcodegen generate --spec project.yml
+          for script in scripts/*.sh; do bash -n "$script"; done
       - name: Build macOS app (unsigned, no artifact publishing)
         run: |
           xcodebuild -project LivingDesktop.xcodeproj -scheme LivingDesktop -configuration Debug -destination 'platform=macOS' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
@@ -45,6 +46,7 @@ jobs:
           test -f "$APP/Contents/Resources/Assets.car"
           plutil -lint "$APP/Contents/Info.plist" "$APP/Contents/Resources/PrivacyInfo.xcprivacy"
           test "$(plutil -extract CFBundleIdentifier raw -o - "$APP/Contents/Info.plist")" = "com.persie.livingdesktop"
+          test "$(plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist")" = "1.0.0"
           # App Store required-reason APIs: UserDefaults (CA92.1) and systemUptime (35F9.1).
           python3 - "$APP/Contents/Resources/PrivacyInfo.xcprivacy" <<'PY'
           import plistlib, sys
