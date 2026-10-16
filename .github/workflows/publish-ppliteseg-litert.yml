@@ -1,0 +1,115 @@
+name: Verify and publish PP-LiteSeg LiteRT
+
+on:
+  push:
+    paths:
+      - .github/workflows/publish-ppliteseg-litert.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install standalone model verifier
+        run: python -m pip install -q 'tensorflow==2.20.0' onnxruntime numpy
+
+      - name: Download and verify PP-LiteSeg original release
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-all-errors \
+            "https://github.com/Persie0/resistor_model/releases/download/v5/resistor-segmentation-pp-liteseg.zip" \
+            -o ppliteseg-v5.zip
+          echo "2ebd7d34e1ffda5549634f78f119c18d9203abdbeab875252e07baa94e956476  ppliteseg-v5.zip" | sha256sum -c -
+          mkdir -p model
+          python - <<'PY'
+          from zipfile import ZipFile
+          from pathlib import Path
+          with ZipFile("ppliteseg-v5.zip") as z:
+              for name in ("resistor_segmenter_ppliteseg.onnx", "resistor_segmenter_ppliteseg.tflite"):
+                  candidates=[i for i in z.infolist() if Path(i.filename).name==name and not i.is_dir()]
+                  assert len(candidates)==1,(name,len(candidates))
+                  with z.open(candidates[0]) as a, (Path("model")/name).open("wb") as b:
+                      import shutil; shutil.copyfileobj(a,b)
+          assert (Path("model")/"resistor_segmenter_ppliteseg.tflite").read_bytes()[4:8]==b"TFL3"
+          PY
+
+      - name: Verify native TFLite model and output agreement with ONNX
+        shell: bash
+        env:
+          TF_CPP_MIN_LOG_LEVEL: 2
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import numpy as np
+          import json,hashlib
+          import tensorflow as tf
+          import onnxruntime as ort
+          from pathlib import Path
+          root=Path("model")
+          standalone=tf.lite.Interpreter(
+              model_path=str(root/"resistor_segmenter_ppliteseg.tflite"),num_threads=2,
+              experimental_op_resolver_type=tf.lite.experimental.OpResolverType.BUILTIN_WITHOUT_DEFAULT_DELEGATES)
+          standalone.allocate_tensors()
+          inputs=standalone.get_input_details()
+          outputs=standalone.get_output_details()
+          assert len(inputs)==1 and len(outputs)==1, (inputs,outputs)
+          assert inputs[0]["dtype"]==np.float32, inputs
+          shape=tuple(int(x) for x in inputs[0]["shape"])
+          assert shape in ((1,3,512,512),(1,512,512,3)), shape
+          layout="NCHW" if shape==(1,3,512,512) else "NHWC"
+          ops=sorted({op["op_name"] for op in standalone._get_ops_details()})
+          assert not any(x.startswith(("Flex","CUSTOM")) for x in ops), ops
+          onnx=ort.InferenceSession(str(root/"resistor_segmenter_ppliteseg.onnx"),providers=["CPUExecutionProvider"])
+          assert len(onnx.get_inputs())==1 and len(onnx.get_outputs())==1
+          stats=[]
+          rng=np.random.default_rng(1234)
+          for k in range(2):
+              rgb=rng.uniform(-1.,1.,(1,3,512,512)).astype(np.float32)
+              original=onnx.run(None,{onnx.get_inputs()[0].name:rgb})[0]
+              inp=rgb if layout=="NCHW" else rgb.transpose(0,2,3,1).copy()
+              standalone.set_tensor(inputs[0]["index"],inp)
+              standalone.invoke()
+              converted=standalone.get_tensor(outputs[0]["index"])
+              # Remove a single trailing/leading 1-channel dimension only.
+              a=np.squeeze(original)
+              b=np.squeeze(converted)
+              if a.shape!=b.shape or a.shape!=(512,512):
+                  raise ValueError(f"segmentation mask contract mismatch {original.shape} vs {converted.shape}")
+              if a.dtype.kind not in "iu" or b.dtype.kind not in "iu":
+                  raise ValueError(f"expected categorical mask outputs, got {a.dtype} and {b.dtype}")
+              match=float(np.mean(a==b))
+              stats.append(match)
+              print("Exact mask class agreement",k,match)
+              if match < .995:
+                  raise ValueError("PP-LiteSeg TFLite changed segmentation labels")
+          sha=hashlib.sha256((root/"resistor_segmenter_ppliteseg.tflite").read_bytes()).hexdigest()
+          report=dict(archive_sha256="2ebd7d34e1ffda5549634f78f119c18d9203abdbeab875252e07baa94e956476",tflite_sha256=sha,
+                      input_layout=layout,input_shape=list(shape),output_shape=outputs[0]["shape"].tolist(),
+                      output_dtype=str(outputs[0]["dtype"]),exact_mask_agreement=stats,ops=ops)
+          (root/"ppliteseg-litert-parity-report.json").write_text(json.dumps(report,indent=2)+"\n")
+          print("PP-LiteSeg ONNX/TFLite verified",sha)
+          PY
+
+      - name: Publish verified PP-LiteSeg TFLite
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="resistor-ppliteseg-litert-20261016"
+          if ! gh release view "$tag" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release create "$tag" --repo Persie0/Playground \
+              --title "PP-LiteSeg STDC2 - verified FP32 LiteRT" \
+              --notes "Preconverted TFLite from Persie0/resistor_model release v5 PP-LiteSeg 512x512. ONNX categorical mask output parity checked with the builtin standalone LiteRT CPU interpreter; Google Play services on-device testing still required."
+          fi
+          gh release upload "$tag" --repo Persie0/Playground \
+            model/resistor_segmenter_ppliteseg.tflite \
+            model/ppliteseg-litert-parity-report.json --clobber
