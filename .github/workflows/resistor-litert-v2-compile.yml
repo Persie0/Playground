@@ -1,4 +1,4 @@
-name: Compile Android Google Play services LiteRT migration
+name: Build Android Google Play services LiteRT migration
 on:
   push:
     paths:
@@ -10,7 +10,7 @@ permissions:
 jobs:
   compile-and-unit-test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 75
     steps:
       - name: Checkout private scanner source on public-repo runner minutes
         uses: actions/checkout@v4
@@ -41,12 +41,11 @@ jobs:
         with:
           validate-wrappers: false
 
-      - name: Compile Kotlin and unit tests without packaging not-yet-validated PP-LiteSeg weights
+      - name: Build real encrypted LiteRT APK, instrumented-test APK, and run unit tests
         working-directory: scanner
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
           ./gradlew --no-daemon --stacktrace \
-            :app:compileDebugKotlin :app:testDebugUnitTest \
-            -x :app:encryptLiteRtModels
+            :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest
