@@ -1,0 +1,30 @@
+name: HeadScan-Lite ONNX export smoke test
+on:
+  push:
+    paths:
+      - ".github/workflows/head-model-onnx-check.yml"
+  workflow_dispatch:
+jobs:
+  export-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Head_model
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Head_model
+          path: Head_model
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install export and tests
+        working-directory: Head_model
+        run: |
+          python -m pip install -q --upgrade pip
+          pip install -q -e ".[export,dev]"
+      - name: Compile
+        working-directory: Head_model
+        run: python -m compileall -q src colab tests
+      - name: Export ONNX + test runtime parity
+        working-directory: Head_model
+        run: pytest -q tests/test_export_onnx.py tests/test_colab_cache.py
