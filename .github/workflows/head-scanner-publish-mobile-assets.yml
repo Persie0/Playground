@@ -1,0 +1,29 @@
+name: Publish Head Scanner mobile release-1 assets
+on:
+  push:
+    paths:
+      - .github/workflows/head-scanner-publish-mobile-assets.yml
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download verified mobile artifacts from original export run
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: gh run download 38946836869 --repo Persie0/Playground --name headscan-release-1-mobile-assets --dir artifact
+      - name: Select patched uint8 ONNX and triangle binary
+        run: |
+          mkdir -p mobile
+          find artifact -type f -maxdepth 12 -print
+          onnx=$(find artifact -path '*/android/app/src/main/assets/headscan_lite.onnx' -type f | head -n 1)
+          faces=$(find artifact -path '*/android/app/src/main/assets/head_faces.bin' -type f | head -n 1)
+          test -n "$onnx" && test -n "$faces"
+          cp "$onnx" mobile/headscan_lite_mobile.onnx
+          cp "$faces" mobile/head_faces.bin
+          sha256sum mobile/*
+      - name: Publish to Head_model release 1
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: gh release upload 1 mobile/headscan_lite_mobile.onnx mobile/head_faces.bin --repo Persie0/Head_model --clobber
