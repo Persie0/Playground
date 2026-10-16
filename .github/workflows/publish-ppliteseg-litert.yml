@@ -11,8 +11,8 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
-    timeout-minutes: 55
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -122,10 +122,10 @@ jobs:
           print("PP-LiteSeg ONNX/TFLite verified",sha)
           PY
 
-      - name: Publish verified PP-LiteSeg TFLite
+      - name: Publish verified PP-LiteSeg TFLite to public Playground release
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
         run: |
           set -euo pipefail
           tag="resistor-ppliteseg-litert-20261016"
