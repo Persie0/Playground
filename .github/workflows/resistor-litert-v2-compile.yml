@@ -1,0 +1,52 @@
+name: Compile Android Google Play services LiteRT migration
+on:
+  push:
+    paths:
+      - .github/workflows/resistor-litert-v2-compile.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  compile-and-unit-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout private scanner source on public-repo runner minutes
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: feat/play-services-litert-mobile1d
+          path: scanner
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android compile SDK 37
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-37" >/dev/null
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+
+      - name: Compile Kotlin and unit tests without packaging not-yet-validated PP-LiteSeg weights
+        working-directory: scanner
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace \
+            :app:compileDebugKotlin :app:testDebugUnitTest \
+            -x :app:encryptLiteRtModels
