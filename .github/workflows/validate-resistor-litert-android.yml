@@ -1,0 +1,68 @@
+name: Validate private Resistor Scanner LiteRT Android build
+
+on:
+  push:
+    paths:
+      - .github/workflows/validate-resistor-litert-android.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - name: Checkout scanner branch with private repo token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: feat/play-services-litert-mobile1d
+          path: scanner
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          sdkmanager --install 'platforms;android-37' 'build-tools;36.0.0'
+
+      - name: Import both SHA256-verified published TFLite models
+        run: |
+          set -euo pipefail
+          python3 scanner/tools/import_litert_models.py
+          test -s scanner/app/src/main/assets/models/resistor_segmenter_ppliteseg.tflite
+          test -s scanner/app/src/main/assets/models/resistor_bandnet.tflite
+          test -s scanner/app/src/main/assets/models/resistor_bandnet.outputs.json
+
+      - name: Compile and run JVM tests (private APK never uploaded)
+        working-directory: scanner
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Check packaged APK excludes unencrypted TFLite and ONNX
+        working-directory: scanner
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          apk = Path("app/build/outputs/apk/debug/app-debug.apk")
+          with ZipFile(apk) as z:
+              assets=[x for x in z.namelist() if x.startswith("assets/")]
+              print("Encrypted assets:",[a for a in assets if a.endswith(".enc")])
+              for name in ("assets/models/resistor_bandnet.tflite.enc",
+                           "assets/models/resistor_segmenter_ppliteseg.tflite.enc"):
+                  assert name in assets,f"missing encrypted model: {name}"
+              assert not any(a.endswith((".onnx",".tflite")) for a in assets), "plaintext model packaged"
+          PY
