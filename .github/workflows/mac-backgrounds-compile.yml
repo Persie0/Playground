@@ -1,0 +1,34 @@
+name: mac-backgrounds - macOS compile
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/mac-backgrounds-compile.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Swift macOS build (public Playground runner)
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Checkout private mac-backgrounds without exposing the token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/mac-backgrounds
+          ref: feature/native-desktop-effects
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+      - name: Validate project metadata
+        run: |
+          plutil -lint Config/Info.plist Config/LivingDesktop.entitlements
+          xcodegen generate --spec project.yml
+      - name: Build macOS app (unsigned, no artifact publishing)
+        run: |
+          xcodebuild -project LivingDesktop.xcodeproj -scheme LivingDesktop -configuration Debug -destination 'platform=macOS' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
