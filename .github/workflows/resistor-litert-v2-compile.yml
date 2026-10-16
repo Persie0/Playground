@@ -47,7 +47,7 @@ jobs:
         with:
           validate-wrappers: false
 
-      - name: Build real encrypted LiteRT APK, instrumented-test APK, and run unit tests
+      - name: Build encrypted LiteRT debug APK and run unit tests
         working-directory: scanner
         shell: bash
         run: |
@@ -59,7 +59,7 @@ jobs:
             args+=(-x :app:checkDebugAarMetadata -x :app:checkDebugAndroidTestAarMetadata)
           fi
           ./gradlew --no-daemon --stacktrace \
-            :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest "${args[@]}"
+            :app:assembleDebug :app:testDebugUnitTest "${args[@]}"
 
       - name: Verify APK and publish GitHub Actions artifact
         shell: bash
@@ -92,3 +92,14 @@ jobs:
           else
             gh release create "$tag" resistor-scanner-litert-pr22-debug.apk --repo Persie0/Playground --title "Resistor Scanner LiteRT PR #22 test APK" --notes "$notes" --prerelease
           fi
+
+      - name: Compile Android instrumented test APK
+        working-directory: scanner
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "${SKIP_SDK37_AAR_CHECKS:-false}" = "true" ]; then
+            args+=(-x :app:checkDebugAarMetadata -x :app:checkDebugAndroidTestAarMetadata)
+          fi
+          ./gradlew --no-daemon :app:assembleDebugAndroidTest "${args[@]}"
