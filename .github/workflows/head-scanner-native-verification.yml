@@ -1,0 +1,48 @@
+name: Native Head Scanner verification
+on:
+  push:
+    paths:
+      - .github/workflows/head-scanner-native-verification.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/head_scanner
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.12.1"
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Compile Android without downloading model
+        working-directory: source/android
+        env:
+          HEADSCANNER_SKIP_MODEL_DOWNLOAD: "1"
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/head_scanner
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: source/ios
+        run: xcodegen generate
+      - name: Compile iOS simulator
+        working-directory: source/ios
+        run: xcodebuild -project HeadScanner.xcodeproj -scheme HeadScanner -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
