@@ -1,0 +1,37 @@
+name: Inspect PP-LiteSeg LiteRT in v5 training ZIP
+
+on:
+  push:
+    paths:
+      - .github/workflows/check-ppliteseg-litert-model.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Verify published PP-LiteSeg v5 archive and list model artifacts
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-all-errors             "https://github.com/Persie0/resistor_model/releases/download/v5/resistor-segmentation-pp-liteseg.zip"             -o ppliteseg-v5.zip
+          echo "2ebd7d34e1ffda5549634f78f119c18d9203abdbeab875252e07baa94e956476  ppliteseg-v5.zip" | sha256sum -c -
+          python - <<'PY'
+          from zipfile import ZipFile
+          with ZipFile("ppliteseg-v5.zip") as z:
+              matches = [i for i in z.infolist()
+                  if i.filename.lower().endswith((".onnx",".tflite",".onnx.json"))
+                  or "tflite_export_error" in i.filename
+                  or "onnx_export_error" in i.filename]
+              for i in matches:
+                  print("MODEL_CANDIDATE",i.filename,i.file_size)
+                  if "error" in i.filename.lower() and i.file_size<100000:
+                      print(z.read(i).decode("utf-8",errors="replace")[:3000])
+              for i in matches:
+                  if i.filename.endswith(".tflite"):
+                      payload=z.read(i)
+                      print("TFLITE_HEADER", i.filename,payload[4:8],len(payload))
+          PY
