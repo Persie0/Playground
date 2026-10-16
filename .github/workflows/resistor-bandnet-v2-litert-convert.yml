@@ -1,0 +1,111 @@
+name: Resistor BandNet V2 to Play services LiteRT
+
+on:
+  push:
+    paths:
+      - .github/workflows/resistor-bandnet-v2-litert-convert.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: feat/play-services-litert-mobile1d
+          path: scanner
+          persist-credentials: false
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Inspect training release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p scanner/.model-cache
+          curl -fL --retry 3 --retry-all-errors \
+            "https://github.com/Persie0/resistor_model/releases/download/ee/resistor-bandnet-r1-v2-colab.zip" \
+            -o scanner/.model-cache/resistor-bandnet-r1-v2-colab.zip
+          echo "Release archive entries:"
+          python - <<'PY'
+          from zipfile import ZipFile
+          with ZipFile("scanner/.model-cache/resistor-bandnet-r1-v2-colab.zip") as z:
+              for i in z.infolist():
+                  if i.filename.endswith((".pt",".onnx",".json",".tflite")):
+                      print(i.filename,i.file_size)
+          PY
+
+      - name: Install conversion packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install 'onnx2tf[tensorflow]==2.3.19' onnxruntime onnx
+          if ! python - <<'PY'
+          from zipfile import ZipFile
+          with ZipFile("scanner/.model-cache/resistor-bandnet-r1-v2-colab.zip") as z:
+              assert any(n.endswith("/resistor_bandnet.onnx") or n=="resistor_bandnet.onnx" for n in z.namelist())
+          PY
+          then
+            echo "Release lacks ONNX; installing CPU PyTorch to export actual best.pt"
+            python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
+            git clone --depth 1 https://github.com/Persie0/resistor_model.git model
+            python -m pip install -e './model[export]'
+          fi
+
+      - name: Convert and compare ONNX vs LiteRT outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL_REPO=""
+          if [ -d model ]; then MODEL_REPO="--model-repo $GITHUB_WORKSPACE/model"; fi
+          python scanner/tools/import_litert_models.py \
+            --only-bandnet \
+            --bandnet-v2-zip scanner/.model-cache/resistor-bandnet-r1-v2-colab.zip \
+            $MODEL_REPO
+          python scanner/tools/inspect_litert.py scanner/app/src/main/assets/models/resistor_bandnet.tflite
+          ls -lh scanner/app/src/main/assets/models/resistor_bandnet.tflite
+
+      - name: Upload verified model as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandnet-v2-litert-verified
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            scanner/app/src/main/assets/models/resistor_bandnet.tflite
+            scanner/app/src/main/assets/models/resistor_bandnet.outputs.json
+            scanner/app/src/main/assets/models/resistor_bandnet.onnx.json
+            scanner/.model-cache/bandnet-v2-conversion-report.json
+
+      - name: Optionally publish converted model to resistor_model Releases
+        shell: bash
+        env:
+          GH_TOKEN: \${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          if [ -z "\${GH_TOKEN:-}" ]; then
+            echo "No release-upload token available; the verified artifact is still uploaded"
+            exit 0
+          fi
+          cd scanner/app/src/main/assets/models
+          tag="bandnet-v2-litert"
+          if ! gh release view "$tag" --repo Persie0/resistor_model >/dev/null 2>&1; then
+            gh release create "$tag" --repo Persie0/resistor_model \
+              --title "BandNet V2 - Verified LiteRT FP32" \
+              --notes "Converted from ee/resistor-bandnet-r1-v2-colab.zip; ONNX and LiteRT outputs numerically compared."
+          fi
+          gh release upload "$tag" --repo Persie0/resistor_model \
+            resistor_bandnet.tflite resistor_bandnet.outputs.json \
+            resistor_bandnet.onnx.json --clobber
+          gh release upload "$tag" --repo Persie0/resistor_model \
+            "$GITHUB_WORKSPACE/scanner/.model-cache/bandnet-v2-conversion-report.json" --clobber
