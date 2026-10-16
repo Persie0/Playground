@@ -1,0 +1,64 @@
+name: Export trained Head_model release 1 for mobile
+on:
+  push:
+    paths:
+      - .github/workflows/head-scanner-export-release.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/head_scanner
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: scanner
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU PyTorch and ONNX
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          python -m pip install onnx onnxruntime numpy Pillow
+      - name: Export original release-1 best.pt, ONNX Runtime parity check
+        run: python scanner/scripts/export_release_checkpoint.py
+      - name: Prepare Android and iOS artifacts, validate bool-mask adapter
+        run: python scanner/scripts/prepare_model.py
+      - name: Run prepared ONNX inference
+        run: |
+          python - <<'PY'
+          import numpy as np, onnxruntime as ort, pathlib, struct
+          p=pathlib.Path("scanner/android/app/src/main/assets/headscan_lite.onnx")
+          session=ort.InferenceSession(str(p),providers=["CPUExecutionProvider"])
+          for inp in session.get_inputs(): print(inp.name, inp.type, inp.shape)
+          valid=np.zeros((1,8),dtype=np.uint8);valid[0,0]=1
+          vertices=session.run(["vertices_mm"], {
+            "images":np.zeros((1,8,3,256,256),np.float32),
+            "view_angles":np.zeros((1,8,2),np.float32),
+            "view_valid":valid,
+          })[0]
+          faces=pathlib.Path("scanner/android/app/src/main/assets/head_faces.bin").read_bytes()
+          n=struct.unpack_from("<I",faces,0)[0]
+          assert vertices.shape[0]==1 and vertices.shape[2]==3 and np.isfinite(vertices).all()
+          assert len(faces)==4+n*6
+          assert np.frombuffer(faces,dtype="<u2",offset=4).max() < vertices.shape[1]
+          print("PASS",vertices.shape,n,"triangles")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: headscan-release-1-mobile-assets
+          path: |
+            scanner/.model-cache/exported/headscan_lite.onnx
+            scanner/android/app/src/main/assets/headscan_lite.onnx
+            scanner/android/app/src/main/assets/head_faces.bin
+          if-no-files-found: warn
+      - name: Add validated ONNX asset to Head_model release 1
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: gh release upload 1 scanner/.model-cache/exported/headscan_lite.onnx --repo Persie0/Head_model --clobber
