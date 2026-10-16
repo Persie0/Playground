@@ -30,9 +30,9 @@ jobs:
           "$SDKMGR" "platforms;android-35" "build-tools;35.0.0"
       - name: Compile Android without downloading model
         working-directory: source/android
-        env:
-          HEADSCANNER_SKIP_MODEL_DOWNLOAD: "1"
-        run: gradle --no-daemon :app:assembleDebug --stacktrace
+        run: |
+          gradle --no-daemon :app:assembleDebug --stacktrace
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E '(headscan_lite.onnx|head_faces.bin)'
   ios:
     runs-on: macos-15
     steps:
@@ -43,6 +43,8 @@ jobs:
           path: source
       - name: Install XcodeGen
         run: brew install xcodegen
+      - name: Fetch real signed release-1 model assets
+        run: python3 source/scripts/prepare_model.py
       - name: Generate Xcode project
         working-directory: source/ios
         run: xcodegen generate
