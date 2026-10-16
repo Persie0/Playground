@@ -35,3 +35,14 @@ jobs:
       - name: Run deterministic scene and window-visibility tests
         run: |
           xcodebuild -project LivingDesktop.xcodeproj -scheme LivingDesktop -configuration Debug -destination 'platform=macOS' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO test
+      - name: Build optimized Release app and validate bundle resources
+        run: |
+          set -euo pipefail
+          xcodebuild -project LivingDesktop.xcodeproj -scheme LivingDesktop -configuration Release -destination 'platform=macOS' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
+          APP="DerivedData/Build/Products/Release/Living Desktop.app"
+          test -f "$APP/Contents/Info.plist"
+          test -f "$APP/Contents/Resources/PrivacyInfo.xcprivacy"
+          test -f "$APP/Contents/Resources/Assets.car"
+          plutil -lint "$APP/Contents/Info.plist" "$APP/Contents/Resources/PrivacyInfo.xcprivacy"
+          test "$(defaults read "$PWD/$APP/Contents/Info" CFBundleIdentifier)" = "com.persie.livingdesktop"
+
