@@ -1,0 +1,91 @@
+name: Traffic production median 60-percent masking A/B (ARM64)
+
+on:
+  push:
+    paths:
+      - ".github/workflows/traffic-fullframe-median-60pct.yml"
+      - "benchmarks/traffic_fullframe_masked_median_60pct.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - name: Checkout public Playground harness
+        uses: actions/checkout@v4
+
+      - name: Check private-source read token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          if [ -z "$PRIVATE_TOKEN" ]; then
+            echo "::error::Missing private repository checkout secret."
+            exit 1
+          fi
+
+      - name: Checkout original production implementation
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/traffic-counting-light-main
+          ref: e2ec5b544f084029d9fcfc473af2567c668a03ae
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          lfs: false
+          path: original
+
+      - name: Checkout optimized production implementation
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/traffic-counting-light-main
+          ref: 805ac7fa4d7970f37b56b8e37dab738c923ce795
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          lfs: false
+          path: optimized
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Pi-compatible analysis dependencies
+        run: python -m pip install 'numpy==2.5.1' 'opencv-python-headless==4.13.0.92'
+
+      - name: Record runner hardware
+        run: |
+          mkdir -p results
+          uname -m
+          lscpu | grep -E 'Architecture|CPU\(s\)|Model name'
+          python -c "import numpy, cv2; print('NumPy',numpy.__version__,'OpenCV',cv2.__version__)"
+
+      - name: 60-percent masking, 1296x972, 60-sample A/B test
+        run: |
+          python benchmarks/traffic_fullframe_masked_median_60pct.py \
+            --old original/traffic-counting-edge-detection-master \
+            --new optimized/traffic-counting-edge-detection-master \
+            --repetitions 3 \
+            --output results/traffic-median-60pct.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('results/traffic-median-fullframe-ab.json').read_text())
+          assert report['output_byte_identical']
+          assert report['input_unchanged']
+          assert 59.9 <= report['mask_statistics']['mean_masked_percent'] <= 60.1
+          print('60% masked area:', report['mask_statistics']['mean_masked_percent'])
+          print('Before:', report['baseline_median_ms'], 'ms')
+          print('After:', report['optimized_median_ms'], 'ms')
+          print('Speedup:', report['speedup'], 'x')
+          PY
+
+      - name: Archive numeric results only (no proprietary inputs/source)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traffic-median-mask60-arm64-results
+          path: results/*.json
+          if-no-files-found: warn
+          retention-days: 7
