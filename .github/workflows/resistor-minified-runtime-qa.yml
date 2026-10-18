@@ -1,4 +1,4 @@
-name: Resistor Scanner minified LiteRT release QA APK
+name: Resistor Scanner GMS-only minified LiteRT release QA APK
 on:
   push:
     paths:
@@ -62,6 +62,12 @@ jobs:
           ''' + anchor)
           p.write_text(s)
           PY
+      - name: Assert QA APK uses only the Google Play services runtime
+        shell: bash
+        run: |
+          ! grep -R -n 'FROM_APPLICATION_ONLY' scanner/app/src/main/java
+          ! grep -q 'com.google.ai.edge.litert:litert' scanner/app/build.gradle.kts
+
       - name: Build signed R8 minified QA APK with the actual two encrypted models
         shell: bash
         working-directory: scanner
@@ -85,11 +91,11 @@ jobs:
           echo "Release-like R8 mapping exists"
           echo "QA_APK_SHA256=$(sha256sum "$apk")"
           ls -lh "$apk"
-          cp "$apk" resistor-scanner-r8-litert-fix-qa.apk
+          cp "$apk" resistor-scanner-r8-gms-only-qa.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: resistor-scanner-r8-litert-fix-qa
-          path: resistor-scanner-r8-litert-fix-qa.apk
+          name: resistor-scanner-r8-gms-only-qa
+          path: resistor-scanner-r8-gms-only-qa.apk
           retention-days: 14
           if-no-files-found: error
           compression-level: 0
@@ -99,10 +105,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="resistor-scanner-r8-litert-fix-qa-20261018"
-          body="Test-only, R8-minified release-equivalent variant of resistor-scanner-android PR #24. Signed with debug key, application ID suffix .qa so it coexists with the Play app. Uses actual encrypted PP-LiteSeg and BandNet V2 models. This build is NOT validated on a physical handset; do not publish to Play. Runner SDK may use checkout-only API36 fallback. Commit: $(git -C scanner rev-parse HEAD)"
+          tag="resistor-scanner-r8-gms-only-qa-20261018"
+          body="Test-only, Google-Play-services-LiteRT-ONLY, R8-minified release-equivalent variant of resistor-scanner-android PR #24. Signed with debug key, application ID suffix .qa so it coexists with the Play app. Uses actual encrypted PP-LiteSeg and BandNet V2 models. This build is NOT validated on a physical handset; do not publish to Play. Runner SDK may use checkout-only API36 fallback. Commit: $(git -C scanner rev-parse HEAD)"
           if gh release view "$tag" --repo Persie0/Playground >/dev/null 2>&1; then
-            gh release upload "$tag" resistor-scanner-r8-litert-fix-qa.apk --repo Persie0/Playground --clobber
+            gh release upload "$tag" resistor-scanner-r8-gms-only-qa.apk --repo Persie0/Playground --clobber
           else
-            gh release create "$tag" resistor-scanner-r8-litert-fix-qa.apk --repo Persie0/Playground --title "Resistor Scanner R8 LiteRT release QA" --notes "$body" --prerelease
+            gh release create "$tag" resistor-scanner-r8-gms-only-qa.apk --repo Persie0/Playground --title "Resistor Scanner R8 GMS-only release QA" --notes "$body" --prerelease
           fi
