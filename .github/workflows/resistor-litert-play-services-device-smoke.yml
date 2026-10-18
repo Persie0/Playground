@@ -1,0 +1,61 @@
+name: Smoke-test Resistor LiteRT on Google APIs emulator
+on:
+  push:
+    paths:
+      - .github/workflows/resistor-litert-play-services-device-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  gms-emulator-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: feat/play-services-litert-mobile1d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install compatible CI SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          sed -i 's/compileSdk = 37/compileSdk = 36/; s/targetSdk = 37/targetSdk = 36/' app/build.gradle.kts
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+      - name: Verify LiteRT actual Google Play services inference on an API 35 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096M
+          heap-size: 256M
+          disk-size: 8192M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            chmod +x gradlew
+            ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest \
+              -Pandroid.testInstrumentationRunnerArguments.class=at.austriao.resistorscanner.ModelContractInstrumentedTest,at.austriao.resistorscanner.BandNetParityInstrumentedTest,at.austriao.resistorscanner.SegmenterParityInstrumentedTest \
+              -x :app:checkDebugAarMetadata -x :app:checkDebugAndroidTestAarMetadata
+      - name: Upload on-emulator instrumentation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-litert-gms-emulator-report
+          path: |
+            app/build/outputs/androidTest-results/connected/
+            app/build/reports/androidTests/connected/
+          if-no-files-found: ignore
+          retention-days: 14
