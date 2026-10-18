@@ -61,6 +61,14 @@ jobs:
           ./gradlew --no-daemon --stacktrace \
             :app:assembleDebug :app:testDebugUnitTest "${args[@]}"
 
+      - name: Audit authenticated encrypted model contents in the built APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -q cryptography
+          python scanner/tools/verify_packaged_models.py \
+            scanner/app/build/outputs/apk/debug/app-debug.apk
+
       - name: Verify APK and publish GitHub Actions artifact
         shell: bash
         run: |
