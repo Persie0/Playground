@@ -1,5 +1,8 @@
 name: Test minified Resistor LiteRT QA APK on Android emulator
 on:
+  push:
+    paths:
+      - .github/workflows/resistor-r8-litert-qa-device-test.yml
   workflow_run:
     workflows:
       - Resistor Scanner minified LiteRT release QA APK
@@ -27,6 +30,37 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Write exact emulator smoke test script (one shell, no split multiline commands)
+        shell: bash
+        run: |
+          cat > /tmp/resistor-r8-qa-smoke.sh <<'SMOKE'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          curl -fL --retry 5 --retry-delay 5 -o /tmp/resistor-qa.apk "https://github.com/Persie0/Playground/releases/download/resistor-scanner-r8-litert-fix-qa-20261018/resistor-scanner-r8-litert-fix-qa.apk"
+          adb install -r /tmp/resistor-qa.apk
+          adb logcat -c
+          adb shell am start -W -n at.austriao.resistor_scanner.qa/at.austriao.resistorscanner.MainActivity
+          success=0
+          for attempt in $(seq 1 75); do
+            adb logcat -d -v time -s ResistorLiteRt:V AndroidRuntime:E > /tmp/litert-model-init.log
+            if grep -q "Loaded 'models/resistor_segmenter_ppliteseg.tflite.enc' via " /tmp/litert-model-init.log &&
+               grep -q "Loaded 'models/resistor_bandnet.tflite.enc' via " /tmp/litert-model-init.log; then
+              success=1
+              break
+            fi
+            sleep 4
+          done
+          adb logcat -d -v time > /tmp/resistor-full-logcat.txt
+          grep "ResistorLiteRt" /tmp/litert-model-init.log || true
+          if [ "$success" -ne 1 ]; then
+            echo "::error::Both models were not initialized in the R8 minified QA app."
+            grep -E "ResistorLiteRt|AndroidRuntime|FATAL EXCEPTION|Model files" /tmp/resistor-full-logcat.txt | tail -120 || true
+            exit 1
+          fi
+          echo "PASS: real PP-LiteSeg and BandNet V2 initialized in R8 minified QA app"
+          SMOKE
+          chmod +x /tmp/resistor-r8-qa-smoke.sh
+
       - name: Boot Google APIs emulator and launch real minified QA package
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -39,32 +73,7 @@ jobs:
           disk-size: 8192M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            set -e
-            curl -fL --retry 5 --retry-delay 5 \
-              -o /tmp/resistor-qa.apk \
-              https://github.com/Persie0/Playground/releases/download/resistor-scanner-r8-litert-fix-qa-20261018/resistor-scanner-r8-litert-fix-qa.apk
-            adb install -r /tmp/resistor-qa.apk
-            adb logcat -c
-            adb shell am start -W -n at.austriao.resistor_scanner.qa/at.austriao.resistorscanner.MainActivity
-            success=0
-            for attempt in $(seq 1 75); do
-              adb logcat -d -v time -s ResistorLiteRt:V AndroidRuntime:E > /tmp/litert-model-init.log
-              if grep -q "Loaded 'models/resistor_segmenter_ppliteseg.tflite.enc' via " /tmp/litert-model-init.log &&
-                 grep -q "Loaded 'models/resistor_bandnet.tflite.enc' via " /tmp/litert-model-init.log; then
-                success=1
-                break
-              fi
-              sleep 4
-            done
-            adb logcat -d -v time > /tmp/resistor-full-logcat.txt
-            grep "ResistorLiteRt" /tmp/litert-model-init.log || true
-            if [ "$success" -ne 1 ]; then
-              echo "::error::R8 release-equivalent APK did not initialize BOTH models on emulator."
-              grep -E "ResistorLiteRt|AndroidRuntime|FATAL EXCEPTION|Model files" /tmp/resistor-full-logcat.txt | tail -120 || true
-              exit 1
-            fi
-            echo "PASS: both production TFLite models initialized in R8-minified release-equivalent app"
+          script: bash /tmp/resistor-r8-qa-smoke.sh
       - name: Save emulator results
         if: always()
         uses: actions/upload-artifact@v4
