@@ -1,11 +1,11 @@
-name: Test minified Resistor LiteRT QA APK on Android emulator
+name: Test minified Resistor GMS-only LiteRT QA APK on Android emulator
 on:
   push:
     paths:
       - .github/workflows/resistor-r8-litert-qa-device-test.yml
   workflow_run:
     workflows:
-      - Resistor Scanner minified LiteRT release QA APK
+      - Resistor Scanner GMS-only minified LiteRT release QA APK
     types:
       - completed
   workflow_dispatch:
@@ -36,15 +36,15 @@ jobs:
           cat > /tmp/resistor-r8-qa-smoke.sh <<'SMOKE'
           #!/usr/bin/env bash
           set -euo pipefail
-          curl -fL --retry 5 --retry-delay 5 -o /tmp/resistor-qa.apk "https://github.com/Persie0/Playground/releases/download/resistor-scanner-r8-litert-fix-qa-20261018/resistor-scanner-r8-litert-fix-qa.apk"
+          curl -fL --retry 5 --retry-delay 5 -o /tmp/resistor-qa.apk "https://github.com/Persie0/Playground/releases/download/resistor-scanner-r8-gms-only-qa-20261018/resistor-scanner-r8-gms-only-qa.apk"
           adb install -r /tmp/resistor-qa.apk
           adb logcat -c
           adb shell am start -W -n at.austriao.resistor_scanner.qa/at.austriao.resistorscanner.MainActivity
           success=0
           for attempt in $(seq 1 75); do
             adb logcat -d -v time -s ResistorLiteRt:V AndroidRuntime:E > /tmp/litert-model-init.log
-            if grep -q "Loaded 'models/resistor_segmenter_ppliteseg.tflite.enc' via " /tmp/litert-model-init.log &&
-               grep -q "Loaded 'models/resistor_bandnet.tflite.enc' via " /tmp/litert-model-init.log; then
+            if grep -q "Loaded 'models/resistor_segmenter_ppliteseg.tflite.enc' via Google Play services LiteRT" /tmp/litert-model-init.log &&
+               grep -q "Loaded 'models/resistor_bandnet.tflite.enc' via Google Play services LiteRT" /tmp/litert-model-init.log; then
               success=1
               break
             fi
