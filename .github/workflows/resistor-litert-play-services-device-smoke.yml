@@ -1,4 +1,4 @@
-name: Smoke-test Resistor LiteRT on Google APIs emulator
+name: Smoke-test Resistor LiteRT fallback on Google APIs emulator
 on:
   push:
     paths:
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/resistor-scanner-android
-          ref: feat/play-services-litert-mobile1d
+          ref: fix/litert-system-model-fallback
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-java@v4
@@ -46,9 +46,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
             chmod +x gradlew
-            ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest \
-              -Pandroid.testInstrumentationRunnerArguments.class=at.austriao.resistorscanner.ModelContractInstrumentedTest,at.austriao.resistorscanner.BandNetParityInstrumentedTest,at.austriao.resistorscanner.SegmenterParityInstrumentedTest \
-              -x :app:checkDebugAarMetadata -x :app:checkDebugAndroidTestAarMetadata
+            ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=at.austriao.resistorscanner.ModelContractInstrumentedTest -x :app:checkDebugAarMetadata -x :app:checkDebugAndroidTestAarMetadata
       - name: Upload on-emulator instrumentation reports
         if: always()
         uses: actions/upload-artifact@v4
