@@ -1,0 +1,108 @@
+name: Resistor Scanner minified LiteRT release QA APK
+on:
+  push:
+    paths:
+      - .github/workflows/resistor-minified-runtime-qa.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  r8-release-equivalent:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: fix/litert-system-model-fallback
+          path: scanner
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up installed Android SDK, using API 36 only if API 37 is unavailable
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          if ! "$sdkmanager" --channel=3 "platforms;android-37" "build-tools;36.0.0" >/dev/null; then
+            "$sdkmanager" "platforms;android-36" "build-tools;36.0.0" >/dev/null
+            sed -i 's/compileSdk = 37/compileSdk = 36/; s/targetSdk = 37/targetSdk = 36/' scanner/app/build.gradle.kts
+            echo "CI_API36_FALLBACK=true" >> "$GITHUB_ENV"
+          fi
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+      - name: Add test-only QA build variant identical to minified release and debug-key signed
+        working-directory: scanner
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("app/build.gradle.kts")
+          s = p.read_text()
+          anchor = '    buildFeatures {'
+          assert s.count(anchor) == 1
+          s = s.replace(anchor, '''    buildTypes {
+              create("qaRelease") {
+                  initWith(getByName("release"))
+                  // Preserve all R8 minification and release runtime behavior.
+                  // Install beside Play app without overwriting its user data.
+                  applicationIdSuffix = ".qa"
+                  versionNameSuffix = "-qa-r8"
+                  isMinifyEnabled = true
+                  isDebuggable = false
+                  signingConfig = signingConfigs.getByName("debug")
+                  matchingFallbacks += listOf("release")
+              }
+          }
+          
+          ''' + anchor)
+          p.write_text(s)
+          PY
+      - name: Build signed R8 minified QA APK with the actual two encrypted models
+        shell: bash
+        working-directory: scanner
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          args=()
+          if [ "${CI_API36_FALLBACK:-false}" = true ]; then
+            args+=(-x :app:checkQaReleaseAarMetadata)
+          fi
+          ./gradlew --no-daemon --stacktrace :app:assembleQaRelease "${args[@]}"
+      - name: Verify model authenticity and production-like R8 output
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q cryptography
+          apk=scanner/app/build/outputs/apk/qaRelease/app-qaRelease.apk
+          test -s "$apk"
+          python scanner/tools/verify_packaged_models.py "$apk"
+          test -s scanner/app/build/outputs/mapping/qaRelease/mapping.txt
+          echo "Release-like R8 mapping exists"
+          echo "QA_APK_SHA256=$(sha256sum "$apk")"
+          ls -lh "$apk"
+          cp "$apk" resistor-scanner-r8-litert-fix-qa.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: resistor-scanner-r8-litert-fix-qa
+          path: resistor-scanner-r8-litert-fix-qa.apk
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 0
+      - name: Publish test APK as a prerelease for direct download
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="resistor-scanner-r8-litert-fix-qa-20261018"
+          body="Test-only, R8-minified release-equivalent variant of resistor-scanner-android PR #24. Signed with debug key, application ID suffix .qa so it coexists with the Play app. Uses actual encrypted PP-LiteSeg and BandNet V2 models. This build is NOT validated on a physical handset; do not publish to Play. Runner SDK may use checkout-only API36 fallback. Commit: $(git -C scanner rev-parse HEAD)"
+          if gh release view "$tag" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$tag" resistor-scanner-r8-litert-fix-qa.apk --repo Persie0/Playground --clobber
+          else
+            gh release create "$tag" resistor-scanner-r8-litert-fix-qa.apk --repo Persie0/Playground --title "Resistor Scanner R8 LiteRT release QA" --notes "$body" --prerelease
+          fi
