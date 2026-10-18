@@ -1,0 +1,62 @@
+name: Resistor Scanner release lint diagnostic
+on:
+  push:
+    paths:
+      - .github/workflows/resistor-lint-release-diagnostics.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lint-report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: fix/litert-system-model-fallback
+          path: scanner
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install compile SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          "$sdkmanager" --channel=3 "platforms;android-37" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+      - name: Print every lint error, not just the first
+        working-directory: scanner
+        shell: bash
+        run: |
+          set -uo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:lintRelease > /tmp/scanner-lint.log 2>&1
+          result=$?
+          echo "Gradle lint exit status: $result"
+          report="app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt"
+          if [ -f "$report" ]; then
+            echo "===== FULL RELEASE LINT REPORT ====="
+            cat "$report"
+          else
+            echo "===== GRADLE ERROR LOG ====="
+            tail -150 /tmp/scanner-lint.log
+          fi
+          exit "$result"
+      - name: Upload reports for audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-release-lint-report
+          path: |
+            scanner/app/build/reports/lint-results-release.*
+            scanner/app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt
+          if-no-files-found: ignore
+          retention-days: 7
