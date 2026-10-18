@@ -1,5 +1,5 @@
 name: Resistor Scanner Play-services-only LiteRT R8 regression
-# Validate the R8 fix WITHOUT a bundled LiteRT interpreter.
+# Test preservation of GMS LiteRT bridge method getAccelerationConfig under R8, no bundled runtime.
 on:
   push:
     paths:
@@ -56,6 +56,31 @@ jobs:
           fi
           ./gradlew --no-daemon --stacktrace \
             :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest :app:testDebugUnitTest "${args[@]}"
+      - name: Assert getAccelerationConfig survives R8 in release APK
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import sys
+          candidates = [
+              Path("scanner/app/build/outputs/apk/release/app-release-unsigned.apk"),
+              Path("scanner/app/build/outputs/apk/qaRelease/app-qaRelease.apk")
+          ]
+          apk = next((path for path in candidates if path.is_file()), None)
+          if not apk:
+              sys.exit("Missing R8 release APK for dex inspection")
+          with ZipFile(apk) as z:
+              dex_entries = [n for n in z.namelist() if n.startswith("classes") and n.endswith(".dex")]
+              if not dex_entries:
+                  sys.exit("No DEX bytecode in APK")
+              # A compressed DEX entry contains its string pool including method
+              # names, whether a class has been obfuscated or not.
+              has_bridge_method = any(b"getAccelerationConfig" in z.read(n) for n in dex_entries)
+              if not has_bridge_method:
+                  sys.exit("R8 removed/renamed getAccelerationConfig: would reproduce QA NoSuchMethodError")
+              print("PASS: getAccelerationConfig retained in R8-minified APK", apk)
+          PY
       - name: Audit both model assets in APKs
         shell: bash
         run: |
