@@ -28,3 +28,21 @@ This is a **full-resolution production algorithm** comparison, not an extrapolat
 Timed interval includes median and inpaint, but not actual camera acquisition, inference, tracking, collector writes, asynchronous scheduling, background JPEG publication or thermal contention. The numbers are **not a measured end-to-end pipeline FPS gain** or proof the Pi 5 background spike is resolved.
 
 The run artifact traffic-median-fullframe-arm64-results records all individual measurements, process CPU time, per-process peak RSS, and input/output SHA-256 digests. Private source or raw synthetic input arrays are not uploaded. The Actions artifact has seven-day retention.
+
+## Additional high-occlusion stress case: ~60% mask coverage
+
+**Successful run:** https://github.com/Persie0/Playground/actions/runs/39177300495
+
+The [dedicated reproducible harness](traffic_fullframe_masked_median_60pct.py) exercises the **same unmodified historical vs current full production median functions** at 1296 × 972 pixels, 60 frames, 32-row tiles and read-only disk-backed uint8 samples. Each input frame has a moving/rotating random selection of 86 or 87 of 144 equal-sized rectangular grid regions masked, plus a permanently occluded 26 × 26 patch to exercise inpainting. This is intentionally a **synthetic worst-case mask-coverage stress test** rather than real traffic/detector output.
+
+Union of the rectangles was checked pixel by pixel for every one of the 60 frames, including overlap with the permanent patch: average **60.01699%** masked per frame (range **59.722%–60.470%**). This is **per-frame occlusion**, not 60% of the scene permanently occluded across all observations.
+
+| Synthetic scenario | Historical production | Optimized production | Improvement | Exact output |
+| --- | ---: | ---: | ---: | :---: |
+| ~60.017% masked area per frame | **7,990.434 ms** | **1,720.320 ms** | **4.645×** | Yes |
+
+Three isolated subprocess timing repetitions per version, alternating order. The result report confirms the original input memmap was unchanged and final RGB output SHA-256 matched for all runs.
+
+**Important limitations:** hosted ARM64 Neoverse-N2, **not** Raspberry Pi 5; synthetic grid-aligned box sizes and motion, **not** actual LibreYOLO detections. This is a full-median+inpainting function benchmark, not end-to-end camera/inference FPS or sustained thermal validation. Runtime may differ considerably on the Pi.
+
+Numerical results and per-repetition measurements are in the 7-day GitHub Actions artifact [traffic-median-mask60-arm64-results](https://github.com/Persie0/Playground/actions/runs/39177300495/artifacts/12154557817). The source harness and this text remain versioned in the repository.
