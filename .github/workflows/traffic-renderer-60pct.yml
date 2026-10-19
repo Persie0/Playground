@@ -1,0 +1,90 @@
+name: Traffic production heatmap rendering 60% support A/B (ARM64)
+
+on:
+  push:
+    paths:
+      - ".github/workflows/traffic-renderer-60pct.yml"
+      - "benchmarks/traffic_renderer_60pct.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - name: Checkout public Playground harness
+        uses: actions/checkout@v4
+
+      - name: Check private-source read token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          if [ -z "$PRIVATE_TOKEN" ]; then
+            echo "::error::Missing private repository checkout secret."
+            exit 1
+          fi
+
+      - name: Checkout original production implementation
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/traffic-counting-light-main
+          ref: 6436ef9f3dd821570887128bd32a79b28acb1edc
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          lfs: false
+          path: original
+
+      - name: Checkout optimized production implementation
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/traffic-counting-light-main
+          ref: 805ac7fa4d7970f37b56b8e37dab738c923ce795
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          lfs: false
+          path: optimized
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Pi-compatible analysis dependencies
+        run: python -m pip install 'numpy==2.5.1' 'opencv-python-headless==4.13.0.92'
+
+      - name: Record runner hardware
+        run: |
+          mkdir -p results
+          uname -m
+          lscpu | grep -E 'Architecture|CPU\(s\)|Model name'
+          python -c "import numpy, cv2; print('NumPy',numpy.__version__,'OpenCV',cv2.__version__)"
+
+      - name: 60-percent heatmap support production renderer A/B
+        run: |
+          python benchmarks/traffic_renderer_60pct.py \
+            --old original/traffic-counting-edge-detection-master \
+            --new optimized/traffic-counting-edge-detection-master \
+            --output results/traffic-renderer-60pct.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('results/traffic-renderer-60pct.json').read_text())
+          assert report['output_byte_identical']
+          assert 59.8 <= report['geometry']['support_percent'] <= 60.2
+          assert not report['sparse_fast_path_used']
+          print('Covered percent:', round(report['geometry']['support_percent'],3))
+          print('Old:', round(report['original_median_ms'],3),'ms')
+          print('New:', round(report['optimized_median_ms'],3),'ms')
+          print('Speedup:', round(report['speedup'],3),'x')
+          PY
+
+      - name: Archive numeric results only (no proprietary inputs/source)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traffic-renderer-60pct-arm64-results
+          path: results/*.json
+          if-no-files-found: warn
+          retention-days: 7
