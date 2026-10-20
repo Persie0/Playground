@@ -1,0 +1,53 @@
+name: Photo Sphere Android host compile and JPEG regression
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-cleanroom-android-host.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sequential-host-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: playground
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: d194cc555276e0b596be2ac8295c0678860cc499
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: engine
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prove current compatibility JPEG sampling differs from native preference
+        working-directory: engine
+        run: |
+          python3 - <<'PY'
+          import os,pathlib,subprocess
+          p=subprocess.run(["cargo","test","--locked","--test","jpeg_sampling"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+          (pathlib.Path(os.environ["RUNNER_TEMP"])/"jpeg-red.log").write_text(p.stdout)
+          assert p.returncode != 0 and "test result: FAILED" in p.stdout
+          assert "compatibility_jpeg_uses_yuv420_frame_sampling ... FAILED" in p.stdout
+          assert "balanced_jpeg_preserves_existing_yuv444_choice ... ok" in p.stdout
+          print("JPEG RED confirmed: compatibility output still uses 4:4:4 rather than preferred 4:2:0")
+          PY
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+          cache-disabled: true
+      - name: Android unit tests and lint
+        working-directory: engine/android
+        run: python3 ../../playground/scripts/run_private_rust_check.py android-host gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
+      - name: Preserve failure diagnostics privately
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: python3 playground/scripts/preserve_photosphere_diagnostics.py engine android-host
