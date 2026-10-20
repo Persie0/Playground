@@ -13,13 +13,15 @@ def ui():
     adb("shell","uiautomator","dump","/sdcard/photosphere-window.xml")
     return ET.fromstring(adb("shell","cat","/sdcard/photosphere-window.xml"))
 def tap(text):
-    nodes=[n for n in ui().iter("node") if n.attrib.get("text")==text and n.attrib.get("enabled")=="true"]
+    nodes=[n for n in ui().iter("node") if n.attrib.get("text","").casefold()==text.casefold() and n.attrib.get("enabled")=="true"]
     assert nodes,"Missing enabled UI action: "+text
     bounds=re.findall(r"\d+",nodes[0].attrib["bounds"])
     x1,y1,x2,y2=map(int,bounds)
     adb("shell","input","tap",str((x1+x2)//2),str((y1+y2)//2))
 def texts():
     return [n.attrib.get("text","") for n in ui().iter("node")]
+def has_text(label):
+    return any(text.casefold()==label.casefold() for text in texts())
 def wait(predicate,seconds=45):
     deadline=time.monotonic()+seconds
     while time.monotonic()<deadline:
@@ -55,7 +57,7 @@ try:
     adb("emu","sensor","set","magnetic-field","0:0:-50")
     adb("emu","sensor","set","gyroscope","0:0:0")
     adb("shell","am","start","-W","-n",PKG+"/.CaptureActivity")
-    wait(lambda:"Start capture" in texts())
+    wait(lambda:has_text("Start capture"))
     time.sleep(1)
     tap("Start capture")
     first=wait(lambda:count_is(1),60)
@@ -64,7 +66,7 @@ try:
     # Simulate process death with a committed source, then recover through UI.
     adb("shell","am","force-stop",PKG)
     adb("shell","am","start","-W","-n",PKG+"/.CaptureActivity")
-    wait(lambda:"Continue saved capture?" in texts())
+    wait(lambda:has_text("Continue saved capture?"))
     tap("Cancel")
     wait(lambda:any(re.fullmatch(r"1 of \d+ photos",s) for s in texts()))
     screenshot("recovered")
@@ -86,7 +88,7 @@ try:
     report=completed[1]["report"]
     assert image.size==(report["output_width"],report["output_height"])
     assert [layer[1:3] for layer in image.layer]==[(2,2),(1,1),(1,1)]
-    wait(lambda:"Panorama saved" in texts())
+    wait(lambda:has_text("Panorama saved"))
     screenshot("saved")
     summary={"camera_ui_capture":True,"process_death_recovery":True,"undo_and_recapture":True,
         "foreground_render":True,"gallery_publication":True,"original_source_hashes_unchanged":True,
