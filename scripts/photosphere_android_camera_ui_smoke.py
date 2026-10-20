@@ -62,6 +62,8 @@ try:
     tap("Start capture")
     first=wait(lambda:count_is(1),60)
     wait(lambda:any(re.fullmatch(r"1 of \d+ photos",s) for s in texts()))
+    assert first[1].get("coverage_guidance") is True
+    assert any(n.attrib.get("content-desc","").startswith("Next scan,") for n in ui().iter("node")),"Missing persistent next-scan hint"
     screenshot("capture")
     # Simulate process death with a committed source, then recover through UI.
     adb("shell","am","force-stop",PKG)
@@ -78,7 +80,17 @@ try:
     wait(lambda:any(re.fullmatch(r"1 of \d+ photos",s) for s in texts()))
     before=source_hashes(second[1])
     tap("Save panorama")
-    completed=wait(lambda:(lambda v:v if v and v[1]["status"]=="complete" else None)(read_state()),240)
+    notification_samples=[]
+    def finished():
+        notifications=adb("shell","dumpsys","notification","--noredact")
+        lines=[line.strip() for line in notifications.splitlines() if "android.text=" in line or "android.progress=" in line or "android.progressMax=" in line]
+        notification_samples.extend(lines)
+        value=read_state()
+        return value if value and value[1]["status"]=="complete" else None
+    completed=wait(finished,240)
+    (pathlib.Path(os.environ["RUNNER_TEMP"])/"stitch-notification.log").write_text("\n".join(notification_samples))
+    assert any(re.search(r"Blending.*[0-9]+%",line) for line in notification_samples),"No measured blending progress appeared in notification"
+    assert completed[1]["report"]["android_render"]["reused_capture_session"] is True,"Save rebuilt the live native session"
     assert source_hashes(completed[1])==before,"Rendering changed source JPEG bytes"
     assert completed[1]["output_uri"].startswith("content://media/")
     path="files/captures/"+completed[0]+"/panorama.jpg"
@@ -91,7 +103,7 @@ try:
     wait(lambda:has_text("Panorama saved"))
     screenshot("saved")
     summary={"camera_ui_capture":True,"process_death_recovery":True,"undo_and_recapture":True,
-        "foreground_render":True,"gallery_publication":True,"original_source_hashes_unchanged":True,
+        "foreground_render":True,"native_session_reused":True,"notification_measured_progress":True,"coverage_guidance":True,"edge_guidance_accessible":True,"gallery_publication":True,"original_source_hashes_unchanged":True,
         "decoded_dimensions":list(image.size),"jpeg_sampling":"4:2:0",
         "source_count":len(completed[1]["sources"]),"capture_id":completed[0]}
     (root/"docs/validation/android-camera-ui.json").write_text(json.dumps(summary,indent=2)+"\n")
@@ -107,3 +119,4 @@ finally:
         (temp/"android-ui-packages.log").write_text(adb("shell","pm","list","packages",PKG))
     except Exception:
         pass
+
