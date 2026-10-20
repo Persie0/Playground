@@ -1,0 +1,87 @@
+name: Build confidence-preserving PP-LiteSeg LiteRT
+on:
+  push:
+    paths:
+      - .github/workflows/resistor-ppliteseg-probability.yml
+      - resistor_models/convert_ppliteseg_probability.py
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  probability:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install converter and comparison runtimes
+        run: python -m pip install -q 'onnx2tf[tensorflow]==2.6.9' onnxruntime onnx onnxsim numpy
+      - name: Retrieve verified production PP-LiteSeg weights
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-all-errors "https://github.com/Persie0/resistor_model/releases/download/v5/resistor-segmentation-pp-liteseg.zip" -o ppliteseg-v5.zip
+          echo "2ebd7d34e1ffda5549634f78f119c18d9203abdbeab875252e07baa94e956476  ppliteseg-v5.zip" | sha256sum -c -
+          mkdir -p model
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import shutil
+          name='resistor_segmenter_ppliteseg.onnx'
+          with ZipFile('ppliteseg-v5.zip') as z:
+            matches=[i for i in z.infolist() if Path(i.filename).name==name and not i.is_dir()]
+            assert len(matches)==1, (name,matches)
+            with z.open(matches[0]) as src,(Path('model')/name).open('wb') as dst:shutil.copyfileobj(src,dst)
+          PY
+      - name: Replace categorical ArgMax output with foreground probabilities
+        run: python resistor_models/convert_ppliteseg_probability.py --source model/resistor_segmenter_ppliteseg.onnx --out model
+      - name: Convert probability model to TFLite builtins FP32
+        shell: bash
+        run: |
+          set -euo pipefail
+          onnx2tf -i model/segmenter_probability.onnx -o model/rebuilt -b 1 -tb flatbuffer_direct
+          result="$(find model/rebuilt -name '*float32.tflite' -type f -print -quit)"
+          test -n "$result"
+          cp "$result" model/resistor_segmenter_ppliteseg_probability.tflite
+      - name: Verify segmentation probabilities and original categorical mask
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys,json,hashlib
+          from pathlib import Path
+          sys.path.insert(0,'resistor_models')
+          from convert_ppliteseg_probability import verify_tflite
+          root=Path('model')
+          original=root/'resistor_segmenter_ppliteseg.onnx'
+          probability=root/'segmenter_probability.onnx'
+          tflite=root/'resistor_segmenter_ppliteseg_probability.tflite'
+          layout,comparisons=verify_tflite(original,probability,tflite)
+          sha=hashlib.sha256(tflite.read_bytes()).hexdigest()
+          report=dict(source_archive_sha256='2ebd7d34e1ffda5549634f78f119c18d9203abdbeab875252e07baa94e956476',
+              source_output='int32_argmax',new_output='float32_foreground_probability',
+              tensor_shape=list(layout),tflite_sha256=sha,checks=comparisons)
+          (root/'probability-parity-report.json').write_text(json.dumps(report,indent=2)+'\n')
+          print('VERIFIED_MODEL_SHA256',sha,flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: resistor-segmenter-ppliteseg-probability-verified
+          path: |
+            model/resistor_segmenter_ppliteseg_probability.tflite
+            model/probability-parity-report.json
+          retention-days: 14
+      - name: Publish verified candidate only after all parity checks pass
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='resistor-ppliteseg-probability-20261020'
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "PP-LiteSeg probability output (Android confidence fix)" --notes "Same verified 512px PP-LiteSeg weights, Float32 foreground probability instead of INT32 ArgMax. ONNX and LiteRT parity verified. Android on-device calibration still required."
+          fi
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" model/resistor_segmenter_ppliteseg_probability.tflite model/probability-parity-report.json --clobber
