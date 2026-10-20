@@ -1,0 +1,67 @@
+name: Photo Sphere Android stale-session regression proof
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-cleanroom-recovery-red.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android-recovery-red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: playground
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 3ffadc37e442b15aa0b0c377a39558fc933154c3
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: engine
+          persist-credentials: false
+      - name: Reuse already verified native libraries without rebuilding Rust
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "capture-host-6e0fc91056f9" --repo Persie0/PhotosphereCleanroom --pattern PhotoSphere-preview.apk --dir "$RUNNER_TEMP/native-base"
+          python3 - <<'PY'
+          import os,pathlib,zipfile
+          with zipfile.ZipFile(pathlib.Path(os.environ["RUNNER_TEMP"])/"native-base/PhotoSphere-preview.apk") as apk:
+              for abi in ["arm64-v8a","x86_64"]:
+                  out=pathlib.Path("engine/android/app/src/main/jniLibs")/abi/"libphotosphere.so"
+                  out.parent.mkdir(parents=True,exist_ok=True)
+                  out.write_bytes(apk.read("lib/"+abi+"/libphotosphere.so"))
+          print("Reusing verified arm64/x86_64 native libraries")
+          PY
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+          cache-disabled: true
+      - name: Compile regression test APKs
+        working-directory: engine/android
+        run: python3 ../../playground/scripts/run_private_rust_check.py android-recovery-apk gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Enable emulator KVM access
+        run: sudo chmod 666 /dev/kvm
+      - name: Demonstrate stale-session behavioral failures
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -memory 3072
+          script: python3 playground/scripts/photosphere_recovery_red.py
+      - name: Preserve failure diagnostics privately
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: python3 playground/scripts/preserve_photosphere_diagnostics.py engine recovery-red
