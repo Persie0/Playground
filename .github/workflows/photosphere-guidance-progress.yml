@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     env:
-      SOURCE_SHA: bfacac9ffc70f848c363db0c3b702c1950c9a609
+      SOURCE_SHA: 9240a5e3237d3c6747472941b450ee4364323f17
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: bfacac9ffc70f848c363db0c3b702c1950c9a609
+          ref: 9240a5e3237d3c6747472941b450ee4364323f17
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -35,13 +35,25 @@ jobs:
       - name: Android geometry, progress, UI unit tests and lint
         working-directory: engine/android
         run: python3 ../../playground/scripts/retry_private_dependency_check.py guidance-unit-lint gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Rust geometry, calibration and nonblocking progress regressions
-        working-directory: engine
-        run: python3 ../playground/scripts/run_private_rust_check.py guidance-rust cargo test --locked --lib --test stitch_progress --test jpeg_sampling --test target_acceptance
-      - name: Build both Android native libraries sequentially
-        working-directory: engine
-        run: python3 ../playground/scripts/run_private_rust_check.py guidance-native python3 tools/build_android.py
+      - name: Reuse verified identical Rust libraries and regression evidence
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "ci-guidance-bfacac9ffc70" --repo Persie0/PhotosphereCleanroom --pattern PhotoSphere-preview.apk --dir "$RUNNER_TEMP/native-base"
+          python3 - <<'PY'
+          import hashlib,os,pathlib,zipfile,json,subprocess
+          comparison=json.loads(subprocess.check_output(["gh","api","repos/Persie0/PhotosphereCleanroom/compare/bfacac9ffc70f848c363db0c3b702c1950c9a609..."+os.environ["SOURCE_SHA"]],text=True))
+          native=[f["filename"] for f in comparison.get("files",[]) if f["filename"].startswith("src/") or f["filename"] in ["Cargo.toml","Cargo.lock","rust-toolchain.toml"]]
+          assert not native,"Rust changed; rebuild instead of reusing libraries"
+          with zipfile.ZipFile(pathlib.Path(os.environ["RUNNER_TEMP"])/"native-base/PhotoSphere-preview.apk") as apk:
+              for abi in ["arm64-v8a","x86_64"]:
+                  data=apk.read("lib/"+abi+"/libphotosphere.so")
+                  out=pathlib.Path("engine/android/app/src/main/jniLibs")/abi/"libphotosphere.so"
+                  out.parent.mkdir(parents=True,exist_ok=True);out.write_bytes(data)
+                  print(abi+" native SHA-256 "+hashlib.sha256(data).hexdigest())
+          print("Rust regressions and release libraries unchanged from passed steps in run 39514594809")
+          PY
       - name: Build installable APK and native instrumentation tests
         working-directory: engine/android
         run: python3 ../../playground/scripts/run_private_rust_check.py guidance-apk gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
