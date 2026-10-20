@@ -1,0 +1,70 @@
+name: Build and validate native iOS Core ML Resistor Segmenter
+on:
+  push:
+    paths:
+      - .github/workflows/resistor-ppliteseg-coreml-ios.yml
+      - resistor_models/convert_ppliteseg_coreml.py
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  native-coreml:
+    runs-on: macos-15
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install ONNX, PyTorch and Core ML conversion tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'numpy<2' 'torch==2.5.1' 'torchvision==0.20.1' onnx onnxruntime onnx2torch coremltools
+      - name: Download original verified 512x512 segmenter weights
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-all-errors "https://github.com/Persie0/resistor_model/releases/download/v5/resistor-segmentation-pp-liteseg.zip" -o ppliteseg-v5.zip
+          echo "2ebd7d34e1ffda5549634f78f119c18d9203abdbeab875252e07baa94e956476  ppliteseg-v5.zip" | shasum -a 256 -c -
+          mkdir -p model
+          python - <<'PY'
+          import shutil
+          from pathlib import Path
+          from zipfile import ZipFile
+          with ZipFile('ppliteseg-v5.zip') as z:
+            found=[i for i in z.infolist() if Path(i.filename).name=='resistor_segmenter_ppliteseg.onnx' and not i.is_dir()]
+            assert len(found)==1
+            with z.open(found[0]) as src,open('model/resistor_segmenter_ppliteseg.onnx','wb') as dst:shutil.copyfileobj(src,dst)
+          PY
+      - name: Remove hard-coded ArgMax and expose real probabilities from same weights
+        run: python resistor_models/convert_ppliteseg_probability.py --source model/resistor_segmenter_ppliteseg.onnx --out model
+      - name: Convert via PyTorch to native Core ML FP16 and verify actual macOS inference
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: python resistor_models/convert_ppliteseg_coreml.py --onnx model/segmenter_probability.onnx --out model
+      - name: Bundle verified model for Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd model
+          zip -qr resistor_segmenter_ppliteseg_coreml.zip resistor_segmenter_ppliteseg.mlpackage coreml-parity-report.json
+          shasum -a 256 resistor_segmenter_ppliteseg_coreml.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ppliteseg-coreml-fp16
+          path: |
+            model/resistor_segmenter_ppliteseg_coreml.zip
+            model/coreml-parity-report.json
+          retention-days: 14
+      - name: Publish verified native model only after inference parity checks
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='resistor-ppliteseg-coreml-20261020'
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "PP-LiteSeg STDC2 512px FP16 native Core ML" --notes "Converted current Android PP-LiteSeg weights from source ONNX to native Core ML ML Program via PyTorch. CPU parity verified against original foreground probabilities. Hardware acceleration on physical iPhone remains to be measured."
+          fi
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" model/resistor_segmenter_ppliteseg_coreml.zip model/coreml-parity-report.json --clobber
