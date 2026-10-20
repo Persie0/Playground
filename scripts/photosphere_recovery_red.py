@@ -2,7 +2,7 @@
 """Require real Android assertion failures for the stale-store baseline."""
 import os,pathlib,subprocess,xml.etree.ElementTree as ET
 os.chdir(pathlib.Path(__file__).resolve().parents[2]/"engine/android")
-tests=["staleStoreCannotOverwriteCommittedSource","staleUndoCannotDeleteNewlyCommittedPrefix"]
+tests=["staleStoreCannotOverwriteCommittedSource","staleUndoCannotDeleteNewlyCommittedPrefix","sourceExposureMetadataFeedsNextMotionGateAndUndoRestoresIt"]
 selection=",".join("at.persie0.photosphere.NativeCaptureFlowTest#"+test for test in tests)
 command=["gradle","--no-daemon",":app:connectedDebugAndroidTest","-Pandroid.testInstrumentationRunnerArguments.class="+selection]
 p=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
@@ -15,4 +15,4 @@ for file in pathlib.Path("app/build/outputs/androidTest-results/connected").glob
         if case.find("failure") is not None or case.find("error") is not None:
             failed.add(case.attrib["name"])
 assert set(tests)<=failed,"Expected stale-store assertion failures were not observed; inspect private diagnostics"
-print("Recovery RED confirmed: stale save and stale undo both fail on baseline")
+print("Recovery RED confirmed: stale save, stale undo and exposure metadata assertions fail on baseline")
