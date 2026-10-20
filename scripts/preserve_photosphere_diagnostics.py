@@ -10,6 +10,12 @@ dest = root / "docs/validation/runs" / run
 dest.mkdir(parents=True,exist_ok=True)
 for path in pathlib.Path(os.environ["RUNNER_TEMP"]).glob("*.log"):
     (dest / (path.stem+".txt")).write_text("\n".join(path.read_text(errors="replace").splitlines()[-1500:])+"\n")
+screens=root/"docs/validation/android-screens"
+if screens.is_dir():
+    for path in screens.glob("*.png"):
+        out=dest/"screens"/path.name
+        out.parent.mkdir(parents=True,exist_ok=True)
+        out.write_bytes(path.read_bytes())
 for name in ["lint-results-debug.xml"]:
     path=root/"android/app/build/reports"/name
     if path.exists(): (dest/name).write_bytes(path.read_bytes())
