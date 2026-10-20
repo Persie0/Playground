@@ -1,0 +1,43 @@
+name: Inspect current resistor segmenter ONNX graph
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/resistor-segmenter-probability-inspect.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -q onnx
+      - name: Inspect actual PP-LiteSeg graph for probability-compatible output
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 "https://github.com/Persie0/resistor_model/releases/download/v5/resistor-segmentation-pp-liteseg.zip" -o src.zip
+          echo "2ebd7d34e1ffda5549634f78f119c18d9203abdbeab875252e07baa94e956476  src.zip" | sha256sum -c -
+          python - <<'PY'
+          from zipfile import ZipFile
+          from pathlib import Path
+          import onnx
+          with ZipFile('src.zip') as z:
+            parts=[i for i in z.infolist() if Path(i.filename).name == 'resistor_segmenter_ppliteseg.onnx' and not i.is_dir()]
+            assert len(parts)==1
+            with z.open(parts[0]) as src,open('segmenter.onnx','wb') as dst:
+              import shutil;shutil.copyfileobj(src,dst)
+          m=onnx.load('segmenter.onnx')
+          producers={x:node for node in m.graph.node for x in node.output}
+          for out in m.graph.output:
+            print('OUTPUT',out.name,[d.dim_value for d in out.type.tensor_type.shape.dim],flush=True)
+            name=out.name
+            for depth in range(8):
+              if name not in producers:break
+              n=producers[name]
+              print('  DEPTH',depth,'TYPE',n.op_type,'IN',list(n.input),'OUT',list(n.output),'ATTR',[(a.name,str(onnx.helper.get_attribute_value(a))[:250]) for a in n.attribute],flush=True)
+              name=n.input[0] if n.input else ''
+          print('OPS', sorted({n.op_type for n in m.graph.node}),flush=True)
+          PY
