@@ -7,7 +7,37 @@ on:
 permissions:
   contents: read
 jobs:
+  native-mapping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fetch and verify original research input
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" "https://github.com/Persie0/decompile/releases/download/pho/com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk" -o camera.apk
+          echo "9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  camera.apk" | sha256sum -c -
+          unzip -p camera.apk lib/arm64-v8a/liblightcycle.so > liblightcycle.so
+          echo "878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  liblightcycle.so" | sha256sum -c -
+      - name: Install pinned static decoders
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.6 pyelftools==0.32
+      - name: Resolve exact global accesses and ELF-owned method boundaries
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 scripts/photosphere_manager_163.py | tee out/manager-native.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: photosphere-mapping-163
+          path: out/
+          retention-days: 7
   verify-and-prepare:
+    needs: native-mapping
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
@@ -68,25 +98,18 @@ jobs:
           python3 tools/apply_metadata_contract.py
           rustfmt --edition 2021 src/java_metadata.rs examples/stitch_session.rs tests/java_metadata_compat.rs
           rustfmt --edition 2021 --check src/java_metadata.rs examples/stitch_session.rs tests/java_metadata_compat.rs
-      - name: Run default, portable and JNI host suites sequentially
+      - name: Default engine and CLI tests
         working-directory: cleanroom
-        run: |
-          set -euo pipefail
-          check_private() {
-            label="$1"
-            shift
-            if "$@" > "$RUNNER_TEMP/$label.log" 2>&1; then
-              echo "$label passed"
-              rg '^test result:' "$RUNNER_TEMP/$label.log" || true
-            else
-              echo "$label failed; complete diagnostics stay in the private repository."
-              exit 1
-            fi
-          }
-          check_private default cargo test --locked --all-targets
-          check_private portable cargo test --locked --all-targets --no-default-features
-          check_private jni-host cargo test --locked --all-targets --features android-jni
-          check_private release cargo build --locked --release
+        run: python3 ../playground/scripts/run_private_rust_check.py default cargo test --locked --all-targets
+      - name: Portable engine and CLI tests
+        working-directory: cleanroom
+        run: python3 ../playground/scripts/run_private_rust_check.py portable cargo test --locked --all-targets --no-default-features
+      - name: Android JNI host engine and CLI tests
+        working-directory: cleanroom
+        run: python3 ../playground/scripts/run_private_rust_check.py jni-host cargo test --locked --all-targets --features android-jni
+      - name: Build release library
+        working-directory: cleanroom
+        run: python3 ../playground/scripts/run_private_rust_check.py release cargo build --locked --release
       - name: Check Android and iOS Rust targets sequentially
         working-directory: cleanroom
         run: |
@@ -138,7 +161,7 @@ jobs:
             echo "CLI unexpectedly overwrote an existing panorama."
             exit 1
           fi
-          rg -q "output already exists" "$RUNNER_TEMP/cli-repeat.log"
+          python3 -c 'import os,pathlib; assert "output already exists" in (pathlib.Path(os.environ["RUNNER_TEMP"])/"cli-repeat.log").read_text()'
           echo "CLI existing-output refusal passed."
       - name: Record evidence and push tested review branch
         working-directory: cleanroom
