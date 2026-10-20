@@ -1,0 +1,52 @@
+name: ImagePdfScaler save menu and EULA
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/imagepdfscaler-save-and-eula.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Ensure checkout token
+        env:
+          APP_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$APP_TOKEN"
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/ImagePdfScaler
+          ref: feat/combined-save-noise-style-eula-20261020
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Static analysis
+        working-directory: app
+        run: flutter analyze --no-pub
+      - name: EULA, menu and storage regression tests
+        working-directory: app
+        run: flutter test --no-pub --reporter expanded test/eula_gate_test.dart test/editor_page_logic_test.dart test/project_storage_service_test.dart
+      - name: Full Flutter suite
+        working-directory: app
+        run: flutter test --no-pub
+      - name: Install Android NDK
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"; fi
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          set -o pipefail
+          "$SDKMANAGER" --install "ndk;29.0.13599879"
+      - name: Build Android debug APK
+        working-directory: app
+        run: flutter build apk --debug --no-pub
