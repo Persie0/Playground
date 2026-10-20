@@ -101,5 +101,7 @@ finally:
         (temp/"android-ui-window.log").write_text(ET.tostring(ui(),encoding="unicode"))
         (temp/"android-ui-state.log").write_text(json.dumps(read_state(),indent=2))
         (temp/"android-ui-logcat.log").write_text(adb("logcat","-d","-t","1000"))
+        (temp/"android-ui-sensors.log").write_text(adb("shell","dumpsys","sensorservice"))
+        (temp/"android-ui-packages.log").write_text(adb("shell","pm","list","packages",PKG))
     except Exception:
         pass
