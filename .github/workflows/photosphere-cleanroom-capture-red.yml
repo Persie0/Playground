@@ -1,0 +1,37 @@
+name: Photo Sphere nearest-target regression proof
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-cleanroom-capture-red.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capture-red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: d9a5f3e6759bf0e14dec7f65d5ba4850b8213f6a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: engine
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Require behavioral regression failures
+        working-directory: engine
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, subprocess
+          p = subprocess.run(["cargo","test","--locked","--no-default-features","--test","target_acceptance"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+          log = pathlib.Path(os.environ["RUNNER_TEMP"]) / "capture-red.log"
+          log.write_text(p.stdout)
+          assert p.returncode != 0, "Regressions unexpectedly passed baseline"
+          assert "test result: FAILED" in p.stdout, "Build failed before behavioral tests"
+          for name in ["nearest_captured_target_blocks_nearby_active_capture","nearest_inactive_target_is_still_reported_in_range"]:
+              assert name + " ... FAILED" in p.stdout
+          print("RED confirmed: original implementation violates captured/inactive nearest-target behavior")
+          for line in p.stdout.splitlines():
+              if line.startswith("test result:"): print(line)
+          PY
