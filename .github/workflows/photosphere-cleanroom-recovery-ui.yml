@@ -1,0 +1,98 @@
+name: Photo Sphere Android recovery and actual camera UI validation
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-cleanroom-recovery-ui.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  recovery-and-camera-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SOURCE_SHA: d1b9286ff02263ca01590d2a08b31ff815960f5f
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: playground
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: d1b9286ff02263ca01590d2a08b31ff815960f5f
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: engine
+          persist-credentials: false
+      - name: Reuse verified unchanged Rust libraries
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "capture-host-6e0fc91056f9" --repo Persie0/PhotosphereCleanroom --pattern PhotoSphere-preview.apk --dir "$RUNNER_TEMP/native-base"
+          python3 - <<'PY'
+          import hashlib,os,pathlib,zipfile,json,subprocess
+          comparison=json.loads(subprocess.check_output(["gh","api","repos/Persie0/PhotosphereCleanroom/compare/6e0fc91056f9facf04e114700c324d4fd2e57847..."+os.environ["SOURCE_SHA"]],text=True))
+          native=[f["filename"] for f in comparison.get("files",[]) if f["filename"].startswith("src/") or f["filename"] in ["Cargo.toml","Cargo.lock","rust-toolchain.toml"]]
+          assert not native,"Native source changed; rebuild it instead of reusing libraries"
+          with zipfile.ZipFile(pathlib.Path(os.environ["RUNNER_TEMP"])/"native-base/PhotoSphere-preview.apk") as apk:
+              for abi in ["arm64-v8a","x86_64"]:
+                  data=apk.read("lib/"+abi+"/libphotosphere.so")
+                  out=pathlib.Path("engine/android/app/src/main/jniLibs")/abi/"libphotosphere.so"
+                  out.parent.mkdir(parents=True,exist_ok=True); out.write_bytes(data)
+                  print(abi+" native SHA-256 "+hashlib.sha256(data).hexdigest())
+          PY
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+          cache-disabled: true
+      - name: Unit tests, lint and installable packages
+        working-directory: engine/android
+        run: python3 ../../playground/scripts/run_private_rust_check.py recovery-build gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Install screenshot validation dependency
+        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+      - name: Enable emulator KVM access
+        run: sudo chmod 666 /dev/kvm
+      - name: Android native recovery and actual camera UI
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -memory 3072
+          script: |
+            python3 playground/scripts/run_photosphere_android_check.py recovery-emulator :app:connectedDebugAndroidTest
+            python3 playground/scripts/run_private_rust_check.py recovery-camera-ui python3 playground/scripts/photosphere_android_camera_ui_smoke.py
+      - name: Record Android recovery and camera validation evidence
+        run: python3 playground/scripts/record_photosphere_recovery_validation.py
+      - name: Keep installable preview in private repository
+        working-directory: engine
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/PhotoSphere-preview.apk"
+          gh release create "capture-recovery-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --prerelease --title "Photo Sphere Android capture preview" --notes-file docs/validation/2026-10-20-android-recovery.md
+      - name: Save private validation evidence
+        working-directory: engine
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/validation
+          git commit -m "ci: record Android stale-writer and real camera UI validation"
+          git push origin HEAD:refs/heads/fix/android-capture-recovery
+      - name: Preserve failure diagnostics privately
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: python3 playground/scripts/preserve_photosphere_diagnostics.py engine recovery-ui
