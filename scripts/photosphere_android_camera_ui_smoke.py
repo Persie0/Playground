@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Exercise the packaged app through its camera UI on a disposable emulator."""
-import hashlib, io, json, os, pathlib, re, subprocess, time, xml.etree.ElementTree as ET
+import hashlib, io, json, math, os, pathlib, re, subprocess, time, xml.etree.ElementTree as ET
 from PIL import Image
 PKG="at.persie0.photosphere"
 root=pathlib.Path("engine")
@@ -78,7 +78,18 @@ try:
     tap("Resume")
     second=wait(lambda:count_is(1),60)
     wait(lambda:any(re.fullmatch(r"1 of \d+ photos",s) for s in texts()))
-    before=source_hashes(second[1])
+    # Turn to the next equator target: exercise a real two-photo multiband job.
+    world_h=second[1]["guidance_horizontal_fov_deg"]
+    equator_count=max(1,int(360.0/(world_h-7.0)/0.6))
+    yaw=math.radians(360.0/equator_count)
+    adb("emu","sensor","set","magnetic-field",f"{-50*math.sin(yaw)}:0:{-50*math.cos(yaw)}")
+    adb("emu","sensor","set","gyroscope",f"0:{yaw}:0")
+    time.sleep(1)
+    adb("emu","sensor","set","gyroscope","0:0:0")
+    third=wait(lambda:count_is(2),90)
+    wait(lambda:any(re.fullmatch(r"2 of \d+ photos",s) for s in texts()))
+    screenshot("two-photo-capture")
+    before=source_hashes(third[1])
     tap("Save panorama")
     notification_samples=[]
     def finished():
