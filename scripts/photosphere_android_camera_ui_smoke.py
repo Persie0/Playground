@@ -93,4 +93,11 @@ try:
     (root/"docs/validation/android-camera-ui.json").write_text(json.dumps(summary,indent=2)+"\n")
     print("Packaged camera UI capture/recovery/undo/render/gallery smoke passed")
 finally:
-    screenshot("last-state")
+    try:
+        screenshot("last-state")
+        temp=pathlib.Path(os.environ["RUNNER_TEMP"])
+        (temp/"android-ui-window.log").write_text(ET.tostring(ui(),encoding="unicode"))
+        (temp/"android-ui-state.log").write_text(json.dumps(read_state(),indent=2))
+        (temp/"android-ui-logcat.log").write_text(adb("logcat","-d","-t","1000"))
+    except Exception:
+        pass
