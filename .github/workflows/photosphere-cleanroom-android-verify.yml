@@ -1,0 +1,116 @@
+name: Photo Sphere Android capture end-to-end validation
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-cleanroom-android-verify.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sequential-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      SOURCE_SHA: 6e0fc91056f9facf04e114700c324d4fd2e57847
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: playground
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 6e0fc91056f9facf04e114700c324d4fd2e57847
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: engine
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: JPEG sampling and native target regressions
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py capture-regressions cargo test --locked --test jpeg_sampling --test target_acceptance
+      - name: Full default suite
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py android-default cargo test --locked --all-targets
+      - name: Full portable suite
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py android-portable cargo test --locked --all-targets --no-default-features
+      - name: Full JNI host suite
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py android-jni cargo test --locked --all-targets --features android-jni
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+          cache-disabled: true
+      - name: Android unit tests and lint
+        working-directory: engine/android
+        run: python3 ../../playground/scripts/run_private_rust_check.py android-unit-lint gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
+      - name: Build Android native libraries sequentially
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py android-native python3 tools/build_android.py
+      - name: Build installable APK and instrumentation package
+        working-directory: engine/android
+        run: python3 ../../playground/scripts/run_private_rust_check.py android-apk gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Verify native 16 KB ELF alignment
+        working-directory: engine
+        run: |
+          python3 - <<'PY'
+          import pathlib,subprocess
+          for abi in ["arm64-v8a","x86_64"]:
+              path=pathlib.Path("android/app/src/main/jniLibs")/abi/"libphotosphere.so"
+              output=subprocess.check_output(["readelf","-lW",str(path)],text=True)
+              segments=[line for line in output.splitlines() if line.strip().startswith("LOAD")]
+              assert segments and all(int(line.split()[-1],16)>=16384 for line in segments)
+              print(abi+" 16 KB ELF alignment passed")
+          PY
+      - name: Enable emulator KVM access
+        run: sudo chmod 666 /dev/kvm
+      - name: Run native capture persistence and gallery tests on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -memory 3072
+          script: |
+            cd engine/android
+            python3 ../../playground/scripts/run_private_rust_check.py android-emulator gradle --no-daemon :app:connectedDebugAndroidTest
+      - name: Record validation and generate standard Gradle wrapper
+        working-directory: engine
+        run: |
+          python3 ../playground/scripts/run_private_rust_check.py android-wrapper gradle --no-daemon -p android wrapper --gradle-version 8.9 --distribution-type bin
+          python3 ../playground/scripts/run_private_rust_check.py android-wrapper-version android/gradlew -p android --version
+          python3 ../playground/scripts/record_photosphere_capture_validation.py
+      - name: Save tested wrapper and validation evidence
+        working-directory: engine
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git diff --check
+          gh auth setup-git
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add android/gradlew android/gradlew.bat android/gradle/wrapper docs/validation
+          git commit -m "ci: record verified Android capture build and Gradle wrapper"
+          git push origin HEAD:refs/heads/feat/gcam-rust-baseline
+      - name: Keep installable preview in private repository
+        working-directory: engine
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/PhotoSphere-preview.apk"
+          gh release create "capture-host-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --prerelease --title "Photo Sphere Android capture preview" --notes-file docs/validation/2026-10-20-android-capture.md
+      - name: Preserve failure diagnostics privately
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: python3 playground/scripts/preserve_photosphere_diagnostics.py engine android-capture
