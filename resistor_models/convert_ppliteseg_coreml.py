@@ -18,7 +18,37 @@ def main():
     a=p.parse_args()
     a.out.mkdir(parents=True,exist_ok=True)
     torch.set_grad_enabled(False)
-    net=onnx_to_torch(onnx.load(str(a.onnx))).eval()
+    onnx_model=onnx.load(str(a.onnx))
+    # Paddle2ONNX encodes "same" padding with auto_pad=SAME_UPPER.
+    # onnx2torch cannot import auto_pad, so replace with mathematically
+    # equivalent explicit Conv pads using statically inferred feature shapes.
+    inferred=onnx.shape_inference.infer_shapes(onnx_model)
+    shapes={}
+    for info in list(inferred.graph.input)+list(inferred.graph.value_info):
+        dims=[int(d.dim_value) for d in info.type.tensor_type.shape.dim]
+        if all(d>0 for d in dims):shapes[info.name]=dims
+    fixed=0
+    for node in onnx_model.graph.node:
+        if node.op_type!='Conv':continue
+        pad=next((attr for attr in node.attribute if attr.name=='auto_pad'),None)
+        if pad is None or pad.s!=b'SAME_UPPER':continue
+        shape=shapes.get(node.input[0])
+        if shape is None or len(shape)!=4:
+            raise RuntimeError(f'Conv input shape unavailable for SAME_UPPER: {node.name} {node.input[0]}')
+        kernel=next((list(a.ints) for a in node.attribute if a.name=='kernel_shape'),None)
+        stride=next((list(a.ints) for a in node.attribute if a.name=='strides'),[1,1])
+        dilations=next((list(a.ints) for a in node.attribute if a.name=='dilations'),[1,1])
+        assert kernel is not None and len(kernel)==2
+        pairs=[]
+        for inp,k,st,dil in zip(shape[-2:],kernel,stride,dilations):
+            required=max(0,((inp+st-1)//st-1)*st + (k-1)*dil+1-inp)
+            pairs.append((required//2, required-required//2))
+        node.attribute.remove(pad)
+        node.attribute.append(onnx.helper.make_attribute('pads',[pairs[0][0],pairs[1][0],pairs[0][1],pairs[1][1]]))
+        fixed+=1
+    print('CONV SAME_UPPER -> explicit padding',fixed,flush=True)
+    onnx.checker.check_model(onnx_model)
+    net=onnx_to_torch(onnx_model).eval()
     sample=torch.zeros((1,3,512,512),dtype=torch.float32)
     with torch.no_grad():
         actual=net(sample)
