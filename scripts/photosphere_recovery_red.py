@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Require real Android assertion failures for the stale-store baseline."""
 import os,pathlib,subprocess,xml.etree.ElementTree as ET
+os.chdir(pathlib.Path(__file__).resolve().parents[2]/"engine/android")
 tests=["staleStoreCannotOverwriteCommittedSource","staleUndoCannotDeleteNewlyCommittedPrefix"]
 selection=",".join("at.persie0.photosphere.NativeCaptureFlowTest#"+test for test in tests)
 command=["gradle","--no-daemon",":app:connectedDebugAndroidTest","-Pandroid.testInstrumentationRunnerArguments.class="+selection]
