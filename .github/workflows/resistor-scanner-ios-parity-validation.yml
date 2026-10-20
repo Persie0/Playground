@@ -1,0 +1,42 @@
+name: Validate native iOS Resistor Scanner Core ML and feature parity
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/resistor-scanner-ios-parity-validation.yml
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-ios
+          ref: feat/native-coreml-ppliteseg-runtime
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          submodules: recursive
+          persist-credentials: false
+          path: source
+      - name: Run all pure Swift package tests
+        run: cd source && swift test
+      - name: Build for simulator without signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          xcodebuild -project ResistorScanner.xcodeproj -scheme ResistorScanner -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/DerivedData" CODE_SIGNING_ALLOWED=NO build > "$RUNNER_TEMP/resistor-ios-build.log" 2>&1 || {
+            grep -nE 'error:|fatal error|BUILD FAILED|SwiftCompile|CompileSwift' "$RUNNER_TEMP/resistor-ios-build.log" | tail -120
+            tail -75 "$RUNNER_TEMP/resistor-ios-build.log"
+            exit 1
+          }
+          grep 'BUILD SUCCEEDED' "$RUNNER_TEMP/resistor-ios-build.log"
+      - name: Upload iOS build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-ios-parity-build
+          retention-days: 3
+          path: |
+            ${{ runner.temp }}/resistor-ios-build.log
