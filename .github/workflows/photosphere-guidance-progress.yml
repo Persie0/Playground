@@ -1,0 +1,103 @@
+name: Photo Sphere guidance, coverage, speed and progress validation
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-guidance-progress.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sequential-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      SOURCE_SHA: 05db2ed6b8841ea0857c912e943c078db48e1d5f
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: playground
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 05db2ed6b8841ea0857c912e943c078db48e1d5f
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: engine
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+          cache-disabled: true
+      - name: Android geometry, progress, UI unit tests and lint
+        working-directory: engine/android
+        run: python3 ../../playground/scripts/run_private_rust_check.py guidance-unit-lint gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Rust geometry, calibration and nonblocking progress regressions
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py guidance-rust cargo test --locked --lib --test stitch_progress --test jpeg_sampling --test target_acceptance
+      - name: Build both Android native libraries sequentially
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py guidance-native python3 tools/build_android.py
+      - name: Build installable APK and native instrumentation tests
+        working-directory: engine/android
+        run: python3 ../../playground/scripts/run_private_rust_check.py guidance-apk gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Preserve reproducible APK privately before emulator validation
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp engine/android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/PhotoSphere-preview.apk"
+          if ! gh release view "ci-guidance-${SOURCE_SHA:0:12}" --repo Persie0/PhotosphereCleanroom > /dev/null 2>&1; then
+            gh release create "ci-guidance-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --draft --title "Guidance and progress build fixture" --notes "Private reproducible fixture. Validation is recorded separately."
+          fi
+      - name: Verify 16 KB native ELF alignment
+        run: |
+          python3 - <<'PY'
+          import pathlib,subprocess
+          for abi in ["arm64-v8a","x86_64"]:
+              path=pathlib.Path("engine/android/app/src/main/jniLibs")/abi/"libphotosphere.so"
+              segments=[line for line in subprocess.check_output(["readelf","-lW",str(path)],text=True).splitlines() if line.strip().startswith("LOAD")]
+              assert segments and all(int(line.split()[-1],16)>=16384 for line in segments)
+              print(abi+" 16 KB ELF alignment passed")
+          PY
+      - name: Install screenshot validation dependency
+        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+      - name: Enable emulator KVM
+        run: sudo chmod 666 /dev/kvm
+      - name: Native ownership, coverage, guidance and actual camera flow
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -memory 3072
+          script: |
+            python3 playground/scripts/run_photosphere_android_check.py guidance-emulator :app:connectedDebugAndroidTest
+            python3 playground/scripts/run_private_rust_check.py guidance-camera-ui python3 playground/scripts/photosphere_android_camera_ui_smoke.py
+      - name: Record validation evidence
+        run: python3 playground/scripts/record_photosphere_guidance_validation.py
+      - name: Publish verified preview privately
+        working-directory: engine
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/PhotoSphere-preview.apk"
+          gh release create "capture-guidance-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --prerelease --title "Photo Sphere coverage and progress preview" --notes-file docs/validation/2026-10-20-guidance-progress.md
+          gh auth setup-git
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/validation
+          git commit -m "ci: record coverage, native session reuse and notification progress validation"
+          git push origin HEAD:refs/heads/ci/guidance-$GITHUB_RUN_ID
+      - name: Preserve failure diagnostics privately
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: python3 playground/scripts/preserve_photosphere_diagnostics.py engine guidance-progress
