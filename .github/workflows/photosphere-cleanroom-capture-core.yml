@@ -1,0 +1,61 @@
+name: Photo Sphere capture core and Android red checks
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-cleanroom-capture-core.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sequential-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: playground
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 5fa3844fe521724899d27e75cdc637baf37cccea
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: engine
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Native target regressions
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py target-green cargo test --locked --no-default-features --test target_acceptance
+      - name: Default Rust suite
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py capture-default cargo test --locked --all-targets
+      - name: Portable Rust suite
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py capture-portable cargo test --locked --all-targets --no-default-features
+      - name: JNI Rust suite
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py capture-jni cargo test --locked --all-targets --features android-jni
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Require Android geometry and state regressions before host implementation
+        working-directory: engine/android
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, subprocess
+          p = subprocess.run(["gradle","--no-daemon",":app:testDebugUnitTest"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+          (pathlib.Path(os.environ["RUNNER_TEMP"])/"android-red.log").write_text(p.stdout)
+          assert p.returncode != 0
+          assert "Unresolved reference" in p.stdout and "CaptureGeometry" in p.stdout and "CaptureSequence" in p.stdout, "Expected missing production classes; check private diagnostics"
+          print("Android RED confirmed: geometry and capture protocol implementations are missing")
+          PY
+      - name: Preserve failure logs privately
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          python3 playground/scripts/preserve_photosphere_diagnostics.py engine capture-core
