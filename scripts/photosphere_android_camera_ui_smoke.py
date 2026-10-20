@@ -47,6 +47,8 @@ def screenshot(name):
 def source_hashes(state):
     return [hashlib.sha256(adb("exec-out","run-as",PKG,"cat",s["path"],binary=True)).hexdigest() for s in state["sources"]]
 try:
+    # The Gradle test runner removes target APKs after instrumentation.
+    adb("install","-r",str(root/"android/app/build/outputs/apk/debug/app-debug.apk"))
     adb("shell","pm","grant",PKG,"android.permission.CAMERA")
     adb("shell","pm","grant",PKG,"android.permission.POST_NOTIFICATIONS")
     adb("emu","sensor","set","acceleration","0:9.81:0")
