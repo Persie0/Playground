@@ -1,5 +1,5 @@
 name: Photo Sphere Android recovery and actual camera UI validation
-# Reinstall packaged target after the instrumentation runner cleans it up.
+# Reinstall target after instrumentation and normalize transformed button-label case.
 on:
   push:
     branches: [main]
@@ -54,6 +54,15 @@ jobs:
       - name: Unit tests, lint and installable packages
         working-directory: engine/android
         run: python3 ../../playground/scripts/run_private_rust_check.py recovery-build gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Keep the built APK privately for reproducible screen checks
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp engine/android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/PhotoSphere-preview.apk"
+          if ! gh release view "ci-capture-${SOURCE_SHA:0:12}" --repo Persie0/PhotosphereCleanroom > /dev/null 2>&1; then
+            gh release create "ci-capture-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --draft --title "Android capture validation fixture" --notes "Private packaged APK for reproducible camera UI validation."
+          fi
       - name: Install screenshot validation dependency
         run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
       - name: Enable emulator KVM access
