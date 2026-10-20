@@ -8,7 +8,7 @@ permissions:
   contents: read
 jobs:
   validate:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
@@ -19,6 +19,11 @@ jobs:
           submodules: recursive
           persist-credentials: false
           path: source
+      - name: Confirm Appodeal SPM-supported Xcode version
+        run: |
+          xcodebuild -version
+          major="$(xcodebuild -version | awk '/^Xcode/{print $2}' | cut -d. -f1)"
+          test "$major" -ge 26
       - name: Run all pure Swift package tests
         run: cd source && swift test
       - name: Build for simulator without signing
