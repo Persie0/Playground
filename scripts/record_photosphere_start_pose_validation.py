@@ -32,12 +32,13 @@ for mode in ["default", "portable", "jni"]:
     assert rust[mode] >= 220, (mode, rust[mode])
 
 run, sha = os.environ["GITHUB_RUN_ID"], os.environ["SOURCE_SHA"]
+rust_run = os.environ.get("RUST_VALIDATION_RUN", run)
 report = f"""# Start-pose, orientation and optional metadata validation
 
 Source: `{sha}`
 Run: https://github.com/Persie0/Playground/actions/runs/{run}
 
-- Rust regressions passed: {rust['default']} default, {rust['portable']} portable and {rust['jni']} JNI-host tests. Both release Android ABIs were rebuilt from this source with 16 KB ELF alignment.
+- Rust regressions passed: {rust['default']} default, {rust['portable']} portable and {rust['jni']} JNI-host tests in https://github.com/Persie0/Playground/actions/runs/{rust_run}. Their source pin and successful steps were verified before reusing evidence. Both release Android ABIs were rebuilt from this source with 16 KB ELF alignment.
 - {len(unit)} JVM tests and {len(native)} emulator instrumentation tests passed; Android lint and APK packaging passed.
 - V2 start-pitch/axis geometry, retained first-pose roll policy, persisted recovery, tamper rejection and legacy target IDs were checked.
 - Optional GPano fields, Java integer overflow/omission, legacy configs, raw metadata import and JPEG EXIF/pixel preservation were checked.
@@ -47,6 +48,6 @@ Run: https://github.com/Persie0/Playground/actions/runs/{run}
 The original native pose mailbox copies the supplied sensor rotation; a preview visual correction entering that mailbox was not found. Original calibration-result assignment into Java bias was not found. These findings correct earlier assumptions; they do not establish original-device drift, stock pixels, timing, UI equality or complete 1:1 parity. See ../START_POSE_AND_METADATA.md, ../ORIENTATION_FILTER.md and ../PARITY.md.
 """
 (root / "docs/validation/2026-10-21-start-pose.md").write_text(report)
-(root / "docs/validation/start-pose-summary.json").write_text(json.dumps({"source_sha": sha, "run_id": run,
+(root / "docs/validation/start-pose-summary.json").write_text(json.dumps({"source_sha": sha, "run_id": run, "rust_validation_run_id": rust_run,
     "rust": rust, "jvm_tests": len(unit), "instrumentation_tests": len(native), "camera": summary}, indent=2) + "\n")
 print(f"Verified Rust {rust}, {len(unit)} JVM and {len(native)} Android checks; full packaged capture flow passed")

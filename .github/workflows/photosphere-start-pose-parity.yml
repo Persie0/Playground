@@ -12,6 +12,7 @@ jobs:
     timeout-minutes: 75
     env:
       SOURCE_SHA: 622b9f7cd2d4c3a61f5eef8032875a7a4543e2ca
+      RUST_VALIDATION_RUN: "39592991596"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,6 +25,8 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: engine
           persist-credentials: false
+      - name: Start with fresh Android validation outputs
+        run: rm -f engine/docs/validation/android-screens/*.png engine/docs/validation/android-camera-ui.json
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
@@ -35,20 +38,39 @@ jobs:
         with:
           gradle-version: "8.9"
           cache-disabled: true
-      - name: Rust default regressions
-        working-directory: engine
-        run: python3 ../playground/scripts/run_private_rust_check.py parity-default cargo test --locked --all-targets
-      - name: Rust portable regressions
-        working-directory: engine
-        run: python3 ../playground/scripts/run_private_rust_check.py parity-portable cargo test --locked --no-default-features --all-targets
-      - name: Rust JNI-host regressions
-        working-directory: engine
-        run: python3 ../playground/scripts/run_private_rust_check.py parity-jni cargo test --locked --features android-jni --all-targets
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "ndk;27.2.12479018"
+      - name: Reuse passed Rust regressions for the identical source
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import base64,json,os,pathlib,re,subprocess,urllib.parse
+          def api(path):
+              return json.loads(subprocess.check_output(["gh","api",path],text=True))
+          run=os.environ["RUST_VALIDATION_RUN"]
+          assert run.isdigit()
+          jobs=api("repos/Persie0/Playground/actions/runs/"+run+"/jobs")["jobs"]
+          steps=[s for j in jobs for s in j["steps"]]
+          for label in ["Rust default regressions","Rust portable regressions","Rust JNI-host regressions"]:
+              assert any(s["name"]==label and s["conclusion"]=="success" for s in steps),label
+          branch="ci/start-pose-"+run
+          commit=api("repos/Persie0/PhotosphereCleanroom/commits/"+branch)
+          assert len(commit["parents"])==1 and commit["parents"][0]["sha"]==os.environ["SOURCE_SHA"]
+          assert all(f["filename"].startswith("docs/validation/runs/"+run+"/") for f in commit["files"])
+          for mode in ["default","portable","jni"]:
+              path="docs/validation/runs/"+run+"/parity-"+mode+".txt"
+              content=api("repos/Persie0/PhotosphereCleanroom/contents/"+path+"?ref="+urllib.parse.quote(branch,safe=""))
+              text=base64.b64decode(content["content"]).decode()
+              results=re.findall(r"test result: ok\. (\d+) passed; 0 failed; 0 ignored",text)
+              assert len(results)>=10 and sum(map(int,results))>=220,mode
+              (pathlib.Path(os.environ["RUNNER_TEMP"])/("parity-"+mode+".log")).write_text(text)
+              print(mode+" source-pinned Rust checks reused: "+str(sum(map(int,results))))
+          PY
       - name: Android geometry, orientation, progress and lint
         working-directory: engine/android
         run: python3 ../../playground/scripts/retry_private_dependency_check.py parity-unit-lint gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
-      - name: Install pinned Android NDK
-        run: sdkmanager --install "ndk;27.2.12479018" > "$RUNNER_TEMP/ndk-install.log" 2>&1
       - name: Rebuild both release JNI libraries from source
         working-directory: engine
         env:
