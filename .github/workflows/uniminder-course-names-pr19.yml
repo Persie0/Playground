@@ -1,0 +1,45 @@
+name: Uniminder calendar course names PR19 validation
+on:
+  push:
+    paths:
+      - '.github/workflows/uniminder-course-names-pr19.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Checkout private Uniminder PR
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/student
+          ref: feat/calendar-selected-day-course-names-20261021
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: uniminder
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Fetch dependencies
+        working-directory: uniminder
+        run: flutter pub get
+      - name: Static analysis of changed files
+        working-directory: uniminder
+        run: flutter analyze --no-pub lib/providers/calendar_provider.dart lib/screens/calendar/calendar_screen.dart lib/utils/course_name_resolver.dart test/course_name_resolver_test.dart
+      - name: Test course name matching and existing calendar links
+        working-directory: uniminder
+        run: flutter test --no-pub test/course_name_resolver_test.dart test/calendar_direct_links_test.dart
+      - name: Compile Android debug APK
+        working-directory: uniminder
+        run: flutter build apk --debug --no-pub
