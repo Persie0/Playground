@@ -1,0 +1,46 @@
+name: Uniminder PR18 public runner validation
+on:
+  push:
+    paths:
+      - '.github/workflows/uniminder-pr18-review.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Checkout private Uniminder PR (no persisted credentials)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/student
+          ref: fix/downloads-folder-direct-calendar-links-20261019
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: uniminder
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Fetch dependencies
+        working-directory: uniminder
+        run: flutter pub get
+      - name: Static analysis of modified sources
+        working-directory: uniminder
+        run: |
+          flutter analyze --no-pub lib/providers/download_provider.dart lib/providers/settings_provider.dart lib/screens/calendar/event_detail_screen.dart lib/screens/university/downloads_screen.dart lib/screens/university/webview_screen.dart lib/services/calendar_service.dart lib/services/database_service.dart lib/services/download_storage_service.dart lib/utils/pdf_validation.dart lib/models/calendar_event.dart
+      - name: PDF and calendar unit tests
+        working-directory: uniminder
+        run: flutter test --no-pub test/pdf_validation_test.dart test/calendar_direct_links_test.dart
+      - name: Compile Android debug APK
+        working-directory: uniminder
+        run: flutter build apk --debug --no-pub
