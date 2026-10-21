@@ -11,8 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     env:
-      SOURCE_SHA: 622b9f7cd2d4c3a61f5eef8032875a7a4543e2ca
+      SOURCE_SHA: 0dc153ff76106eb5a8f015fd1bd2fbec4cd2365d
       RUST_VALIDATION_RUN: "39592991596"
+      NATIVE_SOURCE_SHA: 622b9f7cd2d4c3a61f5eef8032875a7a4543e2ca
+      NATIVE_BUILD_RUN: "39594373526"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,15 +23,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 622b9f7cd2d4c3a61f5eef8032875a7a4543e2ca
+          ref: 0dc153ff76106eb5a8f015fd1bd2fbec4cd2365d
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: engine
           persist-credentials: false
       - name: Start with fresh Android validation outputs
         run: rm -f engine/docs/validation/android-screens/*.png engine/docs/validation/android-camera-ui.json
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.99.1"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -39,9 +38,7 @@ jobs:
           gradle-version: "8.9"
           cache-disabled: true
       - uses: android-actions/setup-android@v3
-        with:
-          packages: "ndk;27.2.12479018"
-      - name: Reuse passed Rust regressions for the identical source
+      - name: Verify and reuse passed Rust regressions
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: |
@@ -49,6 +46,11 @@ jobs:
           import base64,json,os,pathlib,re,subprocess,urllib.parse
           def api(path):
               return json.loads(subprocess.check_output(["gh","api",path],text=True))
+          base=os.environ["NATIVE_SOURCE_SHA"]
+          def core_tree(sha):
+              tree=api("repos/Persie0/PhotosphereCleanroom/git/trees/"+sha)["tree"]
+              return {e["path"]:e["sha"] for e in tree if e["path"]!="android"}
+          assert core_tree(base)==core_tree(os.environ["SOURCE_SHA"]),"Rust sources or build inputs changed"
           run=os.environ["RUST_VALIDATION_RUN"]
           assert run.isdigit()
           jobs=api("repos/Persie0/Playground/actions/runs/"+run+"/jobs")["jobs"]
@@ -57,7 +59,7 @@ jobs:
               assert any(s["name"]==label and s["conclusion"]=="success" for s in steps),label
           branch="ci/start-pose-"+run
           commit=api("repos/Persie0/PhotosphereCleanroom/commits/"+branch)
-          assert len(commit["parents"])==1 and commit["parents"][0]["sha"]==os.environ["SOURCE_SHA"]
+          assert len(commit["parents"])==1 and commit["parents"][0]["sha"]==base
           assert all(f["filename"].startswith("docs/validation/runs/"+run+"/") for f in commit["files"])
           for mode in ["default","portable","jni"]:
               path="docs/validation/runs/"+run+"/parity-"+mode+".txt"
@@ -71,11 +73,36 @@ jobs:
       - name: Android geometry, orientation, progress and lint
         working-directory: engine/android
         run: python3 ../../playground/scripts/retry_private_dependency_check.py parity-unit-lint gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
-      - name: Rebuild both release JNI libraries from source
-        working-directory: engine
+      - name: Reuse verified release JNI libraries for unchanged native inputs
         env:
-          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.2.12479018
-        run: python3 ../playground/scripts/run_private_rust_check.py parity-native python3 tools/build_android.py
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import base64,hashlib,json,os,pathlib,subprocess,zipfile
+          def api(path):
+              return json.loads(subprocess.check_output(["gh","api",path],text=True))
+          run=os.environ["NATIVE_BUILD_RUN"]
+          steps=[s for j in api("repos/Persie0/Playground/actions/runs/"+run+"/jobs")["jobs"] for s in j["steps"]]
+          for name in ["Rebuild both release JNI libraries from source","Verify 16 KB native ELF alignment"]:
+              assert any(s["name"]==name and s["conclusion"]=="success" for s in steps),name
+          commit=api("repos/Persie0/PhotosphereCleanroom/commits/ci/start-pose-"+run)
+          assert len(commit["parents"])==1 and commit["parents"][0]["sha"]==os.environ["NATIVE_SOURCE_SHA"]
+          assert all(f["filename"].startswith("docs/validation/runs/"+run+"/") for f in commit["files"])
+          temp=pathlib.Path(os.environ["RUNNER_TEMP"])/"native-fixture"
+          temp.mkdir()
+          tag="ci-start-pose-"+os.environ["NATIVE_SOURCE_SHA"][:12]
+          subprocess.run(["gh","release","download",tag,"--repo","Persie0/PhotosphereCleanroom","--pattern","PhotoSphere-preview.apk","--dir",str(temp)],check=True)
+          apk=temp/"PhotoSphere-preview.apk"
+          assert hashlib.sha256(apk.read_bytes()).hexdigest()=="29219b741155a9a5c124e59be3f73666a48666fe1e10a7391544bacf60f75a16"
+          with zipfile.ZipFile(apk) as z:
+              for abi in ["arm64-v8a","x86_64"]:
+                  dst=pathlib.Path("engine/android/app/src/main/jniLibs")/abi/"libphotosphere.so"
+                  dst.parent.mkdir(parents=True,exist_ok=True)
+                  dst.write_bytes(z.read("lib/"+abi+"/libphotosphere.so"))
+          log=api("repos/Persie0/PhotosphereCleanroom/contents/docs/validation/runs/"+run+"/parity-native.txt?ref=ci%2Fstart-pose-"+run)
+          (pathlib.Path(os.environ["RUNNER_TEMP"])/"parity-native.log").write_bytes(base64.b64decode(log["content"]))
+          print("Verified native input identity, successful build and private APK digest; reused both release libraries")
+          PY
       - name: Build APK and native instrumentation tests
         working-directory: engine/android
         run: python3 ../../playground/scripts/run_private_rust_check.py parity-apk gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
