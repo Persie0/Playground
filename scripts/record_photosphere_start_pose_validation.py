@@ -19,13 +19,17 @@ def cases(folder):
 
 unit = cases(root / "android/app/build/test-results")
 native = cases(root / "android/app/build/outputs/androidTest-results")
-assert len(unit) >= 44 and len(native) >= 17, (len(unit), len(native))
+assert len(unit) >= 47 and len(native) >= 23, (len(unit), len(native))
 names = {t.attrib.get("name", "") for t in native}
 assert "pitchedLayoutSurvivesRecoveryAndRejectsTamperedPitchOrAxis" in names
 assert "legacyVersionOneCaptureKeepsDisplayBasedZeroPitchLayout" in names
 assert "highPitchLayoutsKeepInitialTargetAndRecover" in names
 assert "frontCenterTargetShowsPersistentCornerCue" in names
 assert "rtlNarrowLargeFontBadgeKeepsArrowClearOfText" in names
+assert "halfFadedNormalDotKeepsSelectedRingAndCornerCueOpaque" in names
+unit_names = {t.attrib.get("name", "") for t in unit}
+assert "normalTargetAlphaUsesAngularFadeAndIgnoresRayScale" in unit_names
+assert "normalTargetAlphaReturnsZeroForInvalidRays" in unit_names
 rust = {}
 for mode in ["default", "portable", "jni"]:
     log = (temp / ("parity-" + mode + ".log")).read_text()
@@ -33,19 +37,19 @@ for mode in ["default", "portable", "jni"]:
     assert results and all(int(failed) == 0 and int(ignored) == 0 for _, failed, ignored in results), mode
     rust[mode] = sum(int(passed) for passed, _, _ in results)
     assert len(results) >= 10, (mode, len(results))
-    assert rust[mode] == {"default": 259, "portable": 253, "jni": 259}[mode], (mode, rust[mode])
+    assert rust[mode] == {"default": 265, "portable": 259, "jni": 265}[mode], (mode, rust[mode])
 
 run, sha = os.environ["GITHUB_RUN_ID"], os.environ["SOURCE_SHA"]
 rust_run = os.environ.get("RUST_VALIDATION_RUN", run)
-report = f"""# Start-pose, orientation and optional metadata validation
+report = f"""# Render reuse, target fade and native contract validation
 
 Source: `{sha}`
 Run: https://github.com/Persie0/Playground/actions/runs/{run}
 
 - Rust regressions passed: {rust['default']} default, {rust['portable']} portable and {rust['jni']} JNI-host tests in https://github.com/Persie0/Playground/actions/runs/{rust_run}. Their source pin and successful steps were verified before reusing evidence. Both release Android ABIs were rebuilt from this source with 16 KB ELF alignment.
 - {len(unit)} JVM tests and {len(native)} emulator instrumentation tests passed; Android lint and APK packaging passed.
-- V2 start-pitch/axis geometry through +/-90 degrees, retained first-pose roll policy, recovery, tamper rejection and legacy target IDs were checked. Persistent corner guidance, a separate off-image chevron and narrow large-font RTL rendering were checked.
-- Optional GPano fields, Java integer overflow/omission, legacy configs, raw metadata import and JPEG EXIF/pixel preservation were checked.
+- V2 start-pitch/axis geometry through +/-90 degrees, retained first-pose roll policy, recovery, tamper rejection and legacy target IDs were checked. Normal scan-dot angular fading, a full-opacity selected ring/corner cue, a separate off-image chevron and narrow large-font RTL rendering were checked.
+- Source-independent multiband mask reuse and the isolated Q22 RGB-to-YCbCr plane helper passed their regression checks. The color helper remains outside the production RGB renderer.\n- Optional GPano fields, Java integer overflow/omission, legacy configs, raw metadata import and JPEG EXIF/pixel preservation were checked.
 - The packaged Camera1 UI captured {summary['source_count']} photos, recovered after force-stop, undid/recaptured, rendered with the retained native session, showed measured blending notification progress, and published a GPano 4:2:0 JPEG at {summary['decoded_dimensions']}.
 - Source JPEG hashes remained unchanged. Private screenshots and logs are retained with this evidence.
 
