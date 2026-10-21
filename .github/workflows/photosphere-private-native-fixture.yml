@@ -1,0 +1,60 @@
+name: Prepare private audited GCam native fixture
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-private-native-fixture.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-native-fixture
+  cancel-in-progress: false
+jobs:
+  private-fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Verify and store native fixture privately
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import base64,hashlib,json,pathlib,subprocess,tempfile,zipfile
+          repo="Persie0/decompile"
+          branch="research/native-fixture-878feb4a"
+          asset="com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk"
+          apk_sha="9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47"
+          lib_sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          def api(path,payload):
+              result=subprocess.run(["gh","api","--method","POST",path,"--input","-"],input=json.dumps(payload),text=True,capture_output=True)
+              if result.returncode: raise RuntimeError("Private fixture API write failed")
+              return json.loads(result.stdout)
+          def blob(text):
+              return api("repos/"+repo+"/git/blobs",{"content":text,"encoding":"utf-8"})["sha"]
+          with tempfile.TemporaryDirectory() as directory:
+              dest=pathlib.Path(directory)
+              fetched=subprocess.run(["gh","release","download","pho","--repo",repo,"--pattern",asset,"--dir",directory],capture_output=True,text=True)
+              if fetched.returncode: raise RuntimeError("Audited private APK download failed")
+              apk=dest/asset
+              assert hashlib.sha256(apk.read_bytes()).hexdigest()==apk_sha,"APK fingerprint mismatch"
+              with zipfile.ZipFile(apk) as archive:
+                  names=[n for n in archive.namelist() if n.endswith("/arm64-v8a/liblightcycle.so")]
+                  assert len(names)==1
+                  data=archive.read(names[0])
+              assert hashlib.sha256(data).hexdigest()==lib_sha,"ELF fingerprint mismatch"
+              prefix="native-fixture/"
+              entries=[];parts=[]
+              for number,offset in enumerate(range(0,len(data),196608)):
+                  raw=data[offset:offset+196608]
+                  path=prefix+"part-"+str(number).zfill(3)+".b64"
+                  text=base64.b64encode(raw).decode()+"\n"
+                  sha=blob(text)
+                  entries.append({"path":path,"mode":"100644","type":"blob","sha":sha})
+                  parts.append({"path":path,"size":len(raw),"sha256":hashlib.sha256(raw).hexdigest(),"blob":sha})
+              manifest={"version":1,"apk_sha256":apk_sha,"entry":names[0],"sha256":lib_sha,"size":len(data),"chunk_size":196608,"parts":parts}
+              entries.append({"path":prefix+"manifest.json","mode":"100644","type":"blob","sha":blob(json.dumps(manifest,indent=2)+"\n")})
+              tree=api("repos/"+repo+"/git/trees",{"tree":entries})
+              commit=api("repos/"+repo+"/git/commits",{"message":"Store audited native analysis fixture privately","tree":tree["sha"],"parents":[]})
+              api("repos/"+repo+"/git/refs",{"ref":"refs/heads/"+branch,"sha":commit["sha"]})
+              print("Audited APK and ELF fingerprints verified; native fixture stored in private mapping branch.")
+          PY
