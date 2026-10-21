@@ -1,4 +1,4 @@
-name: Photo Sphere guidance, coverage, speed and progress validation
+name: Photo Sphere orientation, coverage and progress validation
 on:
   push:
     branches: [main]
@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     env:
-      SOURCE_SHA: 9240a5e3237d3c6747472941b450ee4364323f17
+      SOURCE_SHA: e695ba7771c220bf72cb0df778ad6323c10f64d1
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 9240a5e3237d3c6747472941b450ee4364323f17
+          ref: e695ba7771c220bf72cb0df778ad6323c10f64d1
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -32,7 +32,7 @@ jobs:
         with:
           gradle-version: "8.9"
           cache-disabled: true
-      - name: Android geometry, progress, UI unit tests and lint
+      - name: Android gravity/gyro, geometry, progress and lint
         working-directory: engine/android
         run: python3 ../../playground/scripts/retry_private_dependency_check.py guidance-unit-lint gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
       - name: Reuse verified identical Rust libraries and regression evidence
@@ -63,8 +63,8 @@ jobs:
         run: |
           set -euo pipefail
           cp engine/android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/PhotoSphere-preview.apk"
-          if ! gh release view "ci-guidance-${SOURCE_SHA:0:12}" --repo Persie0/PhotosphereCleanroom > /dev/null 2>&1; then
-            gh release create "ci-guidance-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --draft --title "Guidance and progress build fixture" --notes "Private reproducible fixture. Validation is recorded separately."
+          if ! gh release view "ci-orientation-${SOURCE_SHA:0:12}" --repo Persie0/PhotosphereCleanroom > /dev/null 2>&1; then
+            gh release create "ci-orientation-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --draft --title "Orientation and capture build fixture" --notes "Private reproducible fixture. Validation is recorded separately."
           fi
       - name: Verify 16 KB native ELF alignment
         run: |
@@ -80,7 +80,7 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
       - name: Enable emulator KVM
         run: sudo chmod 666 /dev/kvm
-      - name: Native ownership, coverage, guidance and actual camera flow
+      - name: Sensor restart, coverage, guidance and actual camera flow
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -93,7 +93,7 @@ jobs:
             python3 playground/scripts/run_photosphere_android_check.py guidance-emulator :app:connectedDebugAndroidTest
             python3 playground/scripts/run_private_rust_check.py guidance-camera-ui python3 playground/scripts/photosphere_android_camera_ui_smoke.py
       - name: Record validation evidence
-        run: python3 playground/scripts/record_photosphere_guidance_validation.py
+        run: python3 playground/scripts/record_photosphere_orientation_validation.py
       - name: Publish verified preview privately
         working-directory: engine
         env:
@@ -101,15 +101,15 @@ jobs:
         run: |
           set -euo pipefail
           cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/PhotoSphere-preview.apk"
-          gh release create "capture-guidance-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --prerelease --title "Photo Sphere coverage and progress preview" --notes-file docs/validation/2026-10-20-guidance-progress.md
+          gh release create "capture-orientation-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --prerelease --title "Photo Sphere 0.3 gravity and gyro preview" --notes-file docs/validation/2026-10-21-orientation.md
           gh auth setup-git
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/validation
-          git commit -m "ci: record coverage, native session reuse and notification progress validation"
-          git push origin HEAD:refs/heads/ci/guidance-$GITHUB_RUN_ID
+          git commit -m "ci: record sensor restart and complete camera flow validation"
+          git push origin HEAD:refs/heads/ci/orientation-$GITHUB_RUN_ID
       - name: Preserve failure diagnostics privately
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-        run: python3 playground/scripts/preserve_photosphere_diagnostics.py engine guidance-progress
+        run: python3 playground/scripts/preserve_photosphere_diagnostics.py engine orientation
