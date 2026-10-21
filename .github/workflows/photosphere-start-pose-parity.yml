@@ -1,0 +1,117 @@
+name: Photo Sphere start-pose and native parity validation
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-start-pose-parity.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate-build-and-camera:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      SOURCE_SHA: 622b9f7cd2d4c3a61f5eef8032875a7a4543e2ca
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: playground
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 622b9f7cd2d4c3a61f5eef8032875a7a4543e2ca
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: engine
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+          cache-disabled: true
+      - name: Rust default regressions
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py parity-default cargo test --locked --all-targets
+      - name: Rust portable regressions
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py parity-portable cargo test --locked --no-default-features --all-targets
+      - name: Rust JNI-host regressions
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py parity-jni cargo test --locked --features android-jni --all-targets
+      - name: Android geometry, orientation, progress and lint
+        working-directory: engine/android
+        run: python3 ../../playground/scripts/retry_private_dependency_check.py parity-unit-lint gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
+      - name: Install pinned Android NDK
+        run: sdkmanager --install "ndk;27.2.12479018" > "$RUNNER_TEMP/ndk-install.log" 2>&1
+      - name: Rebuild both release JNI libraries from source
+        working-directory: engine
+        env:
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.2.12479018
+        run: python3 ../playground/scripts/run_private_rust_check.py parity-native python3 tools/build_android.py
+      - name: Build APK and native instrumentation tests
+        working-directory: engine/android
+        run: python3 ../../playground/scripts/run_private_rust_check.py parity-apk gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Preserve installable APK privately
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp engine/android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/PhotoSphere-preview.apk"
+          if ! gh release view "ci-start-pose-${SOURCE_SHA:0:12}" --repo Persie0/PhotosphereCleanroom > /dev/null 2>&1; then
+            gh release create "ci-start-pose-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --draft --title "Start-pose native build fixture" --notes "Private reproducible APK; validation recorded separately."
+          fi
+      - name: Verify 16 KB native ELF alignment
+        run: |
+          python3 - <<'PY'
+          import pathlib,subprocess
+          for abi in ["arm64-v8a","x86_64"]:
+              path=pathlib.Path("engine/android/app/src/main/jniLibs")/abi/"libphotosphere.so"
+              segments=[line for line in subprocess.check_output(["readelf","-lW",str(path)],text=True).splitlines() if line.strip().startswith("LOAD")]
+              assert segments and all(int(line.split()[-1],16)>=16384 for line in segments)
+              print(abi+" 16 KB ELF alignment passed")
+          PY
+      - name: Install screenshot validation dependency
+        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+      - name: Enable emulator KVM
+        run: sudo chmod 666 /dev/kvm
+      - name: Coverage recovery, native policy and packaged camera flow
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -memory 3072
+          script: |
+            python3 playground/scripts/run_photosphere_android_check.py parity-emulator :app:connectedDebugAndroidTest
+            python3 playground/scripts/run_private_rust_check.py parity-camera-ui python3 playground/scripts/photosphere_android_camera_ui_smoke.py
+      - name: Record verified evidence privately
+        run: python3 playground/scripts/record_photosphere_start_pose_validation.py
+      - name: Publish verified preview privately
+        working-directory: engine
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/PhotoSphere-preview.apk"
+          if ! gh release view "capture-start-pose-${SOURCE_SHA:0:12}" --repo Persie0/PhotosphereCleanroom > /dev/null 2>&1; then
+            gh release create "capture-start-pose-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --prerelease --title "Photo Sphere 0.4 start-pose preview" --notes-file docs/validation/2026-10-21-start-pose.md
+          fi
+          gh auth setup-git
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/validation
+          git commit -m "ci: record start-pose, metadata and full camera validation"
+          git push origin HEAD:refs/heads/ci/start-pose-$GITHUB_RUN_ID
+      - name: Preserve failure diagnostics privately
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: python3 playground/scripts/preserve_photosphere_diagnostics.py engine start-pose
