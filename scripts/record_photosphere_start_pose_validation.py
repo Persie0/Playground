@@ -32,7 +32,8 @@ for mode in ["default", "portable", "jni"]:
     results = re.findall(r"test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored", log)
     assert results and all(int(failed) == 0 and int(ignored) == 0 for _, failed, ignored in results), mode
     rust[mode] = sum(int(passed) for passed, _, _ in results)
-    assert rust[mode] >= 220, (mode, rust[mode])
+    assert len(results) >= 10, (mode, len(results))
+    assert rust[mode] == {"default": 259, "portable": 253, "jni": 259}[mode], (mode, rust[mode])
 
 run, sha = os.environ["GITHUB_RUN_ID"], os.environ["SOURCE_SHA"]
 rust_run = os.environ.get("RUST_VALIDATION_RUN", run)
