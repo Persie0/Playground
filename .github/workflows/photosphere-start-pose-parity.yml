@@ -1,4 +1,4 @@
-name: Photo Sphere capture quality and native parity validation
+name: Photo Sphere 0.8.0 coverage and native validation
 on:
   push:
     branches: [main]
@@ -11,10 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     env:
-      SOURCE_SHA: fd53435c233dd29dc2c3a9fc357940065c39a3fa
-      RUST_VALIDATION_RUN: "39704390980"
-      RUST_VALIDATION_WORKFLOW_SHA: c0146c441761e51b6fcde9ebfe358b89462edc0c
-      RUST_VALIDATION_EVIDENCE_SHA: 17406e2486f871ef54e00ff01d1db03ecfcba66c
+      SOURCE_SHA: 830a8efc077dfc7ed763d0f8a7a93299b7466ffa
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,12 +20,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: fd53435c233dd29dc2c3a9fc357940065c39a3fa
+          ref: 830a8efc077dfc7ed763d0f8a7a93299b7466ffa
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: engine
           persist-credentials: false
-      - name: Start with fresh Android validation outputs
-        run: rm -f engine/docs/validation/android-screens/*.png engine/docs/validation/android-camera-ui.json
+      - name: Start with fresh Android and Rust validation outputs
+        run: rm -f engine/docs/validation/android-screens/*.png engine/docs/validation/android-camera-ui.json "$RUNNER_TEMP"/parity-rust-{default,portable,jni}.log
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
@@ -43,10 +40,15 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: "ndk;27.2.12479018"
-      - name: Verify and retain successful same-source Rust regressions
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-        run: python3 playground/scripts/reuse_photosphere_rust_validation.py
+      - name: Run fresh default Rust regressions
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py parity-rust-default cargo test --locked --all-targets
+      - name: Run fresh portable Rust regressions
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py parity-rust-portable cargo test --locked --no-default-features --all-targets
+      - name: Run fresh JNI Rust regressions
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py parity-rust-jni cargo test --locked --features android-jni --all-targets
       - name: Retrieve Maven Central dependencies through the documented mirror
         run: |
           mkdir -p "$GRADLE_USER_HOME/init.d"
@@ -69,7 +71,7 @@ jobs:
           set -euo pipefail
           cp engine/android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/PhotoSphere-preview.apk"
           if ! gh release view "ci-start-pose-${SOURCE_SHA:0:12}" --repo Persie0/PhotosphereCleanroom > /dev/null 2>&1; then
-            gh release create "ci-start-pose-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --draft --title "Start-pose native build fixture" --notes "Private reproducible APK; validation recorded separately."
+            gh release create "ci-start-pose-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --draft --title "Photo Sphere 0.8.0 native build fixture" --notes "Private reproducible APK; validation recorded separately."
           fi
       - name: Verify 16 KB native ELF alignment
         run: |
@@ -107,13 +109,13 @@ jobs:
           set -euo pipefail
           cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/PhotoSphere-preview.apk"
           if ! gh release view "capture-start-pose-${SOURCE_SHA:0:12}" --repo Persie0/PhotosphereCleanroom > /dev/null 2>&1; then
-            gh release create "capture-start-pose-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --prerelease --title "Photo Sphere 0.7.1 capture and brightness correction preview" --notes-file docs/validation/2026-10-22-capture-quality.md
+            gh release create "capture-start-pose-${SOURCE_SHA:0:12}" "$RUNNER_TEMP/PhotoSphere-preview.apk" --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --prerelease --title "Photo Sphere 0.8.0 coverage and capture preview" --notes-file docs/validation/2026-10-22-coverage-workspace.md
           fi
           gh auth setup-git
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/validation
-          git commit -m "ci: record capture quality, notification lifecycle and full camera validation"
+          git commit -m "ci: record 0.8.0 coverage and camera validation"
           git push origin HEAD:refs/heads/ci/start-pose-$GITHUB_RUN_ID
       - name: Preserve failure diagnostics privately
         if: failure()

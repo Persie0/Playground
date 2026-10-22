@@ -1,75 +1,138 @@
 #!/usr/bin/env python3
-"""Verify and retain only privately stored implementation evidence."""
-import json, os, pathlib, re, xml.etree.ElementTree as ET
+"""Verify and retain fresh, same-run private 0.8.0 validation evidence."""
+import json
+import os
+import pathlib
+import re
+import shutil
+import xml.etree.ElementTree as ET
 
 root = pathlib.Path("engine")
 temp = pathlib.Path(os.environ["RUNNER_TEMP"])
-summary = json.loads((root / "docs/validation/android-camera-ui.json").read_text())
-for key in ["camera_ui_capture", "process_death_recovery", "undo_and_recapture", "foreground_render",
-            "native_session_reused", "notification_measured_progress", "notification_measured_seam_progress",
-            "notification_terminal_cleanup", "coverage_guidance",
-            "edge_guidance_accessible", "gallery_publication", "original_source_hashes_unchanged"]:
+run, sha = os.environ["GITHUB_RUN_ID"], os.environ["SOURCE_SHA"]
+summary_path = root / "docs/validation/android-camera-ui.json"
+summary = json.loads(summary_path.read_text())
+for key in [
+    "camera_ui_capture", "process_death_recovery", "undo_and_recapture",
+    "foreground_render", "native_session_reused", "notification_measured_progress",
+    "notification_measured_seam_progress", "notification_terminal_cleanup",
+    "coverage_guidance", "edge_guidance_accessible", "gallery_publication",
+    "original_source_hashes_unchanged",
+]:
     assert summary[key] is True, key
+assert summary["source_count"] == 2, summary.get("source_count")
+
 
 def cases(folder):
     files = list(folder.rglob("TEST-*.xml"))
     assert files, folder
     tests = [t for p in files for t in ET.parse(p).getroot().iter("testcase")]
-    assert tests and all(t.find("failure") is None and t.find("error") is None and t.find("skipped") is None for t in tests)
+    assert tests and all(
+        t.find("failure") is None and t.find("error") is None and t.find("skipped") is None
+        for t in tests
+    )
     return tests
+
 
 unit = cases(root / "android/app/build/test-results")
 native = cases(root / "android/app/build/outputs/androidTest-results")
-assert len(unit) >= 50 and len(native) >= 25, (len(unit), len(native))
-names = {t.attrib.get("name", "") for t in native}
-assert "pitchedLayoutSurvivesRecoveryAndRejectsTamperedPitchOrAxis" in names
-assert "legacyVersionOneCaptureKeepsDisplayBasedZeroPitchLayout" in names
-assert "highPitchLayoutsKeepInitialTargetAndRecover" in names
-assert "frontCenterTargetShowsPersistentCornerCue" in names
-assert "rtlNarrowLargeFontBadgeKeepsArrowClearOfText" in names
-assert "halfFadedNormalDotKeepsSelectedRingAndCornerCueOpaque" in names
-assert "changingStatusTextKeepsCameraPreviewBoundsStable" in names
-assert "completedRenderRemovesForegroundNotificationAndPostsTerminalResult" in names
+assert len(unit) == 58, len(unit)
+assert len(native) == 25, len(native)
+native_names = {t.attrib.get("name", "") for t in native}
+for required in [
+    "pitchedLayoutSurvivesRecoveryAndRejectsTamperedPitchOrAxis",
+    "legacyVersionOneCaptureKeepsDisplayBasedZeroPitchLayout",
+    "highPitchLayoutsKeepInitialTargetAndRecover",
+    "frontCenterTargetShowsPersistentCornerCue",
+    "rtlNarrowLargeFontBadgeKeepsArrowClearOfText",
+    "halfFadedNormalDotKeepsSelectedRingAndCornerCueOpaque",
+    "changingStatusTextKeepsCameraPreviewBoundsStable",
+    "completedRenderRemovesForegroundNotificationAndPostsTerminalResult",
+]:
+    assert required in native_names, required
 unit_names = {t.attrib.get("name", "") for t in unit}
-assert "normalTargetAlphaUsesAngularFadeAndIgnoresRayScale" in unit_names
-assert "normalTargetAlphaReturnsZeroForInvalidRays" in unit_names
-assert "orientationOffsetUsesPlannedAxisUntilFirstSourceThenKeepsFirstSourceAxis" in unit_names
-assert "firstShutterLocksOnlyControlsReportedSupported" in unit_names
-assert "onlySupportedControlIsRequested" in unit_names
-assert "unsupportedLocksStayAutomaticAndNextCameraInstanceCanDecideAgain" in unit_names
+for required in [
+    "normalTargetAlphaUsesAngularFadeAndIgnoresRayScale",
+    "normalTargetAlphaReturnsZeroForInvalidRays",
+    "orientationOffsetUsesImmutablePlannedAxisAndFallsBackOnlyWhenAbsent",
+    "versionTwoOrientationOffsetStaysOwnedByTheImmutablePlanAfterFirstSource",
+    "actualFirstSourceQuarterTurnWitnessIsRejectedAgainstTheBeginPlan",
+    "recoveredRollClassesIncludeBothTwentyDegreeBoundaries",
+    "nonpolarCapturesRejectTwentyOneFortyFiveAndNinetyDegreeRollsAtEitherPitchSign",
+    "portraitAndLandscapePlansEachOwnTheirRollClass",
+    "onlyExplicitPolarHitsAreExemptFromRollPolicy",
+    "allRecordedAcceptedPoseWitnessesAreCheckedAgainstThePlannedAxis",
+    "versionOneAndNonCoverageSessionsKeepTheExistingPolicy",
+    "firstShutterLocksOnlyControlsReportedSupported",
+    "onlySupportedControlIsRequested",
+    "unsupportedLocksStayAutomaticAndNextCameraInstanceCanDecideAgain",
+]:
+    assert required in unit_names, required
+
+expected = {"default": 277, "portable": 271, "jni": 277}
 rust = {}
+rust_logs = {}
+regressions = [
+    "crop_coverage_tracks_actual_uniform_jpeg_for_ordinary_and_wrapping_crops",
+    "cropped_report_counts_only_pixels_written_inside_the_crop",
+    "cropped_render_reserves_only_tile_aligned_crop_workspace",
+    "source_reducer_matches_direct_native_oracle_fixtures",
+    "source_reducer_rejects_invalid_layouts_atomically",
+    "partial_panorama_is_cropped_and_gpano_keeps_virtual_sphere_geometry",
+    "low_resolution_seam_labels_do_not_create_holes_in_fully_covered_sphere",
+    "seam_progress_counts_source_passes_and_finishes_after_map_construction",
+    "gamma_adjusts_each_sources_own_brightness_in_either_order",
+]
 for mode in ["default", "portable", "jni"]:
-    log = (temp / ("parity-" + mode + ".log")).read_text()
+    label = "parity-rust-" + mode
+    log_path = temp / (label + ".log")
+    log = log_path.read_text(errors="replace")
     results = re.findall(r"test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored", log)
     assert results and all(int(failed) == 0 and int(ignored) == 0 for _, failed, ignored in results), mode
     rust[mode] = sum(int(passed) for passed, _, _ in results)
-    assert len(results) >= 15, (mode, len(results))
-    assert rust[mode] == {"default": 272, "portable": 266, "jni": 272}[mode], (mode, rust[mode])
-    for regression in ["low_resolution_seam_labels_do_not_create_holes_in_fully_covered_sphere",
-                       "seam_progress_counts_source_passes_and_finishes_after_map_construction",
-                       "gamma_adjusts_each_sources_own_brightness_in_either_order"]:
-        assert re.search(r"test "+regression+r" \.\.\. ok", log), (mode, regression)
+    assert len(results) >= 17, (mode, len(results))
+    assert rust[mode] == expected[mode], (mode, rust[mode])
+    for regression in regressions:
+        pattern = r"(?m)^test (?:[A-Za-z0-9_]+::)*" + re.escape(regression) + r" \.\.\. ok$"
+        assert re.search(pattern, log), (mode, regression)
+    rust_logs[mode] = log_path
 
-run, sha = os.environ["GITHUB_RUN_ID"], os.environ["SOURCE_SHA"]
-rust_run = os.environ.get("RUST_VALIDATION_RUN", run)
-report = f"""# Capture quality and native contract validation
+# Preserve wrapper output privately beside the report. The wrapper itself emits
+# only pass/fail and Cargo summaries to the Actions log; raw test diagnostics stay
+# in RUNNER_TEMP until copied into the private source checkout here.
+private_log_dir = root / "docs/validation/private-rust-logs" / str(run)
+private_log_dir.mkdir(parents=True, exist_ok=True)
+for mode, source in rust_logs.items():
+    shutil.copyfile(source, private_log_dir / source.name)
 
-Source: `{sha}`
-Run: https://github.com/Persie0/Playground/actions/runs/{run}
+report = f"""# Photo Sphere 0.8.0 coverage and camera validation
 
-- Rust regressions passed: {rust['default']} default, {rust['portable']} portable and {rust['jni']} JNI-host tests in https://github.com/Persie0/Playground/actions/runs/{rust_run}. Their source pin and successful steps were verified before reusing evidence. Both release Android ABIs were rebuilt from this source with 16 KB ELF alignment.
-- {len(unit)} JVM tests and {len(native)} emulator instrumentation tests passed; Android lint and APK packaging passed.
-- V2 start-pitch/axis geometry through +/-90 degrees, retained first-pose roll policy, recovery, tamper rejection and legacy target IDs were checked. Normal scan-dot angular fading, a full-opacity selected ring/corner cue, a separate off-image chevron and narrow large-font RTL rendering were checked.
-- Stable camera-preview bounds under changing status/count text, measured seam source-pass counts, terminal service notification removal, gallery access, planned-axis gating and supported first-shutter AE/AWB lock decisions were checked.
-- Multiband seam masks no longer discard geometrically covered pixels in the bounded one-source-group regression. The fallback is selected only when base-band weight is at or below the hole threshold. First-shutter metering locks are a capture-quality improvement, with driver support/failure fallback; physical camera convergence is not established by an emulator.
-- The gamma normal equations bind each diagonal to that source's own logged overlap mean. A real-renderer regression covers darker/brighter sources in both assignments, correction direction and source-only output pixels. Native producer ownership and an executed coefficient-span oracle establish the source-index reversal corrected in0.7.1.
-- Source-independent multiband mask reuse and isolated Q22 RGB/YCbCr and residual helpers passed their regression checks. These numerical helpers remain outside the production RGB renderer. Optional GPano fields, Java integer overflow/omission, legacy configs, raw metadata import and JPEG EXIF/pixel preservation were checked.
-- The packaged Camera1 UI captured {summary['source_count']} photos, recovered after force-stop, undid/recaptured, rendered with the retained native session, showed measured seam and blending notification progress, removed foreground notification42 and posted ordinary result43, and published a GPano 4:2:0 JPEG at {summary['decoded_dimensions']}.
-- Source JPEG hashes remained unchanged. Private screenshots and logs are retained with this evidence.
+Source: `{sha}`  
+Workflow run: https://github.com/Persie0/Playground/actions/runs/{run}
 
-The original native pose mailbox copies the supplied sensor rotation; a preview visual correction entering that mailbox was not found. The recovered55/65/45 JPEG camera sweep belongs to the exported CalibrateFieldOfViewDeg path, not ordinary capture FOV. A reader of photoSphereCalibratedFieldOfView into ordinary Reset was not found. These findings correct earlier assumptions; they do not establish original-device drift, stock pixels, timing, UI equality or complete1:1 parity. Source photos/session metadata for the supplied panorama were unavailable, so reproductions establish specific causes rather than every defect in that image. See ../START_POSE_AND_METADATA.md, ../ORIENTATION_FILTER.md and ../PARITY.md.
+- Fresh Rust checks from this workflow run passed: {rust['default']} default, {rust['portable']} portable, and {rust['jni']} JNI-host tests. Each mode reported at least 17 successful test suites. No earlier run was reused. Raw wrapper logs are stored privately in `private-rust-logs/{run}/`.
+- Crop regressions check ordinary and longitude-wrapping coverage, pixels counted inside the output crop, tile-aligned crop workspace, and public partial-panorama GPano geometry. The two source-reducer regressions cover native-oracle agreement and atomic rejection of invalid layouts. Existing low-resolution seam-hole, source-pass progress, and per-source gamma regressions remain required.
+- {len(unit)} JVM tests, {len(native)} emulator instrumentation tests, Android lint, APK packaging, and both release JNI builds passed. Both Android ABIs passed the 16 KB ELF alignment check.
+- The packaged Camera1 UI smoke test captured {summary['source_count']} camera sources, recovered after force-stop, undid and recaptured, rendered with the retained native session, displayed measured progress, cleaned up its terminal notification, and published a GPano JPEG with decoded dimensions {summary['decoded_dimensions']}.
+- Coverage orientation policy tests checked the recorded accepted-pose witnesses, rejection of a first-source quarter-turn against the immutable Begin plan, portrait/landscape roll classes, both twenty-degree boundaries, explicit polar exemptions, and unchanged v1/non-coverage policy. The renamed immutable-plan regression is `versionTwoOrientationOffsetStaysOwnedByTheImmutablePlanAfterFirstSource`. Existing first-shutter AE/AWB support/fallback policy tests remain required.
+- UI assertions verified accessible edge guidance, persistent corner guidance, narrow RTL large-font rendering, stable camera-preview bounds, process-death recovery, and terminal notification removal. Source JPEG hashes remained unchanged.
+- Diagnostics and raw Rust logs are retained only in the private source checkout. This workflow uploads no public artifacts.
+
+The UI/emulator camera checks establish the packaged flow on the emulator; they do not establish physical-camera convergence or stock-device pixel parity.
 """
-(root / "docs/validation/2026-10-22-capture-quality.md").write_text(report)
-(root / "docs/validation/start-pose-summary.json").write_text(json.dumps({"source_sha": sha, "run_id": run, "rust_validation_run_id": rust_run,
-    "rust": rust, "jvm_tests": len(unit), "instrumentation_tests": len(native), "camera": summary}, indent=2) + "\n")
-print(f"Verified Rust {rust}, {len(unit)} JVM and {len(native)} Android checks; full packaged capture flow passed")
+(root / "docs/validation/2026-10-22-coverage-workspace.md").write_text(report)
+(root / "docs/validation/coverage-workspace-summary.json").write_text(json.dumps({
+    "source_sha": sha,
+    "run_id": run,
+    "rust_evidence_run_id": run,
+    "rust_checks_fresh_same_run": True,
+    "rust": rust,
+    "rust_suite_counts": {mode: len(re.findall(
+        r"test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored",
+        (temp / ("parity-rust-" + mode + ".log")).read_text(errors="replace"),
+    )) for mode in expected},
+    "jvm_tests": len(unit),
+    "instrumentation_tests": len(native),
+    "camera": summary,
+}, indent=2) + "\n")
+print(f"Verified fresh Rust {rust}, {len(unit)} JVM and {len(native)} emulator checks; 2-camera packaged flow passed")
