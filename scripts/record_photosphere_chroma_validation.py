@@ -75,10 +75,14 @@ for required in [
 ]:
     assert required in unit_names, required
 
-expected = {"default": 293, "portable": 287, "jni": 293}
+expected = {"default": 297, "portable": 291, "jni": 297}
 rust = {}
 rust_logs = {}
 regressions = [
+    "phase_builder_matches_complete_native_owners",
+    "phase_builder_collapse_matches_both_native_paths",
+    "phase_builder_rejects_unsupported_origin_and_layouts",
+    "phase_collapse_rejects_malformed_metadata",
     "matches_complete_native_source_mask_caller_fixtures",
     "signed_attenuation_clamps_to_phase_region_and_truncates_toward_zero",
     "clamped_all_one_masks_preserve_edge_coefficients_and_minimal_rows",
@@ -135,12 +139,13 @@ for mode, source in rust_logs.items():
     )
     assert ignored.returncode == 1, (relative, ignored.returncode)
 
-report = f"""# Photo Sphere native color and mask validation
+report = f"""# Photo Sphere native color and pyramid validation
 
 Source: `{sha}`  
 Workflow run: https://github.com/Persie0/Playground/actions/runs/{run}
 
 - Fresh Rust checks from this workflow run passed: {rust['default']} default, {rust['portable']} portable, and {rust['jni']} JNI-host tests. Each mode reported exactly 17 successful test suites. No earlier run was reused. Raw wrapper logs are stored privately as `.txt` files in `full-rust/` beside this report.
+- The phase-aware source-pyramid regressions require every allocated coefficient, base residual, aligned origin/phase, both collapse modes and rejection of malformed/native-word domains. The corpus has 36 independent owner states and 72 original collapse outputs, including varied-pattern holdouts and signed-even i32 extremes; normal collapse is not assumed to be source identity.
 - The isolated source-mask regressions require complete native coefficients and ordered boundary records, signed phase-region arithmetic, all-one edge clamping and atomic late-input/tiny-region rejection. They preserve borrowed mask buffers and do not switch production rendering to YUV.
 - The isolated one-channel chroma regressions require exact original descriptor-dispatcher fixtures, all 256 identity-transfer mappings, independent padding, minimal final rows and atomic invalid-domain/layout rejection. Existing native builder/collapse regressions remain required. These helpers do not switch live rendering to YUV.
 - Crop regressions check ordinary and longitude-wrapping coverage, pixels counted inside the output crop, tile-aligned crop workspace, and public partial-panorama GPano geometry. The two source-reducer regressions cover native-oracle agreement and atomic rejection of invalid layouts. Existing low-resolution seam-hole, source-pass progress, and per-source gamma regressions remain required.
