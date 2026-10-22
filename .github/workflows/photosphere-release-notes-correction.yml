@@ -1,0 +1,46 @@
+name: Correct verified Photo Sphere release evidence notes
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-release-notes-correction.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  correct-notes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 47ff8006ec2d8fa33f6a54afde9b796f4d0f3782
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: engine
+          persist-credentials: false
+      - name: Correct evidence-retention wording and preserve verified APK
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api repos/Persie0/PhotosphereCleanroom/releases/tags/capture-start-pose-830a8efc077d > "$RUNNER_TEMP/before.json"
+          python3 - <<'CHECK'
+          import json, os, pathlib
+          data=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"before.json").read_text())
+          assert data["target_commitish"]=="830a8efc077dfc7ed763d0f8a7a93299b7466ffa"
+          asset=next(x for x in data["assets"] if x["name"]=="PhotoSphere-preview.apk")
+          assert asset["size"]==8113716
+          assert asset["digest"]=="sha256:a3ec1bf82db49c7b3629794782f7ec436e327932bb94954a9827fb41882f531b"
+          CHECK
+          gh release edit capture-start-pose-830a8efc077d --repo Persie0/PhotosphereCleanroom --notes-file engine/docs/validation/2026-10-22-coverage-workspace.md
+          gh api repos/Persie0/PhotosphereCleanroom/releases/tags/capture-start-pose-830a8efc077d > "$RUNNER_TEMP/after.json"
+          python3 - <<'CHECK'
+          import json, os, pathlib
+          temp=pathlib.Path(os.environ["RUNNER_TEMP"])
+          before=json.loads((temp/"before.json").read_text())
+          after=json.loads((temp/"after.json").read_text())
+          assert after["body"].rstrip()==pathlib.Path("engine/docs/validation/2026-10-22-coverage-workspace.md").read_text().rstrip()
+          assert before["assets"]==after["assets"]
+          assert before["target_commitish"]==after["target_commitish"]
+          print("Verified release notes corrected; APK asset and source target unchanged")
+          CHECK

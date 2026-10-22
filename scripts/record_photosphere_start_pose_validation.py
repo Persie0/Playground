@@ -5,6 +5,7 @@ import os
 import pathlib
 import re
 import shutil
+import subprocess
 import xml.etree.ElementTree as ET
 
 root = pathlib.Path("engine")
@@ -103,14 +104,22 @@ for mode in ["default", "portable", "jni"]:
 private_log_dir = root / "docs/validation/private-rust-logs" / str(run)
 private_log_dir.mkdir(parents=True, exist_ok=True)
 for mode, source in rust_logs.items():
-    shutil.copyfile(source, private_log_dir / source.name)
+    retained = private_log_dir / (source.stem + ".txt")
+    shutil.copyfile(source, retained)
+    relative = retained.relative_to(root)
+    ignored = subprocess.run(
+        ["git", "check-ignore", "-q", "--", str(relative)],
+        cwd=root,
+        check=False,
+    )
+    assert ignored.returncode == 1, (relative, ignored.returncode)
 
 report = f"""# Photo Sphere 0.8.0 coverage and camera validation
 
 Source: `{sha}`  
 Workflow run: https://github.com/Persie0/Playground/actions/runs/{run}
 
-- Fresh Rust checks from this workflow run passed: {rust['default']} default, {rust['portable']} portable, and {rust['jni']} JNI-host tests. Each mode reported at least 17 successful test suites. No earlier run was reused. Raw wrapper logs are stored privately in `private-rust-logs/{run}/`.
+- Fresh Rust checks from this workflow run passed: {rust['default']} default, {rust['portable']} portable, and {rust['jni']} JNI-host tests. Each mode reported at least 17 successful test suites. No earlier run was reused. Raw wrapper logs are stored privately as `.txt` files in `private-rust-logs/{run}/`.
 - Crop regressions check ordinary and longitude-wrapping coverage, pixels counted inside the output crop, tile-aligned crop workspace, and public partial-panorama GPano geometry. The two source-reducer regressions cover native-oracle agreement and atomic rejection of invalid layouts. Existing low-resolution seam-hole, source-pass progress, and per-source gamma regressions remain required.
 - {len(unit)} JVM tests, {len(native)} emulator instrumentation tests, Android lint, APK packaging, and both release JNI builds passed. Both Android ABIs passed the 16 KB ELF alignment check.
 - The packaged Camera1 UI smoke test captured {summary['source_count']} camera sources, recovered after force-stop, undid and recaptured, rendered with the retained native session, displayed measured progress, cleaned up its terminal notification, and published a GPano JPEG with decoded dimensions {summary['decoded_dimensions']}.
