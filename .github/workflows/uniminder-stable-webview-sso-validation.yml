@@ -1,0 +1,72 @@
+name: Uniminder stable WebView SSO regression verification
+on:
+  push:
+    paths:
+      - '.github/workflows/uniminder-stable-webview-sso-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout stable-runtime restoration
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/student
+          ref: fix/restore-september-webview-runtime-20261022
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: uniminder
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '21'
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve stable WebView
+        working-directory: uniminder
+        run: |
+          flutter pub get
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('pubspec.lock').read_text()
+          for name, version in (
+              ('flutter_inappwebview', '6.1.5'),
+              ('flutter_inappwebview_android', '1.1.3'),
+          ):
+              match = re.search(r'^  ' + name + r':\n(?:(?!^  [a-z]).*\n)*?    version: "?([^"\n]+)"?', text, re.M)
+              if match is None or match.group(1) != version:
+                  raise SystemExit(f'Unexpected {name} version: {match.group(1) if match else None}')
+              print(name, version)
+          PY
+      - name: Save resolved stable lockfile to PR
+        working-directory: uniminder
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- pubspec.lock; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add pubspec.lock
+            git commit -m 'build: lock stable WebView 6.1.5 and Android 1.1.3 for TU Wien SSO'
+            git push origin HEAD:fix/restore-september-webview-runtime-20261022
+          else
+            echo 'Stable WebView lockfile already resolved'
+          fi
+      - name: Flutter static analysis
+        working-directory: uniminder
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Flutter unit tests
+        working-directory: uniminder
+        run: flutter test --no-pub
+      - name: Debug Android compile on AGP 9
+        working-directory: uniminder
+        run: flutter build apk --debug --no-pub
