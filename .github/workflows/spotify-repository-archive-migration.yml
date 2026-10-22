@@ -1,0 +1,283 @@
+name: Archive Spotify references and retain mods
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/spotify-repository-archive-migration.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spotify-repository-archive-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - name: Ensure write credential exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Missing PRIVATE_REPO_TOKEN, GH_TOKEN, or GH_RELEASE_TOKEN."
+            exit 1
+          fi
+          printf 'https://x-access-token:%s@github.com\n' "$GH_TOKEN" > /tmp/spotify-migration-credentials
+          chmod 600 /tmp/spotify-migration-credentials
+          git config --global credential.helper 'store --file /tmp/spotify-migration-credentials'
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Checkout migration utility
+        uses: actions/checkout@v4
+
+      - name: Clone the two repositories
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/Persie0/spotify.git /tmp/spotify-mods-source
+          git clone --depth=1 https://github.com/Persie0/decompile.git /tmp/spotify-archive-destination
+          test "$(git -C /tmp/spotify-mods-source branch --show-current)" = main
+          test "$(git -C /tmp/spotify-archive-destination branch --show-current)" = main
+
+      - name: Copy all reference files and verify bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, shutil, subprocess
+          from pathlib import Path
+
+          source = Path('/tmp/spotify-mods-source')
+          archive = Path('/tmp/spotify-archive-destination')
+          modules = {'spotify-muter', 'spotify-autoskip', 'spotify-frida'}
+          retained = {'.gitignore', '.github/workflows/build-spotify-muter.yml'}
+          paths = [x.decode() for x in subprocess.check_output(
+              ['git', '-C', str(source), 'ls-files', '-z']).split(b'\0') if x]
+
+          for module in modules:
+              assert any(p.startswith(module + '/') for p in paths), module
+          assert any(p.startswith('analysis/') for p in paths)
+          assert any(p.startswith('decompiled/') for p in paths)
+          for folder in ('docs/spotify', 'decompiled/spotify'):
+              if (archive / folder).exists():
+                  raise RuntimeError('Destination already exists: ' + folder)
+
+          def map_to_archive(path):
+              if path == 'README.md':
+                  return 'docs/spotify/ORIGINAL_README.md'
+              for prefix, replacement in (
+                  ('analysis/', 'docs/spotify/research/'),
+                  ('docs/', 'docs/spotify/architecture/'),
+                  ('decompiled/', 'decompiled/spotify/jadx/'),
+                  ('app/', 'decompiled/spotify/extracted/app/'),
+                  ('resources/', 'decompiled/spotify/extracted/resources/'),
+                  ('.github/workflows/', 'docs/spotify/research-workflows/'),
+              ):
+                  if path.startswith(prefix):
+                      return replacement + path[len(prefix):]
+              return 'docs/spotify/other/' + path
+
+          files = [(p, map_to_archive(p)) for p in paths
+                   if p.split('/')[0] not in modules and p not in retained]
+          assert len({d for _, d in files}) == len(files)
+
+          def sha256(path):
+              value = hashlib.sha256()
+              with open(path, 'rb') as stream:
+                  for part in iter(lambda: stream.read(1024 * 1024), b''):
+                      value.update(part)
+              return value.hexdigest()
+
+          for n, (old, new) in enumerate(files, 1):
+              target = archive / new
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(source / old, target)
+              if sha256(source / old) != sha256(target):
+                  raise RuntimeError('Failed byte validation for ' + old)
+              if n % 5000 == 0:
+                  print('Copied and verified', n, 'files', flush=True)
+
+          index = archive / 'docs/spotify/README.md'
+          index.write_text(
+              '# Spotify reference archive\n\n'
+              'Historical research, extracted APK files, and source references.\n\n'
+              '- research/: technical investigation notes\n'
+              '- architecture/: explanatory documents\n'
+              '- research-workflows/: inactive historical workflow definitions\n'
+              '- ORIGINAL_README.md: source repository research index\n'
+              '- decompiled/spotify/jadx/: source extraction files\n'
+              '- decompiled/spotify/extracted/: application resources and assets\n\n'
+              'Archived material is for reference; third-party rights remain with '
+              'their respective owners.\n', encoding='utf-8')
+          (Path('/tmp/spotify-migration-manifest.json')).write_text(json.dumps({
+              'source_head': subprocess.check_output(
+                  ['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip(),
+              'files': files,
+          }))
+          print('Verified archived files:', len(files))
+          PY
+
+      - name: Publish archive first
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C /tmp/spotify-archive-destination add -A docs/spotify decompiled/spotify
+          git -C /tmp/spotify-archive-destination commit -m "Archive Spotify technical references and extracted sources"
+          git -C /tmp/spotify-archive-destination push origin HEAD:main
+          echo "Archive uploaded successfully. Source cleanup may now begin."
+
+      - name: Verify published archive and clean source repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, re, subprocess
+          from pathlib import Path
+
+          source = Path('/tmp/spotify-mods-source')
+          archive = Path('/tmp/spotify-archive-destination')
+          manifest = json.loads(Path('/tmp/spotify-migration-manifest.json').read_text())
+          modules = ('spotify-muter', 'spotify-autoskip', 'spotify-frida')
+          if subprocess.check_output(
+              ['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True
+          ).strip() != manifest['source_head']:
+              raise RuntimeError('Source changed during migration')
+          subprocess.run(['git', '-C', str(archive), 'fetch', 'origin', 'main'],
+                         check=True, stdout=subprocess.DEVNULL)
+          if subprocess.check_output(
+              ['git', '-C', str(archive), 'rev-parse', 'HEAD'], text=True
+          ).strip() != subprocess.check_output(
+              ['git', '-C', str(archive), 'rev-parse', 'origin/main'], text=True
+          ).strip():
+              raise RuntimeError('Published archive HEAD mismatch')
+
+          def digest(path):
+              value = hashlib.sha256()
+              with open(path, 'rb') as stream:
+                  for part in iter(lambda: stream.read(1024 * 1024), b''):
+                      value.update(part)
+              return value.hexdigest()
+
+          for original, target in manifest['files']:
+              if digest(source / original) != digest(archive / target):
+                  raise RuntimeError('Archive verification failed: ' + original)
+          print('All files verified in published archive')
+
+          files = [old for old, _ in manifest['files']]
+          for start in range(0, len(files), 200):
+              subprocess.run(['git', '-C', str(source), 'rm', '-q', '--',
+                              *files[start:start + 200]], check=True)
+
+          (source / 'README.md').write_text(
+              '# Spotify mods\n\n'
+              'Three independent projects for Spotify playback on Android:\n\n'
+              '- [Spotify Ad Muter](spotify-muter/README.md): Android app '
+              'that mutes ads using MediaSession metadata, without root.\n'
+              '- [Spotify Autoskip](spotify-autoskip/README.md): experimental '
+              'LSPosed module for rooted Android devices.\n'
+              '- [Spotify Frida](spotify-frida/README.md): experimental '
+              'Frida script for rooted Android devices.\n\n'
+              'See each project for installation and build instructions. '
+              'The two autoskip projects are untested on a device.\n\n'
+              'Build the Android muter with the Android SDK and Gradle installed:\n\n'
+              '    gradle -p spotify-muter :app:testDebugUnitTest :app:assembleDebug\n\n'
+              'Build the LSPosed module:\n\n'
+              '    gradle -p spotify-autoskip :app:assembleDebug\n',
+              encoding='utf-8')
+
+          def read(relative):
+              return (source / relative).read_text(encoding='utf-8')
+          def write(relative, content):
+              (source / relative).write_text(content, encoding='utf-8')
+
+          path = 'spotify-muter/README.md'
+          lines = []
+          for line in read(path).splitlines():
+              if 'The decompiled Spotify 9.1.84.2205 sources in this repository' in line:
+                  line = "The detector uses playback metadata published through Android's MediaSession API:"
+              if line.startswith('3. In ') and 'decompiled/' in line:
+                  line = '3. Spotify exposes the advertisement marker through the Android MediaSession metadata key:'
+              if 'decompiled/' in line:
+                  continue
+              lines.append(line)
+          write(path, '\n'.join(lines) + '\n')
+
+          path = 'spotify-autoskip/README.md'
+          lines = [line for line in read(path).splitlines()
+                   if '../analysis/' not in line]
+          write(path, '\n'.join(lines) + '\n')
+
+          path = 'spotify-frida/README.md'
+          content = read(path)
+          content, count = re.subn(
+              r'Status: \*\*UNTESTED script\.\*\* Hook points are DEX-verified\n'
+              r'.*\n.*\n',
+              'Status: **UNTESTED script.** Hooks and runtime behavior require '
+              'validation on a rooted test device.\n',
+              content, count=1)
+          assert count == 1
+          write(path, content)
+
+          path = 'spotify-autoskip/app/src/main/java/com/persie/spotifyskipper/SkipHook.java'
+          content = read(path).replace(
+              ' * available during an ad. Verified hook points for 9.1.84-2205:\n'
+              ' * analysis/adblock-inprocess-hook-spec.md',
+              ' * available during an ad. Targeted to Spotify 9.1.84-2205.')
+          content = content.replace('(decompiled p.xul0: mo49279c/mo49278b)',
+                                    '(Spotify 9.1.84-2205: mo49279c/mo49278b)')
+          write(path, content)
+
+          path = 'spotify-frida/skip.js'
+          lines = []
+          for line in read(path).splitlines():
+              if ' * Usage (rooted device, Spotify 9.1.84-2205; re-resolve names per release,' in line:
+                  line = ' * Usage (rooted device, Spotify 9.1.84-2205; re-resolve names per release):'
+              if 'see ../analysis/' in line:
+                  continue
+              line = line.replace('(decompiled p.xul0)', '(Spotify 9.1.84-2205)')
+              lines.append(line)
+          write(path, '\n'.join(lines) + '\n')
+
+          forbidden = re.compile(r'decompil|jadx|smali|reverse[- ]engineer|analysis/', re.I)
+          for module in modules:
+              for file in (source / module).rglob('*'):
+                  if not file.is_file():
+                      continue
+                  if file.suffix.lower() not in ('.md', '.java', '.js', '.xml',
+                                                 '.gradle', '.properties', '.pro', '.txt'):
+                      continue
+                  match = forbidden.search(file.read_text(encoding='utf-8'))
+                  if match:
+                      raise RuntimeError('Unexpected reference in ' + str(file) +
+                                         ': ' + match.group())
+          expected_root = {'.git', '.gitignore', 'README.md', '.github', *modules}
+          root = {x.name for x in source.iterdir()}
+          if root != expected_root:
+              raise RuntimeError('Unexpected source root files: ' + str(root ^ expected_root))
+          workflow_files = sorted(x.name for x in (source / '.github/workflows').iterdir())
+          if workflow_files != ['build-spotify-muter.yml']:
+              raise RuntimeError('Unexpected source workflows: ' + str(workflow_files))
+          subprocess.run(['git', '-C', str(source), 'add', '-A'], check=True)
+          print('Clean source verified: only three modules, README, gitignore and muter CI')
+          PY
+
+      - name: Publish clean mods repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C /tmp/spotify-mods-source commit -m "Keep only Spotify mod projects and build instructions"
+          git -C /tmp/spotify-mods-source push origin HEAD:main
+          echo "Spotify reference archive and clean mod repository published successfully."
+
+      - name: Remove git credentials
+        if: always()
+        shell: bash
+        run: rm -f /tmp/spotify-migration-credentials
