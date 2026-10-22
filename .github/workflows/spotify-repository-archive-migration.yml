@@ -35,10 +35,31 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
+      - name: Detect completed migration
+        id: state
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_names="$(gh api repos/Persie0/spotify/contents --jq '.[].name' | sort)"
+          expected="$(printf '.github\n.gitignore\nREADME.md\nspotify-autoskip\nspotify-frida\nspotify-muter\n' | sort)"
+          if [ "$source_names" = "$expected" ]; then
+            workflow_names="$(gh api repos/Persie0/spotify/contents/.github/workflows --jq '.[].name')"
+            test "$workflow_names" = "build-spotify-muter.yml"
+            gh api repos/Persie0/decompile/contents/docs/spotify/README.md > /dev/null
+            gh api repos/Persie0/decompile/contents/decompiled/spotify > /dev/null
+            echo "done=true" >> "$GITHUB_OUTPUT"
+            echo "Migration already complete: verified clean modules and archive."
+          else
+            echo "done=false" >> "$GITHUB_OUTPUT"
+            echo "Proceeding with source archival and cleanup."
+          fi
+
       - name: Checkout migration utility
+        if: steps.state.outputs.done != 'true'
         uses: actions/checkout@v4
 
       - name: Clone the two repositories
+        if: steps.state.outputs.done != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -48,6 +69,7 @@ jobs:
           test "$(git -C /tmp/spotify-archive-destination branch --show-current)" = main
 
       - name: Copy all reference files and verify bytes
+        if: steps.state.outputs.done != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -126,6 +148,7 @@ jobs:
           PY
 
       - name: Publish archive first
+        if: steps.state.outputs.done != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -139,6 +162,7 @@ jobs:
           echo "Archive uploaded successfully. Source cleanup may now begin."
 
       - name: Verify published archive and clean source repository
+        if: steps.state.outputs.done != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -276,6 +300,7 @@ jobs:
           PY
 
       - name: Publish clean mods repository
+        if: steps.state.outputs.done != 'true'
         shell: bash
         run: |
           set -euo pipefail
