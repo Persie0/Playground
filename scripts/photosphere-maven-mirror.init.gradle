@@ -1,0 +1,18 @@
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository
+
+// Google documents this Maven Central mirror at
+// https://docs.cloud.google.com/docs/buildpacks/java#google_cloud_hosted_maven_central_mirror
+// Only dependency retrieval changes; Google's Android repository is retained.
+def mirrorCentral = { repository ->
+    if (repository instanceof MavenArtifactRepository &&
+        repository.url.host in ['repo.maven.apache.org', 'repo1.maven.org']) {
+        repository.setUrl('https://maven-central.storage-download.googleapis.com/maven2/')
+    }
+}
+gradle.settingsEvaluated { settings ->
+    settings.pluginManagement.repositories.all(mirrorCentral)
+    settings.dependencyResolutionManagement.repositories.all(mirrorCentral)
+}
+gradle.beforeProject { project ->
+    project.buildscript.repositories.all(mirrorCentral)
+}

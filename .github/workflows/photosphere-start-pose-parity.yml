@@ -12,6 +12,9 @@ jobs:
     timeout-minutes: 75
     env:
       SOURCE_SHA: fd53435c233dd29dc2c3a9fc357940065c39a3fa
+      RUST_VALIDATION_RUN: "39704390980"
+      RUST_VALIDATION_WORKFLOW_SHA: c0146c441761e51b6fcde9ebfe358b89462edc0c
+      RUST_VALIDATION_EVIDENCE_SHA: 17406e2486f871ef54e00ff01d1db03ecfcba66c
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,15 +43,14 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: "ndk;27.2.12479018"
-      - name: Rust default regressions
-        working-directory: engine
-        run: python3 ../playground/scripts/run_private_rust_check.py parity-default cargo test --locked --all-targets
-      - name: Rust portable regressions
-        working-directory: engine
-        run: python3 ../playground/scripts/run_private_rust_check.py parity-portable cargo test --locked --all-targets --no-default-features
-      - name: Rust JNI-host regressions
-        working-directory: engine
-        run: python3 ../playground/scripts/run_private_rust_check.py parity-jni cargo test --locked --all-targets --features android-jni
+      - name: Verify and retain successful same-source Rust regressions
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: python3 playground/scripts/reuse_photosphere_rust_validation.py
+      - name: Retrieve Maven Central dependencies through the documented mirror
+        run: |
+          mkdir -p "$GRADLE_USER_HOME/init.d"
+          cp playground/scripts/photosphere-maven-mirror.init.gradle "$GRADLE_USER_HOME/init.d/photosphere-maven-mirror.gradle"
       - name: Android geometry, orientation, progress and lint
         working-directory: engine/android
         run: python3 ../../playground/scripts/retry_private_dependency_check.py parity-unit-lint gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
