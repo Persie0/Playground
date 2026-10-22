@@ -72,7 +72,8 @@ jobs:
               assert rows, "missing Cargo summaries for "+mode
               passed=sum(int(a) for a,_,_ in rows)
               failed=sum(int(b) for _,b,_ in rows)
-              assert passed == {"default":289,"portable":283,"jni":289}[mode] and failed == 0 and len(rows)==17, (mode,passed,failed,len(rows))
+              ignored=sum(int(c) for _,_,c in rows)
+              assert passed == {"default":289,"portable":283,"jni":289}[mode] and failed == ignored == 0 and len(rows)==17, (mode,passed,failed,ignored,len(rows))
               print(f"{mode}: {passed} Rust tests passed across {len(rows)} targets")
       - name: Retrieve Maven Central dependencies through the documented mirror
         run: |
