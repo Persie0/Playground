@@ -101,6 +101,13 @@ try:
     completed=wait(finished,240)
     (pathlib.Path(os.environ["RUNNER_TEMP"])/"stitch-notification.log").write_text("\n".join(notification_samples))
     assert any(re.search(r"Blending.*[0-9]+%",line) for line in notification_samples),"No measured blending progress appeared in notification"
+    assert any(re.search(r"Finding seams.*[0-9]+%.*\([0-9]+/[0-9]+\)",line) for line in notification_samples),"No measured seam progress appeared in notification"
+    def terminal_notification():
+        # This command lists active keys, excluding notification history in dumpsys.
+        keys=adb("shell","cmd","notification","list").splitlines()
+        ids={int(m.group(1)) for key in keys if (m:=re.fullmatch(r"\d+\|"+re.escape(PKG)+r"\|(42|43)\|[^|]*\|\d+",key.strip()))}
+        return 43 in ids and 42 not in ids
+    wait(terminal_notification,30)
     assert completed[1]["report"]["android_render"]["reused_capture_session"] is True,"Save rebuilt the live native session"
     assert source_hashes(completed[1])==before,"Rendering changed source JPEG bytes"
     assert completed[1]["output_uri"].startswith("content://media/")
@@ -114,7 +121,9 @@ try:
     wait(lambda:has_text("Panorama saved"))
     screenshot("saved")
     summary={"camera_ui_capture":True,"process_death_recovery":True,"undo_and_recapture":True,
-        "foreground_render":True,"native_session_reused":True,"notification_measured_progress":True,"coverage_guidance":True,"edge_guidance_accessible":True,"gallery_publication":True,"original_source_hashes_unchanged":True,
+        "foreground_render":True,"native_session_reused":True,"notification_measured_progress":True,
+        "notification_measured_seam_progress":True,"notification_terminal_cleanup":True,
+        "coverage_guidance":True,"edge_guidance_accessible":True,"gallery_publication":True,"original_source_hashes_unchanged":True,
         "decoded_dimensions":list(image.size),"jpeg_sampling":"4:2:0",
         "source_count":len(completed[1]["sources"]),"capture_id":completed[0]}
     (root/"docs/validation/android-camera-ui.json").write_text(json.dumps(summary,indent=2)+"\n")
