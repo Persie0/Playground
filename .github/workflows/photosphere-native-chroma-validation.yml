@@ -1,0 +1,124 @@
+name: Photo Sphere native chroma validation
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-native-chroma-validation.yml"]
+permissions:
+  contents: read
+jobs:
+  validate-native-chroma:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      APP_SHA: "092c8db122172bbe095d86c160d451c1e99e6804"
+    steps:
+      - name: Checkout public validation helpers
+        uses: actions/checkout@v4
+        with:
+          path: playground
+          persist-credentials: false
+      - name: Validate source pin and private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$APP_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test -n "$PRIVATE_TOKEN"
+      - name: Checkout pinned PhotoSphereCleanroom source
+        id: engine
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: ${{ env.APP_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: engine
+          persist-credentials: false
+      - name: Record source and workflow run in private diagnostics
+        run: printf 'source_sha=%s\nworkflow_run=%s\n' "$APP_SHA" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/native-chroma-port-metadata.log"
+      - name: Start with fresh Android validation outputs
+        run: rm -f engine/docs/validation/android-screens/*.png engine/docs/validation/android-camera-ui.json "$RUNNER_TEMP"/native-chroma-{rust-default,rust-portable,rust-jni,unit-lint,native,apk,emulator,camera-ui}.log
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+          cache-disabled: true
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "ndk;27.2.12479018"
+      - name: Run fresh default Rust regressions
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py native-chroma-rust-default cargo test --locked --all-targets
+      - name: Run fresh portable Rust regressions
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py native-chroma-rust-portable cargo test --locked --no-default-features --all-targets
+      - name: Run fresh JNI Rust regressions
+        working-directory: engine
+        run: python3 ../playground/scripts/run_private_rust_check.py native-chroma-rust-jni cargo test --locked --features android-jni --all-targets
+      - name: Verify exact fresh Rust counts
+        run: |
+          python3 - <<'PY'
+          import os,re
+          root=os.environ["RUNNER_TEMP"]
+          for mode in ("default","portable","jni"):
+              path=os.path.join(root,"native-chroma-rust-"+mode+".log")
+              log=open(path,errors="replace").read()
+              rows=re.findall(r"test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored",log)
+              assert rows, "missing Cargo summaries for "+mode
+              passed=sum(int(a) for a,_,_ in rows)
+              failed=sum(int(b) for _,b,_ in rows)
+              assert passed == {"default":289,"portable":283,"jni":289}[mode] and failed == 0 and len(rows)==17, (mode,passed,failed,len(rows))
+              print(f"{mode}: {passed} Rust tests passed across {len(rows)} targets")
+      - name: Retrieve Maven Central dependencies through the documented mirror
+        run: |
+          mkdir -p "$GRADLE_USER_HOME/init.d"
+          cp playground/scripts/photosphere-maven-mirror.init.gradle "$GRADLE_USER_HOME/init.d/photosphere-maven-mirror.gradle"
+      - name: Android JVM tests and lint
+        working-directory: engine/android
+        run: python3 ../../playground/scripts/retry_private_dependency_check.py native-chroma-unit-lint gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
+      - name: Rebuild both release JNI libraries from source
+        working-directory: engine
+        env:
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.2.12479018
+        run: python3 ../playground/scripts/run_private_rust_check.py native-chroma-native python3 tools/build_android.py
+      - name: Build debug APK and native instrumentation tests
+        working-directory: engine/android
+        run: python3 ../../playground/scripts/run_private_rust_check.py native-chroma-apk gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Verify 16 KB native ELF alignment
+        run: |
+          python3 - <<'PY'
+          import pathlib,subprocess
+          for abi in ["arm64-v8a","x86_64"]:
+              path=pathlib.Path("engine/android/app/src/main/jniLibs")/abi/"libphotosphere.so"
+              segments=[line for line in subprocess.check_output(["readelf","-lW",str(path)],text=True).splitlines() if line.strip().startswith("LOAD")]
+              assert segments and all(int(line.split()[-1],16)>=16384 for line in segments)
+              print(abi+" 16 KB ELF alignment passed")
+          PY
+      - name: Install screenshot validation dependency
+        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+      - name: Enable emulator KVM
+        run: sudo chmod 666 /dev/kvm
+      - name: Android instrumentation and packaged camera flow
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -memory 3072
+          script: |
+            python3 playground/scripts/run_photosphere_android_check.py native-chroma-emulator :app:connectedDebugAndroidTest
+            python3 playground/scripts/run_private_rust_check.py native-chroma-camera-ui python3 playground/scripts/photosphere_android_camera_ui_smoke.py
+      - name: Verify complete same-run evidence and retain full private Rust logs
+        run: python3 playground/scripts/record_photosphere_chroma_validation.py
+      - name: Preserve diagnostics and Rust summaries in the private source checkout
+        if: always() && steps.engine.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: python3 playground/scripts/preserve_photosphere_diagnostics.py engine native-chroma-port
