@@ -12,6 +12,8 @@ root = pathlib.Path("engine")
 temp = pathlib.Path(os.environ["RUNNER_TEMP"])
 run, sha = os.environ["GITHUB_RUN_ID"], os.environ["APP_SHA"]
 assert re.fullmatch(r"[0-9a-f]{40}", sha)
+metadata = dict(line.split("=", 1) for line in (temp / "native-chroma-port-metadata.log").read_text().splitlines())
+assert metadata == {"source_sha": sha, "workflow_run": run}, "source/run metadata mismatch"
 assert subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip() == sha
 subprocess.run(["git", "diff", "--exit-code", "HEAD", "--", ".", ":(exclude)docs/validation"], cwd=root, check=True, stdout=subprocess.DEVNULL)
 dest = root / "docs/validation/runs" / str(run)
@@ -75,10 +77,15 @@ for required in [
 ]:
     assert required in unit_names, required
 
-expected = {"default": 297, "portable": 291, "jni": 297}
+expected = {"default": 302, "portable": 296, "jni": 302}
 rust = {}
 rust_logs = {}
 regressions = [
+    "linear_resize_matches_native_dimension_setter_fixtures",
+    "additive_overlap_matches_complete_native_calls",
+    "rejects_invalid_overlap_layout_before_writing",
+    "weighted_accumulation_matches_native_blocks",
+    "rejects_unsupported_weighted_scale",
     "phase_builder_matches_complete_native_owners",
     "phase_builder_collapse_matches_both_native_paths",
     "phase_builder_rejects_unsupported_origin_and_layouts",
