@@ -175,16 +175,11 @@ jobs:
                   raise RuntimeError('Archive verification failed: ' + original)
           print('All files verified in published archive')
 
-          files = [old for old, _ in manifest['files']]
-          # Delete large tracked trees in one index transaction, not 400 small ones.
-          big_roots = ('analysis', 'app', 'decompiled', 'docs', 'resources')
-          subprocess.run(['git', '-C', str(source), 'rm', '-r', '-q', '--',
-                          *big_roots], check=True)
-          others = [path for path in files if path != 'README.md'
-                    and path.split('/')[0] not in big_roots]
-          for start in range(0, len(others), 200):
-              subprocess.run(['git', '-C', str(source), 'rm', '-q', '--',
-                              *others[start:start + 200]], check=True)
+          # Rebuild the Git index with only the retained projects.
+          # Do not unlink 81,000 extracted files one by one: Git will record
+          # their deletion when the reduced tree is committed.
+          subprocess.run(['git', '-C', str(source), 'read-tree', '--empty'],
+                         check=True)
 
           (source / 'README.md').write_text(
               '# Spotify mods\n\n'
@@ -268,15 +263,16 @@ jobs:
                   if match:
                       raise RuntimeError('Unexpected reference in ' + str(file) +
                                          ': ' + match.group())
-          expected_root = {'.git', '.gitignore', 'README.md', '.github', *modules}
-          root = {x.name for x in source.iterdir()}
-          if root != expected_root:
-              raise RuntimeError('Unexpected source root files: ' + str(root ^ expected_root))
-          workflow_files = sorted(x.name for x in (source / '.github/workflows').iterdir())
-          if workflow_files != ['build-spotify-muter.yml']:
-              raise RuntimeError('Unexpected source workflows: ' + str(workflow_files))
-          subprocess.run(['git', '-C', str(source), 'add', '-A'], check=True)
-          print('Clean source verified: only three modules, README, gitignore and muter CI')
+          only = ['.gitignore', 'README.md',
+                  '.github/workflows/build-spotify-muter.yml', *modules]
+          subprocess.run(['git', '-C', str(source), 'add', '--', *only],
+                         check=True)
+          retained = [x.decode() for x in subprocess.check_output(
+              ['git', '-C', str(source), 'ls-files', '-z']).split(b'\0') if x]
+          for file in retained:
+              if file not in only and not any(file.startswith(m + '/') for m in modules):
+                  raise RuntimeError('Unexpected tracked file: ' + file)
+          print('Clean commit staged: only three modules, README, gitignore and muter CI')
           PY
 
       - name: Publish clean mods repository
