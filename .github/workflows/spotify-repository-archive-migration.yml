@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: spotify-repository-archive-migration
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   migrate:
@@ -68,7 +68,7 @@ jobs:
           assert any(p.startswith('decompiled/') for p in paths)
           for folder in ('docs/spotify', 'decompiled/spotify'):
               if (archive / folder).exists():
-                  raise RuntimeError('Destination already exists: ' + folder)
+                  print('Reusing already-published archive: ' + folder)
 
           def map_to_archive(path):
               if path == 'README.md':
@@ -130,8 +130,12 @@ jobs:
         run: |
           set -euo pipefail
           git -C /tmp/spotify-archive-destination add -A docs/spotify decompiled/spotify
-          git -C /tmp/spotify-archive-destination commit -m "Archive Spotify technical references and extracted sources"
-          git -C /tmp/spotify-archive-destination push origin HEAD:main
+          if git -C /tmp/spotify-archive-destination diff --cached --quiet; then
+            echo "Archive already up to date."
+          else
+            git -C /tmp/spotify-archive-destination commit -m "Archive Spotify technical references and extracted sources"
+            git -C /tmp/spotify-archive-destination push origin HEAD:main
+          fi
           echo "Archive uploaded successfully. Source cleanup may now begin."
 
       - name: Verify published archive and clean source repository
@@ -172,9 +176,15 @@ jobs:
           print('All files verified in published archive')
 
           files = [old for old, _ in manifest['files']]
-          for start in range(0, len(files), 200):
+          # Delete large tracked trees in one index transaction, not 400 small ones.
+          big_roots = ('analysis', 'app', 'decompiled', 'docs', 'resources')
+          subprocess.run(['git', '-C', str(source), 'rm', '-r', '-q', '--',
+                          *big_roots], check=True)
+          others = [path for path in files if path != 'README.md'
+                    and path.split('/')[0] not in big_roots]
+          for start in range(0, len(others), 200):
               subprocess.run(['git', '-C', str(source), 'rm', '-q', '--',
-                              *files[start:start + 200]], check=True)
+                              *others[start:start + 200]], check=True)
 
           (source / 'README.md').write_text(
               '# Spotify mods\n\n'
