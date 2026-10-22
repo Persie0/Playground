@@ -43,10 +43,11 @@ for mode in ["default", "portable", "jni"]:
     results = re.findall(r"test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored", log)
     assert results and all(int(failed) == 0 and int(ignored) == 0 for _, failed, ignored in results), mode
     rust[mode] = sum(int(passed) for passed, _, _ in results)
-    assert len(results) >= 14, (mode, len(results))
-    assert rust[mode] == {"default": 271, "portable": 265, "jni": 271}[mode], (mode, rust[mode])
+    assert len(results) >= 15, (mode, len(results))
+    assert rust[mode] == {"default": 272, "portable": 266, "jni": 272}[mode], (mode, rust[mode])
     for regression in ["low_resolution_seam_labels_do_not_create_holes_in_fully_covered_sphere",
-                       "seam_progress_counts_source_passes_and_finishes_after_map_construction"]:
+                       "seam_progress_counts_source_passes_and_finishes_after_map_construction",
+                       "gamma_adjusts_each_sources_own_brightness_in_either_order"]:
         assert re.search(r"test "+regression+r" \.\.\. ok", log), (mode, regression)
 
 run, sha = os.environ["GITHUB_RUN_ID"], os.environ["SOURCE_SHA"]
@@ -61,6 +62,7 @@ Run: https://github.com/Persie0/Playground/actions/runs/{run}
 - V2 start-pitch/axis geometry through +/-90 degrees, retained first-pose roll policy, recovery, tamper rejection and legacy target IDs were checked. Normal scan-dot angular fading, a full-opacity selected ring/corner cue, a separate off-image chevron and narrow large-font RTL rendering were checked.
 - Stable camera-preview bounds under changing status/count text, measured seam source-pass counts, terminal service notification removal, gallery access, planned-axis gating and supported first-shutter AE/AWB lock decisions were checked.
 - Multiband seam masks no longer discard geometrically covered pixels in the bounded one-source-group regression. The fallback is selected only when base-band weight is at or below the hole threshold. First-shutter metering locks are a capture-quality improvement, with driver support/failure fallback; physical camera convergence is not established by an emulator.
+- The gamma normal equations bind each diagonal to that source's own logged overlap mean. A real-renderer regression covers darker/brighter sources in both assignments, correction direction and source-only output pixels. Native producer ownership and an executed coefficient-span oracle establish the source-index reversal corrected in0.7.1.
 - Source-independent multiband mask reuse and isolated Q22 RGB/YCbCr and residual helpers passed their regression checks. These numerical helpers remain outside the production RGB renderer. Optional GPano fields, Java integer overflow/omission, legacy configs, raw metadata import and JPEG EXIF/pixel preservation were checked.
 - The packaged Camera1 UI captured {summary['source_count']} photos, recovered after force-stop, undid/recaptured, rendered with the retained native session, showed measured seam and blending notification progress, removed foreground notification42 and posted ordinary result43, and published a GPano 4:2:0 JPEG at {summary['decoded_dimensions']}.
 - Source JPEG hashes remained unchanged. Private screenshots and logs are retained with this evidence.

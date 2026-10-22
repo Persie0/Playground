@@ -11,7 +11,15 @@ def adb(*args, binary=False, check=True):
     return p.stdout if binary else p.stdout.decode(errors="replace").strip()
 def ui():
     adb("shell","uiautomator","dump","/sdcard/photosphere-window.xml")
-    return ET.fromstring(adb("shell","cat","/sdcard/photosphere-window.xml"))
+    tree=ET.fromstring(adb("shell","cat","/sdcard/photosphere-window.xml"))
+    # A cold API35 emulator can leave a launcher ANR above the target Activity.
+    # Dismiss only that observed emulator failure; app ANRs remain test failures.
+    if any(n.attrib.get("resource-id")=="android:id/alertTitle" and
+           n.attrib.get("text")=="Pixel Launcher isn't responding" for n in tree.iter("node")):
+        adb("shell","am","force-stop","com.google.android.apps.nexuslauncher")
+        adb("shell","uiautomator","dump","/sdcard/photosphere-window.xml")
+        tree=ET.fromstring(adb("shell","cat","/sdcard/photosphere-window.xml"))
+    return tree
 def tap(text):
     nodes=[n for n in ui().iter("node") if n.attrib.get("text","").casefold()==text.casefold() and n.attrib.get("enabled")=="true"]
     assert nodes,"Missing enabled UI action: "+text
