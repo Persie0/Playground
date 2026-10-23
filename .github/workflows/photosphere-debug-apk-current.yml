@@ -52,17 +52,25 @@ jobs:
           gradle-version: "8.9"
           cache-disabled: true
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Use preinstalled Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          test -d "$SDK"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          ls -ld "$SDK/ndk/"* || true
 
       - name: Select installed NDK or install with retry
         shell: bash
         run: |
           set -euo pipefail
           NDK_DIR="$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -1 || true)"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)"
           if [[ -z "$NDK_DIR" ]]; then
             for attempt in 1 2 3; do
-              if sdkmanager "ndk;27.2.12479018"; then break; fi
+              if "$SDKMANAGER" "ndk;27.2.12479018"; then break; fi
               echo "NDK download failed, retry $attempt"
               sleep 8
             done
@@ -76,8 +84,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)"
           if [[ ! -f "$ANDROID_HOME/platforms/android-35/android.jar" || ! -d "$ANDROID_HOME/build-tools/35.0.0" ]]; then
-            sdkmanager "platforms;android-35" "build-tools;35.0.0"
+            "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
           fi
 
       - name: Configure Maven Central mirror
