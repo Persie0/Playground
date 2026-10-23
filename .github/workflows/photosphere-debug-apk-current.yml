@@ -52,10 +52,33 @@ jobs:
           gradle-version: "8.9"
           cache-disabled: true
 
-      - name: Set up Android SDK and NDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: "platforms;android-35 build-tools;35.0.0 ndk;27.2.12479018"
+
+      - name: Select installed NDK or install with retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_DIR="$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -1 || true)"
+          if [[ -z "$NDK_DIR" ]]; then
+            for attempt in 1 2 3; do
+              if sdkmanager "ndk;27.2.12479018"; then break; fi
+              echo "NDK download failed, retry $attempt"
+              sleep 8
+            done
+            NDK_DIR="$ANDROID_HOME/ndk/27.2.12479018"
+          fi
+          test -x "$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang"
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "Using NDK at $NDK_DIR"
+
+      - name: Ensure Android 35 platform and build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f "$ANDROID_HOME/platforms/android-35/android.jar" || ! -d "$ANDROID_HOME/build-tools/35.0.0" ]]; then
+            sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          fi
 
       - name: Configure Maven Central mirror
         run: |
@@ -64,8 +87,6 @@ jobs:
 
       - name: Compile native Android libraries for arm64 and x86_64
         working-directory: engine
-        env:
-          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.2.12479018
         run: python3 tools/build_android.py
 
       - name: Assemble debug APK
