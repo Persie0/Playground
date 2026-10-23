@@ -1,0 +1,39 @@
+name: Root Detector native PR review 2026-10-23
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/root-detector-native-pr-review-20261023.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Check out private Root Detector review branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/root_detection_app
+          ref: fix/native-root-shell-billing-20261023
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: root-detector
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Install Android platform
+        run: |
+          set -euo pipefail
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-37.0'
+      - name: Unit tests, debug build and Android lint
+        working-directory: root-detector
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:lintDebug --stacktrace
