@@ -1,0 +1,55 @@
+name: Uniminder Grades Crash and Logout PR29
+on:
+  push:
+    paths:
+      - '.github/workflows/uniminder-grades-crash-logout-pr29.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Uniminder grades fix
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/student
+          ref: fix/tiss-grades-crash-preserve-totp-on-logout-20261023
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: uniminder
+      - name: Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '21'
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Dependencies
+        working-directory: uniminder
+        run: flutter pub get
+      - name: Analyze modified source and tests
+        working-directory: uniminder
+        run: |
+          flutter analyze --no-pub lib/screens/university/tiss_login_screen.dart \
+            lib/screens/university/certificates_screen.dart \
+            lib/services/certificates_service.dart lib/services/certificate_chart_safety.dart \
+            lib/services/tiss_certificate_page.dart lib/services/tu_auth_service.dart \
+            lib/screens/settings/totp_setup_screen.dart \
+            test/tu_auth_logout_test.dart test/certificate_chart_safety_test.dart \
+            test/tiss_certificate_page_test.dart
+      - name: Grades and auth regression tests
+        working-directory: uniminder
+        run: |
+          flutter test --no-pub test/tu_auth_logout_test.dart \
+            test/certificate_chart_safety_test.dart test/tiss_certificate_page_test.dart \
+            test/tu_login_otp_script_test.dart test/calendar_direct_links_test.dart
+      - name: Android debug build
+        working-directory: uniminder
+        run: flutter build apk --debug --no-pub
