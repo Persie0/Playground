@@ -1,0 +1,101 @@
+name: Photo Sphere current debug APK
+run-name: Build Photo Sphere debug APK (b60b879a7d64)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/photosphere-debug-apk-current.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-debug-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      SOURCE_SHA: b60b879a7d6403aec2213a65084f4fb0c520b1f5
+    steps:
+      - name: Checkout Playground build helpers
+        uses: actions/checkout@v4
+        with:
+          path: playground
+          persist-credentials: false
+
+      - name: Checkout private Photo Sphere source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: engine
+
+      - name: Verify pinned source
+        run: test "$(git -C engine rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+
+      - name: Install Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+          cache-disabled: true
+
+      - name: Set up Android SDK and NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0 ndk;27.2.12479018"
+
+      - name: Configure Maven Central mirror
+        run: |
+          mkdir -p "$GRADLE_USER_HOME/init.d"
+          cp playground/scripts/photosphere-maven-mirror.init.gradle "$GRADLE_USER_HOME/init.d/photosphere-maven-mirror.gradle"
+
+      - name: Compile native Android libraries for arm64 and x86_64
+        working-directory: engine
+        env:
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.2.12479018
+        run: python3 tools/build_android.py
+
+      - name: Assemble debug APK
+        working-directory: engine/android
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify and name APK
+        run: |
+          set -euo pipefail
+          test -s engine/android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -tq engine/android/app/build/outputs/apk/debug/app-debug.apk
+          mkdir -p out
+          cp engine/android/app/build/outputs/apk/debug/app-debug.apk out/PhotoSphere-debug.apk
+          sha256sum out/PhotoSphere-debug.apk
+
+      - name: Publish APK in private source repository
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          TAG="debug-${SOURCE_SHA:0:12}"
+          if gh release view "$TAG" --repo Persie0/PhotosphereCleanroom >/dev/null 2>&1; then
+            gh release upload "$TAG" out/PhotoSphere-debug.apk --clobber --repo Persie0/PhotosphereCleanroom
+          else
+            gh release create "$TAG" "out/PhotoSphere-debug.apk" \
+              --repo Persie0/PhotosphereCleanroom \
+              --target "$SOURCE_SHA" \
+              --prerelease \
+              --title "Photo Sphere debug APK (${SOURCE_SHA:0:12})" \
+              --notes "Debug-signed APK from pinned source \`$SOURCE_SHA\`. JNI arm64-v8a and x86_64 libraries rebuilt from source."
+          fi
+          echo "APK: https://github.com/Persie0/PhotosphereCleanroom/releases/download/$TAG/PhotoSphere-debug.apk"
