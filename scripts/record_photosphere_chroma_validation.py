@@ -77,7 +77,7 @@ for required in [
 ]:
     assert required in unit_names, required
 
-expected = {"default": 302, "portable": 296, "jni": 302}
+expected = {"default": 303, "portable": 297, "jni": 303}
 rust = {}
 rust_logs = {}
 regressions = [
@@ -115,6 +115,7 @@ regressions = [
     "low_resolution_seam_labels_do_not_create_holes_in_fully_covered_sphere",
     "seam_progress_counts_source_passes_and_finishes_after_map_construction",
     "gamma_adjusts_each_sources_own_brightness_in_either_order",
+    "native_three_plane_interleave_matches_original_bytes",
 ]
 for mode in ["default", "portable", "jni"]:
     label = "native-chroma-rust-" + mode
