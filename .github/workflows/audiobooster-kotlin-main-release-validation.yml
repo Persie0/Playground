@@ -42,6 +42,15 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Disable production signing for validation
+        working-directory: app
+        shell: bash
+        run: |
+          # Validate an unsigned bundle; never use private release keys in public CI.
+          if [ -f key.properties ]; then
+            mv key.properties key.properties.ci-disabled
+          fi
+
       - name: Test, release lint and release bundle
         working-directory: app
         shell: bash
