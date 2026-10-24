@@ -1,0 +1,52 @@
+name: Video Upscaler FPS interpolation compile (public Playground)
+on:
+  push:
+    paths:
+      - .github/workflows/video-upscaler-frame-interpolation-verify.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout private app PR branch with restricted token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/video_upscaler_android
+          ref: feat/android-frame-interpolation-and-compare
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: appsrc
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle build cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK platform 37
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "build-tools;37.0.0"
+
+      - name: Compile GLES shaders
+        working-directory: appsrc
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq glslang-tools
+          for file in app/src/main/assets/shaders/*.comp; do glslangValidator -S comp "$file"; done
+          for file in app/src/main/assets/shaders/*.frag; do glslangValidator -S frag "$file"; done
+          glslangValidator -S vert app/src/main/assets/shaders/quad.vert
+
+      - name: Compile debug APK, instrumentation APK and unit tests
+        working-directory: appsrc
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest --no-daemon --stacktrace
