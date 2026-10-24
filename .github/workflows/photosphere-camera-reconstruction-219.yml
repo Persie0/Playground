@@ -1,0 +1,90 @@
+name: Photo Sphere native parity checkpoint 219 Android validation
+run-name: Photo Sphere checkpoint 219 source d5851225e80c
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/photosphere-camera-reconstruction-219.yml"]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      APP_SHA: "d5851225e80ca5838e37887f1bf40d1c10900edc"
+    steps:
+      - name: Checkout public validation helpers
+        uses: actions/checkout@v4
+        with:
+          path: playground
+          persist-credentials: false
+      - name: Checkout exact application source
+        id: engine
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: ${{ env.APP_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: engine
+          persist-credentials: false
+      - name: Assert source and record provenance
+        run: |
+          test "$(git -C engine rev-parse HEAD)" = "$APP_SHA"
+          printf 'source_sha=%s\nworkflow_run=%s\n' "$APP_SHA" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/capture219-metadata.log"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+          cache-disabled: true
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "ndk;27.2.12479018"
+      - name: Configure Maven mirror
+        run: |
+          mkdir -p "$GRADLE_USER_HOME/init.d"
+          cp playground/scripts/photosphere-maven-mirror.init.gradle "$GRADLE_USER_HOME/init.d/photosphere-maven-mirror.gradle"
+      - name: Build both release JNI libraries
+        working-directory: engine
+        env:
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.2.12479018
+        run: python3 ../playground/scripts/run_private_rust_check.py capture219-native python3 tools/build_android.py
+      - name: JVM regressions and Android lint
+        working-directory: engine/android
+        run: python3 ../../playground/scripts/run_private_rust_check.py capture219-unit gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
+      - name: Build debug APK and instrumentation
+        working-directory: engine/android
+        run: python3 ../../playground/scripts/run_private_rust_check.py capture219-apk gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Verify 16 KB native alignment
+        run: |
+          python3 - <<'PY'
+          import pathlib,subprocess
+          for abi in ['arm64-v8a','x86_64']:
+              path=pathlib.Path('engine/android/app/src/main/jniLibs')/abi/'libphotosphere.so'
+              loads=[line for line in subprocess.check_output(['readelf','-lW',str(path)],text=True).splitlines() if line.strip().startswith('LOAD')]
+              assert loads and all(int(line.split()[-1],16)>=16384 for line in loads)
+              print(abi+' ELF alignment passed')
+          PY
+      - name: Enable emulator KVM
+        run: sudo chmod 666 /dev/kvm
+      - name: Android capture, gallery and service regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -memory 3072
+          script: python3 playground/scripts/run_photosphere_android_check.py capture219-emulator :app:connectedDebugAndroidTest
+      - name: Preserve private diagnostics
+        if: always() && steps.engine.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: python3 playground/scripts/preserve_photosphere_diagnostics.py engine capture219
