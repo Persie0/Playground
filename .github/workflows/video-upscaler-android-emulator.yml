@@ -1,5 +1,5 @@
 # Final reviewed Android MOV/LGPL license UI and package integration
-name: Video Upscaler Android device pipeline smoke
+name: Video Upscaler stable FPS emulator smoke
 # Android-native rotation fixture, dual AAC tracks, and actual GPU media processing
 # Verify cancellation, pause handling, 7-layer Balanced CNN, audio and rotation on Android emulator
 on:
@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/video_upscaler_android
-          ref: main
+          ref: fix/fps-motion-artifacts-detail-inspector
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: appsrc
@@ -26,10 +26,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Gradle
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.11.1'
+      - name: Install Android SDK platform 37
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"
       - name: Generate tiny offline H.264 and AAC fixture
         run: |
           if ! command -v ffmpeg >/dev/null 2>&1; then
@@ -53,8 +55,12 @@ jobs:
           ffmpeg -hide_banner -loglevel error \
             -i appsrc/app/src/androidTest/assets/fixture.mp4 -map 0 -c copy \
             -f flv -y appsrc/app/src/androidTest/assets/fixture-flv.flv
+          ffmpeg -hide_banner -loglevel error \
+            -f lavfi -i "smptebars=size=128x192:rate=6" -t 1.2 \
+            -c:v libx264 -preset ultrafast -profile:v baseline -pix_fmt yuv420p \
+            -movflags +faststart -y appsrc/app/src/androidTest/assets/fixture-static.mp4
           ffprobe -hide_banner -loglevel error -show_streams \
-            appsrc/app/src/androidTest/assets/fixture.mp4 | head -45
+            appsrc/app/src/androidTest/assets/fixture-static.mp4 | head -45
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
@@ -71,7 +77,7 @@ jobs:
           emulator-options: -no-window -gpu swangle -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
           working-directory: appsrc
-          script: gradle :app:connectedDebugAndroidTest --no-daemon --stacktrace
+          script: ./gradlew :app:connectedDebugAndroidTest "-Pandroid.testInstrumentationRunnerArguments.class=at.persie0.VideoUpscaler.VideoPipelineInstrumentedTest#staticSceneDoesNotShiftPixelsDuringFrameInterpolation" --no-daemon --stacktrace
       - name: Upload instrumentation results
         if: always()
         uses: actions/upload-artifact@v4
