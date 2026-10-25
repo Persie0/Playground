@@ -1,0 +1,40 @@
+name: Screenchecker lockfile refresh
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/screenchecker-lockfile-refresh.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout private Screenchecker branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/screendetector
+          ref: feat/appodeal-android-banner
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependency lockfile
+        working-directory: app
+        run: flutter pub get
+      - name: Emit reproducible lockfile
+        shell: bash
+        run: |
+          echo PUBSPEC_LOCK_BEGIN
+          base64 -w0 app/pubspec.lock
+          echo
+          echo PUBSPEC_LOCK_END
