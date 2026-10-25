@@ -48,9 +48,16 @@ jobs:
       - name: Resolve dependencies
         working-directory: app
         run: flutter pub get
-      - name: Analyze banner widget
+      - name: Analyze Appodeal banner and EULA UI
         working-directory: app
-        run: flutter analyze lib/widgets/screenchecker_banner.dart --no-pub
+        run: flutter analyze lib/widgets/screenchecker_banner.dart lib/eula_gate.dart --no-pub
+      - name: Confirm all offline EULA documents are bundled
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find assets/eula/translations_eula -name 'eula-*.html' | wc -l)" -eq 28
+          test -s assets/eula/static/legal-style.css
       - name: Build Android debug APK
         working-directory: app
         run: flutter build apk --debug --no-pub
