@@ -38,6 +38,8 @@ jobs:
         run: |
           set -euo pipefail
           SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          # Pre-accept the preview SDK/NDK licenses on this ephemeral public runner.
+          yes | "${SDKMANAGER}" --licenses >/dev/null || true
           "${SDKMANAGER}" --channel=3 --install 'platforms;android-37.0' 'ndk;29.0.13599879'
           # AGP and some Flutter plugins still refer to the major-only path.
           if [ -d "${ANDROID_HOME}/platforms/android-37.0" ] && [ ! -e "${ANDROID_HOME}/platforms/android-37" ]; then
