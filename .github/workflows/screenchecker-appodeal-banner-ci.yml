@@ -38,7 +38,11 @@ jobs:
         run: |
           set -euo pipefail
           SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          "${SDKMANAGER}" --install 'platforms;android-37' 'ndk;29.0.13599879'
+          "${SDKMANAGER}" --channel=3 --install 'platforms;android-37.0' 'ndk;29.0.13599879'
+          # AGP and some Flutter plugins still refer to the major-only path.
+          if [ -d "${ANDROID_HOME}/platforms/android-37.0" ] && [ ! -e "${ANDROID_HOME}/platforms/android-37" ]; then
+            ln -s android-37.0 "${ANDROID_HOME}/platforms/android-37"
+          fi
       - name: Resolve dependencies
         working-directory: app
         run: flutter pub get
