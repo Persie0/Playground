@@ -28,11 +28,16 @@ def render(root,output,first,last):
    run("ffmpeg","-y","-hide_banner","-loglevel","error","-sseof","-0.012","-i",output/f"scene{n-1:02}.mp4","-map","0:v:0","-frames:v","1","-update","1",ref)
    assert ref.exists()
   dest=output/f"scene{n:02}.mp4"
-  args=[sys.executable,script,"--output",dest]
+  # Some legacy renderers resolve match-cut images relative to the output directory.
+  # Render inside the scene directory, then move only the verified MP4.
+  staged=folder/f"film_scene{n:02}.mp4"
+  args=[sys.executable,script,"--output",staged]
   if n<=12:args+=["--width","1280","--height","720","--fps","30"]
   elif n==13:args+=["--width","1920","--height","1080","--fps","30"]
   else:args+=["--reference",folder/REF[n],"--fps","30"]
   run(*args,cwd=folder)
+  verify(staged,D[n-1])
+  os.replace(staged,dest)
   verify(dest,D[n-1])
   for pat in ("*.wav","*.mp4"):
    for file in folder.glob(pat):
