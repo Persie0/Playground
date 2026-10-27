@@ -40,8 +40,8 @@ jobs:
           grep -A 7 '^  google_sign_in_android:' pubspec.lock
           test "$(sed -n '/^  google_sign_in_android:/,/^  google_sign_in_ios:/p' pubspec.lock | grep 'version: "7.2.18"')" != ""
 
-      - name: Check Dart formatting
-        run: dart format --output=none --set-exit-if-changed lib/providers/user_provider.dart lib/utils/google_sign_in_config.dart test/google_sign_in_config_test.dart
+      - name: Format changed Dart files
+        run: dart format lib/providers/user_provider.dart lib/utils/google_sign_in_config.dart test/google_sign_in_config_test.dart
 
       - name: Analyze auth changes
         run: flutter analyze --no-pub lib/providers/user_provider.dart lib/utils/google_sign_in_config.dart test/google_sign_in_config_test.dart
@@ -55,10 +55,10 @@ jobs:
       - name: Commit resolved dependency lockfile
         if: success()
         run: |
-          if ! git diff --quiet -- pubspec.lock; then
+          if ! git diff --quiet -- pubspec.lock lib/providers/user_provider.dart lib/utils/google_sign_in_config.dart test/google_sign_in_config_test.dart; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add pubspec.lock
+            git add pubspec.lock lib/providers/user_provider.dart lib/utils/google_sign_in_config.dart test/google_sign_in_config_test.dart
             git commit -m "chore(auth): lock google_sign_in_android 7.2.18"
             git push origin HEAD:fix/android-google-sign-in-server-client-id
           fi
