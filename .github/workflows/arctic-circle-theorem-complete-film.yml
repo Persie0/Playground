@@ -1,0 +1,142 @@
+name: Arctic Circle Theorem - Complete 15-Scene Film
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/arctic-circle-theorem-complete-film.yml", "scripts/arctic-circle-film/**"]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: arctic-circle-film-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  SOURCE_SHA: ed4d84e282aac026ef946287fd916a8267f4e2a7
+  RELEASE_TAG: arctic-circle-theorem-complete-2026-10-27
+  PYTHONUNBUFFERED: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  OMP_NUM_THREADS: "1"
+jobs:
+  render-scenes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        scene: [1,2,3,4,5,6,7,8,9,10,11,12]
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Install rendering dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install 'numpy>=1.26,<2.3' 'scipy>=1.12,<1.19' 'opencv-python-headless>=4.10' 'Pillow>=10' 'matplotlib>=3.8'
+      - name: Render and verify scene
+        run: python scripts/arctic-circle-film/build_film.py --source source/arctic-circle-theorem --output-dir output render ${{ matrix.scene }} ${{ matrix.scene }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arctic-scene-${{ matrix.scene }}
+          path: output/scene*.mp4
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+  render-finale:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Install rendering dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install 'numpy>=1.26,<2.3' 'scipy>=1.12,<1.19' 'opencv-python-headless>=4.10' 'Pillow>=10' 'matplotlib>=3.8'
+      - name: Render active scenes 13-15 with decoded-frame continuity
+        run: python scripts/arctic-circle-film/build_film.py --source source/arctic-circle-theorem --output-dir output render 13 15
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arctic-scenes-13-15
+          path: output/scene*.mp4
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+  assemble-release:
+    runs-on: ubuntu-24.04
+    needs: [render-scenes, render-finale]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: arctic-scene-*
+          path: output
+          merge-multiple: true
+      - name: Verify all 15 scene files
+        run: |
+          test "$(find output -maxdepth 1 -name 'scene*.mp4' | wc -l)" -eq 15
+          ls -lh output/scene*.mp4
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+      - name: Make chaptered master, validate video/audio and package external SRT
+        run: python scripts/arctic-circle-film/build_film.py --source source/arctic-circle-theorem --output-dir output --release-dir release assemble
+      - name: Full decode validation
+        run: |
+          set -euo pipefail
+          ffmpeg -nostdin -hide_banner -v error -xerror -i release/Arctic_Circle_Theorem_Complete_1080p30.mp4 -map 0:v:0 -map 0:a:0 -f null -
+          cat release/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Arctic-Circle-Theorem-Complete
+          path: release/*
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: error
+      - name: Publish to Playground Release
+        env: {GH_TOKEN: ${{ github.token }}}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          ## How Randomness Creates a Perfect Circle
+          Complete film, all 15 active scenes from Persie0/manimVideos (ed4d84e282aac026ef946287fd916a8267f4e2a7).
+          - Duration: 6:29; 1080p 30fps H.264 video, stereo AAC audio
+          - Fifteen embedded chapters; 101-cue English SRT supplied separately
+          - No burned-in subtitles and no spoken narration
+          - Verified source renders, film duration, audio, chapters and full decode
+          - Checksums and manifest provided; archived older scenes not used
+          EOF
+          if gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release/* --repo Persie0/Playground --clobber
+            gh release edit "$RELEASE_TAG" --repo Persie0/Playground --notes-file release-notes.md --latest=false
+          else
+            gh release create "$RELEASE_TAG" release/* --repo Persie0/Playground --target "$GITHUB_SHA" --title "Arctic Circle Theorem - Complete 15-Scene Film (6:29)" --notes-file release-notes.md --latest=false
+          fi
+          gh release view "$RELEASE_TAG" --repo Persie0/Playground --json url,assets
