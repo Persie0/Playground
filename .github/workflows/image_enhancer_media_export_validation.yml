@@ -1,0 +1,52 @@
+name: Image Enhancer media export validation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/image_enhancer_media_export_validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: feature/metadata-formats-media-actions
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: image_enhancer
+          fetch-depth: 1
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: Run focused tests
+        working-directory: image_enhancer
+        run: flutter test test/image_export_service_test.dart test/android_media_export_regression_test.dart test/settings_provider_test.dart
+
+      - name: Analyze modified Dart files
+        working-directory: image_enhancer
+        run: dart analyze lib/services/image_export_service.dart lib/settings_provider.dart lib/super_resolution_home_page.dart
+
+      - name: Compile Android debug APK
+        working-directory: image_enhancer
+        run: flutter build apk --debug --no-pub
