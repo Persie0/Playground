@@ -53,6 +53,13 @@ jobs:
           cd github_backend
           python -m unittest -v test_generate_api.py
 
+      - name: Verify private repository push Actions remain disabled
+        run: |
+          if grep -Eq '^  push:' .github/workflows/firebase_tester_release.yml; then
+            echo "::error::Private repository workflow unexpectedly runs on push"
+            exit 1
+          fi
+
       - name: Commit generated l10n and formatting
         if: success()
         run: |
