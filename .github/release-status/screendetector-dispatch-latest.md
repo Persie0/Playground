@@ -1,9 +1,9 @@
 # screendetector dispatcher result
 
-- Title: ci: dispatch screendetector Android 17 fix
-- Run ID: 31174963151
-- Run number: 4
-- Conclusion: success
-- Created: 2026-08-07T11:39:38Z
-- Updated: 2026-08-07T11:51:37Z
-- Run: https://github.com/Persie0/firebase_tester_builder/actions/runs/31174963151
+- Title: Publish validated film without package install; reuse complete artifa…
+- Run ID: 40579492725
+- Run number: 1
+- Conclusion: failure
+- Created: 2026-10-27T20:36:02Z
+- Updated: 2026-10-27T20:40:18Z
+- Run: https://github.com/Persie0/Playground/actions/runs/40579492725
