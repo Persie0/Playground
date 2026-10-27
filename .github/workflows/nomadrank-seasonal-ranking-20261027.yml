@@ -1,0 +1,65 @@
+name: NomadRank Seasonal Ranking (public CI)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/nomadrank-seasonal-ranking-20261027.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Verify private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout NomadRank feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/skratch_clone
+          ref: feature/seasonal-imdb-weighted-sort-20261027
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Regenerate localized sources
+        run: flutter gen-l10n
+
+      - name: Format changed Dart files
+        run: dart format lib/screens/seasonal_screen.dart lib/services/static_data_service.dart lib/utils/seasonal_ranking.dart test/seasonal_ranking_test.dart
+
+      - name: Analyze changed Dart files
+        run: flutter analyze --no-pub lib/screens/seasonal_screen.dart lib/services/static_data_service.dart lib/utils/seasonal_ranking.dart test/seasonal_ranking_test.dart
+
+      - name: Test Flutter seasonal ranking and parsing
+        run: flutter test --no-pub test/seasonal_ranking_test.dart
+
+      - name: Test backend seasonal ranking generator
+        run: |
+          cd github_backend
+          python -m unittest -v test_generate_api.py
+
+      - name: Commit generated l10n and formatting
+        if: success()
+        run: |
+          git add lib/screens/seasonal_screen.dart lib/services/static_data_service.dart lib/utils/seasonal_ranking.dart test/seasonal_ranking_test.dart lib/l10n/gen_l10n
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "chore(seasonal): format and regenerate localization files"
+            git push origin HEAD:feature/seasonal-imdb-weighted-sort-20261027
+          fi
