@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/image_enhancer
-          ref: 64a2d073637d88113e97b5db4b972f5f8f2f9f65
+          ref: 1d63404b168d05d1e9c958285df5a2a6b9a5fb0e
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
           path: image_enhancer
           fetch-depth: 1
@@ -56,3 +56,16 @@ jobs:
       - name: Compile Android debug APK
         working-directory: image_enhancer
         run: flutter build apk --debug --no-pub
+
+      - name: Generate ephemeral release verification key
+        working-directory: image_enhancer
+        run: |
+          keytool -genkeypair -noprompt -keystore android/app/validation-release.jks \
+            -alias validation -keyalg RSA -keysize 2048 -validity 1 \
+            -storepass validation123 -keypass validation123 \
+            -dname "CN=Build verification, O=Local testing, C=AT"
+          printf 'storeFile=validation-release.jks\\nstorePassword=validation123\\nkeyAlias=validation\\nkeyPassword=validation123\\n' > android/key.properties
+
+      - name: Compile optimized release APK (R8)
+        working-directory: image_enhancer
+        run: flutter build apk --release --no-pub
