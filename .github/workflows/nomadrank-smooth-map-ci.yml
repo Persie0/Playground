@@ -41,7 +41,14 @@ jobs:
         run: flutter pub get
       - name: Analyze changed Dart files
         run: flutter analyze --no-pub lib/utils/map_style.dart lib/screens/scratch_map_screen.dart test/map_style_test.dart
-      - name: Test map style and curtain helpers
-        run: flutter test --no-pub test/map_style_test.dart
+      - name: Test map style and related map widgets
+        run: flutter test --no-pub test/map_style_test.dart test/shareable_map_card_test.dart test/country_area_coverage_test.dart
+      - name: Ensure private push-based Actions are disabled
+        shell: bash
+        run: |
+          if grep -Eq '^  push:' .github/workflows/firebase_tester_release.yml; then
+            echo "::error::Private repository workflow still runs on push"
+            exit 1
+          fi
       - name: Check formatting
         run: dart format --output=none --set-exit-if-changed lib/utils/map_style.dart lib/screens/scratch_map_screen.dart test/map_style_test.dart
