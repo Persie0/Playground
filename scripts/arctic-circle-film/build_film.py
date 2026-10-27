@@ -25,7 +25,7 @@ def render(root,output,first,last):
   folder=root/f"scene{n}";script=folder/f"render_scene{n}.py"; assert script.is_file()
   if n>first:
    ref=folder/REF[n]
-   run("ffmpeg","-y","-hide_banner","-loglevel","error","-sseof","-0.012","-i",output/f"scene{n-1:02}.mp4","-map","0:v:0","-frames:v","1","-update","1",ref)
+   run("ffmpeg","-y","-hide_banner","-loglevel","error","-sseof","-0.04","-i",output/f"scene{n-1:02}.mp4","-map","0:v:0","-frames:v","1","-update","1",ref)
    assert ref.exists()
   dest=output/f"scene{n:02}.mp4"
   # Some legacy renderers resolve match-cut images relative to the output directory.
