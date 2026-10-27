@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/image_enhancer
-          ref: a94287ff8c62f6ee51fa864e5dcdbd69e7007d52
+          ref: 302912ba25e0cd23108f035434faf20f28b96845
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
           path: image_enhancer
           fetch-depth: 1
@@ -39,9 +39,15 @@ jobs:
         working-directory: image_enhancer
         run: flutter pub get
 
-      - name: Run focused tests
+      - name: Run full app test suite
         working-directory: image_enhancer
-        run: flutter test test/image_export_service_test.dart test/android_media_export_regression_test.dart test/settings_provider_test.dart
+        run: flutter test
+
+      - name: Run super-resolution package tests
+        working-directory: image_enhancer/flutter_super_resolution
+        run: |
+          flutter pub get
+          flutter test
 
       - name: Analyze modified Dart files
         working-directory: image_enhancer
