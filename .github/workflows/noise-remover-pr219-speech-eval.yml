@@ -1,0 +1,161 @@
+name: Noise Remover PR219 real speech quality and segments
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-pr219-speech-eval.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  speech-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - name: Checkout PR revision
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: c07b8546272533cd6028885540effe9d089b0a8a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --upgrade 'onnxruntime' 'numpy<3' scipy soundfile huggingface_hub hf_xet
+      - name: Evaluate real audio: zero/metadata state, INT8, segments, latency
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p results
+          python - <<'PY' 2>&1 | tee results/speech_eval.log
+          import numpy as np, onnxruntime as ort, soundfile as sf, pathlib,time,json,traceback
+          from scipy.signal import resample_poly,correlate
+          from huggingface_hub import hf_hub_download
+          P=pathlib.Path('app/DPDFNet_flutter/dpdfnet_ort_pack')
+          rows=[]
+          def emit(**a):
+              rows.append(a)
+              print('RESULT',json.dumps(a,default=float),flush=True)
+          def session(p):
+              opts=ort.SessionOptions();opts.intra_op_num_threads=1;opts.inter_op_num_threads=1
+              return ort.InferenceSession(str(p),sess_options=opts,providers=['CPUExecutionProvider'])
+          def state0(s,zeros):
+              m=s.get_modelmeta().custom_metadata_map
+              n=int(m['state_size']);state=np.zeros(n,np.float32)
+              if not zeros:
+                  i=0
+                  for sizekey,initkey in [('erb_norm_state_size','erb_norm_init'),('spec_norm_state_size','spec_norm_init')]:
+                      v=np.fromstring(m[initkey],sep=',',dtype=np.float32)
+                      assert len(v)==int(m[sizekey])
+                      state[i:i+len(v)]=v;i+=len(v)
+              return state
+          def window(n):
+              i=np.arange(n,dtype=np.float32)
+              return np.sin(.5*np.pi*np.sin(.5*np.pi*(i+.5)/(n/2))**2)
+          def run(s,x,zeros=False):
+              nb=s.get_inputs()[0].shape[2];n=(nb-1)*2;h=n//2
+              w=window(n);state=state0(s,zeros)
+              hist=np.zeros(h,np.float32); overlap=np.zeros(n,np.float32)
+              output=[];T=time.perf_counter()
+              data=np.pad(x,(0,-len(x)%h))
+              for j in range(0,len(data),h):
+                  hop=data[j:j+h]
+                  fft=np.fft.rfft(np.concatenate([hist,hop])*w)
+                  tensor=np.stack([fft.real,fft.imag],axis=-1).astype(np.float32)[None,None,:,:]
+                  outs=s.run(None,{s.get_inputs()[0].name:tensor,s.get_inputs()[1].name:state})
+                  state=outs[1]
+                  transformed=outs[0].reshape(nb,2)
+                  spec=transformed[:,0]+1j*transformed[:,1]
+                  spec[0]=spec[0].real;spec[-1]=spec[-1].real
+                  overlap+=np.fft.irfft(spec,n=n).astype(np.float32)*w
+                  output.append(overlap[:h].copy())
+                  overlap[:-h]=overlap[h:];overlap[-h:]=0
+                  hist=hop
+              output.append(overlap[:h].copy())
+              full=np.concatenate(output)
+              return full[h:h+len(x)].astype('float32'),time.perf_counter()-T
+          def sisdr(est,ref):
+              est=est.astype('float64')-np.mean(est)
+              ref=ref.astype('float64')-np.mean(ref)
+              power=float(np.dot(ref,ref))
+              if power<1e-9:return None
+              proj=np.dot(est,ref)/power*ref
+              noise=est-proj
+              return float(10*np.log10((np.dot(proj,proj)+1e-12)/(np.dot(noise,noise)+1e-12)))
+          def best_sisdr(est,clean,maxshift=960):
+              # Correlation estimates short global delay, then score aligned common region.
+              corr=correlate(est,clean,mode='full',method='fft')
+              c0=len(clean)-1
+              local=corr[max(0,c0-maxshift):min(len(corr),c0+maxshift+1)]
+              shift=int(np.argmax(np.abs(local)) + max(0,c0-maxshift)-c0)
+              if shift>=0:a,b=est[shift:],clean[:len(est)-shift]
+              else:a,b=est[:len(est)+shift],clean[-shift:]
+              return shift,sisdr(a,b)
+          files=[
+            'arabic_airport_snr0_rt60none_0_mixture',
+            'dutch_car_snr5_rt60none_0_mixture'
+          ]
+          for stem in files:
+              try:
+                  d={}
+                  for kind in ['noisy','clean']:
+                      name=f'{kind.capitalize()}/{stem}_{kind}.wav'
+                      path=hf_hub_download(repo_id='Ceva-IP/DPDFNet_EvalSet',filename=name,repo_type='dataset')
+                      v,sr=sf.read(path,dtype='float32')
+                      if v.ndim>1:v=v.mean(axis=1)
+                      d[kind]=(v,sr)
+                  assert d['noisy'][1]==d['clean'][1]
+                  sr=d['noisy'][1]
+                  # take 14s near middle; no need to run full 2.5-minute track
+                  begin=int(25*sr);L=int(14*sr)
+                  noisy=d['noisy'][0][begin:begin+L]
+                  clean=d['clean'][0][begin:begin+L]
+                  emit(section='input',file=stem,sr=sr,samples=len(noisy),clean_rms=float(np.sqrt(np.mean(clean*clean))),noisy_sisdr=sisdr(noisy,clean))
+                  for model,basename,target in [('8-16k','dpdfnet8',16000),('2-48k','dpdfnet2_48khz_hr',48000)]:
+                      if sr!=target:
+                          x=resample_poly(noisy,target,sr).astype(np.float32)
+                          gt=resample_poly(clean,target,sr).astype(np.float32)
+                      else:
+                          x=noisy;gt=clean
+                      fps=session(P/(basename+'.onnx'))
+                      quant=session(P/(basename+'_int8.onnx'))
+                      ref,secs=run(fps,x)
+                      altered,sec0=run(fps,x,True)
+                      q,secq=run(quant,x)
+                      shift,q_ref=best_sisdr(ref,gt)
+                      shift0,q0=best_sisdr(altered,gt)
+                      shiftq,qualityq=best_sisdr(q,gt)
+                      emit(section='speech',file=stem,model=model,sr=target,
+                        input_sisdr=sisdr(x,gt),fp32_sisdr=q_ref,int8_sisdr=qualityq,zero_state_sisdr=q0,
+                        shifts=[shift,shiftq,shift0],fps_fp32=len(x)/target/secs,fps_int8=len(x)/target/secq,
+                        rtf_fp32=secs/(len(x)/target),rtf_int8=secq/(len(x)/target),
+                        fp32_int8_mae=float(np.mean(np.abs(ref-q))),fp32_zero_mae=float(np.mean(np.abs(ref-altered))))
+                      cut=(len(x)//(2*int(target/100)))*int(target/100)
+                      for warm in [0,0.5,1,2,4]:
+                          h=target//100
+                          start=max(0,cut-int(warm*target)//h*h)
+                          partial,_=run(fps,x[start:])
+                          mixed=np.concatenate([ref[:cut],partial[cut-start:]])
+                          mae=np.mean(np.abs(mixed-ref))
+                          seam=np.max(np.abs(mixed[cut-h:cut+h]-ref[cut-h:cut+h]))
+                          emit(section='segment',file=stem,model=model,warmup_s=warm,mae=float(mae),seam_max=float(seam),first_segment_s=cut/target)
+              except Exception as e:
+                  emit(section='ERROR',file=stem,error=repr(e))
+                  traceback.print_exc()
+          pathlib.Path('results/speech_eval.json').write_text(json.dumps(rows,indent=2))
+          if not any(r['section']=='speech' for r in rows):
+              raise RuntimeError('No speech-evaluation tests completed')
+          PY
+      - name: Upload speech evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr219-speech-eval
+          path: results/
+          if-no-files-found: warn
