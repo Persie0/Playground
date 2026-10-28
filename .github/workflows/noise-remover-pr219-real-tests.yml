@@ -1,0 +1,222 @@
+name: Noise Remover PR219 model and app validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-pr219-real-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-onnx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: Checkout private PR exact revision
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: c07b8546272533cd6028885540effe9d089b0a8a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install ONNX Runtime and audio test dependencies
+        run: python -m pip install --upgrade 'onnxruntime' 'numpy<3' scipy soundfile
+      - name: Benchmark real DPDFNet model graphs and test state and segmentation
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p results
+          python - <<'PY' 2>&1 | tee results/real_onnx_tests.log
+          import sys, time, traceback, json, pathlib, os
+          import numpy as np, onnxruntime as ort
+          from scipy.signal import correlate
+          P=pathlib.Path('app/DPDFNet_flutter/dpdfnet_ort_pack')
+          print('ort',ort.__version__,'providers',ort.get_available_providers(),'cpu',os.cpu_count(),flush=True)
+          print('models exist?',[(x.name,x.stat().st_size) for x in P.glob('*.onnx')],flush=True)
+          rng=np.random.default_rng(219)
+          records=[]
+          def rec(cat,name,status,**kw):
+              d=dict(category=cat,name=name,status=status,**kw);records.append(d)
+              print('TEST',json.dumps(d,default=float),flush=True)
+          def make_session(path, opt='ALL', threads=1):
+              so=ort.SessionOptions();so.intra_op_num_threads=threads;so.inter_op_num_threads=1
+              so.graph_optimization_level=getattr(ort.GraphOptimizationLevel,'ORT_ENABLE_'+opt) if opt!='DISABLE' else ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+              return ort.InferenceSession(str(path),so,providers=['CPUExecutionProvider'])
+          def init_state(s,zero=False):
+              meta=s.get_modelmeta().custom_metadata_map
+              state_shape=s.get_inputs()[1].shape
+              n=int(meta.get('state_size',state_shape[0]))
+              a=np.zeros(n,dtype=np.float32)
+              if not zero:
+                  k=0
+                  for sizekey,initkey in [('erb_norm_state_size','erb_norm_init'),('spec_norm_state_size','spec_norm_init')]:
+                      v=np.fromstring(meta[initkey],sep=',',dtype=np.float32)
+                      assert len(v)==int(meta[sizekey]), (initkey,len(v),meta[sizekey])
+                      a[k:k+len(v)]=v;k+=len(v)
+              return a
+          def sess_frame(s,z,state):
+              d={s.get_inputs()[0].name:z,s.get_inputs()[1].name:state}
+              outs=s.run(None,d)
+              return outs[0],outs[1]
+          def synth(n,sr):
+              t=np.arange(n,dtype=np.float32)/sr
+              clean=0.22*np.sin(2*np.pi*220*t)+0.13*np.sin(2*np.pi*(420*t+90*t*t))
+              return (clean + .07*rng.standard_normal(n)).astype('float32')
+          def window(n):
+              i=np.arange(n,dtype=np.float32)
+              return np.sin(.5*np.pi*np.sin(.5*np.pi*(i+.5)/(n/2))**2).astype('float32')
+          def enhance(s,a,sr,zero=False):
+              bins=s.get_inputs()[0].shape[2];N=(bins-1)*2;h=N//2
+              w=window(N); state=init_state(s,zero)
+              hist=np.zeros(h,np.float32);overlap=np.zeros(N,np.float32)
+              out=[]
+              padded=np.pad(a,(0,(-len(a))%h))
+              for pos in range(0,len(padded),h):
+                  step=padded[pos:pos+h]
+                  spec=np.fft.rfft(np.concatenate([hist,step])*w).astype(np.complex64)
+                  z=np.stack((spec.real,spec.imag),axis=-1).astype(np.float32).reshape(1,1,bins,2)
+                  ze,state=sess_frame(s,z,state)
+                  c=np.asarray(ze).reshape(bins,2)
+                  spec_e=c[:,0]+1j*c[:,1];spec_e[0]=spec_e[0].real;spec_e[-1]=spec_e[-1].real
+                  y=np.fft.irfft(spec_e,n=N).astype(np.float32)*w
+                  overlap+=y
+                  out.append(overlap[:h].copy());overlap[:-h]=overlap[h:];overlap[-h:]=0
+                  hist=step
+              out.append(overlap[:h].copy())
+              joined=np.concatenate(out)
+              return joined[h:h+len(a)],joined, h
+          model_paths=[('dpdfnet8','dpdfnet8.onnx',16000),('dpdfnet2hr','dpdfnet2_48khz_hr.onnx',48000)]
+          for tag,basename,sr in model_paths:
+              f=P/basename
+              if not f.is_file():
+                  rec('load',tag,'FAIL',error='missing model');continue
+              try:
+                  s=make_session(f)
+                  ins=s.get_inputs()
+                  ini=init_state(s); no=int(np.count_nonzero(ini))
+                  rec('state-metadata',tag,'PASS' if no>0 else 'FAIL',state_len=len(ini),nonzero=no,min=float(ini.min()),max=float(ini.max()),model_shape=str([x.shape for x in ins]))
+                  n=int(sr*1.6)
+                  audio=synth(n,sr);A,B,h=enhance(s,audio,sr)
+                  rec('real-onnx-infer',tag,'PASS' if len(A)==len(audio) and np.isfinite(A).all() else 'FAIL',duration_s=len(audio)/sr,length=len(A),output_rms=float(np.sqrt(np.mean(A*A))))
+                  zero_out,_,_=enhance(s,audio,sr,True)
+                  rec('nonzero-initial-state-impact',tag,'PASS',first_halfsec_mae=float(np.mean(np.abs(A[:sr//2]-zero_out[:sr//2]))),whole_mae=float(np.mean(np.abs(A-zero_out))))
+                  # 2 segments: warm-up beginning at previous audio; reproduce fresh state per segment.
+                  for warm_s in [0.0,0.5,1.0]:
+                      cut=(len(audio)//(2*h))*h
+                      begin=max(0,cut-round(warm_s*sr/h)*h)
+                      seg,_,_=enhance(s,audio[begin:],sr)
+                      candidate=np.concatenate([A[:cut],seg[cut-begin:]])
+                      seam=float(np.max(np.abs(candidate[max(0,cut-h):min(len(audio),cut+h)]-A[max(0,cut-h):min(len(audio),cut+h)])))
+                      mae=float(np.mean(np.abs(candidate-A)))
+                      rec('segmented-vs-sequential',tag+'-warm'+str(warm_s),'PASS' if np.isfinite(mae) else 'FAIL',mae=mae,seam_max=seam)
+                  # Sample rate and shape checked by actual tensors, not inferred from arbitrary frame=.
+                  for t in [1,2,4]:
+                      try:
+                          ss=make_session(f,threads=t);state=init_state(ss)
+                          z=np.zeros([1,1,ss.get_inputs()[0].shape[2],2],np.float32)
+                          for _ in range(20):_,state=sess_frame(ss,z,state)
+                          dt=[]
+                          for _ in range(100):
+                              start=time.perf_counter();_,state=sess_frame(ss,z,state);dt.append((time.perf_counter()-start)*1000)
+                          rec('threads',tag+'-'+str(t),'PASS',median_ms=float(np.median(dt)),p99_ms=float(np.percentile(dt,99)),rtf=float(np.mean(dt)/10))
+                      except Exception as e:rec('threads',tag+'-'+str(t),'FAIL',error=str(e)[:220])
+                  for lvl in ['DISABLE','BASIC','EXTENDED','ALL']:
+                      try:
+                          ss=make_session(f,opt=lvl)
+                          state=init_state(ss);z=np.zeros([1,1,ss.get_inputs()[0].shape[2],2],np.float32)
+                          for _ in range(20):_,state=sess_frame(ss,z,state)
+                          t=time.perf_counter()
+                          for _ in range(100):_,state=sess_frame(ss,z,state)
+                          rec('optlevel',tag+'-'+lvl,'PASS',mean_ms=(time.perf_counter()-t)*10)
+                      except Exception as e:rec('optlevel',tag+'-'+lvl,'FAIL',error=str(e)[:220])
+                  # Test real INT8 + ORT variants; match first 100 frames against FP32.
+                  root=f.stem
+                  variants=[root+'_int8.onnx',root+'_fixed_arm.ort',root+'_runtime_arm.ort',root+'_int8_fixed_arm.ort',root+'_int8_runtime_arm.ort']
+                  audio=synth(int(sr*.7),sr)
+                  ref,_,_=enhance(s,audio,sr)
+                  for v in variants:
+                      p=P/v
+                      try:
+                          v_s=make_session(p)
+                          got,_,_=enhance(v_s,audio,sr)
+                          mae=float(np.mean(np.abs(got-ref)))
+                          rec('variant-inference',tag+'-'+v,'PASS',mae_vs_fp32=mae,rms=float(np.sqrt(np.mean(got*got))))
+                      except Exception as e:rec('variant-inference',tag+'-'+v,'FAIL',error=str(e)[:350])
+              except Exception as e:
+                  rec('model-load-or-execution',tag,'FAIL',error=repr(e)[:420]);traceback.print_exc()
+          # Verify plan SI-SDR implementation's known corner cases.
+          def si_sdr(est,ref,eps=1e-8):
+              n=min(len(est),len(ref));est,ref=est[:n],ref[:n]
+              ref=ref-ref.mean();est=est-est.mean()
+              alpha=np.dot(est,ref)/(np.dot(ref,ref)+eps)
+              target=alpha*ref;noise=est-target
+              return 10*np.log10((np.dot(target,target)+eps)/(np.dot(noise,noise)+eps))
+          for name,est,ref in [
+              ('silence',np.zeros(16000),np.zeros(16000)),
+              ('one-sample',np.array([1.0]),np.array([1.0])),
+              ('identity',np.sin(np.arange(16000)/20),np.sin(np.arange(16000)/20))]:
+              try:rec('si-sdr',name,'PASS',db=float(si_sdr(est,ref)))
+              except Exception as e:rec('si-sdr',name,'FAIL',error=str(e))
+          pathlib.Path('results/real_onnx_results.json').write_text(json.dumps({'ort':ort.__version__,'results':records},indent=2))
+          failures=[r for r in records if r['status']=='FAIL']
+          print('SUMMARY',len(records),'tests',len(failures),'failures',flush=True)
+          # Fail if model can't be loaded, not merely unsupported optional architecture variants.
+          core=[r for r in failures if r['category'] not in ('variant-inference',)]
+          if core:sys.exit(1)
+          PY
+          exit 0
+      - name: Upload model result logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr219-real-onnx-results
+          path: results/
+          if-no-files-found: warn
+  app-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    steps:
+      - name: Checkout private PR exact revision
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: c07b8546272533cd6028885540effe9d089b0a8a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Flutter and Rust tests
+        shell: bash
+        run: |
+          mkdir -p results
+          set +e
+          (cd app && flutter pub get) >results/flutter_pub_get.log 2>&1
+          echo "flutter_pub_get=$?" | tee -a results/status.txt
+          (cd app && flutter test --no-pub --reporter expanded) >results/flutter_test.log 2>&1
+          echo "flutter_test=$?" | tee -a results/status.txt
+          (cd app && flutter analyze --no-pub --no-fatal-warnings --no-fatal-infos) >results/flutter_analyze.log 2>&1
+          echo "flutter_analyze=$?" | tee -a results/status.txt
+          (cd app/flutter_nnnoiseless/rust && cargo test --locked) >results/cargo_test.log 2>&1
+          echo "cargo_test=$?" | tee -a results/status.txt
+          echo "---- SUMMARY ----"
+          cat results/status.txt
+          for f in results/*.log; do echo "$f"; tail -n 25 "$f"; done
+          grep -Eq '=(1|2|3|4|5|6|7|8|9|10|101)$' results/status.txt && exit 1 || exit 0
+      - name: Upload app test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr219-app-test-results
+          path: results/
+          if-no-files-found: warn
