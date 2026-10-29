@@ -1,9 +1,9 @@
 # screendetector dispatcher result
 
-- Title: Retest original native rosette append with recovered provider vtable …
-- Run ID: 40917501448
-- Run number: 251
+- Title: ci: record resistor scanner race verification
+- Run ID: 40926964802
+- Run number: 256
 - Conclusion: failure
-- Created: 2026-10-29T17:02:46Z
-- Updated: 2026-10-29T17:09:10Z
-- Run: https://github.com/Persie0/Playground/actions/runs/40917501448
+- Created: 2026-10-29T18:02:06Z
+- Updated: 2026-10-29T18:02:43Z
+- Run: https://github.com/Persie0/Playground/actions/runs/40926964802
