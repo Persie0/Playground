@@ -1,0 +1,185 @@
+name: Noise Remover DPDFNet production correctness PR validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-pr219-production-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-wav:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - name: Checkout exact private PR revision
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: 7aee4e3b446bc5b1c6eebe2035c76e0afd5bbd8d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install evaluation tools
+        run: pip install numpy scipy soundfile onnxruntime huggingface_hub hf_xet
+      - name: Install official ONNX Runtime shared library (Linux x64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o /tmp/ort.tgz https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz
+          mkdir -p "$RUNNER_TEMP/onnxruntime"
+          tar -xzf /tmp/ort.tgz -C "$RUNNER_TEMP/onnxruntime" --strip-components=1
+          ls -lh "$RUNNER_TEMP/onnxruntime/lib"
+          echo "ORT_LIB_LOCATION=$RUNNER_TEMP/onnxruntime/lib" >> "$GITHUB_ENV"
+          echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$RUNNER_TEMP/onnxruntime/lib" >> "$GITHUB_ENV"
+      - name: Inject temporary uncommitted native driver into PR checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          toml=Path('app/flutter_nnnoiseless/rust/Cargo.toml')
+          content=toml.read_text()
+          assert 'crate-type = ["cdylib", "staticlib"]' in content
+          toml.write_text(content.replace('crate-type = ["cdylib", "staticlib"]','crate-type = ["rlib", "cdylib", "staticlib"]'))
+          driver=Path('app/flutter_nnnoiseless/rust/src/bin/pr219_native_probe.rs')
+          driver.parent.mkdir(exist_ok=True)
+          driver.write_text(r'''
+          use std::{env,time::Instant};
+          use rust_lib_flutter_nnnoiseless::api::dpdfnet;
+          fn main() {
+              let args: Vec<String>=env::args().collect();
+              if args.len()<4 || (args.len()-2)%2!=0 {
+                  eprintln!("USAGE pr219_native_probe MODEL IN OUT [IN OUT ..]");
+                  std::process::exit(2);
+              }
+              eprintln!("LOADING model={} n_pairs={}", args[1], (args.len()-2)/2);
+              let before=Instant::now();
+              dpdfnet::load_model(args[1].clone(),1,false).expect("load_model failed");
+              eprintln!("LOAD_MS={:.3}",before.elapsed().as_secs_f64()*1000.);
+              for pair in args[2..].chunks(2) {
+                  let start=Instant::now();
+                  dpdfnet::process_wav_file_simple(pair[0].clone(),pair[1].clone()).expect("process_wav_file_simple failed");
+                  eprintln!("NATIVE_WAV_PASS input={} output={} wall_ms={:.3}",pair[0],pair[1],start.elapsed().as_secs_f64()*1000.);
+              }
+              dpdfnet::dispose_engine();
+          }
+          ''')
+          PY
+          git -C app status --short
+      - name: Compile committed Rust engine and run model metadata tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          (cd app/flutter_nnnoiseless/rust && cargo test --locked) >results/native_unit_tests.log 2>&1 || { tail -n 100 results/native_unit_tests.log; exit 1; }
+          tail -n 40 results/native_unit_tests.log
+          (cd app/flutter_nnnoiseless/rust && cargo build --release --locked --bin pr219_native_probe) >results/native_compile_probe.log 2>&1 || { tail -n 120 results/native_compile_probe.log; exit 1; }
+          test -x app/flutter_nnnoiseless/rust/target/release/pr219_native_probe
+          ldd app/flutter_nnnoiseless/rust/target/release/pr219_native_probe | tee results/ldd.txt
+      - name: Test actual native file output on speech / audio lengths
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' 2>&1 | tee results/native_wav_cases.log
+          import os,subprocess,json,pathlib,time,traceback
+          import numpy as np, soundfile as sf
+          from scipy import signal
+          from scipy.signal import resample_poly
+          from huggingface_hub import hf_hub_download
+          root=pathlib.Path('results/wav');root.mkdir(parents=True,exist_ok=True)
+          exe='app/flutter_nnnoiseless/rust/target/release/pr219_native_probe'
+          modelroot=pathlib.Path('app/DPDFNet_flutter/dpdfnet_ort_pack')
+          results=[]
+          def record(**kw):
+              results.append(kw);print('NATIVE_RESULT',json.dumps(kw,default=float),flush=True)
+          def quality(est,clean,maxlag):
+              a=est.astype('float64');b=clean.astype('float64')
+              c=signal.correlate(a,b,mode='full',method='fft')
+              center=len(b)-1
+              lo=max(0,center-maxlag);hi=min(len(c),center+maxlag+1)
+              lag=np.argmax(c[lo:hi])+lo-center
+              if lag>0: a,b=a[lag:],b[:len(a)-lag]
+              elif lag<0: a,b=a[:lag],b[-lag:]
+              a-=a.mean();b-=b.mean()
+              power=b@b
+              if power<1e-10:return int(lag),None
+              target=(a@b)/power*b
+              err=a-target
+              return int(lag),float(10*np.log10((target@target+1e-12)/(err@err+1e-12)))
+          for sr,model in [(16000,'dpdfnet8'),(48000,'dpdfnet2_48khz_hr')]:
+              path=modelroot/(model+'.onnx')
+              srcs=[]
+              expected={}
+              for clip in ['airport','car']:
+                  stem='arabic_airport_snr0_rt60none_0_mixture' if clip=='airport' else 'dutch_car_snr5_rt60none_0_mixture'
+                  raw={}
+                  for kind in ['noisy','clean']:
+                      f=hf_hub_download(repo_id='Ceva-IP/DPDFNet_EvalSet',repo_type='dataset',filename=f'{kind.capitalize()}/{stem}_{kind}.wav')
+                      raw[kind],r=sf.read(f,dtype='float32')
+                      raw[kind]=raw[kind][25*r:39*r]
+                      if r!=sr:raw[kind]=resample_poly(raw[kind],sr,r).astype('float32')
+                  inp=root/f'{model}_{clip}_input.wav';out=root/f'{model}_{clip}_output.wav';out2=root/f'{model}_{clip}_output_repeat.wav'
+                  sf.write(inp,raw['noisy'],sr,subtype='FLOAT')
+                  srcs.extend([str(inp),str(out),str(inp),str(out2)])
+                  expected[clip]=(raw['noisy'],raw['clean'],out,out2)
+              cmd=[exe,str(path),*srcs]
+              t=time.perf_counter()
+              res=subprocess.run(cmd,capture_output=True,text=True,timeout=150)
+              record(type='native-run',model=model,returncode=res.returncode,seconds=time.perf_counter()-t,stderr=res.stderr[-1800:])
+              if res.returncode:continue
+              for clip,(noisy,clean,out,out2) in expected.items():
+                  got,rate=sf.read(out,dtype='float32')
+                  again,_=sf.read(out2,dtype='float32')
+                  lag,si=quality(got,clean,maxlag=sr//5)
+                  baseline=quality(noisy,clean,maxlag=sr//5)[1]
+                  record(type='native-speech',model=model,clip=clip,sr=rate,n=len(got),expected_n=len(clean),finite=bool(np.isfinite(got).all()),lag=lag,baseline_sisdr=baseline,native_sisdr=si,repeat_equal=bool(np.array_equal(got,again)),rms=float(np.sqrt(np.mean(got*got))))
+                  assert rate==sr and len(got)==len(clean), (model,clip,'sample mismatch')
+                  assert np.isfinite(got).all() and np.array_equal(got,again), (model,clip,'not deterministic')
+                  assert lag==0, (model,clip,'latency alignment',lag)
+                  min_sisdr = {('dpdfnet8','airport'):9.9,('dpdfnet8','car'):11.1,('dpdfnet2_48khz_hr','airport'):9.3,('dpdfnet2_48khz_hr','car'):11.8}
+                  assert si>min_sisdr[(model,clip)],(model,clip,'quality degraded',si)
+              # Edge lengths, silence, chirp, stereo 2ch with exact/no exact hop
+              srcs=[]; inputs={}
+              for n in [(sr//100)*2,(sr//100)*3,(sr//100)*100,(sr//100)*100+19]:
+                  for kind in ['pulse','silent','stereo']:
+                      a=np.zeros(n,dtype=np.float32)
+                      if kind!='silent':
+                          t=np.arange(n)/sr
+                          a=(0.15*np.sin(2*np.pi*500*t)).astype('float32')
+                          a[min(n-1,40)]+=0.5
+                      if kind=='stereo':a=np.stack([a,0.5*a],axis=1)
+                      input_path=root/f'{model}_{kind}_{n}_in.wav'; output=root/f'{model}_{kind}_{n}_out.wav'
+                      sf.write(input_path,a,sr,subtype='FLOAT')
+                      srcs.extend([str(input_path),str(output)])
+                      inputs[f'{kind}_{n}']=(output,n)
+              res=subprocess.run([exe,str(path),*srcs],capture_output=True,text=True,timeout=120)
+              record(type='native-edge-batch',model=model,returncode=res.returncode,stderr_tail=res.stderr[-1500:])
+              if not res.returncode:
+                  for k,(out,n) in inputs.items():
+                      a,rate=sf.read(out,dtype='float32')
+                      record(type='native-edge',model=model,case=k,sr=rate,samples=len(a),expected=n,finite=bool(np.isfinite(a).all()),last_20ms_rms=float(np.sqrt(np.mean(a[-min(len(a),sr//50):]**2))))
+                      assert rate==sr and len(a)==n and np.isfinite(a).all(),(model,k,'bad WAV')
+                      if k.startswith(('pulse_', 'stereo_')):
+                          assert np.any(a!=0), (model,k,'unexpected all-silent output')
+          pathlib.Path('results/native_wav_results.json').write_text(json.dumps(results,indent=2))
+          fails=[x for x in results if x.get('type') in ('native-run','native-edge-batch') and x.get('returncode')]
+          if fails:raise RuntimeError(f'Native Rust processing failures: {fails}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr219-production-rust-validation
+          path: |
+            results/native_*.log
+            results/native_wav_results.json
+            results/ldd.txt
+          if-no-files-found: warn
