@@ -1,0 +1,26 @@
+name: Photo Sphere checkpoint 229 original AddImage rosette camera clones
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-addimage-rosette-rust-229.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rust-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: parity/checkpoint229-native-rosette-clones
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Print exact source revision
+        run: git rev-parse HEAD
+      - name: Compare two original StandardRosette camera clones with Rust f32 reconstruction
+        run: cargo test --locked --lib native_addimage_rosette_two_clones_match_original_ulp_bits -- --nocapture
