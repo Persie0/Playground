@@ -1,0 +1,153 @@
+name: Noise Remover PR219 official pipeline reference comparison
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-pr219-reference.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: c07b8546272533cd6028885540effe9d089b0a8a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: pip install onnxruntime numpy scipy soundfile huggingface_hub hf_xet librosa
+      - name: Run official-reference and streaming pipeline with measured quality
+        run: |
+          mkdir -p results
+          python - <<'PY' 2>&1 | tee results/reference_comparison.log
+          import numpy as np, scipy.signal as ss, librosa, soundfile as sf
+          import onnxruntime as ort, pathlib, json, traceback, time
+          from scipy.signal import resample_poly
+          from huggingface_hub import hf_hub_download
+          results=[]
+          def record(**v):
+              results.append(v)
+              print('REFERENCE_RESULT',json.dumps(v,default=float),flush=True)
+          def mk_session(f):
+              op=ort.SessionOptions(); op.intra_op_num_threads=1;op.inter_op_num_threads=1;op.graph_optimization_level=ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+              return ort.InferenceSession(str(f),sess_options=op,providers=['CPUExecutionProvider'])
+          def init(s):
+              m=s.get_modelmeta().custom_metadata_map
+              a=np.zeros(int(m['state_size']),np.float32);i=0
+              for k,j in [('erb_norm_state_size','erb_norm_init'),('spec_norm_state_size','spec_norm_init')]:
+                  v=np.fromstring(m[j],sep=',',dtype=np.float32)
+                  assert len(v)==int(m[k])
+                  a[i:i+len(v)]=v;i+=len(v)
+              return a
+          def vorbis(n):
+              i=np.arange(n);half=n/2
+              return np.sin(.5*np.pi*np.sin(.5*np.pi*(i+.5)/half)**2).astype('float32')
+          def run_ort(s,spec,state):
+              out=[]
+              n=spec.shape[1]
+              for t in range(n):
+                  frame=np.ascontiguousarray(spec[:,t:t+1,:,:],np.float32)
+                  o=s.run(None,{s.get_inputs()[0].name:frame,s.get_inputs()[1].name:state})
+                  out.append(o[0]);state=o[1]
+              return np.concatenate(out,axis=1)
+          def upstream(s,x):
+              bins=s.get_inputs()[0].shape[2];N=2*(bins-1);H=N//2;w=vorbis(N)
+              wave=np.pad(x,(0,N))
+              S=librosa.stft(y=wave,n_fft=N,hop_length=H,win_length=N,window=w,center=True,pad_mode='reflect')
+              S=S.T.astype(np.complex64)
+              inp=np.stack([S.real,S.imag],axis=-1).astype('float32')[None,...]
+              e=run_ort(s,inp,init(s))
+              spec=e[0,:,:,0]+1j*e[0,:,:,1]
+              y=librosa.istft(spec.T,hop_length=H,win_length=N,window=w,center=True,length=None).astype('float32')
+              out=np.concatenate([y[N*2:],np.zeros(N*2,np.float32)])
+              return out[:len(x)] if len(out)>=len(x) else np.pad(out,(0,len(x)-len(out)))
+          def stream(s,x,zero=False):
+              bins=s.get_inputs()[0].shape[2];N=2*(bins-1);H=N//2;w=vorbis(N)
+              state=np.zeros_like(init(s)) if zero else init(s)
+              y=np.zeros(N,np.float32);prev=np.zeros(H,np.float32);r=[]
+              audio=np.pad(x,(0,(-len(x))%H))
+              for t in range(0,len(audio),H):
+                  nxt=audio[t:t+H]
+                  ft=np.fft.rfft(np.concatenate([prev,nxt])*w)
+                  z=np.stack([ft.real,ft.imag],axis=-1).astype('float32').reshape(1,1,bins,2)
+                  o=s.run(None,{s.get_inputs()[0].name:z,s.get_inputs()[1].name:state})
+                  state=o[1];v=o[0].reshape(bins,2)
+                  c=v[:,0]+1j*v[:,1]
+                  c[0]=c[0].real;c[-1]=c[-1].real
+                  y+=np.fft.irfft(c,n=N).astype(np.float32)*w
+                  r.append(y[:H].copy());y[:-H]=y[H:];y[-H:]=0
+                  prev=nxt
+              r.append(y[:H].copy())
+              f=np.concatenate(r)
+              return f[H:H+len(x)]
+          def metric(y,c,maxlag):
+              y=y.astype('float64');c=c.astype('float64')
+              maxlag=min(maxlag,len(y)//4)
+              corr=ss.correlate(y,c,mode='full',method='fft')
+              center=len(c)-1
+              search=corr[center-maxlag:center+maxlag+1]
+              lag=int(np.argmax(search)-maxlag)
+              if lag>0: a,b=y[lag:],c[:-lag]
+              elif lag<0:a,b=y[:lag],c[-lag:]
+              else:a,b=y,c
+              a=a-np.mean(a);b=b-np.mean(b)
+              dot=np.dot(b,b)
+              if dot<1e-10:return lag,None,None
+              target=np.dot(a,b)/dot*b
+              err=a-target
+              sd=float(10*np.log10((np.dot(target,target)+1e-12)/(np.dot(err,err)+1e-12)))
+              return lag,sd,float(np.sqrt(np.mean(a*a)))
+          P=pathlib.Path('app/DPDFNet_flutter/dpdfnet_ort_pack')
+          cases=[
+              ('arabic_airport_snr0_rt60none_0_mixture','airport'),
+              ('dutch_car_snr5_rt60none_0_mixture','car')
+          ]
+          for stem,tag in cases:
+              try:
+                  wavs={}
+                  for kind in ['noisy','clean']:
+                      f=hf_hub_download(repo_id='Ceva-IP/DPDFNet_EvalSet',repo_type='dataset',filename=f'{kind.capitalize()}/{stem}_{kind}.wav')
+                      a,sr=sf.read(f,dtype='float32')
+                      if a.ndim>1:a=a.mean(axis=1)
+                      wavs[kind]=a
+                  for model,sr_out in [('dpdfnet8',16000),('dpdfnet2_48khz_hr',48000)]:
+                      x=wavs['noisy'][25*16000:39*16000]
+                      c=wavs['clean'][25*16000:39*16000]
+                      if sr_out!=16000:
+                          x=resample_poly(x,sr_out,16000).astype(np.float32)
+                          c=resample_poly(c,sr_out,16000).astype(np.float32)
+                      s=mk_session(P/(model+'.onnx'));N=(s.get_inputs()[0].shape[2]-1)*2
+                      t0=time.perf_counter()
+                      official=upstream(s,x)
+                      upstream_s=time.perf_counter()-t0
+                      t0=time.perf_counter()
+                      local=stream(s,x)
+                      local_s=time.perf_counter()-t0
+                      maxlag=round(sr_out*0.5)
+                      no=metric(x,c,maxlag)
+                      off=metric(official,c,maxlag)
+                      loc=metric(local,c,maxlag)
+                      lag_stream_off,_,_=metric(local,official,maxlag)
+                      record(clip=tag,model=model,sr=sr_out,method='original-upstream-script-style',baseline_sisdr=no[1],official_sisdr=off[1],official_lag=off[0],official_rms=off[2],stream_sisdr=loc[1],stream_lag=loc[0],stream_rms=loc[2],stream_official_lag=lag_stream_off,stream_official_mae=float(np.mean(np.abs(local-official))),official_wall_seconds=upstream_s,stream_wall_seconds=local_s,n_fft=N)
+              except Exception as e:
+                  record(clip=tag,status='error',error=repr(e))
+                  traceback.print_exc()
+          pathlib.Path('results/reference_comparison.json').write_text(json.dumps(results,indent=2))
+          if len([r for r in results if 'official_sisdr' in r])<4: raise RuntimeError('not all official comparisons ran')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr219-official-reference-results
+          path: results/
