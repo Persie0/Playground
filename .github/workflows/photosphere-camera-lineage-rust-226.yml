@@ -1,0 +1,26 @@
+name: Photo Sphere checkpoint 226 Rust camera lineage parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-camera-lineage-rust-226.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  camera-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: parity/checkpoint226-live-camera-lineage
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Record exact app source SHA
+        run: git rev-parse HEAD
+      - name: Compare original native camera states and inverse projections
+        run: cargo test --locked --lib original_six_fresh_camera_handoffs_match_all_intermediate_words -- --nocapture
