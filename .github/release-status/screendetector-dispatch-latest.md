@@ -1,9 +1,9 @@
 # screendetector dispatcher result
 
-- Title: Run full Rust tests against exact verified checkpoint227 app PR head …
-- Run ID: 40911409654
-- Run number: 247
+- Title: Retest original native rosette append with recovered provider vtable …
+- Run ID: 40917501448
+- Run number: 251
 - Conclusion: failure
-- Created: 2026-10-29T16:25:22Z
-- Updated: 2026-10-29T16:31:14Z
-- Run: https://github.com/Persie0/Playground/actions/runs/40911409654
+- Created: 2026-10-29T17:02:46Z
+- Updated: 2026-10-29T17:09:10Z
+- Run: https://github.com/Persie0/Playground/actions/runs/40917501448
