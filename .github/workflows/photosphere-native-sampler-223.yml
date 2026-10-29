@@ -1,0 +1,34 @@
+name: Photo Sphere checkpoint 223 native sampler parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-native-sampler-223.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rust-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout private Photosphere source through public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: parity/checkpoint223-native-ransac-sampler
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Print immutable source revision
+        run: git rev-parse HEAD
+      - name: Run all Rust tests
+        run: |
+          set -euo pipefail
+          cargo test --locked > "$RUNNER_TEMP/checkpoint223-rust.log" 2>&1 || {
+            grep -A 45 -E '^failures:|^error:' "$RUNNER_TEMP/checkpoint223-rust.log" | tail -100 || true
+            tail -100 "$RUNNER_TEMP/checkpoint223-rust.log"
+            exit 1
+          }
+          grep -E 'test result:' "$RUNNER_TEMP/checkpoint223-rust.log"
