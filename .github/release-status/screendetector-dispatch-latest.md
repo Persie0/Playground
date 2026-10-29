@@ -1,9 +1,9 @@
 # screendetector dispatcher result
 
-- Title: ci: record resistor scanner race verification
-- Run ID: 40893795955
-- Run number: 237
+- Title: ci: record screendetector dispatch result
+- Run ID: 40895868089
+- Run number: 238
 - Conclusion: failure
-- Created: 2026-10-29T14:40:12Z
-- Updated: 2026-10-29T14:45:43Z
-- Run: https://github.com/Persie0/Playground/actions/runs/40893795955
+- Created: 2026-10-29T14:52:41Z
+- Updated: 2026-10-29T14:54:16Z
+- Run: https://github.com/Persie0/Playground/actions/runs/40895868089
