@@ -1,0 +1,25 @@
+name: Photo Sphere checkpoint 224 native refit matrix parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-refit-model-224.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: research/checkpoint224-native-refit-oracle
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - run: git rev-parse HEAD
+      - name: Compare five native original refit matrices
+        run: cargo test --locked --lib native_full_refit_matches_original_arm64_matrices -- --nocapture
