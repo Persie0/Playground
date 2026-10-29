@@ -1,0 +1,189 @@
+name: Noise Remover PR219 test-only Rust correctness fixes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-pr219-native-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - name: Checkout exact private PR revision
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: c07b8546272533cd6028885540effe9d089b0a8a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python tools
+        run: pip install numpy scipy soundfile onnxruntime huggingface_hub hf_xet
+      - name: Install Linux ONNX Runtime 1.22
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o /tmp/ort.tgz https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz
+          mkdir -p "$RUNNER_TEMP/onnxruntime"
+          tar -xzf /tmp/ort.tgz -C "$RUNNER_TEMP/onnxruntime" --strip-components=1
+          echo "ORT_LIB_LOCATION=$RUNNER_TEMP/onnxruntime/lib" >> "$GITHUB_ENV"
+          echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$RUNNER_TEMP/onnxruntime/lib" >> "$GITHUB_ENV"
+      - name: Patch local checkout only, based on existing measurements
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          python - <<'PY' | tee results/candidate_patch.txt
+          from pathlib import Path
+          import numpy as np, onnxruntime as ort
+          p=Path('app/flutter_nnnoiseless/rust/src/api/dpdfnet.rs')
+          s=p.read_text()
+          changes=[
+           ('    state_buffer: Vec<f32>,','    state_buffer: Vec<f32>,\n    initial_state_buffer: Vec<f32>,'),
+           ('    fn new(session: Session) -> Result<Self> {','    fn new(session: Session, initial_state_buffer: Vec<f32>) -> Result<Self> {'),
+           ('        Ok(Self {\n            session,','        if initial_state_buffer.len() != state_size {\n            bail!("initial state size mismatch: {} != {}", initial_state_buffer.len(), state_size);\n        }\n\n        Ok(Self {\n            session,'),
+           ('            state_buffer: vec![0.0; state_size],','            state_buffer: initial_state_buffer.clone(),\n            initial_state_buffer,'),
+           ('        self.state_buffer.fill(0.0);','        self.state_buffer.copy_from_slice(&self.initial_state_buffer);'),
+           ('        // Return the tail still sitting in the overlap buffer','        // Feed extra 4 model hops for causal lookahead rather than padding the final output with zeros.\n        let lookahead_padding = vec![0.0f32; self.hop_size * 4];\n        result.extend(self.process_stream(&lookahead_padding)?);\n\n        // Return the tail still sitting in the overlap buffer'),
+           ('    *guard = Some(EngineState::new(session)?);','    let bytes = fs::read(format!("{model_path}.initstate"))?;\n    let initial_state: Vec<f32> = bytes.chunks_exact(4)\n        .map(|v| f32::from_le_bytes(v.try_into().expect("4 bytes")))\n        .collect();\n    *guard = Some(EngineState::new(session, initial_state)?);'),
+           ('        let mut latency_to_skip = state.hop_size;','        let mut latency_to_skip = state.hop_size * 5;'),
+          ]
+          for a,b in changes:
+              n=s.count(a)
+              assert n==1,(a,n)
+              s=s.replace(a,b)
+              print('PATCHED',repr(a[:70]))
+          p.write_text(s)
+          toml=Path('app/flutter_nnnoiseless/rust/Cargo.toml')
+          c=toml.read_text()
+          assert 'crate-type = ["cdylib", "staticlib"]' in c
+          toml.write_text(c.replace('crate-type = ["cdylib", "staticlib"]','crate-type = ["rlib", "cdylib", "staticlib"]'))
+          driver=Path('app/flutter_nnnoiseless/rust/src/bin/pr219_native_candidate.rs')
+          driver.parent.mkdir(exist_ok=True)
+          driver.write_text('''
+          use std::{env,time::Instant};
+          use rust_lib_flutter_nnnoiseless::api::dpdfnet;
+          fn main() {
+              let a: Vec<String>=env::args().collect();
+              assert!(a.len()>=4 && (a.len()-2)%2==0);
+              dpdfnet::load_model(a[1].clone(),1,false).expect("load");
+              for pair in a[2..].chunks(2) {
+                  let t=Instant::now();
+                  dpdfnet::process_wav_file_simple(pair[0].clone(),pair[1].clone()).expect("process");
+                  eprintln!("CANDIDATE_NATIVE_OK output={} ms={:.3}",pair[1],1000.*t.elapsed().as_secs_f64());
+              }
+              dpdfnet::dispose_engine();
+          }
+          ''')
+          modelroot=Path('app/DPDFNet_flutter/dpdfnet_ort_pack')
+          for name in ['dpdfnet8','dpdfnet2_48khz_hr']:
+              f=modelroot/(name+'.onnx')
+              so=ort.SessionOptions();so.intra_op_num_threads=1
+              s=ort.InferenceSession(str(f),sess_options=so,providers=['CPUExecutionProvider'])
+              m=s.get_modelmeta().custom_metadata_map
+              state=np.zeros(int(m['state_size']),dtype=np.float32)
+              off=0
+              for size,namek in [('erb_norm_state_size','erb_norm_init'),('spec_norm_state_size','spec_norm_init')]:
+                  a=np.fromstring(m[namek],dtype=np.float32,sep=',')
+                  assert len(a)==int(m[size])
+                  state[off:off+len(a)]=a;off+=len(a)
+              (modelroot/(name+'.onnx.initstate')).write_bytes(state.tobytes())
+              print('MODEL',name,'state_len',len(state),'nonzero',np.count_nonzero(state))
+          PY
+          git -C app status --short
+      - name: Build actual Rust engine with temporary correctness candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd app/flutter_nnnoiseless/rust && cargo build --release --locked --bin pr219_native_candidate) >results/candidate_build.log 2>&1 || { tail -n 180 results/candidate_build.log; exit 1; }
+          tail -n 12 results/candidate_build.log
+      - name: Evaluate native candidate on recorded speech, short files, end transients
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' 2>&1 | tee results/candidate_evaluation.log
+          import json,pathlib,subprocess,time
+          import numpy as np,soundfile as sf
+          from scipy.signal import correlate,resample_poly
+          from huggingface_hub import hf_hub_download
+          root=pathlib.Path('results/wav');root.mkdir(parents=True,exist_ok=True)
+          models=pathlib.Path('app/DPDFNet_flutter/dpdfnet_ort_pack')
+          exe='app/flutter_nnnoiseless/rust/target/release/pr219_native_candidate'
+          rec=[]
+          def record(**kw):
+              rec.append(kw)
+              print('CANDIDATE_RESULT',json.dumps(kw,default=float),flush=True)
+          def metric(x,ref,sr):
+              c=correlate(x.astype('float64'),ref.astype('float64'),mode='full',method='fft')
+              mid=len(ref)-1;limit=sr//5
+              lag=int(np.argmax(c[mid-limit:mid+limit+1])-limit)
+              if lag>0:a,b=x[lag:],ref[:-lag]
+              elif lag<0:a,b=x[:lag],ref[-lag:]
+              else:a,b=x,ref
+              a=a.astype('float64')-np.mean(a);b=b.astype('float64')-np.mean(b)
+              t=a.dot(b)/(b.dot(b)+1e-12)*b
+              noise=a-t
+              sd=float(10*np.log10((t.dot(t)+1e-12)/(noise.dot(noise)+1e-12)))
+              return lag,sd
+          for model,sr in [('dpdfnet8',16000),('dpdfnet2_48khz_hr',48000)]:
+              pairs=[];cases={}
+              for label,stem in [
+                ('airport','arabic_airport_snr0_rt60none_0_mixture'),
+                ('car','dutch_car_snr5_rt60none_0_mixture')]:
+                  v={}
+                  for kind in ['noisy','clean']:
+                      f=hf_hub_download(repo_id='Ceva-IP/DPDFNet_EvalSet',repo_type='dataset',filename=f'{kind.capitalize()}/{stem}_{kind}.wav')
+                      x,r=sf.read(f,dtype='float32')
+                      x=x[25*r:39*r]
+                      if r!=sr:x=resample_poly(x,sr,r).astype(np.float32)
+                      v[kind]=x
+                  inp=root/f'{model}_{label}_in.wav';out=root/f'{model}_{label}_candidate.wav'
+                  sf.write(inp,v['noisy'],sr,subtype='FLOAT')
+                  pairs.extend([str(inp),str(out)])
+                  cases[label]=(out,v['clean'])
+              for length in [int(sr*.02),int(sr*.03),sr]:
+                  signal=np.zeros(length,dtype=np.float32)
+                  signal[min(length-1,sr//500)]=0.8
+                  signal[-min(length//2,sr//100):]+=0.2
+                  inp=root/f'{model}_edge_{length}_in.wav'
+                  out=root/f'{model}_edge_{length}_out.wav'
+                  sf.write(inp,signal,sr,subtype='FLOAT')
+                  pairs.extend([str(inp),str(out)])
+                  cases['edge-'+str(length)]=(out,None)
+              cmd=[exe,str(models/(model+'.onnx')), *pairs]
+              t0=time.perf_counter()
+              p=subprocess.run(cmd,capture_output=True,text=True,timeout=180)
+              record(kind='batch',model=model,returncode=p.returncode,secs=time.perf_counter()-t0,stderr=p.stderr[-1600:])
+              if p.returncode!=0:continue
+              for case,(path,clean) in cases.items():
+                  audio,rr=sf.read(path,dtype='float32')
+                  record(kind='speech' if clean is not None else 'edge',
+                    model=model,case=case,sr=rr,samples=len(audio),finite=bool(np.isfinite(audio).all()),
+                    lag=metric(audio,clean,sr)[0] if clean is not None else None,
+                    si_sdr=metric(audio,clean,sr)[1] if clean is not None else None,
+                    rms=float(np.sqrt(np.mean(audio*audio))),
+                    nonzero=int(np.count_nonzero(audio)),
+                    final_10ms_rms=float(np.sqrt(np.mean(audio[-sr//100:]**2))))
+          pathlib.Path('results/native_candidate_results.json').write_text(json.dumps(rec,indent=2))
+          if len([r for r in rec if r['kind']=='speech'])<4:raise RuntimeError('Native candidate validation incomplete')
+          PY
+      - name: Upload candidate logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr219-native-candidate-evaluation
+          path: |
+            results/*.log
+            results/*.txt
+            results/*.json
