@@ -1,0 +1,55 @@
+name: Photo Sphere checkpoint 232 original disabled feature-wrapper execution
+# Repeat original AddImage entry and disassemble exact 0x126188 wrapper/0x3a2560 extractor instructions
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-addimage-empty-feature-232.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: research/checkpoint232-empty-feature-wrapper
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install pinned emulator deps
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch checked original GCam APK
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original AlignmentEstimator AddImage camera-prefix
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint232/native_empty_feature_wrapper_probe.py > addimage-empty-feature.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('addimage-empty-feature.json'))
+          assert len(x['cases'])==1
+          for c in x['cases']:
+              assert c['source_unchanged'] and c['clone_seen'] and c['terminated_at']=='0x11d9cc'
+              print(c['name'],c['width_mismatch_branch'],c['final_cloned_words'],c['index_calls'])
+          print('EMPTY_FEATURE_JSON_BEGIN')
+          print(json.dumps(x,separators=(',',':')))
+          print('EMPTY_FEATURE_JSON_END')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint232-original-addimage-empty-feature
+          path: addimage-empty-feature.json
+          retention-days: 4
+          if-no-files-found: warn
