@@ -1,0 +1,55 @@
+name: Photo Sphere checkpoint 232 original oriented-patch constructor disassembly
+# Execute original wrapper using dynamically identified atan2f(y,x) PLT import and real ARM64 arguments
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-extractor-ctor-disasm-232.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: research/checkpoint232-feature-wrapper
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install pinned emulator deps
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch checked original GCam APK
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Disassemble original native extractor constructor and setup with ELF hashes
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint232/native_extractor_ctor_disasm.py > extractor-constructor-disasm.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('extractor-constructor-disasm.json'))
+          assert len(x['regions'])==3
+          for r in x['regions']:
+              assert len(r['instructions']) > 10
+              print(r['name'],len(r['instructions']))
+          print('EXTRACTOR_CTOR_JSON_BEGIN')
+          print(json.dumps(x,separators=(',',':')))
+          print('EXTRACTOR_CTOR_JSON_END')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint232-original-extractor-ctor-disasm
+          path: extractor-constructor-disasm.json
+          retention-days: 4
+          if-no-files-found: warn
