@@ -1,0 +1,57 @@
+name: Photo Sphere checkpoint 232 original oriented-patch sampling tables
+# Execute original wrapper using dynamically identified atan2f(y,x) PLT import and real ARM64 arguments
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-native-oriented-patterns-232.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: research/checkpoint232-feature-wrapper
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install pinned emulator deps
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch checked original GCam APK
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original oriented-patch constructor with ELF-verified math import
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint232/native_oriented_patch_patterns_probe.py > native-oriented-patterns.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('native-oriented-patterns.json'))
+          assert x['extractor_fields']['initialized_byte'] == 1
+          assert x['detector_pointer'] != 0
+          assert '0x3a1808' in x['calls']
+          assert len(x['sampling_patterns']) == 16
+          assert all(p['count'] == 64 for p in x['sampling_patterns'])
+          print(x['extractor_fields'],x['orientation_patterns'],x['sampling_patterns'][0]['offsets'][:8])
+          print('NATIVE_PATTERNS_JSON_BEGIN')
+          print(json.dumps(x,separators=(',',':')))
+          print('NATIVE_PATTERNS_JSON_END')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint232-original-oriented-patterns
+          path: native-oriented-patterns.json
+          retention-days: 4
+          if-no-files-found: warn
