@@ -1,0 +1,26 @@
+name: Photo Sphere checkpoint 230 original AddImage count and registration bitset oracle
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-addimage-post-rosette-rust-230.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rust-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: parity/checkpoint230-native-bitset
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Print exact source revision
+        run: git rev-parse HEAD
+      - name: Compare native AddImage rosette counts and per-image bitset against Rust fixture
+        run: cargo test --locked --lib original_addimage_rosette_count_and_registration_bitset_preflight -- --nocapture
