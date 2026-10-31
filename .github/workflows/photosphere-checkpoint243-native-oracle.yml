@@ -14,14 +14,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 47a20212536cf6f337f1780742cb9cbaf7d9b97e
+          ref: 7dbd8d5a63ff50ecf92cb21964ded1a7686fbd10
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.99.1'
       - name: Verify exact source revision
-        run: test "$(git rev-parse HEAD)" = "47a20212536cf6f337f1780742cb9cbaf7d9b97e"
+        run: test "$(git rev-parse HEAD)" = "7dbd8d5a63ff50ecf92cb21964ded1a7686fbd10"
+      - name: Diagnose original 128x96 per-tile FAST selection
+        run: cargo test --locked checkpoint243_noise128_original_tile_reduction_diagnostics -- --nocapture
       - name: Check actual original GCam level 0-2 scored keypoint oracles
         run: cargo test --locked checkpoint243_original_three_level_detector_scored_xy_matches -- --nocapture
       - name: Complete Rust suite
