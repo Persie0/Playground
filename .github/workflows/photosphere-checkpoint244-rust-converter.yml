@@ -14,17 +14,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: e505363aab99f540df75c4b7e007e6e03690c337
+          ref: 3a25865c243aa5fe4932b71afad9199e5c698e3c
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.99.1'
       - name: Verify exact source
-        run: test "$(git rev-parse HEAD)" = "e505363aab99f540df75c4b7e007e6e03690c337"
+        run: test "$(git rev-parse HEAD)" = "3a25865c243aa5fe4932b71afad9199e5c698e3c"
       - name: Original native level0-2 converter with injected detector samples
         run: cargo test --locked checkpoint244_original_injected_converter_all_three_levels -- --nocapture
       - name: Original native genuine FAST detector AND converter
         run: cargo test --locked checkpoint244_original_detected_converter_three_level_parity -- --nocapture
+      - name: Original ARM64 post-converter coordinate scaling 1x 2x 4x
+        run: cargo test --locked checkpoint244_original_postconverter_xy_scales_match_registration -- --nocapture
       - name: Full Rust test suite
         run: cargo test --locked
