@@ -1,0 +1,68 @@
+name: Photo Sphere checkpoint244 original converter injected level2
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint244-injected.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 3878d73dbb26c423207137fbecff9bb2612b94de
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "3878d73dbb26c423207137fbecff9bb2612b94de"
+      - name: Install ARM64 tooling
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Retrieve verified original ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original converter on forced level0-2 keypoints
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint244/native_injected_converter.py > checkpoint244-injected.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path("checkpoint244-injected.log").read_text()
+          d=json.loads(s.split("CHECKPOINT244_INJECTED_CONVERTER_BEGIN\n")[1].split("\nCHECKPOINT244_INJECTED_CONVERTER_END")[0])
+          assert len(d["cases"])==1
+          c=d["cases"][0]
+          assert c["source_dimensions"]==[256,256]
+          assert [v["keypoint_count"] for v in c["native_outputs"]]==[4,3,2]
+          print("CHECKPOINT244_INJECTED_COUNTS",
+            [v["feature_count"] for v in c["converter_outputs"]])
+          out={"elf_sha256":d["elf_sha256"],"input":"synthetic keypoint-stub detector",
+               "name":c["name"],"source_dimensions":c["source_dimensions"],
+               "pyramid_dimensions":c["native_pyramid_dimensions"],
+               "detector_keypoints":c["native_outputs"],
+               "converter_outputs":c["converter_outputs"]}
+          Path("checkpoint244-injected-levels.json").write_text(json.dumps(out,indent=2)+"\n")
+          print("CHECKPOINT244_INJECTED_JSON_BEGIN")
+          print(json.dumps(out,separators=(",",":")))
+          print("CHECKPOINT244_INJECTED_JSON_END")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint244-original-injected-converter
+          path: |
+            checkpoint244-injected-levels.json
+            checkpoint244-injected.log
+          retention-days: 14
+          if-no-files-found: warn
