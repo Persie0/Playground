@@ -1,0 +1,177 @@
+name: Arctic Circle - Original State Port 1080p Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/arctic-circle-original-state-1080p.yml
+      - scripts/arctic-circle-source1080/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: arctic-source1080-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: db57ee94e76cca586111fa3193d94cd8231bae96
+  RELEASE_TAG: arctic-circle-original-state-1080p-2026-10-31
+  PREVIOUS_AUDIO_TAG: arctic-circle-theorem-complete-2026-10-27
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+
+jobs:
+  render-original-source:
+    name: 1080p original-state chunk ${{ matrix.group }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        group: [0, 1, 2, 3, 4, 5]
+    steps:
+      - name: Checkout public render driver
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout private original renderers at verified PR commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install source renderer dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install 'numpy>=1.26,<2.3' 'scipy>=1.12,<1.19' 'opencv-python-headless>=4.10,<5' 'Pillow>=10,<12' 'matplotlib>=3.8,<4'
+      - name: Native 1920x1080 30fps original renderer (no old video segments)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p segments
+          read -r START END < <(python scripts/arctic-circle-source1080/build.py bounds \
+            --source source/arctic-circle-theorem --group '${{ matrix.group }}')
+          echo "Render group ${{ matrix.group }}, frame-aligned seconds [$START, $END)"
+          python source/arctic-circle-theorem/shared_engine/render.py \
+            --width 1920 --height 1080 --paced --crf 19 \
+            --start "$START" --end "$END" \
+            --output 'segments/segment_${{ matrix.group }}.mp4'
+          ffprobe -v error -select_streams v:0 \
+            -show_entries stream=width,height,r_frame_rate,nb_frames \
+            -of default=noprint_wrappers=1 'segments/segment_${{ matrix.group }}.mp4'
+      - name: Persist segment to Playground artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctic-original-segment-${{ matrix.group }}
+          path: segments/segment_${{ matrix.group }}.mp4
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  assemble-and-release:
+    name: Verify full film and publish new Playground release
+    runs-on: ubuntu-24.04
+    needs: [render-original-source]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout pinned private sources for V2 subtitles and manifest
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: arctic-original-segment-*
+          path: segments
+          merge-multiple: true
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+      - name: Obtain previous instrumental soundtrack (not previous video frames)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p prior
+          gh release download "$PREVIOUS_AUDIO_TAG" --repo Persie0/Playground \
+            --pattern 'Arctic_Circle_Theorem_Complete_1080p30.mp4' --dir prior
+          ffprobe -v error -select_streams a:0 -show_entries stream=codec_name \
+            -of default=noprint_wrappers=1 prior/Arctic_Circle_Theorem_Complete_1080p30.mp4
+      - name: Frame-perfect concat, retime original sound, 15 chapters, 101 subtitles, full decode
+        run: |
+          set -euo pipefail
+          python scripts/arctic-circle-source1080/build.py assemble \
+            --source source/arctic-circle-theorem \
+            --parts segments --release release \
+            --prior-master prior/Arctic_Circle_Theorem_Complete_1080p30.mp4 \
+            --source-sha "$SOURCE_SHA"
+          (cd release && sha256sum --check SHA256SUMS.txt)
+      - name: Upload verified 1080p film as run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arctic-Circle-Original-State-1080p-Verified
+          path: |
+            release/Arctic_Circle_Original_State_1080p30.mp4
+            release/Arctic_Circle_Original_State_1080p30.srt
+            release/SHA256SUMS.txt
+            release/manifest.json
+          compression-level: 0
+          retention-days: 30
+          if-no-files-found: error
+      - name: Create new public Playground Release, only after full verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/release-notes.md <<EOF
+          ## Arctic Circle Theorem — original 15-scene shared-state render
+
+          - Output: **1920×1080**, **30 fps**, H.264 + stereo AAC, approx. **7:21**
+          - **15 embedded chapters**, separate English **101-cue SRT** (no burned-in subtitles)
+          - All 13,224 video frames generated from original OpenCV scene source and object-state handoffs
+          - Source: private Persie0/manimVideos Draft PR #3 at $SOURCE_SHA
+          - Score: the earlier original instrumental soundtrack from the October 27 release, stretched independently for each chapter
+          - Full video and audio decode, exact frame counts and 15 chapter markers validated before publishing
+          - **Verification candidate:** A 1080p output does not alone establish original clip pixel-for-pixel parity; internal 720p assets in some original scene renderers are scaled to the final resolution.
+          - No Actions were executed in the private source repository.
+          EOF
+          if gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              release/Arctic_Circle_Original_State_1080p30.mp4 \
+              release/Arctic_Circle_Original_State_1080p30.srt \
+              release/SHA256SUMS.txt release/manifest.json \
+              --repo Persie0/Playground --clobber
+            gh release edit "$RELEASE_TAG" --repo Persie0/Playground \
+              --notes-file /tmp/release-notes.md --latest=false
+          else
+            gh release create "$RELEASE_TAG" \
+              release/Arctic_Circle_Original_State_1080p30.mp4 \
+              release/Arctic_Circle_Original_State_1080p30.srt \
+              release/SHA256SUMS.txt release/manifest.json \
+              --repo Persie0/Playground --target "$GITHUB_SHA" \
+              --title 'Arctic Circle Theorem - Original State 1080p (7:21)' \
+              --notes-file /tmp/release-notes.md --latest=false
+          fi
+          gh release view "$RELEASE_TAG" --repo Persie0/Playground --json url,assets
