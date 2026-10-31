@@ -14,11 +14,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 58ec231a06c9ce8a8e5182d8dda58d7d35b994b3
+          ref: 0f6e0a87cc9372a4fa2066709b689e620363d887
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify exact research commit
-        run: test "$(git rev-parse HEAD)" = "58ec231a06c9ce8a8e5182d8dda58d7d35b994b3"
+        run: test "$(git rev-parse HEAD)" = "0f6e0a87cc9372a4fa2066709b689e620363d887"
       - name: Install original ARM64 emulation dependencies
         run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
       - name: Fetch exact source GCam ELF
@@ -47,7 +47,11 @@ jobs:
               assert c['terminated_at']=='0x11d7d8'
               assert len(c['rosette_native_clones'])==2
               assert len(c['rosette_world_rays'])==6
-              assert all(r['max_identity_error']<1e-6 for r in c['rosette_world_rays'])
+              assert all(r['max_original_raw_matrix_error']<1e-6 for r in c['rosette_world_rays'])
+              assert all(v==c['supplied_pose_bits'] for v in c['rosette_stored_pose_bits'])
+          q=next(c for c in d['cases'] if c['name']=='first_1280_normalize_quarter_turn')
+          assert any(r['unproject_camera_bits']!=r['original_rosette_world_bits']
+                     for r in q['rosette_world_rays']), 'nonidentity pose must change rays'
           Path('checkpoint246-original-rosette-rays.json').write_text(json.dumps(d,indent=2)+'\n')
           print('CHECKPOINT246_ORIGINAL_ROSETTE_ORACLE_BEGIN')
           print(json.dumps(d,separators=(',',':')))
