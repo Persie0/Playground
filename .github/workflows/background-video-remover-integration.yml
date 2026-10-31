@@ -1,0 +1,111 @@
+name: BackgroundVideoRemover real media integration
+
+on:
+  push:
+    branches: [ci/background-video-remover-review]
+    paths:
+      - '.github/workflows/background-video-remover-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REVIEW_REPO: Persie0/BackgroundVideoRemover
+  REVIEW_REF: feat/advanced-video-editor
+
+jobs:
+  android-media:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REVIEW_REPO }}
+          ref: ${{ env.REVIEW_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: review
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install SDK and compatible CI-only fallback
+        run: |
+          if sdkmanager --channel=3 "platforms;android-37" "build-tools;36.0.0"; then
+            echo "API 37 installed"
+          else
+            sdkmanager "platforms;android-36" "build-tools;36.0.0"
+            sed -i -e 's/compileSdk = 37/compileSdk = 36/' -e 's/targetSdk = 37/targetSdk = 36/' review/android/app/build.gradle.kts
+            sed -i 's/compose-bom:2026.09.00/compose-bom:2026.04.01/' review/android/app/build.gradle.kts
+          fi
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Generate tiny synthetic H.264/AAC media, never copyrighted footage
+        run: |
+          command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+          mkdir -p review/android/app/src/androidTest/assets
+          ffmpeg -hide_banner -loglevel error -y \
+            -f lavfi -i 'color=c=blue:s=320x240:r=12:d=1.2' \
+            -f lavfi -i 'sine=frequency=440:sample_rate=44100:duration=1.2' \
+            -filter_complex '[0:v]drawbox=x=110:y=35:w=85:h=170:color=red:t=fill[v]' \
+            -map '[v]' -map 1:a -c:v libx264 -preset ultrafast \
+            -pix_fmt yuv420p -c:a aac -b:a 64k -shortest \
+            -movflags +faststart \
+            review/android/app/src/androidTest/assets/fixture_landscape_aac.mp4
+      - name: Enable KVM acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run on Android emulator with actual ML and media codecs
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_5
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            cd review/android
+            gradle --no-daemon --console=plain :app:connectedDebugAndroidTest
+
+  ios-media:
+    runs-on: macos-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REVIEW_REPO }}
+          ref: ${{ env.REVIEW_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: review
+      - name: Install XcodeGen and generate test target
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
+          cd review/ios
+          xcodegen generate
+      - name: Run real AVFoundation / Vision video integration XCTest
+        run: |
+          SIMULATOR_ID="$(xcrun simctl list devices available -j | python3 -c 'import sys,json; j=json.load(sys.stdin); print(next((d["udid"] for vs in j["devices"].values() for d in vs if "iPhone" in d["name"] and d["state"] != "unavailable"), ""))')"
+          test -n "$SIMULATOR_ID"
+          xcodebuild test \
+            -project review/ios/BackgroundVideoRemover.xcodeproj \
+            -scheme BackgroundVideoRemover \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -resultBundlePath "$RUNNER_TEMP/background-video-tests.xcresult" \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Save test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bvr-ios-xcresult
+          path: ${{ runner.temp }}/background-video-tests.xcresult
+          if-no-files-found: ignore
