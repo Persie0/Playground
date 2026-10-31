@@ -1,0 +1,206 @@
+name: Arctic Circle - Original State 1080p or 4K Manual Export
+on:
+  workflow_dispatch:
+    inputs:
+      resolution:
+        description: 'Export resolution; 4k runs renderer at 3840 x 2160'
+        type: choice
+        required: true
+        default: 4k
+        options: [4k, 1080p]
+      source_ref:
+        description: 'SHA or branch from Persie0/manimVideos (PR #3)'
+        type: string
+        required: true
+        default: wip/arctic-original-15-scene-state-port
+      crf:
+        description: 'H.264 quality (lower = better and larger)'
+        type: choice
+        default: '22'
+        options: ['20', '22', '24']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: arctic-manual-export-${{ github.run_id }}
+  cancel-in-progress: false
+env:
+  WIDTH: ${{ inputs.resolution == '4k' && '3840' || '1920' }}
+  HEIGHT: ${{ inputs.resolution == '4k' && '2160' || '1080' }}
+  SOURCE_REF: ${{ inputs.source_ref }}
+  QUALITY: ${{ inputs.crf }}
+  RELEASE_TAG: arctic-original-state-${{ inputs.resolution }}-run-${{ github.run_number }}
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+jobs:
+  render:
+    name: ${{ inputs.resolution }} source chunk ${{ matrix.group }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        group: [0, 1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_REF }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install 'numpy>=1.26,<2.3' 'scipy>=1.12,<1.19' 'opencv-python-headless>=4.10,<5' 'Pillow>=10,<12' 'matplotlib>=3.8,<4'
+      - name: Render original shared actor-state frames
+        run: |
+          set -euo pipefail
+          mkdir -p segments
+          git -C source rev-parse HEAD > 'segments/sha-${{ matrix.group }}.txt'
+          read -r START END < <(python scripts/arctic-circle-exports/build.py bounds --source source/arctic-circle-theorem --group '${{ matrix.group }}')
+          python source/arctic-circle-theorem/shared_engine/render.py \
+            --width "$WIDTH" --height "$HEIGHT" --paced --crf "$QUALITY" \
+            --start "$START" --end "$END" --output 'segments/segment_${{ matrix.group }}.mp4'
+          python scripts/arctic-circle-exports/build.py verify-part \
+            --source source/arctic-circle-theorem --group '${{ matrix.group }}' \
+            --file 'segments/segment_${{ matrix.group }}.mp4' \
+            --width "$WIDTH" --height "$HEIGHT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arctic-${{ inputs.resolution }}-chunk-${{ matrix.group }}
+          path: |
+            segments/segment_${{ matrix.group }}.mp4
+            segments/sha-${{ matrix.group }}.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+  assemble-and-publish:
+    name: Verify 15 scenes and publish ${{ inputs.resolution }} release
+    needs: [render]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_REF }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: arctic-${{ inputs.resolution }}-chunk-*
+          path: segments
+          merge-multiple: true
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+      - name: Reject mismatched source versions from concurrent chunks
+        run: |
+          set -euo pipefail
+          source_sha="$(git -C source rev-parse HEAD)"
+          for i in 0 1 2 3 4 5; do
+            test -s "segments/sha-$i.txt"
+            test "$(cat "segments/sha-$i.txt")" = "$source_sha" || {
+              echo "::error::Source changed during render; refusing mixed versions."
+              exit 1
+            }
+          done
+      - name: Retrieve original instrumental soundtrack (audio only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p prior
+          gh release download arctic-circle-theorem-complete-2026-10-27 \
+            --repo Persie0/Playground \
+            --pattern Arctic_Circle_Theorem_Complete_1080p30.mp4 --dir prior
+      - name: Assemble all 13,224 frames and verify 15 chapters, 101 SRT cues and audio
+        run: |
+          set -euo pipefail
+          python scripts/arctic-circle-exports/build.py assemble \
+            --source source/arctic-circle-theorem --parts segments --release release \
+            --source-sha "$(git -C source rev-parse HEAD)" \
+            --prior-master prior/Arctic_Circle_Theorem_Complete_1080p30.mp4 \
+            --width "$WIDTH" --height "$HEIGHT"
+          (cd release && sha256sum --check SHA256SUMS.txt)
+          video="release/Arctic_Circle_Original_State_${HEIGHT}p30.mp4"
+          test -s "$video"
+          test "$(stat -c '%s' "$video")" -lt 2147483648 || {
+            echo "::error::GitHub Releases has a 2 GiB per-asset limit; retry with CRF 24."
+            exit 1
+          }
+      - name: Save verified export before attempting release
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arctic-Circle-Original-State-${{ inputs.resolution }}-Verified
+          path: |
+            release/*.mp4
+            release/*.srt
+            release/manifest.json
+            release/SHA256SUMS.txt
+          compression-level: 0
+          retention-days: 30
+          if-no-files-found: error
+      - name: Publish to Playground GitHub Releases with available write credential
+        shell: bash
+        env:
+          RELEASE_PAT: ${{ secrets.GH_RELEASE_TOKEN }}
+          PRIVATE_PAT: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          ALT_PAT: ${{ secrets.GH_TOKEN }}
+          WORKFLOW_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > notes.md <<EOF
+          ## Arctic Circle Theorem – ${{ inputs.resolution }} original-state export
+
+          - ${WIDTH}x${HEIGHT}, 30 fps, H.264/AAC, approx. 7:21
+          - Source: Persie0/manimVideos @ $(git -C source rev-parse HEAD) (original 15 renderers, PR #3)
+          - All 13,224 frames rendered from original scene source, not from old MP4 footage
+          - 15 embedded chapters, separate 101-cue SRT, original instrumental music
+          - Full audio/video decoding and frame-count verification before publication
+          - Some original effects contain internally 720p raster assets. Rendering a 4K output does not add detail to those assets.
+          - Run only in the public Playground repository.
+          EOF
+          for label in GH_RELEASE_TOKEN PRIVATE_REPO_TOKEN GH_TOKEN GITHUB_TOKEN; do
+            case "$label" in
+              GH_RELEASE_TOKEN) token="$RELEASE_PAT" ;;
+              PRIVATE_REPO_TOKEN) token="$PRIVATE_PAT" ;;
+              GH_TOKEN) token="$ALT_PAT" ;;
+              GITHUB_TOKEN) token="$WORKFLOW_TOKEN" ;;
+            esac
+            if [ -z "$token" ]; then continue; fi
+            echo "Trying to publish using $label"
+            if GH_TOKEN="$token" gh release create "$RELEASE_TAG" \
+              "release/Arctic_Circle_Original_State_${HEIGHT}p30.mp4" \
+              "release/Arctic_Circle_Original_State_${HEIGHT}p30.srt" \
+              release/SHA256SUMS.txt release/manifest.json \
+              --repo Persie0/Playground --target "$GITHUB_SHA" \
+              --title "Arctic Circle Theorem – ${{ inputs.resolution }} (7:21)" \
+              --notes-file notes.md --latest=false; then
+              GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground --json url,assets
+              exit 0
+            fi
+            echo "::warning::$label cannot create the release; trying next credential"
+          done
+          echo "::error::No configured credential has Playground release-write access. Verified workflow artifact remains available."
+          exit 1
