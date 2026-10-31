@@ -38,6 +38,16 @@ jobs:
           python3 research/photosphere/checkpoint243/native_noise128_region_diagnostic.py > checkpoint243-regions.log
           grep CHECKPOINT243_REGION_SUMMARY checkpoint243-regions.log
           test -s checkpoint243-noise128-native-regions.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open("checkpoint243-noise128-native-regions.json"))
+          output={"name":d["name"],"counts":d["counts"],"pre_nms":d["pre_nms"],
+                  "post_nms":d["post_nms"],"tile_crops":d["tile_crops"],
+                  "tile_region_trials":d["tile_region_trials"]}
+          print("CHECKPOINT243_DIAGNOSTIC_JSON_BEGIN")
+          print(json.dumps(output,separators=(",",":")))
+          print("CHECKPOINT243_DIAGNOSTIC_JSON_END")
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
