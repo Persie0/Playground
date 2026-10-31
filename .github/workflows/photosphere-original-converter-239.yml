@@ -1,0 +1,60 @@
+name: Photo Sphere checkpoint 239 original native feature converter
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-original-converter-239.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: research/checkpoint239-original-native-keypoint-detector
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Unicorn and ELF dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Retrieve and verify original GCam binary
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original native detector and descriptor converter
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint239/native_feature_converter_probe.py > checkpoint239-converter.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint239-converter.log').read_text()
+          p=json.loads(s.split('CHECKPOINT239_NATIVE_CONVERTER_JSON_BEGIN\n')[1].split('\nCHECKPOINT239_NATIVE_CONVERTER_JSON_END')[0])
+          assert len(p['cases'])==2
+          for c in p['cases']:
+              assert c['stop']=='0x3a270c'
+              assert c['converter_called']
+              assert c['feature_output']['byte_count']%64==0
+              print(c['name'],'native detector',c['detector_return'].get('keypoint_count',0),
+                    'feature records',c['feature_output'])
+          Path('checkpoint239-converter.json').write_text(json.dumps(p,indent=2)+'\n')
+          print('CHECKPOINT239_CONVERTER_JSON_BEGIN')
+          print(json.dumps(p,separators=(',',':')))
+          print('CHECKPOINT239_CONVERTER_JSON_END')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint239-original-feature-converter
+          path: checkpoint239-converter.json
+          retention-days: 7
+          if-no-files-found: warn
