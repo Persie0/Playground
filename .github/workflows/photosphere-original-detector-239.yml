@@ -39,13 +39,13 @@ jobs:
           from pathlib import Path
           s=Path('checkpoint239.log').read_text()
           p=json.loads(s.split('CHECKPOINT239_NATIVE_DETECTOR_JSON_BEGIN\n')[1].split('\nCHECKPOINT239_NATIVE_DETECTOR_JSON_END')[0])
-          assert len(p['cases'])==2
+          assert len(p['cases'])==5
           for c in p['cases']:
               assert c['stop']=='0x3a26e8'
               assert len(c['detector_internal_entries'])==1
               assert c['detector_calls'][0]['threshold_limit']==3000
               print(c['name'],'method',c['original_native_detector_entry'],
-                    'result',c['detector_return'])
+                    'keypoints',c['detector_return'].get('keypoint_count',0),'records',c['detector_return'].get('first_records',[])[:8])
           Path('checkpoint239-detector.json').write_text(json.dumps(p,indent=2)+'\n')
           print('CHECKPOINT239_JSON_BEGIN')
           print(json.dumps(p,separators=(',',':')))
