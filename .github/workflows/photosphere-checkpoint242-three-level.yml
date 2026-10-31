@@ -1,0 +1,29 @@
+name: Photo Sphere checkpoint 242 three-level integration
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint242-three-level.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rust-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout reviewed cleanroom commit via public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: ad5ed35fbfb1c90e15d6753437b96637bd4b2b3c
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Verify exact source revision
+        run: test "$(git rev-parse HEAD)" = "ad5ed35fbfb1c90e15d6753437b96637bd4b2b3c"
+      - name: Three-level wiring regression
+        run: cargo test --locked checkpoint242_three_level_gcam_feature_pipeline_uses_native_sources_and_limits -- --nocapture
+      - name: Full Rust suite
+        run: cargo test --locked
