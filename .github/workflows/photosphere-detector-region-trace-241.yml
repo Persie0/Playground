@@ -43,11 +43,15 @@ jobs:
           for c in d['cases']:
               trials=c['region_trials']
               assert trials
+              assert c['radius_call']['radius']==5
+              assert c['detector_configuration']['radius']==5
+              assert c['detector_configuration']['score_gate']==2
+              assert c['after_optional_radius']['count']==c['detector_return'].get('keypoint_count',0)
               print('NATIVE_REGION_SUMMARY',c['name'],
                     'detector config',c['detector_configuration'],
                     'regions',len(trials),
                     'threshold_histogram',c['threshold_histogram'])
-              for reg in trials[:30]:
+              for reg in trials[:5]:
                   print('NATIVE_REGION_RECORD',reg)
           Path('checkpoint241-regions.json').write_text(json.dumps(d,indent=2)+'\n')
           print('CHECKPOINT241_REGIONS_JSON_BEGIN')
