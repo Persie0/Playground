@@ -1,9 +1,9 @@
 # screendetector dispatcher result
 
-- Title: ci: record screendetector dispatch result
-- Run ID: 41239167471
-- Run number: 375
+- Title: ci: verify native AddImage rosette with nonidentity quarter-turn orig…
+- Run ID: 41242588021
+- Run number: 381
 - Conclusion: failure
-- Created: 2026-10-31T20:29:56Z
-- Updated: 2026-10-31T20:36:49Z
-- Run: https://github.com/Persie0/Playground/actions/runs/41239167471
+- Created: 2026-10-31T21:13:36Z
+- Updated: 2026-10-31T21:18:36Z
+- Run: https://github.com/Persie0/Playground/actions/runs/41242588021
