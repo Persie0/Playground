@@ -1,0 +1,30 @@
+name: Photo Sphere checkpoint244 Rust converter parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint244-rust-converter.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rust-converter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: e505363aab99f540df75c4b7e007e6e03690c337
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "e505363aab99f540df75c4b7e007e6e03690c337"
+      - name: Original native level0-2 converter with injected detector samples
+        run: cargo test --locked checkpoint244_original_injected_converter_all_three_levels -- --nocapture
+      - name: Original native genuine FAST detector AND converter
+        run: cargo test --locked checkpoint244_original_detected_converter_three_level_parity -- --nocapture
+      - name: Full Rust test suite
+        run: cargo test --locked
