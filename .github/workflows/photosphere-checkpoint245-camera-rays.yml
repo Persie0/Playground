@@ -1,0 +1,69 @@
+name: Photo Sphere checkpoint245 original feature camera rays
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-checkpoint245-camera-rays.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-arm64-camera:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 195a3863637189867c4acca184c69a68e970c3ef
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source revision
+        run: test "$(git rev-parse HEAD)" = "195a3863637189867c4acca184c69a68e970c3ef"
+      - name: Install ARM64 harness dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Verify original GCam ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original camera unprojection on native converter feature XY
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint245/native_feature_camera_rays.py > checkpoint245-camera-rays.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint245-camera-rays.log').read_text()
+          d=json.loads(s.split('CHECKPOINT245_NATIVE_CAMERA_FEATURE_RAYS_BEGIN\n')[1].split('\nCHECKPOINT245_NATIVE_CAMERA_FEATURE_RAYS_END')[0])
+          assert len(d['cases'])==2
+          assert d['cases'][0]['decoded_source_dimensions']==[256,256]
+          assert d['cases'][1]['decoded_source_dimensions']==[192,144]
+          assert len(d['cases'][0]['feature_rays'])==9
+          assert len(d['cases'][1]['feature_rays'])>=19
+          assert all(all(s['null_correction'] for s in c['states']) for c in d['cases'])
+          for c in d['cases']:
+              assert len(c['states'])==6
+              assert len(c['tanf_calls'])>=3
+              assert all(len(r['ray_bits'])==3 for r in c['feature_rays'])
+          Path('checkpoint245-native-camera-rays.json').write_text(json.dumps(d,indent=2)+'\n')
+          print('CHECKPOINT245_ORACLE_BEGIN')
+          print(json.dumps(d,separators=(',',':')))
+          print('CHECKPOINT245_ORACLE_END')
+          print('CHECKPOINT245_RESULTS',[(c['name'],len(c['feature_rays'])) for c in d['cases']])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint245-native-feature-camera-rays
+          path: |
+            checkpoint245-camera-rays.log
+            checkpoint245-native-camera-rays.json
+          retention-days: 14
+          if-no-files-found: warn
