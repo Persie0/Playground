@@ -44,6 +44,9 @@ jobs:
               assert c['stop']=='0x3a270c'
               assert c['converter_called']
               print('NATIVE_CONVERTER_OBSERVATION',c['name'],c.get('converter_args'),c.get('feature_output'))
+              assert c['feature_output']['byte_count'] is not None
+              assert c['feature_output']['byte_count'] % 64 == 0
+              assert c['feature_parent_vector_owner'][1]-c['feature_parent_vector_owner'][0] == 3*24
               # Do not assume output vector element size until its original
               # ABI is decoded. Save unexpected native states as evidence.
               print(c['name'],'native detector',c['detector_return'].get('keypoint_count',0),
