@@ -1,0 +1,28 @@
+name: Photo Sphere checkpoint 243 original detector 3-level Rust parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint243-native-oracle.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rust-native-oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 47a20212536cf6f337f1780742cb9cbaf7d9b97e
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Verify exact source revision
+        run: test "$(git rev-parse HEAD)" = "47a20212536cf6f337f1780742cb9cbaf7d9b97e"
+      - name: Check actual original GCam level 0-2 scored keypoint oracles
+        run: cargo test --locked checkpoint243_original_three_level_detector_scored_xy_matches -- --nocapture
+      - name: Complete Rust suite
+        run: cargo test --locked
