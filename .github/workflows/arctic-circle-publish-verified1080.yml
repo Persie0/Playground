@@ -1,0 +1,76 @@
+name: Publish Already Verified Arctic Circle Original-State 1080p
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/arctic-circle-publish-verified1080.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Download existing validated 1080p film - no rendering
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          gh run download 41220931582 --repo Persie0/Playground \
+            --name Arctic-Circle-Original-State-1080p-Verified --dir release
+          (cd release && sha256sum --check SHA256SUMS.txt)
+          test -s release/Arctic_Circle_Original_State_1080p30.mp4
+          test -s release/Arctic_Circle_Original_State_1080p30.srt
+          python3 - <<'PY'
+          import json,pathlib
+          d=json.loads(pathlib.Path('release/manifest.json').read_text())
+          assert d['resolution']==[1920,1080]
+          assert d['frames']==13224 and d['subtitle_cues']==101 and d['chapters']==15
+          print('Previously full-decoded 1080p film and checksum manifest verified')
+          PY
+      - name: Publish existing verified files using available release-write credentials
+        shell: bash
+        env:
+          RELEASE_PAT: ${{ secrets.GH_RELEASE_TOKEN }}
+          PRIVATE_PAT: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          ALT_PAT: ${{ secrets.GH_TOKEN }}
+          WORKFLOW_TOKEN: ${{ github.token }}
+          RELEASE_TAG: arctic-circle-original-state-1080p-2026-10-31
+        run: |
+          set -euo pipefail
+          cat > notes.md <<'EOF'
+          ## Arctic Circle - 15 Original Scenes (1080p, 7:21)
+          Source-generated original-state render from Persie0/manimVideos Draft PR #3.
+          1920x1080 at 30fps, H.264/AAC. 15 chapters, 101 external SRT cues.
+          Full audio/video decode verified in run 41220931582.
+          Existing validated video published without rerendering, from the public Playground repository.
+          EOF
+          for label in GH_RELEASE_TOKEN PRIVATE_REPO_TOKEN GH_TOKEN GITHUB_TOKEN; do
+            case "$label" in
+              GH_RELEASE_TOKEN) token="$RELEASE_PAT";;
+              PRIVATE_REPO_TOKEN) token="$PRIVATE_PAT";;
+              GH_TOKEN) token="$ALT_PAT";;
+              GITHUB_TOKEN) token="$WORKFLOW_TOKEN";;
+            esac
+            if [ -z "$token" ]; then continue; fi
+            echo "Trying $label to publish verified existing MP4"
+            if GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+              if GH_TOKEN="$token" gh release upload "$RELEASE_TAG" release/* --repo Persie0/Playground --clobber &&
+                 GH_TOKEN="$token" gh release edit "$RELEASE_TAG" --repo Persie0/Playground --notes-file notes.md --latest=false; then
+                GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground --json url,assets
+                exit 0
+              fi
+            else
+              if GH_TOKEN="$token" gh release create "$RELEASE_TAG" release/* --repo Persie0/Playground \
+                   --target "$GITHUB_SHA" --title 'Arctic Circle Original State 1080p (7:21)' \
+                   --notes-file notes.md --latest=false; then
+                GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground --json url,assets
+                exit 0
+              fi
+            fi
+            echo "::warning::$label lacks release-write permissions; trying next token"
+          done
+          echo "::error::No token has release-write access. The verified video remains available under run 41220931582."
+          exit 1
