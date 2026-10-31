@@ -1,0 +1,68 @@
+name: BackgroundVideoRemover private branch review
+
+on:
+  push:
+    branches:
+      - ci/background-video-remover-review
+    paths:
+      - .github/workflows/background-video-remover-review.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REVIEW_REPO: Persie0/BackgroundVideoRemover
+  REVIEW_REF: feat/native-mobile-background-removal
+
+jobs:
+  android:
+    name: Android compile and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private review branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REVIEW_REPO }}
+          ref: ${{ env.REVIEW_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: review
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install Android SDK 37
+        run: sdkmanager "platforms;android-37" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Test and build
+        working-directory: review/android
+        run: gradle --no-daemon --console=plain :app:testDebugUnitTest :app:assembleDebug
+
+  ios:
+    name: iOS simulator compile
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout private review branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REVIEW_REPO }}
+          ref: ${{ env.REVIEW_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: review
+      - name: Build iOS simulator app
+        run: |
+          xcodebuild -project review/ios/BackgroundVideoRemover.xcodeproj \
+            -scheme BackgroundVideoRemover \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build
