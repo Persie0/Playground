@@ -1,0 +1,61 @@
+name: Photo Sphere checkpoint246 original AddImage post-rosette map
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint246-addimage-map.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: f8406bb5596a758534872b84b1d38e97ac1adeaa
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source
+        run: test "$(git rev-parse HEAD)" = "f8406bb5596a758534872b84b1d38e97ac1adeaa"
+      - name: Install ARM64 tools
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch original GCam ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Capture original post-rosette machine instructions
+        run: |
+          python3 research/photosphere/checkpoint246/native_addimage_post_rosette_disasm.py > checkpoint246.map.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint246.map.log').read_text()
+          o=json.loads(s.split('CHECKPOINT246_ORIGINAL_DISASSEMBLY_BEGIN\n')[1].split('\nCHECKPOINT246_ORIGINAL_DISASSEMBLY_END')[0])
+          assert o['elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert len(o['blocks'])==4
+          assert sum(len(b['instructions']) for b in o['blocks'])>400
+          Path('checkpoint246-original-addimage-map.json').write_text(json.dumps(o,indent=2)+'\n')
+          print('CHECKPOINT246_MAP_SUMMARY',[(b['block'],len(b['instructions'])) for b in o['blocks']])
+          for b in o['blocks']:
+              if b['block']=='post_rosette_addimage':
+                  print('CHECKPOINT246_POST_ROSETTE_INSTRUCTIONS_BEGIN')
+                  for i in b['instructions']:
+                      print(i['pc'],i['mnemonic'],i['operands'])
+                  print('CHECKPOINT246_POST_ROSETTE_INSTRUCTIONS_END')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint246-original-addimage-map
+          path: |
+            checkpoint246-original-addimage-map.json
+            checkpoint246.map.log
+          retention-days: 14
