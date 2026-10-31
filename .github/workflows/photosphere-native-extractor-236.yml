@@ -30,7 +30,7 @@ jobs:
           mkdir -p research/native
           unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
           echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
-      - name: Verify native image halfscale allocation via pre-override VM call log
+      - name: Verify native image halfscale allocation via original BL site register snapshot
         run: |
           set -euo pipefail
           python3 research/photosphere/checkpoint236/native_extractor_image_helper_probe.py > checkpoint236.json
@@ -46,7 +46,7 @@ jobs:
               assert c['native_image_holder']['format_word']==8
               assert c['first_native_halfscale_entered']
               assert c['first_halfscale_allocation_matches_expected']
-              assert c['first_halfscale_allocation_request']['return_address']==0x311790
+              assert c['first_halfscale_allocation_request']['callsite']=='0x31178c'
               assert c['native_image_holder']['inline_descriptor_pointer']==c['native_image_holder']['ptr']+16
               assert c['original_feature_wrapper_args']['x0']==c['native_processor_parent']
               assert c['original_extractor_entry_args']['x0']==c['native_processor_extractor']
