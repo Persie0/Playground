@@ -1,0 +1,73 @@
+name: Photo Sphere checkpoint244 native multi-level converter oracle
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint244-converter.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 2d014389627baa30aa2c85368c8849987b8e3acf
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned source
+        run: test "$(git rev-parse HEAD)" = "2d014389627baa30aa2c85368c8849987b8e3acf"
+      - name: Install Unicorn original-arm64 dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch SHA-pinned original GCam ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Run original detector AND native descriptor converter on three levels
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint244/native_multilevel_converter.py --medium > checkpoint244.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          raw=Path("checkpoint244.log").read_text()
+          data=json.loads(raw.split("CHECKPOINT244_NATIVE_CONVERTER_BEGIN\n")[1].split("\nCHECKPOINT244_NATIVE_CONVERTER_END")[0])
+          assert len(data["cases"])==3
+          compact={"elf_sha256":data["elf_sha256"],"cases":[]}
+          for c in data["cases"]:
+              assert len(c["converter_outputs"])==len(c["native_outputs"])==3
+              assert [x["threshold_limit"] for x in c["detector_calls"]]==[3000,751,188]
+              row={"name":c["name"],"source_dimensions":c["source_dimensions"],
+                   "pyramid_dimensions":c["native_pyramid_dimensions"],
+                   "native_keypoint_counts":[l["keypoint_count"] for l in c["native_outputs"]],
+                   "converter_outputs":c["converter_outputs"]}
+              compact["cases"].append(row)
+              print("CHECKPOINT244_LEVEL_COUNTS",c["name"],row["native_keypoint_counts"],
+                    [x["feature_count"] for x in c["converter_outputs"]])
+              for x in c["converter_outputs"]:
+                  assert len(x["features"])==x["feature_count"]
+                  for f in x["features"]:
+                      assert len(f["descriptor"])==64 and len(f["direction_bits"])==2
+          Path("checkpoint244-native-converter.json").write_text(json.dumps(compact,indent=2)+"\n")
+          print("CHECKPOINT244_ORACLE_BEGIN")
+          print(json.dumps(compact,separators=(",",":")))
+          print("CHECKPOINT244_ORACLE_END")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint244-original-native-converter
+          path: |
+            checkpoint244-native-converter.json
+            checkpoint244.log
+          retention-days: 14
+          if-no-files-found: warn
