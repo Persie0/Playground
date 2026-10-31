@@ -1,0 +1,31 @@
+name: Photo Sphere checkpoint245 feature ray parity
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-checkpoint245-rust-rays.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rust-native-camera-ray:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: ae7b0871bd66137842c670690feeb152bb089b34
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Verify source revision
+        run: test "$(git rev-parse HEAD)" = "ae7b0871bd66137842c670690feeb152bb089b34"
+      - name: Original null-correction camera state and 28 feature rays
+        run: cargo test --locked checkpoint245_original_feature_pixels_unproject_bit_exact -- --nocapture
+      - name: Native feature rays vs public alignment coordinate basis
+        run: cargo test --locked checkpoint245_native_null_correction_rays_match_public_camera_basis -- --nocapture
+      - name: Full Rust regression suite
+        run: cargo test --locked
