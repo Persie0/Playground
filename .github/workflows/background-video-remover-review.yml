@@ -44,6 +44,9 @@ jobs:
             echo "::warning::Android SDK 37 was not found on runner; compile against API 36 as a compatibility smoke test."
             sdkmanager "platforms;android-36" "build-tools;36.0.0"
             sed -i -e 's/compileSdk = 37/compileSdk = 36/' -e 's/targetSdk = 37/targetSdk = 36/' review/android/app/build.gradle.kts
+            # Compose 1.12 also requires compileSdk 37; use pre-37 BOM for this
+            # API 36-only source-level smoke build, without editing the private PR.
+            sed -i 's/compose-bom:2026.09.00/compose-bom:2026.04.01/' review/android/app/build.gradle.kts
           fi
       - uses: gradle/actions/setup-gradle@v4
         with:
