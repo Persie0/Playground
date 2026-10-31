@@ -1,0 +1,30 @@
+name: Photo Sphere checkpoint246 native rosette raw matrix parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint246-rust-rosette-order.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rust-native-rosette:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: bee694cf91eaa4752c69c5e2e40ba849ab54ee69
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Verify exact production source
+        run: test "$(git rev-parse HEAD)" = "bee694cf91eaa4752c69c5e2e40ba849ab54ee69"
+      - name: Exact source-documented native +0x98 +0xa0 ray operators
+        run: cargo test --locked checkpoint246_original_rosette_raw_matrix_multiplies_as_arm64 -- --nocapture
+      - name: Source and panorama roundtrip directional regression
+        run: cargo test --locked composed_native_mapper_ -- --nocapture
+      - name: Full Rust regression suite
+        run: cargo test --locked
