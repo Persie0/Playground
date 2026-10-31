@@ -39,11 +39,11 @@ jobs:
           from pathlib import Path
           s=Path('checkpoint241.log').read_text()
           d=json.loads(s.split('CHECKPOINT241_DISASM_BEGIN\n')[1].split('\nCHECKPOINT241_DISASM_END')[0])
-          assert len(d['instructions'])==4
+          assert len(d['instructions'])==5
           for name,ops in d['instructions'].items():
               print('ORIGINAL_NATIVE_DISASM',name,len(ops))
               for op in ops:
-                  if name in ('detector_wrapper','fast_threshold_pipeline') or op['op'].startswith(('bl ','blr ')):
+                  if name in ('detector_wrapper','fast_threshold_pipeline','radius_nms','corner_score_helper') or op['op'].startswith(('bl ','blr ')):
                       print(op['pc'],op['op'])
           Path('checkpoint241-disasm.json').write_text(json.dumps(d,indent=2)+'\n')
           print('CHECKPOINT241_JSON_BEGIN')
