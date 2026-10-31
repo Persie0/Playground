@@ -1,0 +1,59 @@
+name: Photo Sphere checkpoint 240 original feature converter ARM64 provenance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-native-converter-disasm-240.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: research/checkpoint240-native-orientation-provenance
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Unicorn and ELF dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Retrieve and verify original GCam binary
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Disassemble pinned original ARM64 feature converter and helpers
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint240/native_feature_converter_disassembly.py > checkpoint240.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint240.log').read_text()
+          d=json.loads(s.split('CHECKPOINT240_NATIVE_DISASM_BEGIN\n')[1].split('\nCHECKPOINT240_NATIVE_DISASM_END')[0])
+          assert len(d['functions'])==4
+          for name,ins in d['functions'].items():
+              print('ORIGINAL_NATIVE_DISASSEMBLY',name,len(ins))
+              for x in ins:
+                  if name in ('converter','descriptor_sampler'):
+                      print(x['pc'],x['ins'])
+          Path('checkpoint240-disasm.json').write_text(json.dumps(d,indent=2)+'\n')
+          print('CHECKPOINT240_JSON_BEGIN')
+          print(json.dumps(d,separators=(',',':')))
+          print('CHECKPOINT240_JSON_END')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint240-original-converter-disassembly
+          path: checkpoint240-disasm.json
+          retention-days: 7
+          if-no-files-found: warn
