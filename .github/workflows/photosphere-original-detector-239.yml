@@ -1,0 +1,60 @@
+name: Photo Sphere checkpoint 239 original native keypoint detector
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-original-detector-239.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: research/checkpoint239-original-native-keypoint-detector
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Unicorn and ELF dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Retrieve and verify original GCam binary
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute real native detector body on pixel-backed pyramid
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint239/native_detector_original_pixel_probe.py > checkpoint239.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint239.log').read_text()
+          p=json.loads(s.split('CHECKPOINT239_NATIVE_DETECTOR_JSON_BEGIN\n')[1].split('\nCHECKPOINT239_NATIVE_DETECTOR_JSON_END')[0])
+          assert len(p['cases'])==2
+          for c in p['cases']:
+              assert c['stop']=='0x3a26e8'
+              assert len(c['detector_internal_entries'])==1
+              assert c['detector_calls'][0]['threshold_limit']==3000
+              print(c['name'],'method',c['original_native_detector_entry'],
+                    'result',c['detector_return'])
+          Path('checkpoint239-detector.json').write_text(json.dumps(p,indent=2)+'\n')
+          print('CHECKPOINT239_JSON_BEGIN')
+          print(json.dumps(p,separators=(',',':')))
+          print('CHECKPOINT239_JSON_END')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint239-original-detector
+          path: checkpoint239-detector.json
+          retention-days: 7
+          if-no-files-found: warn
