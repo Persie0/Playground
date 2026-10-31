@@ -1,0 +1,49 @@
+name: Photo Sphere checkpoint243 original 128x96 FAST region diagnostic
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint243-region-diagnostic.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: ce4dae936441e84e387418bff691d0e3b58d3f60
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source
+        run: test "$(git rev-parse HEAD)" = "ce4dae936441e84e387418bff691d0e3b58d3f60"
+      - name: Install ARM64 emulation dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Verify pinned original GCam binary
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Trace original per-tile selection and pre/post NMS
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint243/native_noise128_region_diagnostic.py > checkpoint243-regions.log
+          grep CHECKPOINT243_REGION_SUMMARY checkpoint243-regions.log
+          test -s checkpoint243-noise128-native-regions.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint243-noise128-original-fast-regions
+          path: |
+            checkpoint243-noise128-native-regions.json
+            checkpoint243-regions.log
+          if-no-files-found: warn
+          retention-days: 14
