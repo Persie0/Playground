@@ -51,6 +51,15 @@ jobs:
               # ABI is decoded. Save unexpected native states as evidence.
               print(c['name'],'native detector',c['detector_return'].get('keypoint_count',0),
                     'feature records',c['feature_output'])
+          feature_counts={c['name']:c['feature_output'].get('feature_count',0) for c in p['cases']}
+          assert feature_counts=={'squares_96x72':0,'noise_96x72':9},feature_counts
+          for c in p['cases']:
+              for record in c['feature_output'].get('decoded_features',[]):
+                  assert len(record['descriptor_bytes'])==64
+                  assert record['descriptor_size']==64
+                  print('ORIGINAL_64_BYTE_DESCRIPTOR',c['name'],
+                    (record['x'],record['y']),record['direction'],
+                    record['descriptor_bytes'])
           Path('checkpoint239-converter.json').write_text(json.dumps(p,indent=2)+'\n')
           print('CHECKPOINT239_CONVERTER_JSON_BEGIN')
           print(json.dumps(p,separators=(',',':')))
