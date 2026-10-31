@@ -1,0 +1,59 @@
+name: Photo Sphere checkpoint 241 original detector selection disassembly
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-detector-selection-disasm-241.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: research/checkpoint241-native-detector-selection
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Unicorn and ELF dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Retrieve and verify original GCam binary
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Disassemble pinned original detector selection pipeline
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint241/native_detector_selection_disassembly.py > checkpoint241.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint241.log').read_text()
+          d=json.loads(s.split('CHECKPOINT241_DISASM_BEGIN\n')[1].split('\nCHECKPOINT241_DISASM_END')[0])
+          assert len(d['instructions'])==4
+          for name,ops in d['instructions'].items():
+              print('ORIGINAL_NATIVE_DISASM',name,len(ops))
+              for op in ops:
+                  if name in ('detector_wrapper','fast_threshold_pipeline') or op['op'].startswith(('bl ','blr ')):
+                      print(op['pc'],op['op'])
+          Path('checkpoint241-disasm.json').write_text(json.dumps(d,indent=2)+'\n')
+          print('CHECKPOINT241_JSON_BEGIN')
+          print(json.dumps(d,separators=(',',':')))
+          print('CHECKPOINT241_JSON_END')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint241-original-fast-detector-disassembly
+          path: checkpoint241-disasm.json
+          retention-days: 7
+          if-no-files-found: warn
