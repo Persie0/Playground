@@ -1,0 +1,59 @@
+name: Photo Sphere checkpoint 235 original processor / extractor handoff
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-native-processor-235.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: research/checkpoint235-native-processor-handoff
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Unicorn and ELF dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Retrieve and verify original GCam binary
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original processor and feature wrapper handoff
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint235/native_processor_handoff_probe.py > checkpoint235.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path('checkpoint235.json').read_text())
+          assert p['stop_before']=='0x3a2560'
+          assert len(p['cases'])==4
+          for c in p['cases']:
+              assert c['terminated_at']=='0x3a2560'
+              assert c['original_wrapper_entered']
+              assert c['original_feature_wrapper_args']['x0']==c['native_processor_parent']
+              assert c['original_extractor_entry_args']['x0']==c['native_processor_extractor']
+              assert c['source_unchanged']
+              print(c['name'], 'processor', hex(c['native_processor_parent']),
+                    'extractor', c['original_extractor_entry_args'])
+          print('PASS: 4 original native constructor/AddImage/wrapper boundary cases')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint235-original-processor-handoff
+          path: checkpoint235.json
+          retention-days: 7
+          if-no-files-found: warn
