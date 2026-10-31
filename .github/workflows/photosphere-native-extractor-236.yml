@@ -38,12 +38,15 @@ jobs:
           import json
           from pathlib import Path
           p=json.loads(Path('checkpoint236.json').read_text())
-          assert p['stop_before']=='0x311740'
+          assert p['stop_before']=='0xf0b28'
           assert len(p['cases'])==4
           for c in p['cases']:
-              assert c['terminated_at']=='0x311740'
+              assert c['terminated_at']=='0xf0b28'
               assert c['original_wrapper_entered'] and c['original_extractor_body_executed']
               assert c['native_image_holder']['format_word']==8
+              assert c['first_native_halfscale_entered']
+              assert c['first_halfscale_allocation_request']['width']==c['native_image_constructor_args']['source_descriptor_width']//2+1
+              assert c['first_halfscale_allocation_request']['height']==c['native_image_constructor_args']['source_descriptor_height']//2+1
               assert c['native_image_holder']['inline_descriptor_pointer']==c['native_image_holder']['ptr']+16
               assert c['original_feature_wrapper_args']['x0']==c['native_processor_parent']
               assert c['original_extractor_entry_args']['x0']==c['native_processor_extractor']
