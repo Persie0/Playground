@@ -1,0 +1,36 @@
+name: Photo Sphere checkpoint 237 native feature-pyramid pixels
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-pyramid-pixels-237-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rust-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private cleanroom through public Playground only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: parity/checkpoint237-native-pyramid-pixel-oracles
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Print exact tested source revision
+        run: git rev-parse HEAD
+      - name: Run all Rust checks
+        run: |
+          set -euo pipefail
+          cargo test --locked > "$RUNNER_TEMP/checkpoint237-rust.log" 2>&1 || {
+            grep -A 50 -E '^failures:|^error:' "$RUNNER_TEMP/checkpoint237-rust.log" | tail -130 || true
+            tail -130 "$RUNNER_TEMP/checkpoint237-rust.log"
+            exit 1
+          }
+          grep -E 'test result:' "$RUNNER_TEMP/checkpoint237-rust.log"
+
+# Recheck after adding live registration-image regression to checkpoint236.
