@@ -23,6 +23,11 @@ jobs:
           toolchain: '1.99.1'
       - name: Print exact tested source revision
         run: git rev-parse HEAD
+      - name: Audit nine original native descriptors against current Rust
+        run: |
+          set -euo pipefail
+          cargo test --locked checkpoint239_original_native_converter_descriptor_audit -- --nocapture 2>&1 | tee "$RUNNER_TEMP/checkpoint239-native-descriptor-audit.log"
+          grep CHECKPOINT239_RUST_PARITY_AUDIT "$RUNNER_TEMP/checkpoint239-native-descriptor-audit.log"
       - name: Run all Rust checks
         run: |
           set -euo pipefail
