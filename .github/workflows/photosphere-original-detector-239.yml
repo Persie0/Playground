@@ -46,6 +46,13 @@ jobs:
               assert c['detector_calls'][0]['threshold_limit']==3000
               print(c['name'],'method',c['original_native_detector_entry'],
                     'keypoints',c['detector_return'].get('keypoint_count',0),'records',c['detector_return'].get('first_records',[])[:8])
+          counts={c['name']:c['detector_return'].get('keypoint_count',0) for c in p['cases']}
+          assert counts['squares_96x72']==4,counts
+          assert counts['noise_96x72']==138,counts
+          for c in p['cases']:
+              got=c['detector_return'].get('first_records',[])
+              assert len(got)==counts[c['name']],c['name']
+          print('PASS: native keypoint counts, full score/location bytes and deterministic pattern samples')
           Path('checkpoint239-detector.json').write_text(json.dumps(p,indent=2)+'\n')
           print('CHECKPOINT239_JSON_BEGIN')
           print(json.dumps(p,separators=(',',':')))
