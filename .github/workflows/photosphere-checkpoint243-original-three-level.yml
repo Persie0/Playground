@@ -1,0 +1,69 @@
+name: Photo Sphere checkpoint 243 original three-level FAST
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint243-original-three-level.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 409d5e2d115be9d76f4ebd9e635880c3aaa3d46d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned source
+        run: test "$(git rev-parse HEAD)" = "409d5e2d115be9d76f4ebd9e635880c3aaa3d46d"
+      - name: Install emulation dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch and verify pinned original APK and library
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Run original native detector for all three levels
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint243/native_three_level_detector.py > checkpoint243.log
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          text=Path("checkpoint243.log").read_text()
+          out=json.loads(text.split("CHECKPOINT243_NATIVE_THREE_LEVEL_BEGIN\n",1)[1].split("\nCHECKPOINT243_NATIVE_THREE_LEVEL_END",1)[0])
+          assert len(out["cases"]) == 3
+          for c in out["cases"]:
+              assert len(c["native_outputs"]) == 3
+              assert [v["threshold_limit"] for v in c["detector_calls"]] == [3000,751,188]
+              assert [v["level_index"] for v in c["native_outputs"]] == [0,1,2]
+              for z in c["native_outputs"]:
+                  assert len(z["score_xy"]) == z["keypoint_count"]
+              print("ORIGINAL_GCAM_THREE_LEVEL",c["name"],
+                    [z["keypoint_count"] for z in c["native_outputs"]],
+                    c["native_pyramid_dimensions"][:3])
+          compact={"elf_sha256":out["elf_sha256"],"cases":[
+              {"name":c["name"],"source_dimensions":c["source_dimensions"],
+               "pyramid_dimensions":c["native_pyramid_dimensions"],
+               "level_outputs":c["native_outputs"]}
+              for c in out["cases"]]}
+          Path("checkpoint243-native-three-level-oracle.json").write_text(json.dumps(compact,indent=2)+"\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint243-native-three-level-oracle
+          path: |
+            checkpoint243-native-three-level-oracle.json
+            checkpoint243.log
+          retention-days: 14
+          if-no-files-found: warn
