@@ -1,0 +1,65 @@
+name: Photo Sphere checkpoint 238 original detector three-level schedule
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-native-detector-schedule-238.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: research/checkpoint238-native-feature-pyramid-levels
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Unicorn and ELF dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Retrieve and verify original GCam binary
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original feature extractor through native detector handoff
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint238/native_detector_three_level_schedule_probe.py > detector238.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('detector238.log').read_text()
+          p=json.loads(s.split('CHECKPOINT238_DETECTOR_JSON_BEGIN\n')[1].split('\nCHECKPOINT238_DETECTOR_JSON_END')[0])
+          assert len(p['cases'])==2
+          for c in p['cases']:
+              assert c['requested_pyramid_slots']==6
+              assert c['original_pyramid_slot_count']==6
+              assert c['stop']=='0x3a2784'
+              assert c['native_pyramid_dimensions'][0]==c['source_dimensions']
+              assert len(c['detector_calls'])==3
+              assert [item['threshold_limit'] for item in c['detector_calls']]==[3000,751,189]
+              assert [item['dimensions'] for item in c['detector_calls']]==c['native_pyramid_dimensions'][:3]
+              assert len(c['conversion_calls'])==3
+              print(c['name'],c['native_pyramid_dimensions'],[(q['level_index'],q['threshold_limit'],q['dimensions']) for q in c['detector_calls']])
+              if c['name']=='ramp_64x48':
+                  for line in c['native_detector_continuation_disassembly'][:70]:
+                      print(line)
+          Path('checkpoint238-detector-schedule.json').write_text(json.dumps(p,indent=2)+'\n')
+          print('PASS original 3-detector-level scheduler with empty-result detector stub on 2 sources')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint238-original-detector-schedule
+          path: checkpoint238-detector-schedule.json
+          retention-days: 7
+          if-no-files-found: warn
