@@ -1,0 +1,54 @@
+name: mwst_buchhalter PR35 focused validation
+
+on:
+  push:
+    paths:
+      - .github/workflows/mwst-buchhalter-pr35-review.yml
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out private accounting PR (without publishing source)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/mwst_buchhalter
+          ref: a59ed4c8783bf54bc2ef870368ea72935c9ebfe9
+          path: source
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        working-directory: source
+        run: flutter pub get
+      - name: Analyze affected Dart files
+        working-directory: source
+        run: |
+          flutter analyze --no-pub \
+            lib/models/product.dart \
+            lib/models/expense.dart \
+            lib/screens/expense/add_expense_screen.dart \
+            lib/screens/warehouse/warehouse_screen.dart \
+            lib/services/deposit_validation_service.dart \
+            lib/services/invoice_number_service.dart \
+            lib/services/product_normalization_service.dart \
+            lib/services/warehouse_database.dart \
+            test/product_identification_test.dart \
+            test/deposit_validation_test.dart \
+            test/invoice_number_period_test.dart
+      - name: Run focused regression tests
+        working-directory: source
+        run: |
+          flutter test --no-pub \
+            test/product_identification_test.dart \
+            test/deposit_validation_test.dart \
+            test/invoice_number_period_test.dart
