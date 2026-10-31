@@ -190,10 +190,18 @@ jobs:
             esac
             if [ -z "$token" ]; then continue; fi
             echo "Trying to publish using $label"
-            if GH_TOKEN="$token" gh release create "$RELEASE_TAG" \
-              "release/Arctic_Circle_Original_State_${HEIGHT}p30.mp4" \
-              "release/Arctic_Circle_Original_State_${HEIGHT}p30.srt" \
-              release/SHA256SUMS.txt release/manifest.json \
+            assets=("release/Arctic_Circle_Original_State_${HEIGHT}p30.mp4"
+                    "release/Arctic_Circle_Original_State_${HEIGHT}p30.srt"
+                    release/SHA256SUMS.txt release/manifest.json)
+            if GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+              if GH_TOKEN="$token" gh release upload "$RELEASE_TAG" "${assets[@]}" \
+                   --repo Persie0/Playground --clobber &&
+                 GH_TOKEN="$token" gh release edit "$RELEASE_TAG" --repo Persie0/Playground \
+                   --notes-file notes.md --latest=false; then
+                GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground --json url,assets
+                exit 0
+              fi
+            elif GH_TOKEN="$token" gh release create "$RELEASE_TAG" "${assets[@]}" \
               --repo Persie0/Playground --target "$GITHUB_SHA" \
               --title "Arctic Circle Theorem – ${{ inputs.resolution }} (7:21)" \
               --notes-file notes.md --latest=false; then
