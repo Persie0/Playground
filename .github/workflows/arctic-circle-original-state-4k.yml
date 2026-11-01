@@ -42,8 +42,26 @@ env:
   OMP_NUM_THREADS: '1'
   MKL_NUM_THREADS: '1'
 jobs:
+  resolve-source:
+    name: Pin the original renderer source commit for this entire run
+    runs-on: ubuntu-24.04
+    outputs:
+      source_sha: ${{ steps.sha.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_REF }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+      - name: Expose immutable SHA to all render chunks and reruns
+        id: sha
+        run: |
+          echo "source_sha=$(git -C source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   render:
     name: ${{ inputs.resolution }} ${{ inputs.fps }}fps source chunk ${{ matrix.group }}
+    needs: [resolve-source]
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     strategy:
@@ -58,7 +76,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/manimVideos
-          ref: ${{ env.SOURCE_REF }}
+          ref: ${{ needs.resolve-source.outputs.source_sha }}
           path: source
           persist-credentials: false
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
@@ -95,7 +113,7 @@ jobs:
           retention-days: 14
   assemble-and-publish:
     name: Verify 15 scenes and publish ${{ inputs.resolution }} ${{ inputs.fps }}fps release
-    needs: [render]
+    needs: [resolve-source, render]
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
@@ -105,7 +123,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/manimVideos
-          ref: ${{ env.SOURCE_REF }}
+          ref: ${{ needs.resolve-source.outputs.source_sha }}
           path: source
           persist-credentials: false
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
