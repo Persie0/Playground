@@ -14,11 +14,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: f7ecf1acc15a6a4356ee4d0e5ca525489fb5cad9
+          ref: 63202f753db3b01abae8c3c2816fe96df783c283
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify exact research commit
-        run: test "$(git rev-parse HEAD)" = "f7ecf1acc15a6a4356ee4d0e5ca525489fb5cad9"
+        run: test "$(git rev-parse HEAD)" = "63202f753db3b01abae8c3c2816fe96df783c283"
       - name: Install original ARM64 emulation dependencies
         run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
       - name: Fetch exact source GCam ELF
@@ -60,6 +60,8 @@ jobs:
           print('CHECKPOINT248_ORIGINAL_FEATURE_ORACLE_END')
           print('CHECKPOINT248_CASE_COUNTS',[(c['name'],c['native_detector_level_counts'],[x['count'] for x in c['native_converter_features']]) for c in d['cases']])
           PY
+      - name: Compare every AddImage-owned feature against independent original native extractor
+        run: python3 research/photosphere/checkpoint248/validate_original_oracle.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
