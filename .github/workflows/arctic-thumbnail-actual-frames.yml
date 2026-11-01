@@ -1,0 +1,73 @@
+name: Arctic Circle actual-video thumbnail frame selection
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/arctic-thumbnail-actual-frames.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download real published 4K60 Arctic Circle film
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p original frames
+          gh release download arctic-original-state-4k-60fps-run-2 \
+            --repo Persie0/Playground \
+            --pattern Arctic_Circle_Original_State_2160p60.mp4 \
+            --dir original
+          ffprobe -v error -select_streams v:0 \
+            -show_entries stream=width,height,r_frame_rate \
+            -of default=noprint_wrappers=1 original/Arctic_Circle_Original_State_2160p60.mp4
+      - name: Extract genuine video frames around the diamond-circle reveal
+        run: |
+          set -euo pipefail
+          film=original/Arctic_Circle_Original_State_2160p60.mp4
+          for sec in 244 254 264 268 272 275 278 281 284 287 290 294 298 304 311 320; do
+            ffmpeg -nostdin -hide_banner -v error -ss "$sec" -i "$film" \
+              -frames:v 1 -vf scale=1920:1080 \
+              -q:v 2 -y "frames/scene_${sec}.jpg"
+            test -s "frames/scene_${sec}.jpg"
+          done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Create selection contact sheet without changing actual footage
+        run: |
+          python -m pip install 'Pillow>=10,<12'
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image,ImageDraw,ImageFont
+          paths=sorted(Path('frames').glob('scene_*.jpg'))
+          board=Image.new('RGB',(1600,1040),(12,14,28))
+          draw=ImageDraw.Draw(board)
+          try: font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',24)
+          except OSError: font=ImageFont.load_default()
+          for i,p in enumerate(paths):
+              im=Image.open(p).convert('RGB').resize((394,222),Image.Resampling.LANCZOS)
+              x=(i%4)*400+3;y=(i//4)*260+3
+              board.paste(im,(x,y))
+              draw.rectangle((x,y+222,x+394,y+257),fill=(20,22,33))
+              draw.text((x+10,y+224),f'ACTUAL FRAME · {int(p.stem.split("_")[1])//60}:{int(p.stem.split("_")[1])%60:02}',font=font,fill='white')
+          board.save('frames/contact_sheet.jpg',quality=90)
+          print('Saved frames from exact release video:',len(paths))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Actual-Arctic-Circle-4K-Video-Frames-For-YouTube-Thumbnail
+          path: frames/*.jpg
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
