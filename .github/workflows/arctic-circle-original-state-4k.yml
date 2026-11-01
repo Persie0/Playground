@@ -1,4 +1,4 @@
-name: Arctic Circle - Original State 1080p or 4K Manual Export
+name: Arctic Circle - Original State 1080p or 4K (30/60 FPS)
 on:
   workflow_dispatch:
     inputs:
@@ -8,8 +8,14 @@ on:
         required: true
         default: 4k
         options: [4k, 1080p]
+      fps:
+        description: 'True native frame rate; 60fps samples twice as many source frames'
+        type: choice
+        required: true
+        default: '30'
+        options: ['30', '60']
       source_ref:
-        description: 'SHA or branch from Persie0/manimVideos (PR #3)'
+        description: 'SHA or branch from Persie0/manimVideos; defaults to latest main'
         type: string
         required: true
         default: main
@@ -29,14 +35,15 @@ env:
   HEIGHT: ${{ inputs.resolution == '4k' && '2160' || '1080' }}
   SOURCE_REF: ${{ inputs.source_ref }}
   QUALITY: ${{ inputs.crf }}
-  RELEASE_TAG: arctic-original-state-${{ inputs.resolution }}-run-${{ github.run_number }}
+  FPS: ${{ inputs.fps }}
+  RELEASE_TAG: arctic-original-state-${{ inputs.resolution }}-${{ inputs.fps }}fps-run-${{ github.run_number }}
   PYTHONUNBUFFERED: '1'
   OPENBLAS_NUM_THREADS: '1'
   OMP_NUM_THREADS: '1'
   MKL_NUM_THREADS: '1'
 jobs:
   render:
-    name: ${{ inputs.resolution }} source chunk ${{ matrix.group }}
+    name: ${{ inputs.resolution }} ${{ inputs.fps }}fps source chunk ${{ matrix.group }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     strategy:
@@ -69,17 +76,17 @@ jobs:
           set -euo pipefail
           mkdir -p segments
           git -C source rev-parse HEAD > 'segments/sha-${{ matrix.group }}.txt'
-          read -r START END < <(python scripts/arctic-circle-exports/build.py bounds --source source/arctic-circle-theorem --group '${{ matrix.group }}')
+          read -r START END < <(python scripts/arctic-circle-exports/build.py bounds --source source/arctic-circle-theorem --group '${{ matrix.group }}' --fps "$FPS")
           python source/arctic-circle-theorem/shared_engine/render.py \
-            --width "$WIDTH" --height "$HEIGHT" --paced --crf "$QUALITY" \
+            --width "$WIDTH" --height "$HEIGHT" --fps "$FPS" --paced --crf "$QUALITY" \
             --start "$START" --end "$END" --output 'segments/segment_${{ matrix.group }}.mp4'
           python scripts/arctic-circle-exports/build.py verify-part \
             --source source/arctic-circle-theorem --group '${{ matrix.group }}' \
             --file 'segments/segment_${{ matrix.group }}.mp4' \
-            --width "$WIDTH" --height "$HEIGHT"
+            --width "$WIDTH" --height "$HEIGHT" --fps "$FPS"
       - uses: actions/upload-artifact@v4
         with:
-          name: arctic-${{ inputs.resolution }}-chunk-${{ matrix.group }}
+          name: arctic-${{ inputs.resolution }}-${{ inputs.fps }}fps-chunk-${{ matrix.group }}
           path: |
             segments/segment_${{ matrix.group }}.mp4
             segments/sha-${{ matrix.group }}.txt
@@ -87,7 +94,7 @@ jobs:
           compression-level: 0
           retention-days: 14
   assemble-and-publish:
-    name: Verify 15 scenes and publish ${{ inputs.resolution }} release
+    name: Verify 15 scenes and publish ${{ inputs.resolution }} ${{ inputs.fps }}fps release
     needs: [render]
     runs-on: ubuntu-24.04
     timeout-minutes: 240
@@ -107,7 +114,7 @@ jobs:
           python-version: '3.11'
       - uses: actions/download-artifact@v4
         with:
-          pattern: arctic-${{ inputs.resolution }}-chunk-*
+          pattern: arctic-${{ inputs.resolution }}-${{ inputs.fps }}fps-chunk-*
           path: segments
           merge-multiple: true
       - name: Install FFmpeg
@@ -134,16 +141,16 @@ jobs:
           gh release download arctic-circle-theorem-complete-2026-10-27 \
             --repo Persie0/Playground \
             --pattern Arctic_Circle_Theorem_Complete_1080p30.mp4 --dir prior
-      - name: Assemble all 13,224 frames and verify 15 chapters, 101 SRT cues and audio
+      - name: Assemble native 30/60fps frames and verify 15 chapters, 101 SRT cues and audio
         run: |
           set -euo pipefail
           python scripts/arctic-circle-exports/build.py assemble \
             --source source/arctic-circle-theorem --parts segments --release release \
             --source-sha "$(git -C source rev-parse HEAD)" \
             --prior-master prior/Arctic_Circle_Theorem_Complete_1080p30.mp4 \
-            --width "$WIDTH" --height "$HEIGHT"
+            --width "$WIDTH" --height "$HEIGHT" --fps "$FPS"
           (cd release && sha256sum --check SHA256SUMS.txt)
-          video="release/Arctic_Circle_Original_State_${HEIGHT}p30.mp4"
+          video="release/Arctic_Circle_Original_State_${HEIGHT}p${FPS}.mp4"
           test -s "$video"
           test "$(stat -c '%s' "$video")" -lt 2147483648 || {
             echo "::error::GitHub Releases has a 2 GiB per-asset limit; retry with CRF 24."
@@ -152,7 +159,7 @@ jobs:
       - name: Save verified export before attempting release
         uses: actions/upload-artifact@v4
         with:
-          name: Arctic-Circle-Original-State-${{ inputs.resolution }}-Verified
+          name: Arctic-Circle-Original-State-${{ inputs.resolution }}-${{ inputs.fps }}fps-Verified
           path: |
             release/*.mp4
             release/*.srt
@@ -171,11 +178,11 @@ jobs:
         run: |
           set -euo pipefail
           cat > notes.md <<EOF
-          ## Arctic Circle Theorem – ${{ inputs.resolution }} original-state export
+          ## Arctic Circle Theorem – ${{ inputs.resolution }} ${{ inputs.fps }}fps original-state export
 
-          - ${WIDTH}x${HEIGHT}, 30 fps, H.264/AAC, approx. 7:21
-          - Source: Persie0/manimVideos @ $(git -C source rev-parse HEAD) (original 15 renderers, PR #3)
-          - All 13,224 frames rendered from original scene source, not from old MP4 footage
+          - ${WIDTH}x${HEIGHT}, ${FPS} genuine source-rendered fps, H.264/AAC, approx. 7:21
+          - Source: Persie0/manimVideos @ $(git -C source rev-parse HEAD) (original 15 source renderers)
+          - All ${{ inputs.fps == '60' && '26,448' || '13,224' }} frames rendered at 1/${FPS}-second intervals from original scene source, not from duplicated 30fps footage
           - 15 embedded chapters, separate 101-cue SRT, original instrumental music
           - Full audio/video decoding and frame-count verification before publication
           - Some original effects contain internally 720p raster assets. Rendering a 4K output does not add detail to those assets.
@@ -191,7 +198,7 @@ jobs:
             if [ -z "$token" ]; then continue; fi
             echo "Trying to publish using $label"
             assets=("release/Arctic_Circle_Original_State_${HEIGHT}p30.mp4"
-                    "release/Arctic_Circle_Original_State_${HEIGHT}p30.srt"
+                    "release/Arctic_Circle_Original_State_${HEIGHT}p${FPS}.srt"
                     release/SHA256SUMS.txt release/manifest.json)
             if GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
               if GH_TOKEN="$token" gh release upload "$RELEASE_TAG" "${assets[@]}" \
@@ -203,7 +210,7 @@ jobs:
               fi
             elif GH_TOKEN="$token" gh release create "$RELEASE_TAG" "${assets[@]}" \
               --repo Persie0/Playground --target "$GITHUB_SHA" \
-              --title "Arctic Circle Theorem – ${{ inputs.resolution }} (7:21)" \
+              --title "Arctic Circle Theorem – ${{ inputs.resolution }} ${{ inputs.fps }}fps (7:21)" \
               --notes-file notes.md --latest=false; then
               GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground --json url,assets
               exit 0
