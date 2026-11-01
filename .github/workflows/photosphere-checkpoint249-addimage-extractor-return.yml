@@ -92,12 +92,19 @@ jobs:
           echo 'f386b44b2e10dc321b295adae76459ff2b876531bd8d382cad666d2d1f4c0758  checkpoint249-addimage-features.json' | sha256sum -c -
           current="$(gh api repos/Persie0/decompile/git/ref/heads/research/checkpoint249-addimage-extractor-return --jq '.object.sha')"
           test "$current" = 'f75966b585d2be719c7903a34eeaa5ab47fad128'
+          python3 - <<'PY'
+          import base64, json
+          from pathlib import Path
+          body = {
+              "message": "test: archive corrected checkpoint249 AddImage world-ray oracle",
+              "sha": "05ce495a7c9935c3f133cb6fd5a99b85926ddd54",
+              "branch": "research/checkpoint249-addimage-extractor-return",
+              "content": base64.b64encode(Path("checkpoint249-addimage-features.json").read_bytes()).decode("ascii"),
+          }
+          Path("checkpoint249-update-request.json").write_text(json.dumps(body))
+          PY
           gh api --method PUT repos/Persie0/decompile/contents/research/photosphere/checkpoint249/native-addimage-wrapper-return-oracle.json \
-            --field message='test: archive corrected checkpoint249 AddImage world-ray oracle' \
-            --field sha='05ce495a7c9935c3f133cb6fd5a99b85926ddd54' \
-            --field branch='research/checkpoint249-addimage-extractor-return' \
-            --field content="$(base64 -w0 checkpoint249-addimage-features.json)" \
-            --jq '.commit.sha'
+            --input checkpoint249-update-request.json --jq '.commit.sha'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
