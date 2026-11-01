@@ -1,0 +1,58 @@
+name: Audit GitHub Actions tag push safety
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject unfiltered push triggers
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import re
+
+          failures = []
+          files = list(pathlib.Path(".github/workflows").glob("*.yml"))
+          files += list(pathlib.Path(".github/workflows").glob("*.yaml"))
+          for path in sorted(files):
+              content = path.read_text()
+              root = re.search(r"(?m)^on:\s*(?:#.*)?$", content)
+              if root:
+                  start = root.end()
+                  next_root = re.search(r"(?m)^[A-Za-z_][\w-]*:", content[start:])
+                  section = content[start:start + next_root.start()] if next_root else content[start:]
+                  push = re.search(r"(?m)^  push:\s*(?:#.*)?$", section)
+                  if push:
+                      tail = section[push.end():]
+                      next_event = re.search(r"(?m)^  [\w-]+:", tail)
+                      body = tail[:next_event.start()] if next_event else tail
+                      if not re.search(r"(?m)^    (branches|branches-ignore|tags|tags-ignore):", body):
+                          failures.append(str(path))
+                  # Inline push events without an explicit filter are unsafe too.
+                  if re.search(r"(?m)^  push:\s*(?:\{\s*\}|\[\s*\])\s*$", section):
+                      failures.append(str(path))
+              elif re.search(r"(?m)^on:\s*push\s*$|^on:\s*\[[^\n]*\bpush\b", content):
+                  failures.append(str(path))
+
+          if failures:
+              print("Unrestricted tag-triggering push events:")
+              print("\n".join(sorted(set(failures))))
+              print("Fix: add a push.branches filter for branch-only workflows.")
+              raise SystemExit(1)
+          print(f"PASS: {len(files)} workflows audited; no unrestricted tag push triggers")
+          PY
