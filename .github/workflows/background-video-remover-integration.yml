@@ -71,14 +71,7 @@ jobs:
           profile: pixel_5
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            if ! gradle -p review/android --no-daemon --console=plain :app:connectedDebugAndroidTest; then
-              echo "====== ANDROID INSTRUMENTED TEST RESULTS ======"
-              find review/android/app/build/outputs/androidTest-results -type f -name '*.xml' -print -exec cat {} \; || true
-              echo "====== EMULATOR CRASHES / FAILURES ======"
-              adb logcat -d -v brief | grep -E -A 24 "FATAL EXCEPTION|AndroidRuntime|BackgroundVideoRemover|backgroundvideoremover|TestRunner|InstrumentationResult|EGL_BAD" | tail -250 || true
-              exit 1
-            fi
+          script: 'gradle -p review/android --no-daemon --console=plain :app:connectedDebugAndroidTest || { echo "===== INSTRUMENTED XML ====="; find review/android/app/build/outputs/androidTest-results -type f -name "*.xml" -exec cat {} \; 2>/dev/null || true; echo "===== TEST LOGCAT ====="; adb logcat -d -v brief | grep -E -A 25 "FATAL EXCEPTION|AndroidRuntime|backgroundvideoremover|TestRunner|EGL_BAD" | tail -250 || true; exit 1; }'
       - name: Upload Android test reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
