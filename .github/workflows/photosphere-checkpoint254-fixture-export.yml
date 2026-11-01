@@ -1,0 +1,65 @@
+name: Photosphere checkpoint254 extract native fixture from public artifact (one shot)
+on:
+  push:
+    branches: [ci/photosphere-checkpoint254-distinct-native]
+    paths: ['.github/workflows/photosphere-checkpoint254-fixture-export.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  export-original-matcher-fixture:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.head_commit.message == 'ci: extract checkpoint254 compact original fixture'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Retrieve already generated public-run original native evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p raw
+          gh run download 41353083787 --repo Persie0/Playground --name checkpoint254-original-distinct-matcher --dir raw
+          test -s raw/checkpoint254-original.log
+      - name: Export compact original source/target descriptors and matcher oracles
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          text=Path('raw/checkpoint254-original.log').read_text()
+          d=json.loads(text.split('CHECKPOINT254_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT254_NATIVE_ADDIMAGE_FEATURE_END')[0])
+          compact={'elf_sha256':d['elf_sha256'],
+          'source_original_native_run':'https://github.com/Persie0/Playground/actions/runs/41353083787',
+          'scope':'Two independently byte-backed original ARM64 0x126188 extractor outputs on x and x+1 synthetic noise. Identical 62-degree rosette/index0; native 0x1263f0 matcher both directions. Imported libm shims; not two-camera AddImage or RANSAC.',
+          'cases':[]}
+          for c in d['cases']:
+            first=c['native_converter_features'][0]['features']
+            second=c['native_second_frame']['original_converter_features'][0]['features']
+            def features(vals):
+              return [{'xy_bits':f['xy_bits'],'direction_bits':f['direction_bits'],'descriptor_hex':bytes(f['descriptor']).hex()} for f in vals]
+            compact['cases'].append({
+              'name':c['name'],'dimensions':c['decoded_size'],
+              'first_original_features':features(first),
+              'second_original_features':features(second),
+              'first_native_sorted_converter_indices':c['native_original_matcher_output']['levels'][0]['original_converter_permutation'],
+              'second_native_sorted_converter_indices':c['native_second_frame']['original_matcher_output']['levels'][0]['original_converter_permutation'],
+              'first_native_boundaries_i32':c['native_original_matcher_output']['levels'][0]['candidate_boundaries_i32'],
+              'second_native_boundaries_i32':c['native_second_frame']['original_matcher_output']['levels'][0]['candidate_boundaries_i32'],
+              'original_bidirectional_matches_u32':[
+                  x['records_u32'] for x in c['native_distinct_frame_matches']]
+            })
+          assert [len(c['first_original_features']) for c in compact['cases']]==[9,47]
+          assert [len(c['second_original_features']) for c in compact['cases']]==[9,47]
+          print('CHECKPOINT254_COMPACT_FIXTURE '+json.dumps(compact,separators=(',',':')))
+          Path('checkpoint254-compact-fixture.json').write_text(json.dumps(compact,indent=2)+'\n')
+          print('CHECKPOINT254_COMPACT_FIXTURE_VALIDATED',
+                [(c['name'],len(c['original_bidirectional_matches_u32'][0]),len(c['original_bidirectional_matches_u32'][1])) for c in compact['cases']])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint254-compact-source-native-matcher-fixture
+          path: checkpoint254-compact-fixture.json
+          retention-days: 14
