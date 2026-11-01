@@ -1,4 +1,4 @@
-name: Photo Sphere checkpoint250 original retained vectors (one-shot)
+name: Photo Sphere checkpoint251 original sorted matcher output (one-shot)
 on:
   push:
     branches:
@@ -11,14 +11,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: photosphere-checkpoint250-${{ github.ref }}
+  group: photosphere-checkpoint251-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   native-retained-records:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.head_commit.message == 'ci: run photosphere checkpoint250 once'
+      github.event.head_commit.message == 'ci: run photosphere checkpoint251 once'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -26,15 +26,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: eac31572a6ec57cc082caee379c85a2966bb7805
+          ref: 4df5f68a0385906cb39ad498d83e723849e31da9
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
-      - name: Verify pinned source and compile checkpoint250 scripts
+      - name: Verify pinned source and compile checkpoint251 scripts
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "eac31572a6ec57cc082caee379c85a2966bb7805"
-          python3 -m py_compile research/photosphere/checkpoint250/native_addimage_retained_vectors.py research/photosphere/checkpoint250/validate_native_state.py
+          test "$(git rev-parse HEAD)" = "4df5f68a0385906cb39ad498d83e723849e31da9"
+          python3 -m py_compile research/photosphere/checkpoint251/native_addimage_caller_matcher_output.py research/photosphere/checkpoint251/validate_original_matcher_output.py
       - name: Install ARM64 emulation dependencies
         run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
       - name: Retrieve exact original APK and ARM64 liblightcycle.so
@@ -53,17 +53,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! python3 research/photosphere/checkpoint250/native_addimage_retained_vectors.py > checkpoint250-original.log 2> checkpoint250-original.stderr; then
+          if ! python3 research/photosphere/checkpoint251/native_addimage_caller_matcher_output.py > checkpoint251-original.log 2> checkpoint251-original.stderr; then
             echo "CHECKPOINT250_ORIGINAL_PROBE_FAILED"
-            tail -n 80 checkpoint250-original.stderr || true
-            tail -n 30 checkpoint250-original.log || true
+            tail -n 80 checkpoint251-original.stderr || true
+            tail -n 30 checkpoint251-original.log || true
             exit 1
           fi
-          python3 research/photosphere/checkpoint250/validate_native_state.py checkpoint250-original.log | tee checkpoint250-validation.txt
+          python3 research/photosphere/checkpoint251/validate_original_matcher_output.py checkpoint251-original.log | tee checkpoint251-validation.txt
           python3 - <<'PY'
           import json
           from pathlib import Path
-          s = Path('checkpoint250-original.log').read_text()
+          s = Path('checkpoint251-original.log').read_text()
           d = json.loads(s.split('CHECKPOINT250_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT250_NATIVE_ADDIMAGE_FEATURE_END')[0])
           old = json.loads(Path('research/photosphere/checkpoint249/native-addimage-wrapper-return-oracle.json').read_text())
           assert len(d['cases']) == len(old['cases']) == 2
@@ -73,7 +73,7 @@ jobs:
                           'extractor_return_feature_vector_words64',
                           'feature_record_owner_words64'):
                   assert a[key] == b[key], (key, a['name'])
-          Path('checkpoint250-original.json').write_text(json.dumps(d, indent=2) + '\n')
+          Path('checkpoint251-original.json').write_text(json.dumps(d, indent=2) + '\n')
           print('CHECKPOINT250_ORIGINAL_DESCRIPTOR_AND_POSE_REPLAY_PASS',
                 [(x['name'], [v['count'] for v in x['native_converter_features']]) for x in d['cases']])
           PY
@@ -81,10 +81,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: checkpoint250-native-retained-vectors
+          name: checkpoint251-native-retained-vectors
           path: |
-            checkpoint250-original.json
-            checkpoint250-original.stderr
-            checkpoint250-validation.txt
+            checkpoint251-original.json
+            checkpoint251-original.stderr
+            checkpoint251-validation.txt
           if-no-files-found: warn
           retention-days: 14
