@@ -14,16 +14,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: bee694cf91eaa4752c69c5e2e40ba849ab54ee69
+          ref: 939a925c06a5ba07cfe5dca867770912f9eb1fdd
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.99.1'
       - name: Verify exact production source
-        run: test "$(git rev-parse HEAD)" = "bee694cf91eaa4752c69c5e2e40ba849ab54ee69"
+        run: test "$(git rev-parse HEAD)" = "939a925c06a5ba07cfe5dca867770912f9eb1fdd"
       - name: Exact source-documented native +0x98 +0xa0 ray operators
         run: cargo test --locked checkpoint246_original_rosette_raw_matrix_multiplies_as_arm64 -- --nocapture
+      - name: Original AddImage-owned native camera/world ray oracle
+        run: cargo test --locked checkpoint246_original_addimage_owned_rosette_world_rays_match -- --nocapture
       - name: Source and panorama roundtrip directional regression
         run: cargo test --locked composed_native_mapper_ -- --nocapture
       - name: Full Rust regression suite
