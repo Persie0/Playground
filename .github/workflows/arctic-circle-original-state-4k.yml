@@ -152,10 +152,9 @@ jobs:
           (cd release && sha256sum --check SHA256SUMS.txt)
           video="release/Arctic_Circle_Original_State_${HEIGHT}p${FPS}.mp4"
           test -s "$video"
-          test "$(stat -c '%s' "$video")" -lt 2147483648 || {
-            echo "::error::GitHub Releases has a 2 GiB per-asset limit; retry with CRF 24."
-            exit 1
-          }
+          # The complete verified MP4 is saved as a workflow artifact before
+          # publishing. Releases have a 2 GiB *per asset* limit, so oversized
+          # 4K/60fps videos are split only for the release upload.
       - name: Save verified export before attempting release
         uses: actions/upload-artifact@v4
         with:
@@ -197,9 +196,23 @@ jobs:
             esac
             if [ -z "$token" ]; then continue; fi
             echo "Trying to publish using $label"
-            assets=("release/Arctic_Circle_Original_State_${HEIGHT}p${FPS}.mp4"
-                    "release/Arctic_Circle_Original_State_${HEIGHT}p${FPS}.srt"
+            video="release/Arctic_Circle_Original_State_${HEIGHT}p${FPS}.mp4"
+            assets=("release/Arctic_Circle_Original_State_${HEIGHT}p${FPS}.srt"
                     release/SHA256SUMS.txt release/manifest.json)
+            if [ "$(stat -c '%s' "$video")" -lt 2000000000 ]; then
+              assets+=("$video")
+            else
+              echo "Release upload limit exceeded; splitting the verified video into <2GB chunks."
+              split -b 1900000000 -d -a 3 "$video" "$video.part-"
+              cat > release/REASSEMBLE.txt <<EOF
+          Original film: $(basename "$video")
+          Download all .part-* files into the same directory, then run:
+            cat $(basename "$video").part-* > $(basename "$video")
+            sha256sum --check SHA256SUMS.txt
+          Alternatively download the unmodified full film from this workflow's Artifacts.
+          EOF
+              assets+=("$video".part-* release/REASSEMBLE.txt)
+            fi
             if GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
               if GH_TOKEN="$token" gh release upload "$RELEASE_TAG" "${assets[@]}" \
                    --repo Persie0/Playground --clobber &&
