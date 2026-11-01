@@ -1,0 +1,73 @@
+name: Photo Sphere checkpoint247 original AddImage rosette feature rays
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint247-rosette-rays.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-addimage-rosette-ray:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 38cbece03ee5628a47eac91147bd333d2983fc1c
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact research commit
+        run: test "$(git rev-parse HEAD)" = "38cbece03ee5628a47eac91147bd333d2983fc1c"
+      - name: Install original ARM64 emulation dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch exact source GCam ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original rosette source-to-world-to-source and camera projection
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint247/native_addimage_rosette_forward.py > checkpoint247-rosette.log 2> checkpoint247-rosette.stderr
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint247-rosette.log').read_text()
+          d=json.loads(s.split('CHECKPOINT247_NATIVE_ROSETTE_WORLD_RAYS_BEGIN\n')[1].split('\nCHECKPOINT247_NATIVE_ROSETTE_WORLD_RAYS_END')[0])
+          assert d['elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert len(d['cases'])==3
+          for c in d['cases']:
+              assert c['terminated_at']=='0x11d7d8'
+              assert len(c['rosette_native_clones'])==2
+              assert len(c['rosette_world_rays'])==6
+              assert all(r['max_original_raw_matrix_error']<1e-6 for r in c['rosette_world_rays'])
+              assert all(r['native_rosette_forward_return']&1 and r['native_camera_project_return']&1 for r in c['rosette_world_rays'])
+              assert all(r['max_forward_direct_camera_error']<0.003 for r in c['rosette_world_rays'])
+              assert all(r['max_source_roundtrip_error']<0.003 for r in c['rosette_world_rays'])
+              assert all(v==c['supplied_pose_bits'] for v in c['rosette_stored_pose_bits'])
+          q=next(c for c in d['cases'] if c['name']=='first_1280_normalize_quarter_turn')
+          assert any(r['unproject_camera_bits']!=r['original_rosette_world_bits']
+                     for r in q['rosette_world_rays']), 'nonidentity pose must change rays'
+          Path('checkpoint247-original-rosette-rays.json').write_text(json.dumps(d,indent=2)+'\n')
+          print('CHECKPOINT247_ORIGINAL_ROSETTE_ORACLE_BEGIN')
+          print(json.dumps(d,separators=(',',':')))
+          print('CHECKPOINT247_ORIGINAL_ROSETTE_ORACLE_END')
+          print('CHECKPOINT247_CASE_COUNTS',[(c['name'],len(c['rosette_world_rays'])) for c in d['cases']])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint247-original-addimage-rosette-rays
+          path: |
+            checkpoint247-original-rosette-rays.json
+            checkpoint247-rosette.log
+            checkpoint247-rosette.stderr
+          retention-days: 14
+          if-no-files-found: warn
