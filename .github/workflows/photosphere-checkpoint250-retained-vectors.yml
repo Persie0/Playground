@@ -1,4 +1,4 @@
-name: Photo Sphere checkpoint251 original sorted matcher output (one-shot)
+name: Photo Sphere checkpoint251 original matcher sort and bins Rust parity
 on:
   push:
     branches:
@@ -11,80 +11,31 @@ permissions:
   contents: read
 
 concurrency:
-  group: photosphere-checkpoint251-${{ github.ref }}
+  group: photosphere-checkpoint251-rust-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  native-retained-records:
+  original-matcher-rust-regression:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.head_commit.message == 'ci: run photosphere checkpoint251 once'
+      github.event.head_commit.message == 'ci: run photosphere checkpoint251 rust once'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
-      - name: Checkout pinned private research without persisting credentials
+      - name: Checkout pinned private PhotosphereCleanroom without persisting credentials
         uses: actions/checkout@v4
         with:
-          repository: Persie0/decompile
-          ref: 4df5f68a0385906cb39ad498d83e723849e31da9
+          repository: Persie0/PhotosphereCleanroom
+          ref: 70948e3773eaa535a519f258f2503c6ef1d2841b
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
-      - name: Verify pinned source and compile checkpoint251 scripts
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "4df5f68a0385906cb39ad498d83e723849e31da9"
-          python3 -m py_compile research/photosphere/checkpoint251/native_addimage_caller_matcher_output.py research/photosphere/checkpoint251/validate_original_matcher_output.py
-      - name: Install ARM64 emulation dependencies
-        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
-      - name: Retrieve exact original APK and ARM64 liblightcycle.so
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
-          mv com.google.android.GoogleCamera_*.apk original.apk
-          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
-          mkdir -p research/native
-          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
-          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
-      - name: Execute original AddImage and capture retained native vector records
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! python3 research/photosphere/checkpoint251/native_addimage_caller_matcher_output.py > checkpoint251-original.log 2> checkpoint251-original.stderr; then
-            echo "CHECKPOINT251_ORIGINAL_PROBE_FAILED"
-            tail -n 80 checkpoint251-original.stderr || true
-            tail -n 30 checkpoint251-original.log || true
-            exit 1
-          fi
-          python3 research/photosphere/checkpoint251/validate_original_matcher_output.py checkpoint251-original.log | tee checkpoint251-validation.txt
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          s = Path('checkpoint251-original.log').read_text()
-          d = json.loads(s.split('CHECKPOINT251_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT251_NATIVE_ADDIMAGE_FEATURE_END')[0])
-          old = json.loads(Path('research/photosphere/checkpoint249/native-addimage-wrapper-return-oracle.json').read_text())
-          assert len(d['cases']) == len(old['cases']) == 2
-          for a, b in zip(d['cases'], old['cases']):
-              for key in ('name', 'native_detector_level_counts', 'native_converter_features',
-                          'original_imported_hypotf_calls', 'supplied_pose_bits',
-                          'extractor_return_feature_vector_words64',
-                          'feature_record_owner_words64'):
-                  assert a[key] == b[key], (key, a['name'])
-          Path('checkpoint251-original.json').write_text(json.dumps(d, indent=2) + '\n')
-          print('CHECKPOINT251_ORIGINAL_DESCRIPTOR_AND_POSE_REPLAY_PASS',
-                [(x['name'], [v['count'] for v in x['native_converter_features']]) for x in d['cases']])
-          PY
-      - name: Upload original-run evidence
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          name: checkpoint251-native-retained-vectors
-          path: |
-            checkpoint251-original.json
-            checkpoint251-original.stderr
-            checkpoint251-validation.txt
-          if-no-files-found: warn
-          retention-days: 14
+          toolchain: '1.99.1'
+      - name: Verify pinned source
+        run: test "$(git rev-parse HEAD)" = "70948e3773eaa535a519f258f2503c6ef1d2841b"
+      - name: Replay original native sorted feature and 30-bin outputs
+        run: cargo test --locked checkpoint251_original_addimage_sorted_features_and_latitude_bins -- --nocapture
+      - name: Run complete Rust regression suite
+        run: cargo test --locked
