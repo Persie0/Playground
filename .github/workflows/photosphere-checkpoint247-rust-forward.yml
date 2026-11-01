@@ -1,0 +1,30 @@
+name: Photo Sphere checkpoint247 original forward-pixel Rust parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint247-rust-forward.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-rosette-forward-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: e8268191daa14bca0f0d0614095af8704741a26d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Verify pinned app revision
+        run: test "$(git rev-parse HEAD)" = "e8268191daa14bca0f0d0614095af8704741a26d"
+      - name: Check exact native forward projection pixels
+        run: cargo test --locked checkpoint247_original_addimage_rosette_forward_pixels_bit_exact -- --nocapture
+      - name: Check upstream inverse rosette and matrix regressions
+        run: cargo test --locked checkpoint246_original -- --nocapture
+      - name: Complete Rust suite
+        run: cargo test --locked
