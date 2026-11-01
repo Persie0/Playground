@@ -1,0 +1,74 @@
+name: PhotoSphere checkpoint258 original higher-level matcher entry (one shot)
+on:
+  push:
+    branches: [ci/photosphere-checkpoint258-robust-wrapper]
+    paths: ['.github/workflows/photosphere-checkpoint258-original.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint258-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  original-high-level-matcher:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.head_commit.message == 'ci: run photosphere checkpoint258 once'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: ea062acff3219b57558a64e4bd83f7f747be2590
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned source and install emulator
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "ea062acff3219b57558a64e4bd83f7f747be2590"
+          python3 -m py_compile research/photosphere/checkpoint258/native_robust_matcher_enter.py research/photosphere/checkpoint258/validate_robust_matcher_entry.py
+          python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch pinned GCam APK and original ARM64 ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original robust config constructor and bounded native matcher entry
+        run: |
+          set -euo pipefail
+          if ! python3 research/photosphere/checkpoint258/native_robust_matcher_enter.py > checkpoint258-original.log 2> checkpoint258-original.stderr; then
+            tail -n 100 checkpoint258-original.stderr || true
+            exit 1
+          fi
+          python3 research/photosphere/checkpoint258/validate_robust_matcher_entry.py checkpoint258-original.log | tee checkpoint258-validation.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint258-original.log').read_text()
+          data=json.loads(s.split('CHECKPOINT258_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT258_NATIVE_ADDIMAGE_FEATURE_END')[0])
+          Path('checkpoint258-original.json').write_text(json.dumps(data,indent=2)+'\n')
+          for c in data['cases']:
+            v=c['native_second_actual_addimage']
+            print('CHECKPOINT258_ORIGINAL_MATCHER_ENTRY',c['name'],
+                  v['post_extractor_registration_boundary']['pc'],
+                  len(v['original_high_level_matcher_raw_records']['original_raw_match_records_u32']))
+          PY
+      - name: Preserve original native evidence including failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint258-original-robust-matcher-entry
+          path: |
+            checkpoint258-original.log
+            checkpoint258-original.stderr
+            checkpoint258-original.json
+            checkpoint258-validation.txt
+          if-no-files-found: warn
+          retention-days: 14
