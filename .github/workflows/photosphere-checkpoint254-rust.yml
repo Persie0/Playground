@@ -1,0 +1,35 @@
+name: Photosphere checkpoint254 original distinct-image Rust matcher parity (one shot)
+on:
+  push:
+    branches: [ci/photosphere-checkpoint254-distinct-native]
+    paths: ['.github/workflows/photosphere-checkpoint254-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint254-rust-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  rust-original-two-source-parity:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.head_commit.message == 'ci: run photosphere checkpoint254 rust once'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Fetch exact private app revision using public Playground token fallback
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 121f17ab301357d7c23cbb28c65763312f9d7729
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Verify pinned app commit
+        run: test "$(git rev-parse HEAD)" = "121f17ab301357d7c23cbb28c65763312f9d7729"
+      - name: Verify source and shifted native features order bins and 60 match tuples
+        run: cargo test --locked checkpoint254_native_distinct_image_ -- --nocapture
+      - name: Run all Rust regressions
+        run: cargo test --locked
