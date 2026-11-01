@@ -1,0 +1,50 @@
+name: Arctic scene 2 native 60fps rotation regression (public)
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/arctic-scene2-rotation-regression.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: fix/scene2-60fps-complex-rotation
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install FFmpeg and Python runtime
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install 'numpy>=1.26,<2.3' 'scipy>=1.12,<1.19' 'opencv-python-headless>=4.10,<5' 'Pillow>=10,<12' 'matplotlib>=3.8,<4'
+      - name: Reproduce 60fps overshoot using actual original tile painter
+        run: |
+          set -euo pipefail
+          cd source/arctic-circle-theorem
+          PYTHONPATH=shared_engine:. python -m unittest discover -s shared_engine -p test_scene2_60fps_rotation.py -v
+      - name: Render native 60fps around the original failing frame
+        run: |
+          set -euo pipefail
+          python source/arctic-circle-theorem/shared_engine/render.py \
+            --width 320 --height 180 --fps 60 --paced --crf 28 \
+            --start 29.85 --end 30.45 --output /tmp/scene2_fixed_60.mp4
+          ffprobe -v error -count_frames -select_streams v:0 \
+            -show_entries stream=nb_read_frames,r_frame_rate \
+            -of default=noprint_wrappers=1 /tmp/scene2_fixed_60.mp4
+          ffmpeg -v error -xerror -i /tmp/scene2_fixed_60.mp4 -f null -
