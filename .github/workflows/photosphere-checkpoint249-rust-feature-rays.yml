@@ -1,0 +1,28 @@
+name: Photo Sphere checkpoint249 original AddImage feature-ray Rust parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint249-rust-feature-rays.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  addimage-feature-rays-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: ea0fd51368b89cb264b556ac92a1c4a2c12ab425
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Verify exact app revision
+        run: test "$(git rev-parse HEAD)" = "ea0fd51368b89cb264b556ac92a1c4a2c12ab425"
+      - name: Compare 56 original AddImage-owned rays bit-exactly
+        run: cargo test --locked checkpoint249_original_addimage_feature_camera_rays_bit_exact -- --nocapture
+      - name: Run complete Rust regression suite
+        run: cargo test --locked
