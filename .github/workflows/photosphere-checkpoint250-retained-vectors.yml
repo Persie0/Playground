@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           if ! python3 research/photosphere/checkpoint251/native_addimage_caller_matcher_output.py > checkpoint251-original.log 2> checkpoint251-original.stderr; then
-            echo "CHECKPOINT250_ORIGINAL_PROBE_FAILED"
+            echo "CHECKPOINT251_ORIGINAL_PROBE_FAILED"
             tail -n 80 checkpoint251-original.stderr || true
             tail -n 30 checkpoint251-original.log || true
             exit 1
@@ -64,7 +64,7 @@ jobs:
           import json
           from pathlib import Path
           s = Path('checkpoint251-original.log').read_text()
-          d = json.loads(s.split('CHECKPOINT250_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT250_NATIVE_ADDIMAGE_FEATURE_END')[0])
+          d = json.loads(s.split('CHECKPOINT251_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT251_NATIVE_ADDIMAGE_FEATURE_END')[0])
           old = json.loads(Path('research/photosphere/checkpoint249/native-addimage-wrapper-return-oracle.json').read_text())
           assert len(d['cases']) == len(old['cases']) == 2
           for a, b in zip(d['cases'], old['cases']):
@@ -74,7 +74,7 @@ jobs:
                           'feature_record_owner_words64'):
                   assert a[key] == b[key], (key, a['name'])
           Path('checkpoint251-original.json').write_text(json.dumps(d, indent=2) + '\n')
-          print('CHECKPOINT250_ORIGINAL_DESCRIPTOR_AND_POSE_REPLAY_PASS',
+          print('CHECKPOINT251_ORIGINAL_DESCRIPTOR_AND_POSE_REPLAY_PASS',
                 [(x['name'], [v['count'] for v in x['native_converter_features']]) for x in d['cases']])
           PY
       - name: Upload original-run evidence
