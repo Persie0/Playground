@@ -1,0 +1,98 @@
+name: Arctic Circle 1080p and 4K diamond framing regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/arctic-diamond-4k-parity-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    name: Test all 15 scenes and render real 1080p/4K comparison frames
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: fix/arctic-diamond-proportional-scaling-4k
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install original renderer dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install 'numpy>=1.26,<2.3' 'scipy>=1.12,<1.19' 'opencv-python-headless>=4.10,<5' 'Pillow>=10,<12' 'matplotlib>=3.8,<4'
+      - name: Verify proportional diamond geometry across all 15 scenes
+        run: |
+          set -euo pipefail
+          cd source/arctic-circle-theorem
+          PYTHONPATH=shared_engine:. python -m unittest discover -s shared_engine -p 'test_resolution_parity.py' -v
+      - name: Render real original 1080p and native 4K opening diamond frames
+        run: |
+          set -euo pipefail
+          mkdir -p previews
+          python source/arctic-circle-theorem/shared_engine/render.py \
+            --width 1920 --height 1080 --fps 30 --paced \
+            --start 5.9 --end 5.966666667 --output previews/diamond_1080p30.mp4
+          python source/arctic-circle-theorem/shared_engine/render.py \
+            --width 3840 --height 2160 --fps 30 --paced \
+            --start 5.9 --end 5.966666667 --output previews/diamond_4k30.mp4
+          for size in 1080p 4k; do
+            ffmpeg -nostdin -y -v error -i "previews/diamond_${size}30.mp4" \
+              -frames:v 1 "previews/diamond_${size}.png"
+            ffmpeg -nostdin -v error -xerror -i "previews/diamond_${size}30.mp4" -f null -
+          done
+      - name: Compare normalized diamond framing in actual source frames
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import cv2,numpy as np
+          paths=[Path('previews/diamond_1080p.png'),Path('previews/diamond_4k.png')]
+          bounds=[]
+          for p in paths:
+              image=cv2.imread(str(p))
+              h,w=image.shape[:2]
+              # The Aztec tiles are bright saturated pigments; the quiet
+              # background is dark. Only analyze the central diamond ROI.
+              hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
+              yy,xx=np.indices((h,w))
+              colored=(hsv[:,:,1]>65)&(hsv[:,:,2]>62)
+              roi=(xx>w*.20)&(xx<w*.86)&(yy>h*.07)&(yy<h*.91)
+              mask=(colored & roi).astype(np.uint8)
+              mask=cv2.morphologyEx(mask,cv2.MORPH_CLOSE,np.ones((9,9),np.uint8))
+              count,labels,stats,centroids=cv2.connectedComponentsWithStats(mask,8)
+              candidates=[v for v in stats[1:] if v[4]>200]
+              if not candidates:raise AssertionError(f'Missing diamond in {p}')
+              x,y,bw,bh,*_=max(candidates,key=lambda v:v[4])
+              normal=(x/w,y/h,bw/w,bh/h)
+              bounds.append(normal)
+              print(p, 'normalized bounds',normal)
+          # Small differences from antialiasing and pixel rounding are okay.
+          for a,b in zip(bounds[0],bounds[1]):
+              assert abs(a-b)<0.025,(bounds,a,b)
+          print('PASS: diamond occupies the same fraction of 1080p and 4K frames')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Arctic-Diamond-1080p-vs-4K-Scaling-Proof
+          path: previews/diamond_*.png
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
