@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and assemble native 1080p original-source actor-rendered Arctic Circle film.
+"""Validate and assemble native 1080p/4K, 30/60fps original-source actor-rendered Arctic Circle film.
 
 The render chunks contain frames generated from the *same original runtime* and
 pacing schedule; no scene video from the older release is reused. The older
@@ -17,11 +17,11 @@ import sys
 
 DURATIONS = (16, 18, 25, 23, 26, 23, 30, 24, 24, 25, 23, 28, 23, 42, 39)
 GROUPS = ((1, 3), (4, 6), (7, 9), (10, 11), (12, 13), (14, 15))
-def asset_names(height: int) -> tuple[str, str]:
-    if height not in (1080, 2160):
-        raise ValueError("Export height must be 1080 or 2160")
-    return (f'Arctic_Circle_Original_State_{height}p30.mp4',
-            f'Arctic_Circle_Original_State_{height}p30.srt')
+def asset_names(height: int, fps: int) -> tuple[str, str]:
+    if height not in (1080, 2160) or fps not in (30, 60):
+        raise ValueError("Export must be 1080p/4K at 30 or 60 fps")
+    return (f'Arctic_Circle_Original_State_{height}p{fps}.mp4',
+            f'Arctic_Circle_Original_State_{height}p{fps}.srt')
 
 
 def execute(*args: str, capture=False):
@@ -31,15 +31,17 @@ def execute(*args: str, capture=False):
                           capture_output=capture)
 
 
-def timeline(source: Path):
+def timeline(source: Path, fps: int = 30):
+    if fps not in (30, 60):
+        raise ValueError('Supported native frame rates: 30 and 60 fps')
     plan = json.loads((source/'editorial'/'narration_v2.json').read_text())
     factors = [Decimal(str(plan['pace_factors'][str(i)])) for i in range(1, 16)]
     durations = [Decimal(d)*f for d, f in zip(DURATIONS, factors)]
     moments = [Decimal(0)]
     for d in durations:
         moments.append(moments[-1]+d)
-    frames = [round(float(t)*30) for t in moments]
-    assert frames[0] == 0 and frames[-1] == 13224, frames
+    frames = [round(float(t)*fps) for t in moments]
+    assert frames[0] == 0 and frames[-1] == 13224 * (fps // 30), frames
     return factors, durations, moments, frames
 
 
@@ -62,15 +64,15 @@ def count_srt(srt: Path) -> int:
     return len(chunks)
 
 
-def verify_segment(segment: Path, expected_frames: int, width: int, height: int):
+def verify_segment(segment: Path, expected_frames: int, width: int, height: int, fps: int = 30):
     assert segment.is_file() and segment.stat().st_size > 100000, segment
     p = probe(segment, count_frames=True)
     video = video_stream(p)
     assert video['codec_name']=='h264' and int(video['width'])==width and int(video['height'])==height, (segment,video)
-    assert video['r_frame_rate']=='30/1', (segment, video['r_frame_rate'])
+    assert video['r_frame_rate']==f'{fps}/1', (segment, video['r_frame_rate'])
     actual = int(video.get('nb_read_frames') or video.get('nb_frames'))
     assert actual==expected_frames, (segment,actual,expected_frames)
-    print(f'PASS {segment.name}: {actual} source-rendered {width}x{height} frames', flush=True)
+    print(f'PASS {segment.name}: {actual} source-rendered {width}x{height}@{fps} frames', flush=True)
 
 
 def make_audio(old_master: Path, target: Path, factors, durations):
@@ -98,46 +100,49 @@ def main():
     ap_bounds = sub.add_parser('bounds', help='Print zero-based frame-aligned inclusive/exclusive time bounds')
     ap_bounds.add_argument('--source',type=Path,required=True)
     ap_bounds.add_argument('--group',type=int,choices=range(len(GROUPS)),required=True)
+    ap_bounds.add_argument('--fps',type=int,choices=(30,60),default=30)
     ap_verify = sub.add_parser('verify-part')
     ap_verify.add_argument('--source', type=Path, required=True)
     ap_verify.add_argument('--group', type=int, choices=range(len(GROUPS)), required=True)
     ap_verify.add_argument('--file', type=Path, required=True)
     ap_verify.add_argument('--width', type=int, required=True)
     ap_verify.add_argument('--height', type=int, required=True)
+    ap_verify.add_argument('--fps',type=int,choices=(30,60),default=30)
     ap_finish = sub.add_parser('assemble')
     for option in ('--source','--parts','--release','--prior-master'):
         ap_finish.add_argument(option,type=Path,required=True)
     ap_finish.add_argument('--source-sha',required=True)
     ap_finish.add_argument('--width',type=int,required=True)
     ap_finish.add_argument('--height',type=int,required=True)
+    ap_finish.add_argument('--fps',type=int,choices=(30,60),default=30)
     args=ap.parse_args()
     source=args.source.resolve()
-    factors,durations,moments,frames=timeline(source)
+    factors,durations,moments,frames=timeline(source, args.fps)
     if args.command=='bounds':
         a,b=GROUPS[args.group]
-        print(f'{frames[a-1]/30:.12f} {frames[b]/30:.12f}')
+        print(f'{frames[a-1]/args.fps:.12f} {frames[b]/args.fps:.12f}')
         return
     if args.command=='verify-part':
         if (args.width, args.height) not in ((1920,1080), (3840,2160)):
             ap.error('Only 1080p and 4K exports supported')
         a,b=GROUPS[args.group]
-        verify_segment(args.file, frames[b]-frames[a-1], args.width, args.height)
+        verify_segment(args.file, frames[b]-frames[a-1], args.width, args.height, args.fps)
         return
     if (args.width, args.height) not in ((1920,1080), (3840,2160)):
         ap.error('Only 1920x1080 or 3840x2160 exports are supported')
-    video_name, srt_name = asset_names(args.height)
+    video_name, srt_name = asset_names(args.height, args.fps)
     parts=args.parts.resolve(); dest=args.release.resolve();dest.mkdir(parents=True,exist_ok=True)
     lines=[]
     for i,(a,b) in enumerate(GROUPS):
         part=(parts/f'segment_{i}.mp4').resolve()
-        verify_segment(part,frames[b]-frames[a-1],args.width,args.height)
+        verify_segment(part,frames[b]-frames[a-1],args.width,args.height,args.fps)
         lines.append(f"file '{part.as_posix()}'")
     concat=dest/'concat.txt';concat.write_text('\n'.join(lines)+'\n')
     video=dest/'video_only.mp4'
     execute('ffmpeg','-nostdin','-y','-hide_banner','-loglevel','error',
             '-f','concat','-safe','0','-i',concat,'-map','0:v:0',
             '-c:v','copy','-an','-movflags','+faststart',video)
-    verify_segment(video, frames[-1],args.width,args.height)
+    verify_segment(video, frames[-1],args.width,args.height,args.fps)
     old=args.prior_master.resolve();score=dest/'score.m4a'
     make_audio(old,score,factors,durations)
     meta=dest/'chapters.ffmeta'
@@ -159,7 +164,7 @@ def main():
     (dest/srt_name).write_bytes(srt.read_bytes())
     d=probe(film,count_frames=True)
     v=video_stream(d);audio=next(s for s in d['streams'] if s['codec_type']=='audio')
-    assert v['codec_name']=='h264' and v['r_frame_rate']=='30/1'
+    assert v['codec_name']=='h264' and v['r_frame_rate']==f'{args.fps}/1'
     assert int(v['width'])==args.width and int(v['height'])==args.height
     assert int(v.get('nb_read_frames') or v.get('nb_frames'))==frames[-1]
     assert audio['codec_name']=='aac' and len(d['chapters'])==15
@@ -180,7 +185,7 @@ def main():
         'source_repository':'Persie0/manimVideos','source_sha':args.source_sha,
         'source_directory':'arctic-circle-theorem/shared_engine',
         'source_model':'original fifteen renderers with shared actor/state handoff',
-        'resolution':[args.width,args.height],'fps':30,'frames':frames[-1],
+        'resolution':[args.width,args.height],'fps':args.fps,'frames':frames[-1],
         'duration_seconds':float(moments[-1]),'subtitle_cues':101,
         'chapters':15,'soundtrack':'Original 2026-10-27 release audio, retimed per scene',
         'note':'Native source render. Does not by itself establish pixel-for-pixel parity with earlier independent clips.'},indent=2)+'\n')
