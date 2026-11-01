@@ -1,0 +1,76 @@
+name: Arctic Circle native 60fps smoke test (public Playground only)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/arctic-original-60fps-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-source-30-60:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: main
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install source renderer dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install 'numpy>=1.26,<2.3' 'scipy>=1.12,<1.19' 'opencv-python-headless>=4.10,<5' 'Pillow>=10,<12' 'matplotlib>=3.8,<4'
+      - name: Test frame counts, export boundaries, and native source time clamps
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s scripts/arctic-circle-exports -p 'test_fps.py' -v
+          cd source/arctic-circle-theorem
+          PYTHONPATH=shared_engine:. python -m unittest discover -s shared_engine -p 'test_native_fps.py' -v
+      - name: Generate genuine moving 30fps and 60fps source frames at low resolution
+        run: |
+          set -euo pipefail
+          mkdir -p smoke
+          for rate in 30 60; do
+            python source/arctic-circle-theorem/shared_engine/render.py \
+              --width 320 --height 180 --fps "$rate" --paced \
+              --start 3 --end 3.25 --output "smoke/arctic_${rate}.mp4"
+          done
+          python - <<'PY'
+          import json,subprocess
+          import cv2,numpy as np
+          for fps,expected in ((30,8),(60,15)):
+              file=f"smoke/arctic_{fps}.mp4"
+              result=subprocess.run(["ffprobe","-v","error","-count_frames","-show_streams",
+                                     "-of","json",file],check=True,capture_output=True,text=True)
+              stream=next(s for s in json.loads(result.stdout)["streams"] if s["codec_type"]=="video")
+              assert stream["r_frame_rate"]==f"{fps}/1",stream
+              assert int(stream["nb_read_frames"])==expected,stream
+              cap=cv2.VideoCapture(file)
+              ims=[]
+              while True:
+                  ok,frame=cap.read()
+                  if not ok:break
+                  ims.append(frame)
+              cap.release()
+              assert len(ims)==expected,(fps,len(ims),expected)
+              assert any(np.any(a!=b) for a,b in zip(ims,ims[1:])),f"{fps}fps rendered only still images"
+              print(f"PASS: {fps}fps generated {len(ims)} source frames, moving imagery")
+          PY
