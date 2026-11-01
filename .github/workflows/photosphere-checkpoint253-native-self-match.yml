@@ -1,4 +1,4 @@
-name: Photo Sphere checkpoint253 original native descriptor self-match (one shot)
+name: Photo Sphere checkpoint253 Rust original native self-match parity (one shot)
 on:
   push:
     branches: [ci/photosphere-checkpoint253-native-self-match]
@@ -7,64 +7,28 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: photosphere-checkpoint253-${{ github.ref }}
+  group: photosphere-checkpoint253-rust-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  original-native-matcher:
+  rust-native-self-match:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.head_commit.message == 'ci: run photosphere checkpoint253 once'
+      github.event.head_commit.message == 'ci: run photosphere checkpoint253 rust once'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: Persie0/decompile
-          ref: 42f70c9168a7fde2bea874618c898b5d68144460
+          repository: Persie0/PhotosphereCleanroom
+          ref: 1d67cc39799817eb9defc867d89c76e615847642
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
-      - name: Verify exact private revision
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "42f70c9168a7fde2bea874618c898b5d68144460"
-          python3 -m py_compile research/photosphere/checkpoint253/native_identical_feature_matcher.py research/photosphere/checkpoint253/validate_native_self_match.py
-          python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
-      - name: Fetch original pinned GCam native ELF
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
-          mv com.google.android.GoogleCamera_*.apk original.apk
-          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
-          mkdir -p research/native
-          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
-          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
-      - name: Execute original 0x1263f0 and validate native matches
-        run: |
-          set -euo pipefail
-          if ! python3 research/photosphere/checkpoint253/native_identical_feature_matcher.py > checkpoint253-original.log 2> checkpoint253-original.stderr; then
-            tail -n 60 checkpoint253-original.stderr || true
-            exit 1
-          fi
-          python3 research/photosphere/checkpoint253/validate_native_self_match.py checkpoint253-original.log | tee checkpoint253-validation.txt
-          python3 - <<'PY'
-          from pathlib import Path
-          import json
-          text=Path("checkpoint253-original.log").read_text()
-          data=json.loads(text.split('CHECKPOINT253_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT253_NATIVE_ADDIMAGE_FEATURE_END')[0])
-          Path("checkpoint253-original.json").write_text(json.dumps(data,indent=2)+'\n')
-          print("CHECKPOINT253_MATCHER_COUNTS", [(x['name'],x['native_identical_input_match'].get('record_count'),x['native_identical_input_match'].get('error')) for x in data['cases']])
-          PY
-      - name: Upload source evidence and diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          name: checkpoint253-original-matcher
-          path: |
-            checkpoint253-original.log
-            checkpoint253-original.stderr
-            checkpoint253-validation.txt
-            checkpoint253-original.json
-          retention-days: 14
-          if-no-files-found: warn
+          toolchain: '1.99.1'
+      - name: Verify exact app revision
+        run: test "$(git rev-parse HEAD)" = "1d67cc39799817eb9defc867d89c76e615847642"
+      - name: Replay 56 original native identical-feature match records
+        run: cargo test --locked checkpoint253_original_arm64_identical_native_features_match_exactly -- --nocapture
+      - name: Run complete Rust regression suite
+        run: cargo test --locked
