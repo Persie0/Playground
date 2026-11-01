@@ -1,0 +1,147 @@
+name: Euclid's Orchard - Scene 1 Cinematic 1080p
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/euclids-orchard-scene1-1080p.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: euclids-orchard-scene1-native1080
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: 8ef3fb2fb6b15d0dfabd445fa7cdb0a9edde2867
+  RELEASE_TAG: euclids-orchard-scene1-native-1080p-2026-11-01
+  PYTHONUNBUFFERED: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  OMP_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+
+jobs:
+  render-and-publish:
+    name: Render 600 original cinematic 1080p frames
+    runs-on: ubuntu-24.04
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout private source (no private-repo Actions)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install graphics and audio dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install -r source/euclids-orchard/scene1/requirements.txt
+      - name: Verify all 8 exact-math and deterministic-motion tests
+        run: |
+          cd source/euclids-orchard
+          python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Render all 600 source frames at native 1920x1080 30fps
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          python source/euclids-orchard/scene1/render_scene1.py \
+            --width 1920 --height 1080 --fps 30 --crf 19 \
+            --output output/Euclids_Orchard_Scene01_1080p30_silent.mp4
+          python source/euclids-orchard/scene1/make_score.py \
+            --output output/scene01_original_instrumental.wav
+      - name: Mux source-generated instrumental and separately timed SRT
+        run: |
+          set -euo pipefail
+          ffmpeg -nostdin -y -hide_banner -loglevel error \
+            -i output/Euclids_Orchard_Scene01_1080p30_silent.mp4 \
+            -i output/scene01_original_instrumental.wav \
+            -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a 192k \
+            -t 20 -movflags +faststart \
+            output/Euclids_Orchard_Scene01_1080p30.mp4
+          cp source/euclids-orchard/subtitles/scene1.srt output/Euclids_Orchard_Scene01_1080p30.srt
+          python - <<'PY'
+          import json,subprocess,pathlib
+          p=pathlib.Path('output/Euclids_Orchard_Scene01_1080p30.mp4')
+          d=json.loads(subprocess.check_output(['ffprobe','-v','error','-count_frames','-show_streams','-show_format','-of','json',str(p)]))
+          v=next(x for x in d['streams'] if x['codec_type']=='video')
+          a=next(x for x in d['streams'] if x['codec_type']=='audio')
+          assert (int(v['width']),int(v['height']),int(v['nb_read_frames'])) == (1920,1080,600),v
+          assert v['r_frame_rate']=='30/1' and a['codec_name']=='aac'
+          assert abs(float(d['format']['duration'])-20.0)<.08
+          assert '00:00:20,000' in pathlib.Path('output/Euclids_Orchard_Scene01_1080p30.srt').read_text()
+          print('PASS:',p,p.stat().st_size,'bytes; 600 frames; 20 sec; AAC; separate SRT')
+          PY
+          ffmpeg -nostdin -hide_banner -v error -xerror -i output/Euclids_Orchard_Scene01_1080p30.mp4 \
+            -map 0:v:0 -map 0:a:0 -f null -
+          (cd output && sha256sum Euclids_Orchard_Scene01_1080p30.mp4 Euclids_Orchard_Scene01_1080p30.srt > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+      - name: Upload validated video independent of release token permissions
+        uses: actions/upload-artifact@v4
+        with:
+          name: Euclids-Orchard-Scene01-1080p30-Verified
+          path: |
+            output/Euclids_Orchard_Scene01_1080p30.mp4
+            output/Euclids_Orchard_Scene01_1080p30.srt
+            output/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Publish to public Playground Releases
+        env:
+          RELEASE_PAT: ${{ secrets.GH_RELEASE_TOKEN }}
+          PRIVATE_PAT: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          ALT_PAT: ${{ secrets.GH_TOKEN }}
+          WORKFLOW_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/euclids-release.md <<'EOF'
+          ## Euclid's Orchard - Scene 1: Forest of Perfect Alignment
+          - Original 20-second 1920x1080/30fps source-rendered cinematic orchard
+          - 600 genuine frames, verified H.264/AAC full stream decode
+          - One persistent integer 3D world, precise aligned occlusion at (3,2) / (6,4), overhead grid morph
+          - Separate English 5-cue draft SRT; original synthesized atmospheric score (not voiceover)
+          - Source: Persie0/manimVideos PR #11, commit 8ef3fb2fb6b15d0dfabd445fa7cdb0a9edde2867
+          - Eight mathematical/camera regressions tested
+          - This is **Scene 1 only** of the planned 26-scene film; other scenes are not included.
+          EOF
+          for label in GH_RELEASE_TOKEN PRIVATE_REPO_TOKEN GH_TOKEN GITHUB_TOKEN; do
+            case "$label" in
+              GH_RELEASE_TOKEN) token="$RELEASE_PAT";;
+              PRIVATE_REPO_TOKEN) token="$PRIVATE_PAT";;
+              GH_TOKEN) token="$ALT_PAT";;
+              GITHUB_TOKEN) token="$WORKFLOW_TOKEN";;
+            esac
+            if [ -z "$token" ]; then continue; fi
+            echo "Try publishing with $label"
+            if GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+              if GH_TOKEN="$token" gh release upload "$RELEASE_TAG" \
+                 output/Euclids_Orchard_Scene01_1080p30.mp4 \
+                 output/Euclids_Orchard_Scene01_1080p30.srt output/SHA256SUMS.txt \
+                 --repo Persie0/Playground --clobber &&
+                 GH_TOKEN="$token" gh release edit "$RELEASE_TAG" --repo Persie0/Playground \
+                 --notes-file /tmp/euclids-release.md --latest=false; then
+                 GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground --json url,assets
+                 exit 0
+              fi
+            elif GH_TOKEN="$token" gh release create "$RELEASE_TAG" \
+               output/Euclids_Orchard_Scene01_1080p30.mp4 \
+               output/Euclids_Orchard_Scene01_1080p30.srt output/SHA256SUMS.txt \
+               --repo Persie0/Playground --target "$GITHUB_SHA" \
+               --title "Euclid's Orchard - Cinematic Scene 1 (1080p)" \
+               --notes-file /tmp/euclids-release.md --latest=false; then
+               GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground --json url,assets
+               exit 0
+            fi
+          done
+          echo "::error::No configured token can publish a release; the verified artifact remains available."
+          exit 1
