@@ -35,7 +35,13 @@ jobs:
       - name: Execute original AddImage through native extractor wrapper return
         run: |
           set -euo pipefail
-          python3 research/photosphere/checkpoint249/native_addimage_extractor_return.py > checkpoint249-rosette.log 2> checkpoint249-rosette.stderr
+          if ! python3 research/photosphere/checkpoint249/native_addimage_extractor_return.py > checkpoint249-rosette.log 2> checkpoint249-rosette.stderr; then
+            echo 'CHECKPOINT249_NATIVE_ERROR_TRACE'
+            tail -n 120 checkpoint249-rosette.stderr || true
+            echo 'CHECKPOINT249_NATIVE_STDOUT_TAIL'
+            tail -n 60 checkpoint249-rosette.log || true
+            exit 1
+          fi
           python3 - <<'PY'
           import json
           from pathlib import Path
