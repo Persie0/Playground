@@ -84,6 +84,20 @@ jobs:
               assert a['native_addimage_wrapper_return']
           print('CHECKPOINT249_NATIVE_WRAPPER_RETURN_VALIDATED',len(d['cases']),sum(x['count'] for c in d['cases'] for x in c['native_converter_features']))
           PY
+      - name: Archive the verified nonzero-ray fixture to the research branch
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo 'f386b44b2e10dc321b295adae76459ff2b876531bd8d382cad666d2d1f4c0758  checkpoint249-addimage-features.json' | sha256sum -c -
+          current="$(gh api repos/Persie0/decompile/git/ref/heads/research/checkpoint249-addimage-extractor-return --jq '.object.sha')"
+          test "$current" = 'f75966b585d2be719c7903a34eeaa5ab47fad128'
+          gh api --method PUT repos/Persie0/decompile/contents/research/photosphere/checkpoint249/native-addimage-wrapper-return-oracle.json \
+            --field message='test: archive corrected checkpoint249 AddImage world-ray oracle' \
+            --field sha='05ce495a7c9935c3f133cb6fd5a99b85926ddd54' \
+            --field branch='research/checkpoint249-addimage-extractor-return' \
+            --field content="$(base64 -w0 checkpoint249-addimage-features.json)" \
+            --jq '.commit.sha'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
