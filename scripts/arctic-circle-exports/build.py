@@ -41,6 +41,12 @@ def timeline(source: Path, fps: int = 30):
     for d in durations:
         moments.append(moments[-1]+d)
     frames = [round(float(t)*fps) for t in moments]
+    # The paced original's fractional endpoint is about 440.81 seconds.
+    # A naïve 60fps round would add one extra frame over the previously
+    # verified 30fps master's 440.80 seconds. Keep the final endpoint on
+    # the same 30fps master boundary, while sampling all interior frames
+    # at the genuinely higher 1/60-second cadence.
+    frames[-1] = round(float(moments[-1]) * 30) * (fps // 30)
     assert frames[0] == 0 and frames[-1] == 13224 * (fps // 30), frames
     return factors, durations, moments, frames
 
@@ -149,6 +155,8 @@ def main():
     chapters=[';FFMETADATA1']
     for i,d in enumerate(durations):
         start=round(float(moments[i])*1000);end=round(float(moments[i+1])*1000)
+        if i == len(durations)-1:
+            end = round(frames[-1] * 1000 / args.fps)
         chapters += ['[CHAPTER]','TIMEBASE=1/1000',f'START={start}',f'END={end}',f'title=Chapter {i+1:02d}']
     meta.write_text('\n'.join(chapters)+'\n')
     film=dest/video_name
@@ -186,7 +194,7 @@ def main():
         'source_directory':'arctic-circle-theorem/shared_engine',
         'source_model':'original fifteen renderers with shared actor/state handoff',
         'resolution':[args.width,args.height],'fps':args.fps,'frames':frames[-1],
-        'duration_seconds':float(moments[-1]),'subtitle_cues':101,
+        'duration_seconds':frames[-1]/args.fps,'subtitle_cues':101,
         'chapters':15,'soundtrack':'Original 2026-10-27 release audio, retimed per scene',
         'note':'Native source render. Does not by itself establish pixel-for-pixel parity with earlier independent clips.'},indent=2)+'\n')
     # Avoid uploading big intermediates as release assets.
