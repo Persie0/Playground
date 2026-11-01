@@ -1,0 +1,240 @@
+name: Arctic Circle 4K60 corrected diamond framing (reuse 5 chunks)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/arctic-4k60-diamond-framing-fix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: arctic-4k60-diamond-framing-fix
+  cancel-in-progress: false
+
+env:
+  NEW_SHA: f092b158124cb17d945f11c395f3d55eeb541015
+  REUSED_SHA: 9ef1752275f0b2a0f2fa2e745e82a37cee75e5b0
+  REUSED_RUN: '41324583607'
+  RELEASE_TAG: arctic-original-state-4k60-fixed-diamond-2026-11-01
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  render-opening:
+    name: Rerender corrected 4K/60fps opening (scenes 1-3)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.NEW_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install source dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install 'numpy>=1.26,<2.3' 'scipy>=1.12,<1.19' 'opencv-python-headless>=4.10,<5' 'Pillow>=10,<12' 'matplotlib>=3.8,<4'
+      - name: Render corrected opening from native source at 3840x2160 60fps
+        run: |
+          set -euo pipefail
+          mkdir -p segments
+          git -C source rev-parse HEAD > segments/sha-0.txt
+          test "$(cat segments/sha-0.txt)" = "$NEW_SHA"
+          read -r START END < <(python scripts/arctic-circle-exports/build.py bounds \
+            --source source/arctic-circle-theorem --group 0 --fps 60)
+          echo "Only rerendering group 0: [$START, $END) from fixed commit $NEW_SHA"
+          python source/arctic-circle-theorem/shared_engine/render.py \
+            --width 3840 --height 2160 --fps 60 --paced --crf 22 \
+            --start "$START" --end "$END" --output segments/segment_0.mp4
+          python scripts/arctic-circle-exports/build.py verify-part \
+            --source source/arctic-circle-theorem --group 0 \
+            --file segments/segment_0.mp4 --width 3840 --height 2160 --fps 60
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arctic-diamond-fixed-4k60-chunk-0
+          path: |
+            segments/segment_0.mp4
+            segments/sha-0.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  assemble-and-release:
+    name: Reuse five validated chunks and publish corrected 4K60 film
+    runs-on: ubuntu-24.04
+    needs: [render-opening]
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.NEW_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: arctic-diamond-fixed-4k60-chunk-0
+          path: segments
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+      - name: Verify old source changes are confined to the rerendered opening and non-rendering tools
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$NEW_SHA"
+          gh api "repos/Persie0/manimVideos/compare/$REUSED_SHA...$NEW_SHA" \
+            --jq '.files[].filename' > changed-paths.txt
+          test -s changed-paths.txt
+          while IFS= read -r file; do
+            case "$file" in
+              arctic-circle-theorem/scene1/render_scene1.py|\
+              arctic-circle-theorem/scene2/render_scene2.py|\
+              arctic-circle-theorem/shared_engine/test_resolution_parity.py|\
+              arctic-circle-theorem/shared_engine/test_scene2_60fps_rotation.py|\
+              tools/elevenlabs_voiceover/elevenlabs_narrate.py|\
+              tools/elevenlabs_voiceover/test_elevenlabs_narrate.py) ;;
+              *) echo "::error::Unexpected difference affects reuse safety: $file"; exit 1 ;;
+            esac
+          done < changed-paths.txt
+          echo "Verified six known changes: only scenes 1 and 2 affect the video; both are entirely in group 0."
+      - name: Download previously successful 4K60 chunks 1-5 and check SHAs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(cat segments/sha-0.txt)" = "$NEW_SHA"
+          for i in 1 2 3 4 5; do
+            gh run download "$REUSED_RUN" --repo Persie0/Playground \
+              --name "arctic-4k-60fps-chunk-$i" --dir segments
+            test -s "segments/segment_$i.mp4"
+            test "$(cat "segments/sha-$i.txt")" = "$REUSED_SHA" || {
+              echo "::error::Unexpected source SHA in reused segment $i"; exit 1;
+            }
+          done
+          echo 'All six original source-rendered 4K60 segment files verified and ready.'
+      - name: Download original instrumental soundtrack only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p prior
+          gh release download arctic-circle-theorem-complete-2026-10-27 \
+            --repo Persie0/Playground \
+            --pattern Arctic_Circle_Theorem_Complete_1080p30.mp4 --dir prior
+      - name: Assemble exact 26448-frame master, fully decode and check SHA256
+        run: |
+          set -euo pipefail
+          python scripts/arctic-circle-exports/build.py assemble \
+            --source source/arctic-circle-theorem --parts segments --release release \
+            --prior-master prior/Arctic_Circle_Theorem_Complete_1080p30.mp4 \
+            --source-sha "$NEW_SHA" --width 3840 --height 2160 --fps 60
+          (cd release && sha256sum --check SHA256SUMS.txt)
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          f=Path('release/manifest.json')
+          m=json.loads(f.read_text())
+          assert m['resolution']==[3840,2160] and m['fps']==60 and m['frames']==26448
+          m['segment_source_shas']={str(i):(os.environ['NEW_SHA'] if i==0 else os.environ['REUSED_SHA']) for i in range(6)}
+          m['reused_from_run']=int(os.environ['REUSED_RUN'])
+          m['review']='Only scenes 1 and 2 changed; both rerendered in segment 0'
+          f.write_text(json.dumps(m,indent=2)+'\n')
+          PY
+      - name: Retain verified complete MP4 even if GitHub Release upload fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arctic-Circle-Diamond-Corrected-4k60-Verified
+          path: |
+            release/*.mp4
+            release/*.srt
+            release/SHA256SUMS.txt
+            release/manifest.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+      - name: Publish corrected 4K60 GitHub Release
+        env:
+          RELEASE_PAT: ${{ secrets.GH_RELEASE_TOKEN }}
+          PRIVATE_PAT: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          ALT_PAT: ${{ secrets.GH_TOKEN }}
+          WORKFLOW_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > notes.md <<EOF
+          ## Arctic Circle Theorem — native 4K60, corrected diamond framing
+
+          - 3840x2160 / 60 genuine source-rendered fps / 26,448 frames / 7:20.8
+          - Fixed the opening diamond's relative size: 4K now matches the 1080p camera framing
+          - Persie0/manimVideos PR #12 (source commit $NEW_SHA)
+          - Original 15 chapters, 101 cue SRT, instrumental score
+          - Group 0 (chapters 1–3) rerendered, previous 5 validated groups reused
+          - Full H.264/AAC decode, exact frames, chapter metadata and SHA256 verified
+          - Full per-group source SHA provenance in manifest.json
+          - GitHub Actions executed in public Playground only
+          EOF
+          video=release/Arctic_Circle_Original_State_2160p60.mp4
+          files=(release/Arctic_Circle_Original_State_2160p60.srt
+                 release/SHA256SUMS.txt release/manifest.json)
+          if [ "$(stat -c '%s' "$video")" -lt 2000000000 ]; then
+            files+=("$video")
+          else
+            split -b 1900000000 -d -a 3 "$video" "$video.part-"
+            cat > release/REASSEMBLE.txt <<EOF
+          Download every .part-* alongside SHA256SUMS.txt, then:
+          cat Arctic_Circle_Original_State_2160p60.mp4.part-* > Arctic_Circle_Original_State_2160p60.mp4
+          sha256sum --check SHA256SUMS.txt
+          EOF
+            files+=("$video".part-* release/REASSEMBLE.txt)
+          fi
+          for label in GH_RELEASE_TOKEN PRIVATE_REPO_TOKEN GH_TOKEN GITHUB_TOKEN; do
+            case "$label" in
+              GH_RELEASE_TOKEN) token="$RELEASE_PAT";;
+              PRIVATE_REPO_TOKEN) token="$PRIVATE_PAT";;
+              GH_TOKEN) token="$ALT_PAT";;
+              GITHUB_TOKEN) token="$WORKFLOW_TOKEN";;
+            esac
+            [ -n "$token" ] || continue
+            if GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+              if GH_TOKEN="$token" gh release upload "$RELEASE_TAG" "${files[@]}" --repo Persie0/Playground --clobber &&
+                 GH_TOKEN="$token" gh release edit "$RELEASE_TAG" --repo Persie0/Playground \
+                   --notes-file notes.md --latest=false; then
+                GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground --json url,assets
+                exit 0
+              fi
+            elif GH_TOKEN="$token" gh release create "$RELEASE_TAG" "${files[@]}" \
+              --repo Persie0/Playground --target "$GITHUB_SHA" \
+              --title 'Arctic Circle Theorem - corrected diamond 4K60' \
+              --notes-file notes.md --latest=false; then
+              GH_TOKEN="$token" gh release view "$RELEASE_TAG" --repo Persie0/Playground --json url,assets
+              exit 0
+            fi
+            echo "::warning::$label cannot upload the release; trying another configured token."
+          done
+          echo "::error::No release-write token; complete verified file remains in Actions artifacts."
+          exit 1
