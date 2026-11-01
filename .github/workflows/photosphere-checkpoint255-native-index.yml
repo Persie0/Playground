@@ -1,0 +1,72 @@
+name: Photosphere checkpoint255 original second-index rosette native run (one shot)
+on:
+  push:
+    branches: [ci/photosphere-checkpoint255-second-index]
+    paths: ['.github/workflows/photosphere-checkpoint255-native-index.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint255-original-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  original-second-index-rosette:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.head_commit.message == 'ci: run photosphere checkpoint255 once'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: f3b9a66b62dc68f87ebb2a295b55181a804146fb
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned research revision and install emulator
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "f3b9a66b62dc68f87ebb2a295b55181a804146fb"
+          python3 -m py_compile research/photosphere/checkpoint255/native_second_index_rosette_matcher.py research/photosphere/checkpoint255/validate_second_index_rosette.py
+          python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Retrieve exact original GCam APK and liblightcycle.so
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original rosette camera index1 and native matcher
+        run: |
+          set -euo pipefail
+          if ! python3 research/photosphere/checkpoint255/native_second_index_rosette_matcher.py > checkpoint255-original.log 2> checkpoint255-original.stderr; then
+            tail -n 100 checkpoint255-original.stderr || true
+            exit 1
+          fi
+          python3 research/photosphere/checkpoint255/validate_second_index_rosette.py checkpoint255-original.log | tee checkpoint255-validation.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path("checkpoint255-original.log").read_text()
+          data=json.loads(s.split('CHECKPOINT255_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT255_NATIVE_ADDIMAGE_FEATURE_END')[0])
+          Path('checkpoint255-original.json').write_text(json.dumps(data,indent=2)+'\n')
+          for case in data['cases']:
+              print('CHECKPOINT255_NATIVE_INDEX_COUNTS',case['name'],
+                    [(m['source_image_index'],m['target_image_index'],m['count']) for m in case['native_indexed_distinct_frame_matches']])
+          PY
+      - name: Archive original ARM64 results even when failed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint255-original-index1
+          path: |
+            checkpoint255-original.log
+            checkpoint255-original.stderr
+            checkpoint255-original.json
+            checkpoint255-validation.txt
+          if-no-files-found: warn
+          retention-days: 14
