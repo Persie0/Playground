@@ -1,0 +1,67 @@
+name: Photo Sphere checkpoint252 original matcher ABI (one shot)
+on:
+  push:
+    branches: [ci/photosphere-checkpoint252-matcher-abi]
+    paths: ['.github/workflows/photosphere-checkpoint252-matcher-abi.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint252-matcher-abi-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  original-matcher-abi:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.head_commit.message == 'ci: run original photosphere matcher ABI once'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact private research commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 5826097602131a530db92e162709d840434b261e
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source pin and install native ARM64 reader
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "5826097602131a530db92e162709d840434b261e"
+          python3 -m py_compile research/photosphere/checkpoint252/disassemble_original_matcher.py
+          python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Extract exact original ELF from pinned Google Camera APK
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Disassemble the original native matcher, callsites and bin ABI
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint252/disassemble_original_matcher.py | tee checkpoint252-original-matcher.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("research/photosphere/checkpoint252/native-matcher-abi.json")
+          d=json.loads(p.read_text())
+          assert d['elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert set(d['sections']) == {'addimage_post_extractor','matcher_wrapper','multilevel_matcher','per_level_patch_matcher','bin_lookup','native_feature_wrapper'}
+          assert all(len(v['instructions']) > 10 for v in d['sections'].values())
+          print("CHECKPOINT252_ORIGINAL_ABI_VERIFIED",[(n,len(v['instructions'])) for n,v in d['sections'].items()])
+          PY
+      - name: Archive static original ABI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint252-original-matcher-abi
+          path: |
+            research/photosphere/checkpoint252/native-matcher-abi.json
+            checkpoint252-original-matcher.log
+          if-no-files-found: warn
+          retention-days: 14
