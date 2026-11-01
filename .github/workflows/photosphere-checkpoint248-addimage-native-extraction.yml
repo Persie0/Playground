@@ -1,0 +1,71 @@
+name: Photo Sphere checkpoint248 original AddImage full native feature extraction
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint248-addimage-native-extraction.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-addimage-rosette-ray:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: f7ecf1acc15a6a4356ee4d0e5ca525489fb5cad9
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact research commit
+        run: test "$(git rev-parse HEAD)" = "f7ecf1acc15a6a4356ee4d0e5ca525489fb5cad9"
+      - name: Install original ARM64 emulation dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch exact source GCam ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original AddImage native 3-level detector and oriented converter
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint248/native_addimage_full_extractor.py > checkpoint248-rosette.log 2> checkpoint248-rosette.stderr
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint248-rosette.log').read_text()
+          d=json.loads(s.split('CHECKPOINT248_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT248_NATIVE_ADDIMAGE_FEATURE_END')[0])
+          assert d['elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert len(d['cases'])==3
+          for c in d['cases']:
+              assert c['terminated_at']=='0x3a2784'
+              assert c['original_wrapper_entered']
+              assert len(c['rosette_native_clones'])==2
+              assert c['native_pyramid_dimensions'][0]==c['synthetic_pixels']['shape']
+              assert len(c['native_detector_level_counts'])==3
+              assert len(c['native_converter_features'])==3
+          a,b=d['cases']
+          assert [x['count'] for x in a['native_converter_features']]==[9,0,0]
+          assert [x['count'] for x in b['native_converter_features']]==[47,0,0]
+          Path('checkpoint248-addimage-features.json').write_text(json.dumps(d,indent=2)+'\n')
+          print('CHECKPOINT248_ORIGINAL_FEATURE_ORACLE_BEGIN')
+          print(json.dumps(d,separators=(',',':')))
+          print('CHECKPOINT248_ORIGINAL_FEATURE_ORACLE_END')
+          print('CHECKPOINT248_CASE_COUNTS',[(c['name'],c['native_detector_level_counts'],[x['count'] for x in c['native_converter_features']]) for c in d['cases']])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint248-original-addimage-features
+          path: |
+            checkpoint248-addimage-features.json
+            checkpoint248-rosette.log
+            checkpoint248-rosette.stderr
+          retention-days: 14
+          if-no-files-found: warn
