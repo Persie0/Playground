@@ -1,9 +1,9 @@
 name: Arctic Circle 4K60 resume failed chunk (run 41324583607)
 on:
-  workflow_run:
-    workflows:
-      - Arctic Circle - Original State 1080p or 4K (30/60 FPS)
-    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/arctic-circle-4k60-resume-41324583607.yml
   workflow_dispatch:
 
 permissions:
@@ -25,7 +25,6 @@ env:
 
 jobs:
   assemble-reused-chunks:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.id == 41324583607 }}
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
@@ -49,11 +48,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
       - name: Prove source differences cannot change reused scenes
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
         run: |
           set -euo pipefail
-          git -C source fetch --depth=1 origin "$OLD_SHA"
           test "$(git -C source rev-parse HEAD)" = "$NEW_SHA"
-          differences="$(git -C source diff --name-only "$OLD_SHA" "$NEW_SHA" | sort)"
+          # Checkout uses persist-credentials:false, so git fetch from
+          # this PRIVATE repository would fail. Query the authenticated
+          # GitHub compare API, never putting credentials into Git remotes.
+          differences="$(gh api "repos/Persie0/manimVideos/compare/$OLD_SHA...$NEW_SHA" --jq '.files[].filename' | sort)"
           expected="$(printf '%s\n' \
             arctic-circle-theorem/scene2/render_scene2.py \
             arctic-circle-theorem/shared_engine/test_scene2_60fps_rotation.py | sort)"
@@ -62,7 +65,7 @@ jobs:
             printf 'Unexpected files:\n%s\n' "$differences"
             exit 1
           fi
-          echo "Verified: only Scene 2 angle and its regression test differ. Reused chunks start at Scene 4 or later."
+          echo "Verified: only Scene 2 angle and its test differ. Reused groups 1–5 exclude Scene 2."
       - name: Download the five already successful 4K60 source chunks and the retried chunk zero
         env:
           GH_TOKEN: ${{ github.token }}
