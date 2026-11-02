@@ -1,0 +1,136 @@
+name: Photosphere checkpoint271 native RANSAC estimator outer return (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint271-original-robust-return.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-parity-singletons
+  cancel-in-progress: false
+jobs:
+  original-native-full-loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact research source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 8e8ad15cf62267a599dd73023fbaeab54fe16060
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source commit
+        run: test "$(git rev-parse HEAD)" = "8e8ad15cf62267a599dd73023fbaeab54fe16060"
+      - name: Install original ARM64 emulator dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch and verify exact original APK and ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original RANSAC estimator genuine return after native refit
+        run: |
+          set -euo pipefail
+          if ! python3 research/photosphere/checkpoint271/native_original_ransac_return.py > checkpoint271-original.log 2> checkpoint271-original.stderr; then
+            echo 'CHECKPOINT271_ORIGINAL_NATIVE_ERROR'
+            tail -n 120 checkpoint271-original.stderr || true
+            tail -n 60 checkpoint271-original.log || true
+            exit 1
+          fi
+          python3 research/photosphere/checkpoint271/validate_original_ransac_return.py checkpoint271-original.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint271-original.log').read_text()
+          d=json.loads(s.split('CHECKPOINT271_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT271_NATIVE_ADDIMAGE_FEATURE_END')[0])
+          assert len(d['cases'])==2
+          a,b=d['cases']
+          native=b['native_second_actual_addimage']
+          assert len(native['original_high_level_matcher_raw_records']['original_raw_match_records_u32'])==25
+          assert a['native_second_actual_addimage']['original_native_robust_threshold_branch']['original_match_count']==5
+          candidate=native['native_original_candidate_boundary']
+          gate=native['native_original_sampled_pair_gate']
+          trial=native['native_original_first_trial_complete']
+          score=native.get('native_original_first_trial_support')
+          loop=native['native_original_loop_decision']
+          header=native['native_original_loop_header']
+          trial_counts=native['native_original_trial_counts']
+          post=native['native_original_post_loop_entry']
+          refit=native['native_original_refit_svd_entry']
+          returned=refit['original_native_refit_svd_return']
+          final=native['native_original_full_refit_result']
+          robust=native['native_original_robust_return_boundary']
+          assert robust['pc']==robust['expected_native_robust_return_pc']
+          assert robust['native_trials']==550
+          assert robust['native_refit_output_9_u32']==final['rotation_output_9_u32']
+          assert final['native_return_w0']==1
+          assert len(final['rotation_output_9_u32'])==9
+          assert final['original_full_refit_rotation_executed']
+          assert refit['native_refit_svd_executed']
+          assert returned['native_svd_status_u32']==0
+          assert len(returned['native_svd_factors_21_u32'])==21
+          assert len(trial_counts)==550
+          assert post['native_completed_trials_w21']==550
+          assert post['original_random_draw_count']==1100
+          assert loop['pc'] in ('0x30fd54','0x310418')
+          assert header['pc']=='0x3103dc'
+          assert header['completed_trial_count_w21']==1
+          assert header['best_support_w28']==25
+          assert len(header['config_four_words_u32'])==4
+          result={
+            'original_elf_sha256':d['elf_sha256'],
+            'research_source_commit':'8e8ad15cf62267a599dd73023fbaeab54fe16060',
+            'original_path':'native two-AddImage, 25 matches, controlled first [0,24], original 25/25 first support, original 0x3103dc loop decision',
+            'rand_values_test_only':[0,24],
+            'candidate_rotation_f32_u32':candidate['candidate_matrix_f32_u32'],
+            'native_sampled_pair_gate':gate,
+            'native_first_support':score,
+            'native_first_trial':trial,
+            'native_first_trial_loop_header':header,
+            'native_first_trial_loop_decision':loop,
+            'native_final_loop_entry':post,
+            'native_refit_svd_entry':refit,
+            'original_native_refit_svd_return':returned,
+            'original_native_full_refit_matrix':final,
+            'original_native_robust_return':robust,
+            'native_iteration_trace':trial_counts,
+            'original_full_ransac_executed':True,
+            'original_native_refit_svd_executed':True,
+            'original_native_refit_rotation_executed':True,
+            'device_parity_proven':False,
+          }
+          Path('checkpoint271-robust-return-compact.json').write_text(json.dumps(result,indent=2)+'\n')
+          print('CHECKPOINT271_NATIVE_GATE',gate['both_sampled_pairs_passed'])
+          print('CHECKPOINT271_NATIVE_FIRST_SUPPORT',None if score is None else score['native_support_count_w20'])
+          print('CHECKPOINT271_FIRST_TRIAL_END',trial['pc'])
+          print('CHECKPOINT271_LOOP_CONFIG',header['config_four_words_u32'])
+          print('CHECKPOINT271_LOOP_DECISION',loop['result'],loop['pc'])
+          print('CHECKPOINT271_FULL_LOOP',len(trial_counts),post['native_best_support_w28'],
+                'draws',post['original_random_draw_count'],
+                'refit',refit is not None)
+          print('CHECKPOINT271_NATIVE_ROBUST_RETURN',robust['pc'],
+                'w0',robust['native_robust_return_w0'])
+          print('CHECKPOINT271_NATIVE_REFIT_MATRIX',final['pc'],final['rotation_output_9_u32'])
+          print('CHECKPOINT271_NATIVE_SVD_RETURN',returned['pc'],
+                returned['native_svd_status_u32'],
+                returned['native_svd_factors_21_u32'])
+          PY
+      - name: Archive validated original result, not the original binaries
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint271-original-robust-return
+          path: |
+            checkpoint271-original.log
+            checkpoint271-original.stderr
+            checkpoint271-robust-return-compact.json
+          if-no-files-found: warn
+          retention-days: 14
