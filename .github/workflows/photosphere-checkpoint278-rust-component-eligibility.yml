@@ -1,0 +1,55 @@
+name: Photosphere checkpoint278 Rust native component eligibility regression (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint278-rust-component-eligibility.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-rust-component-check
+  cancel-in-progress: false
+jobs:
+  original-component-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout pinned app via public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 3874d13ad7b5a76bfc32a2fd6d6b5be471741ff1
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned source
+        run: test "$(git rev-parse HEAD)" = "3874d13ad7b5a76bfc32a2fd6d6b5be471741ff1"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Compare Rust largest-component eligibility to original ARM64 fixtures
+        run: |
+          set -euo pipefail
+          if ! cargo test --locked --lib checkpoint278_original_native_component_eligibility_with_all_max_ties -- --nocapture > checkpoint278-focused.log 2>&1; then
+            tail -n 120 checkpoint278-focused.log
+            exit 1
+          fi
+          grep -q 'test result: ok. 1 passed; 0 failed' checkpoint278-focused.log
+          tail -n 18 checkpoint278-focused.log
+      - name: Run complete Rust library suite
+        run: |
+          set -euo pipefail
+          if ! cargo test --locked --lib > checkpoint278-all.log 2>&1; then
+            tail -n 130 checkpoint278-all.log
+            exit 1
+          fi
+          grep -E 'test result:' checkpoint278-all.log | tail -2
+      - name: Archive logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint278-rust-component-eligibility
+          path: |
+            checkpoint278-focused.log
+            checkpoint278-all.log
+          if-no-files-found: warn
+          retention-days: 14
