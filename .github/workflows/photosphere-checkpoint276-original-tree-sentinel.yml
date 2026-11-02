@@ -18,11 +18,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 99b67fd3ae3766f48c257e4a5077e149af5da2ff
+          ref: 86870319e1d5cd53664b42963053e00a5d56d8fd
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify source commit
-        run: test "$(git rev-parse HEAD)" = "99b67fd3ae3766f48c257e4a5077e149af5da2ff"
+        run: test "$(git rev-parse HEAD)" = "86870319e1d5cd53664b42963053e00a5d56d8fd"
       - name: Install original ARM64 emulator dependencies
         run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
       - name: Fetch and verify exact original APK and ELF
@@ -72,19 +72,20 @@ jobs:
           directed=native['native_original_bidirectional_pair_links']
           later=native.get('native_original_postlink_tree_boundary')
           diagnosis=native.get('native_original_sentinel_diagnostic')
-          assert later is not None or diagnosis is not None
-          if later is not None:
-            assert later['pc'] in ('0x11dccc','0x11dd00')
-            pre=native['native_original_pre_tree_dereference']
-            assert pre['pc']=='0x11dc84'
-            assert pre['original_ctor_inline_e8_zero']
-            assert later['native_event_trace']
-            assert later['original_first_node']['native_neighbor_ptr']==directed['first_call']['owner_b_ptr']
-            assert later['original_second_node']['native_neighbor_ptr']==directed['first_call']['owner_a_ptr']
-          else:
-            assert diagnosis['pc']=='0x11dc84'
-            assert not diagnosis['head_equal_to_ctor_inline']
-            assert not diagnosis['original_deref_executed']
+          assert later is not None,('native original AddImage postlink tree did not complete',diagnosis)
+          assert later['pc'] in ('0x11dccc','0x11dd00')
+          assert diagnosis and diagnosis['pc']=='0x11dc84'
+          assert diagnosis['original_dynamic_tree_owner_mapped']
+          assert diagnosis['original_e0_equals_e8_value']
+          assert set(('0x11daa0','0x11dab0','0x11dae0')).issubset(
+              set(diagnosis['native_field_write_pcs']))
+          pre=native['native_original_pre_tree_dereference']
+          assert pre['pc']=='0x11dc84'
+          assert pre['original_dynamic_tree_head_e0']==pre['original_dynamic_tree_head_e8']
+          assert pre['original_dynamic_tree_head_e0']!=pre['native_x20_estimator_ptr']+0xe8
+          assert later['native_event_trace']
+          assert later['original_first_node']['native_neighbor_ptr']==directed['first_call']['owner_b_ptr']
+          assert later['original_second_node']['native_neighbor_ptr']==directed['first_call']['owner_a_ptr']
           assert len(directed['first_original_neighbor_element']['original_element_8_bytes_hex'])==16
           assert len(directed['second_original_neighbor_element']['original_element_8_bytes_hex'])==16
           assert directed['pc']=='0x11dbb8'
@@ -113,7 +114,7 @@ jobs:
           assert len(header['config_four_words_u32'])==4
           result={
             'original_elf_sha256':d['elf_sha256'],
-            'research_source_commit':'99b67fd3ae3766f48c257e4a5077e149af5da2ff',
+            'research_source_commit':'86870319e1d5cd53664b42963053e00a5d56d8fd',
             'original_path':'native two-AddImage, 25 matches, controlled first [0,24], original 25/25 first support, original 0x3103dc loop decision',
             'rand_values_test_only':[0,24],
             'candidate_rotation_f32_u32':candidate['candidate_matrix_f32_u32'],
