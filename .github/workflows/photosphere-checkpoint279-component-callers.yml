@@ -1,0 +1,89 @@
+name: Photosphere checkpoint279 original eligibility caller discovery (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint279-component-callers.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint279-disasm
+  cancel-in-progress: false
+jobs:
+  original-callsite-xrefs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Install original ARM64 decoder
+        run: python3 -m pip install --break-system-packages --quiet capstone
+      - name: Fetch and pin original APK and ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Decode direct BL and vtable/data-pointer references to component API
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,struct
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          data=Path('original.so').read_bytes()
+          targets={
+            0x11ef24:'largest_component_eligibility',
+            0x1252d4:'component_cache_builder',
+            0x11e3e4:'image_removal_cache_invalidation',
+            0x122dbc:'reciprocal_image_graph_append',
+          }
+          found={hex(t):{"name":v,"direct_bl":[],"direct_b":[],"qword_offsets":[]} for t,v in targets.items()}
+          for pc in range(0,len(data)-3,4):
+              w=struct.unpack_from('<I',data,pc)[0]
+              opcode=w&0xfc000000
+              if opcode not in (0x94000000,0x14000000):
+                  continue
+              imm=w&0x3ffffff
+              if imm&(1<<25):imm-=1<<26
+              target=pc+imm*4
+              if target in targets:
+                  found[hex(target)]['direct_bl' if opcode==0x94000000 else 'direct_b'].append(hex(pc))
+          for offset in range(0,len(data)-7,8):
+              value=struct.unpack_from('<Q',data,offset)[0]
+              if value in targets:
+                  found[hex(value)]['qword_offsets'].append(hex(offset))
+          decoder=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          for t in targets:
+              item=found[hex(t)]
+              print('CHECKPOINT279_ORIGINAL_REFERENCE',hex(t),item['name'],
+                    'direct_bl',item['direct_bl'],'direct_b',item['direct_b'],
+                    'qword',item['qword_offsets'],flush=True)
+              for pcstr in item['direct_bl']+item['direct_b']:
+                  pc=int(pcstr,16)
+                  start=max(0,pc-0x34)
+                  end=min(len(data),pc+0x54)
+                  print('CHECKPOINT279_ORIGINAL_CALL_CONTEXT_BEGIN',hex(t),hex(pc))
+                  for ins in decoder.disasm(data[start:end],start):
+                      if ins.address>=pc-0x30 and ins.address<=pc+0x4c:
+                          print(f'  {ins.address:#x}: {ins.mnemonic} {ins.op_str}')
+                  print('CHECKPOINT279_ORIGINAL_CALL_CONTEXT_END',hex(t),hex(pc))
+          result={
+            "original_elf_sha256":"878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1",
+            "targets":found,
+            "scan_scope":"Direct AArch64 BL/B immediates plus exact 64-bit words in ELF file; indirect calls, relocated pointers and LDR/ADRP constructions are NOT covered",
+            "source":"Pinned original Google Camera 8.8.225 ARM64 ELF static scan"
+          }
+          Path('checkpoint279-original-xrefs.json').write_text(json.dumps(result,indent=2)+'\n')
+          print('CHECKPOINT279_ORIGINAL_CALLERS_SUCCEEDED',flush=True)
+          PY
+      - name: Archive original callsite report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint279-original-component-callers
+          path: checkpoint279-original-xrefs.json
+          if-no-files-found: warn
+          retention-days: 14
