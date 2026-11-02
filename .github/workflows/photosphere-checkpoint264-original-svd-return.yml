@@ -19,11 +19,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: ea274fcdd70f622de7be9510b130c61b6c9aefb0
+          ref: d759c3ceff2c4056642add84b0a0b09f97168fde
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Assert source pin
-        run: test "$(git rev-parse HEAD)" = "ea274fcdd70f622de7be9510b130c61b6c9aefb0"
+        run: test "$(git rev-parse HEAD)" = "d759c3ceff2c4056642add84b0a0b09f97168fde"
       - name: Install native emulator requirements
         run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
       - name: Verify original APK and ELF
@@ -56,13 +56,14 @@ jobs:
           assert len(candidates)==1
           record=candidates[0]['native_second_actual_addimage']['native_original_two_pair_svd_entry']
           assert record['native_svd_executed']
+          assert len(bytes.fromhex(record['native_original_svd_return']['x0_full_svd_88_bytes_hex'])) == 88
           assert record['native_original_svd_return']['pc']==hex(record['registers']['x30'])
-          result=dict(elf_sha256=d['elf_sha256'],source_commit='ea274fcdd70f622de7be9510b130c61b6c9aefb0',
+          result=dict(elf_sha256=d['elf_sha256'],source_commit='d759c3ceff2c4056642add84b0a0b09f97168fde',
                       original_covariance_hex=record['x1_96_bytes_hex'][:72],
                       original_return=record['native_original_svd_return'])
           Path('checkpoint264-svd-return-compact.json').write_text(json.dumps(result,indent=2)+'\n')
           print('CHECKPOINT264_FIRST_NATIVE_SVD_RETURN',result['original_return']['pc'])
-          print('CHECKPOINT264_ORIGINAL_OUTPUT_X0_48',result['original_return']['x0_output_48_bytes_hex'])
+          print('CHECKPOINT264_ORIGINAL_OUTPUT_X0_88',result['original_return']['x0_full_svd_88_bytes_hex'])
           PY
       - name: Retain research evidence without APK or ELF
         uses: actions/upload-artifact@v4
