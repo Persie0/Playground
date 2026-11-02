@@ -1,0 +1,55 @@
+name: Photosphere checkpoint264 Rust native SVD factor parity (one-shot)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-checkpoint264-rust-svd-factors.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-parity-singletons
+  cancel-in-progress: false
+jobs:
+  rust-original-svd-factors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact app candidate with public Playground token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 92d482f9eb9387981e4a11204162f9dc3f911d32
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact source SHA
+        run: test "$(git rev-parse HEAD)" = "92d482f9eb9387981e4a11204162f9dc3f911d32"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Test original ARM64 U V singular bits against production Rust
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint264_original_addimage_25_match_native_svd_factors_are_bit_exact -- --nocapture > checkpoint264-rust-focused.log 2>&1 || {
+            tail -n 100 checkpoint264-rust-focused.log
+            exit 1
+          }
+          tail -n 15 checkpoint264-rust-focused.log
+      - name: Run entire locked Rust library test suite
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint264-rust-all.log 2>&1 || {
+            tail -n 100 checkpoint264-rust-all.log
+            exit 1
+          }
+          grep -E 'test result:' checkpoint264-rust-all.log | tail -2
+      - name: Archive only Rust test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint264-rust-svd-parity
+          path: |
+            checkpoint264-rust-focused.log
+            checkpoint264-rust-all.log
+          if-no-files-found: warn
+          retention-days: 14
