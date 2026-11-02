@@ -1,0 +1,77 @@
+name: Photosphere checkpoint264 original ARM64 SVD return (one-shot)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-checkpoint264-original-svd-return.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint264-original-svd-return
+  cancel-in-progress: false
+jobs:
+  original-svd-return:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact native research commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: ea274fcdd70f622de7be9510b130c61b6c9aefb0
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Assert source pin
+        run: test "$(git rev-parse HEAD)" = "ea274fcdd70f622de7be9510b130c61b6c9aefb0"
+      - name: Install native emulator requirements
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Verify original APK and ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute actual original SVD to first caller return
+        run: |
+          set -euo pipefail
+          if ! python3 research/photosphere/checkpoint264/native_original_svd_return.py > checkpoint264-original.log 2> checkpoint264-original.stderr; then
+            echo 'ORIGINAL_SVD_ERROR'
+            tail -n 100 checkpoint264-original.stderr || true
+            tail -n 35 checkpoint264-original.log || true
+            exit 1
+          fi
+          python3 research/photosphere/checkpoint264/validate_original_svd_return.py checkpoint264-original.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint264-original.log').read_text()
+          d=json.loads(s.split('CHECKPOINT264_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT264_NATIVE_ADDIMAGE_FEATURE_END')[0])
+          candidates=[c for c in d['cases'] if len(c['native_second_actual_addimage']['original_high_level_matcher_raw_records']['original_raw_match_records_u32'])>=7]
+          assert len(candidates)==1
+          record=candidates[0]['native_second_actual_addimage']['native_original_two_pair_svd_entry']
+          assert record['native_svd_executed']
+          assert record['native_original_svd_return']['pc']==hex(record['registers']['x30'])
+          result=dict(elf_sha256=d['elf_sha256'],source_commit='ea274fcdd70f622de7be9510b130c61b6c9aefb0',
+                      original_covariance_hex=record['x1_96_bytes_hex'][:72],
+                      original_return=record['native_original_svd_return'])
+          Path('checkpoint264-svd-return-compact.json').write_text(json.dumps(result,indent=2)+'\n')
+          print('CHECKPOINT264_FIRST_NATIVE_SVD_RETURN',result['original_return']['pc'])
+          print('CHECKPOINT264_ORIGINAL_OUTPUT_X0_48',result['original_return']['x0_output_48_bytes_hex'])
+          PY
+      - name: Retain research evidence without APK or ELF
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint264-original-native-svd-return
+          path: |
+            checkpoint264-original.log
+            checkpoint264-original.stderr
+            checkpoint264-svd-return-compact.json
+          retention-days: 14
+          if-no-files-found: warn
