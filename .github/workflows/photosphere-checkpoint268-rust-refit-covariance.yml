@@ -1,0 +1,55 @@
+name: Photosphere checkpoint268 original full-refit covariance Rust parity (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint268-rust-refit-covariance.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-parity-singletons
+  cancel-in-progress: false
+jobs:
+  production-original-refit-covariance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout pinned private app via public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 54909fbd2355386ba1cb75003657c522aa039690
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source
+        run: test "$(git rev-parse HEAD)" = "54909fbd2355386ba1cb75003657c522aa039690"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Validate all nine original native 25-inlier covariance bits
+        run: |
+          set -euo pipefail
+          if ! cargo test --locked --lib checkpoint268_original_550_trial_refit_covariance_bit_exact_production -- --nocapture > checkpoint268-focused.log 2>&1; then
+            tail -n 120 checkpoint268-focused.log
+            exit 1
+          fi
+          grep -q 'test result: ok. 1 passed; 0 failed' checkpoint268-focused.log
+          tail -n 20 checkpoint268-focused.log
+      - name: Run complete Rust library regression suite
+        run: |
+          set -euo pipefail
+          if ! cargo test --locked --lib > checkpoint268-all.log 2>&1; then
+            tail -n 120 checkpoint268-all.log
+            exit 1
+          fi
+          grep -E 'test result:' checkpoint268-all.log | tail -2
+      - name: Archive validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint268-rust-refit-covariance
+          path: |
+            checkpoint268-focused.log
+            checkpoint268-all.log
+          if-no-files-found: warn
+          retention-days: 14
