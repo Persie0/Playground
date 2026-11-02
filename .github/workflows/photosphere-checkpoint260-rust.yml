@@ -1,0 +1,34 @@
+name: PhotoSphere checkpoint260 exact native RANSAC-input ray parity Rust (one shot)
+on:
+  push:
+    branches: [ci/photosphere-checkpoint261-native-rng-entry]
+    paths: ['.github/workflows/photosphere-checkpoint260-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint260-rust-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  native-world-ray-rust:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.head_commit.message == 'ci: run photosphere checkpoint260 rust once'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 1e6c8a04b0bc13d70595ef41d837b640ff02ef0f
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Verify exact app executable source
+        run: test "$(git rev-parse HEAD)" = "1e6c8a04b0bc13d70595ef41d837b640ff02ef0f"
+      - name: Verify all 50 original native pre-RANSAC XYZ triplets by exact binary32 fingerprints
+        run: cargo test --locked checkpoint260_exact_original_pre_ransac_ray_vectors_from_production_projection -- --nocapture
+      - name: Run full Rust regression suite
+        run: cargo test --locked
