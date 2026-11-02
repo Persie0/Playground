@@ -1,0 +1,55 @@
+name: Photosphere checkpoint270 original full-refit nine-matrix-word Rust parity (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint270-rust-refit-rotation.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-parity-singletons
+  cancel-in-progress: false
+jobs:
+  production-original-refit-covariance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout pinned private app via public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 2ed33ec814d3d4e9bc07ece489a4c33a96010b49
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source
+        run: test "$(git rev-parse HEAD)" = "2ed33ec814d3d4e9bc07ece489a4c33a96010b49"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Compare all nine original refit rotation matrix f32 words
+        run: |
+          set -euo pipefail
+          if ! cargo test --locked --lib checkpoint270_original_addimage_full_refit_svd_factors_bit_exact -- --nocapture > checkpoint270-focused.log 2>&1; then
+            tail -n 120 checkpoint270-focused.log
+            exit 1
+          fi
+          grep -q 'test result: ok. 1 passed; 0 failed' checkpoint270-focused.log
+          tail -n 20 checkpoint270-focused.log
+      - name: Run complete Rust library regression suite
+        run: |
+          set -euo pipefail
+          if ! cargo test --locked --lib > checkpoint270-all.log 2>&1; then
+            tail -n 120 checkpoint270-all.log
+            exit 1
+          fi
+          grep -E 'test result:' checkpoint270-all.log | tail -2
+      - name: Archive validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint270-rust-refit-rotation
+          path: |
+            checkpoint270-focused.log
+            checkpoint270-all.log
+          if-no-files-found: warn
+          retention-days: 14
