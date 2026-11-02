@@ -1,0 +1,32 @@
+name: PhotoSphere checkpoint263 original covariance parity Rust (one shot)
+on:
+  push:
+    branches: [ci/photosphere-checkpoint263-original-svd-entry]
+    paths: ['.github/workflows/photosphere-checkpoint263-rust.yml']
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint263-rust-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  native-covariance-rust:
+    if: >-
+      github.event.head_commit.message == 'ci: run photosphere checkpoint263 rust once'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 3520f35c70e923ba9c5ef7aef335c85801b06244
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Verify exact app executable
+        run: test "$(git rev-parse HEAD)" = "3520f35c70e923ba9c5ef7aef335c85801b06244"
+      - name: Verify production f32 covariance against original 9 binary32 input words
+        run: cargo test --locked checkpoint263_original_two_pair_covariance_at_real_arm64_svd_entry_bit_exact -- --nocapture
+      - name: Run complete Rust regression suite
+        run: cargo test --locked
