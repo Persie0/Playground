@@ -1,0 +1,69 @@
+name: PhotoSphere checkpoint263 original SVD entry (one shot)
+on:
+  push:
+    branches: [ci/photosphere-checkpoint263-original-svd-entry]
+    paths: ['.github/workflows/photosphere-checkpoint263-original.yml']
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint263-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  original-svd-entry:
+    if: github.event.head_commit.message == 'ci: run photosphere checkpoint263 once'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 996610f94a5a8543ecf5ef98f5cdcf23d5253e1a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact original probe and install emulator
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "996610f94a5a8543ecf5ef98f5cdcf23d5253e1a"
+          python3 -m py_compile research/photosphere/checkpoint263/native_original_svd_entry.py research/photosphere/checkpoint263/validate_original_svd_entry.py
+          python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch pinned original GCam APK and ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Continue original ARM64 RANSAC sampled pair into SVD entry
+        run: |
+          set -euo pipefail
+          if ! python3 research/photosphere/checkpoint263/native_original_svd_entry.py > checkpoint263-original.log 2> checkpoint263-original.stderr; then
+            tail -n 120 checkpoint263-original.stderr || true
+            exit 1
+          fi
+          python3 research/photosphere/checkpoint263/validate_original_svd_entry.py checkpoint263-original.log | tee checkpoint263-validation.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint263-original.log').read_text()
+          d=json.loads(s.split('CHECKPOINT263_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT263_NATIVE_ADDIMAGE_FEATURE_END')[0])
+          Path('checkpoint263-original.json').write_text(json.dumps(d,indent=2)+'\n')
+          for c in d['cases']:
+              v=c['native_second_actual_addimage']
+              print('CHECKPOINT263_ORIGINAL_SVD_ENTRY',c['name'],v.get('native_original_two_pair_svd_entry'))
+          PY
+      - name: Archive original pinned SVD callsite evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint263-original-svd-entry
+          path: |
+            checkpoint263-original.log
+            checkpoint263-original.stderr
+            checkpoint263-original.json
+            checkpoint263-validation.txt
+          retention-days: 14
+          if-no-files-found: warn
