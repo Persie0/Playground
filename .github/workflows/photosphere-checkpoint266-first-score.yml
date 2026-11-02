@@ -1,0 +1,90 @@
+name: Photosphere checkpoint266 original first RANSAC support (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint266-first-score.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-parity-singletons
+  cancel-in-progress: false
+jobs:
+  original-native-first-score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact research source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: bae730fb2dab4c2a6f127893ab144c893525bb58
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source commit
+        run: test "$(git rev-parse HEAD)" = "bae730fb2dab4c2a6f127893ab144c893525bb58"
+      - name: Install original ARM64 emulator dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch and verify exact original APK and ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original native first sampled-pair gate and support loop
+        run: |
+          set -euo pipefail
+          if ! python3 research/photosphere/checkpoint266/native_original_first_score.py > checkpoint266-original.log 2> checkpoint266-original.stderr; then
+            echo 'CHECKPOINT266_ORIGINAL_NATIVE_ERROR'
+            tail -n 120 checkpoint266-original.stderr || true
+            tail -n 60 checkpoint266-original.log || true
+            exit 1
+          fi
+          python3 research/photosphere/checkpoint266/validate_original_first_score.py checkpoint266-original.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint266-original.log').read_text()
+          d=json.loads(s.split('CHECKPOINT266_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT266_NATIVE_ADDIMAGE_FEATURE_END')[0])
+          assert len(d['cases'])==2
+          a,b=d['cases']
+          native=b['native_second_actual_addimage']
+          assert len(native['original_high_level_matcher_raw_records']['original_raw_match_records_u32'])==25
+          assert a['native_second_actual_addimage']['original_native_robust_threshold_branch']['original_match_count']==5
+          candidate=native['native_original_candidate_boundary']
+          gate=native['native_original_sampled_pair_gate']
+          trial=native['native_original_first_trial_complete']
+          score=native.get('native_original_first_trial_support')
+          result={
+            'original_elf_sha256':d['elf_sha256'],
+            'research_source_commit':'bae730fb2dab4c2a6f127893ab144c893525bb58',
+            'original_path':'two native AddImage frames / 25 matches / original RANSAC controlled [0,24] / original SVD / candidate / sampled pair and first support loop',
+            'rand_values_test_only':[0,24],
+            'candidate_rotation_f32_u32':candidate['candidate_matrix_f32_u32'],
+            'native_sampled_pair_gate':gate,
+            'native_first_support':score,
+            'native_first_trial':trial,
+            'original_full_ransac_executed':False,
+            'device_parity_proven':False,
+          }
+          Path('checkpoint266-first-score-compact.json').write_text(json.dumps(result,indent=2)+'\n')
+          print('CHECKPOINT266_NATIVE_GATE',gate['both_sampled_pairs_passed'])
+          print('CHECKPOINT266_NATIVE_FIRST_SUPPORT',None if score is None else score['native_support_count_w20'])
+          print('CHECKPOINT266_FIRST_TRIAL_END',trial['pc'])
+          PY
+      - name: Archive validated original result, not the original binaries
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint266-native-first-support
+          path: |
+            checkpoint266-original.log
+            checkpoint266-original.stderr
+            checkpoint266-first-score-compact.json
+          if-no-files-found: warn
+          retention-days: 14
