@@ -1,0 +1,53 @@
+name: Photosphere checkpoint267 original RANSAC 550-trial loop policy parity (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint267-rust-loop-policy.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-parity-singletons
+  cancel-in-progress: false
+jobs:
+  rust-original-native-loop-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact app candidate from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 7a65872c0b58faaee517b1aab3a6f24821a8f942
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact app commit
+        run: test "$(git rev-parse HEAD)" = "7a65872c0b58faaee517b1aab3a6f24821a8f942"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Test original native 550/5000 loop config against production Rust
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint267_native_first_ransac_support_mask_matches_production -- --nocapture > checkpoint267-rust-focused.log 2>&1 || {
+            tail -n 120 checkpoint267-rust-focused.log
+            exit 1
+          }
+          tail -n 22 checkpoint267-rust-focused.log
+      - name: Run locked entire Rust library test suite
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint267-rust-all.log 2>&1 || {
+            tail -n 120 checkpoint267-rust-all.log
+            exit 1
+          }
+          grep -E 'test result:' checkpoint267-rust-all.log | tail -2
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint267-rust-mask-parity
+          path: |
+            checkpoint267-rust-focused.log
+            checkpoint267-rust-all.log
+          if-no-files-found: warn
+          retention-days: 14
