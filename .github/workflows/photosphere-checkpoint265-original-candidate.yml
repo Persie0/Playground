@@ -1,0 +1,83 @@
+name: Photosphere checkpoint265 original rotation candidate (one-shot)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-checkpoint265-original-candidate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-parity-singletons
+  cancel-in-progress: false
+jobs:
+  original-native-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact original candidate probe
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 039331119ccd17583df52f2f4443693c6bd451cf
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact research source
+        run: test "$(git rev-parse HEAD)" = "039331119ccd17583df52f2f4443693c6bd451cf"
+      - name: Install original ARM64 emulator dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch and checksum pinned original ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute actual SVD through original candidate matrix gate
+        run: |
+          set -euo pipefail
+          if ! python3 research/photosphere/checkpoint265/native_original_candidate_matrix.py > checkpoint265-original.log 2> checkpoint265-original.stderr; then
+            echo 'CHECKPOINT265_NATIVE_FAILURE'
+            tail -n 100 checkpoint265-original.stderr || true
+            tail -n 35 checkpoint265-original.log || true
+            exit 1
+          fi
+          python3 research/photosphere/checkpoint265/validate_original_candidate_matrix.py checkpoint265-original.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint265-original.log').read_text()
+          d=json.loads(s.split('CHECKPOINT265_NATIVE_ADDIMAGE_FEATURE_BEGIN\n')[1].split('\nCHECKPOINT265_NATIVE_ADDIMAGE_FEATURE_END')[0])
+          qualified=[c for c in d['cases'] if len(c['native_second_actual_addimage']['original_high_level_matcher_raw_records']['original_raw_match_records_u32'])>=7]
+          assert len(qualified)==1
+          svd=qualified[0]['native_second_actual_addimage']['native_original_two_pair_svd_entry']
+          candidate=qualified[0]['native_second_actual_addimage']['native_original_candidate_boundary']
+          assert svd['native_svd_executed'] and candidate['native_svd_return_pc']=='0x30fee4'
+          result={
+             'original_elf_sha256':d['elf_sha256'],
+             'research_commit':'039331119ccd17583df52f2f4443693c6bd451cf',
+             'controlled_sampler_pair':[0,24],
+             'source_svd_covariance_hex':svd['x1_96_bytes_hex'][:72],
+             'source_svd_full_output_hex':svd['native_original_svd_return']['x0_full_svd_88_bytes_hex'],
+             'native_candidate':candidate,
+          }
+          Path('checkpoint265-original-candidate-compact.json').write_text(json.dumps(result,indent=2)+'\n')
+          print('CHECKPOINT265_CANDIDATE_GATE',candidate['pc'],
+                'accepted',candidate['candidate_determinant_gate_accepted'])
+          print('CHECKPOINT265_CANDIDATE_WORDS',candidate['candidate_matrix_f32_u32'])
+          PY
+      - name: Upload bounded original result without APK/ELF
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint265-original-model-candidate
+          path: |
+            checkpoint265-original.log
+            checkpoint265-original.stderr
+            checkpoint265-original-candidate-compact.json
+          retention-days: 14
+          if-no-files-found: warn
