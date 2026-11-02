@@ -1,0 +1,41 @@
+name: Photosphere checkpoint277 original graph component builder and largest-component policy disassembly (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint277-components-disasm.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint277-disasm
+  cancel-in-progress: false
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Install original instruction decoder
+        run: python3 -m pip install --break-system-packages --quiet capstone
+      - name: Verify original GCam ELF source from research release
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Decode exact original connected-component builder, largest filtering and cache invalidation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          elf=Path('original.so').read_bytes()
+          d=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          for start,end in [(0x1252d4,0x1255a0),(0x11ef24,0x11f070),(0x11e3e4,0x11e4b4)]:
+              print('CHECKPOINT276_DISASM_BEGIN',hex(start),hex(end),flush=True)
+              for ins in d.disasm(elf[start:end],start):
+                  print(f'{ins.address:#x}: {ins.mnemonic} {ins.op_str}')
+              print('CHECKPOINT276_DISASM_END',hex(start),flush=True)
+          PY
