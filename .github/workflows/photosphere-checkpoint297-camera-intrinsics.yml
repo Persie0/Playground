@@ -77,7 +77,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: a6117ce6a4bbfd816b692926fcb7cb51792e78b5
+          ref: 93bd9356659cdd633a2790e166ef72f170cbb399
           path: decompile
           sparse-checkout: |
             research/photosphere/checkpoint297
@@ -92,7 +92,7 @@ jobs:
       - name: Execute original ARM64 focal and center setters with bounded inputs
         run: |
           set -euo pipefail
-          test "$(git -C decompile rev-parse HEAD)" = a6117ce6a4bbfd816b692926fcb7cb51792e78b5
+          test "$(git -C decompile rev-parse HEAD)" = 93bd9356659cdd633a2790e166ef72f170cbb399
           mkdir -p decompile/research/native
           cp original.so decompile/research/native/liblightcycle.so
           (
@@ -101,6 +101,35 @@ jobs:
             cp checkpoint297-native-camera-intrinsics-fixtures.json ../
           )
           grep -q '^CHECKPOINT297_ORIGINAL_NATIVE_INTRINSIC_CASES_PASSED 12' checkpoint297-native-camera-intrinsics.log
+      - name: Checkout exact private PhotosphereCleanroom camera intrinsics snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 4efe20f11a3f10a5d08ebaa5ac718776d74f5683
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify original native output corpus matches pinned Rust fixture
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 4efe20f11a3f10a5d08ebaa5ac718776d74f5683
+          python3 - <<'PY'
+          import json
+          with open('checkpoint297-native-camera-intrinsics-fixtures.json') as f:original=json.load(f)
+          with open('app/tests/fixtures/native_bundle_camera_intrinsics_297.json') as f:pinned=json.load(f)
+          assert original==pinned,"Native ARM64 camera results differ from frozen Rust oracle"
+          assert len(original['cases'])==12
+          assert sum(c['optional_correction_pointer_installed'] for c in original['cases'])==2
+          print("CHECKPOINT297_ORIGINAL_CAMERA_OUTPUT_FIXTURE_PARITY_PASSED 12")
+          PY
+      - name: Run isolated camera focal-center Rust exact words regression and full library
+        working-directory: app
+        run: |
+          set -euo pipefail
+          git diff --check
+          rustfmt --edition 2021 --check src/native_bundle_camera_intrinsics.rs
+          cargo test --lib checkpoint297_original_arm64_linear_camera_focal_center_and_correction_abi -- --nocapture
+          cargo test --lib
       - name: Publish pinned original evidence
         if: always()
         uses: actions/upload-artifact@v4
