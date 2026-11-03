@@ -1,0 +1,57 @@
+name: Photosphere checkpoint284 original virtual-call ABI candidate triage (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint284-eligibility-callsite-triage.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint284-abi-triage
+  cancel-in-progress: false
+jobs:
+  original-candidate-triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout pinned research classifier
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 37c35a748a84c4ba41833b46ddd752aec3c4ac59
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact research revision
+        run: test "$(git rev-parse HEAD)" = "37c35a748a84c4ba41833b46ddd752aec3c4ac59"
+      - name: Retrieve pinned original ELF disassembly evidence from public Playground
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p checkpoint283-original
+          gh run download 41562370692 --repo Persie0/Playground --name checkpoint283-original-vcalls --dir checkpoint283-original
+          test -s checkpoint283-original/checkpoint283-callers.json
+      - name: Validate all 39 original candidates and inspect argument-one provenance
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint284/triage_component_eligibility_candidates.py checkpoint283-original/checkpoint283-callers.json > checkpoint284-triage.log
+          cat checkpoint284-triage.log
+          grep -q '^CHECKPOINT284_ORIGINAL_CANDIDATE_TRIAGE_PASSED' checkpoint284-triage.log
+          python3 - <<'PY'
+          import json
+          d=json.load(open('checkpoint284-candidate-triage.json'))
+          assert d['original_candidate_load_count']==39
+          assert sum(map(len,d['arg1_shape_categories'].values()))==39
+          assert not d['identified_real_component_eligibility_caller']
+          print("CHECKPOINT284_ABI_TRIAGE_AND_LIMITS_VALIDATED",flush=True)
+          PY
+      - name: Archive evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint284-original-abi-triage
+          path: |
+            checkpoint284-candidate-triage.json
+            checkpoint284-triage.log
+          if-no-files-found: warn
+          retention-days: 14
