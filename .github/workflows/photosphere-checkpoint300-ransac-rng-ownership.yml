@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 438b332de1a8bb01fa12ecb754284790ccd0616e
+          ref: d350ac147af8dab6d0017adf4160aa457cb9a264
           path: decompile
           sparse-checkout: |
             research/photosphere/checkpoint300
@@ -43,14 +43,14 @@ jobs:
       - name: Verify original direct RANSAC rand and process seed linkage
         run: |
           set -euo pipefail
-          test "$(git -C decompile rev-parse HEAD)" = 438b332de1a8bb01fa12ecb754284790ccd0616e
+          test "$(git -C decompile rev-parse HEAD)" = d350ac147af8dab6d0017adf4160aa457cb9a264
           python3 decompile/research/photosphere/checkpoint300/verify_original_rng_linkage.py original.so --output checkpoint300-original-rng-linkage.json | tee checkpoint300-original-rng-linkage.log
           grep -q '^CHECKPOINT300_ORIGINAL_RNG_LINKAGE_PASSED' checkpoint300-original-rng-linkage.log
       - name: Checkout original native two-frame RANSAC harness and dependencies
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 438b332de1a8bb01fa12ecb754284790ccd0616e
+          ref: d350ac147af8dab6d0017adf4160aa457cb9a264
           path: decompile-native
           sparse-checkout: |
             research/photosphere/checkpoint300
@@ -66,7 +66,7 @@ jobs:
       - name: Execute genuine 550-trial ARM64 RANSAC with two alternating controlled pairs
         run: |
           set -euo pipefail
-          test "$(git -C decompile-native rev-parse HEAD)" = 438b332de1a8bb01fa12ecb754284790ccd0616e
+          test "$(git -C decompile-native rev-parse HEAD)" = d350ac147af8dab6d0017adf4160aa457cb9a264
           mkdir -p decompile-native/research/native
           cp original.so decompile-native/research/native/liblightcycle.so
           (
@@ -76,6 +76,38 @@ jobs:
           )
           cat checkpoint300-native-alternating.log
           grep -q '^CHECKPOINT300_ALTERNATING_NATIVE_550_TRIALS_PASSED 550 1100' checkpoint300-native-alternating.log
+      - name: Checkout pinned Rust original RNG trace regression
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: cea670d110af1e2760ee42ecb60273e6a40ad5a9
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Compare freshly executed native RANSAC trace against both frozen fixtures
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = cea670d110af1e2760ee42ecb60273e6a40ad5a9
+          python3 - <<'PY'
+          import json
+          with open('checkpoint300-native-alternating-ransac-fixtures.json') as f: actual=json.load(f)
+          for path in [
+              'decompile-native/research/photosphere/checkpoint300/native-original-alternating-ransac-fixture.json',
+              'app/tests/fixtures/native_original_alternating_ransac_300.json'
+          ]:
+              with open(path) as f: expected=json.load(f)
+              assert actual==expected,path+' differs from fresh original native execution'
+          assert len(actual['actual_original_550_sampled_index_pairs'])==550
+          assert actual['original_rand_values_consumed']==1100
+          print('CHECKPOINT300_FRESH_ORIGINAL_ALTERNATING_ORACLE_EQUALITY_PASSED 550 1100')
+          PY
+      - name: Replay original sampled pairs through production Rust solver
+        working-directory: app
+        run: |
+          set -euo pipefail
+          git diff --check
+          cargo test --lib checkpoint300_original_alternating_550_trial_ransac_draws_replay_in_production -- --nocapture
+          cargo test --lib
       - name: Upload exact original linkage report
         if: always()
         uses: actions/upload-artifact@v4
