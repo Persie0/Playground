@@ -1,0 +1,97 @@
+name: Photosphere checkpoint298 optional camera-correction ABI and ownership
+on:
+  push:
+    branches: [research/photosphere-checkpoint298-correction-owner]
+    paths: ['.github/workflows/photosphere-checkpoint298-correction-owner.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint298-correction-owner
+  cancel-in-progress: true
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned-original ARM64 analysis dependencies
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Download SHA-pinned original GCam 8.8.225 APK
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Pin camera correction ABI and all camera-region +0x30 stores
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,hashlib
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from capstone.arm64 import ARM64_OP_MEM,ARM64_REG_SP
+          from elftools.elf.elffile import ELFFile
+          p=Path('original.so');data=p.read_bytes()
+          sha='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert hashlib.sha256(data).hexdigest()==sha
+          cs=Cs(CS_ARCH_ARM64,CS_MODE_ARM);cs.detail=True
+          windows={
+            'original_linear_projection_correction':(0x331b54,0x331c38),
+            'original_linear_unprojection_correction':(0x331c38,0x331d80),
+            'original_linear_camera_initializer_correction':(0x331118,0x331244),
+            'original_linear_camera_clone_correction':(0x3315f8,0x331690),
+            'original_fisheye_camera_clone_correction':(0x330acc,0x330b40),
+            'original_linear_center_correction':(0x330a8c,0x330acc),
+          }
+          result={}
+          for name,(start,end) in windows.items():
+            ins=[{'pc':hex(i.address),'asm':(i.mnemonic+' '+i.op_str).strip()} for i in cs.disasm(data[start:end],start)]
+            assert len(ins)==(end-start)//4
+            result[name]=ins
+            print('CHECKPOINT298_WINDOW',name,len(ins))
+            for row in ins:print('CHECKPOINT298_ARM64',name,row['pc'],row['asm'])
+          sites=[]
+          for i in cs.disasm(data[0x330000:0x333000],0x330000):
+            if i.mnemonic not in ('str','stur','stp','stnp'):continue
+            if len(i.operands)<2:continue
+            m=i.operands[-1]
+            if m.type!=ARM64_OP_MEM or m.mem.disp!=0x30 or m.mem.base==ARM64_REG_SP:continue
+            sites.append({'pc':hex(i.address),'asm':(i.mnemonic+' '+i.op_str).strip()})
+          print('CHECKPOINT298_CAMERA_REGION_PLUS30_STORES',len(sites))
+          for row in sites:print('CHECKPOINT298_STORE',row['pc'],row['asm'])
+          assert any(i['pc']=='0x33134c' for i in sites)
+          assert any(i['pc']=='0x33166c' for i in sites)
+          from elftools.elf.elffile import ELFFile
+          rel={}
+          with p.open('rb') as f:
+            elf=ELFFile(f)
+            for sec in elf.iter_sections():
+              if sec['sh_type']!='SHT_RELA':continue
+              for x in sec.iter_relocations():
+                if x['r_info_type']==1027:rel[int(x['r_offset'])]=int(x['r_addend'])
+          vt={'linear':0x40d540,'fisheye':0x40d480}
+          result['camera_vtables']={k:{hex(off):hex(rel[v+off]) for off in (0x10,0x60,0x80,0x88)} for k,v in vt.items()}
+          assert rel[0x40d540+0x10]==0x3315f8
+          assert rel[0x40d480+0x10]==0x330acc
+          assert rel[0x40d540+0x80]==0x331b54
+          assert rel[0x40d540+0x88]==0x331c38
+          result['camera_region_plus30_stores']=sites
+          result['original_so_sha256']=sha
+          result['real_device_nonnull_correction_proven']=False
+          Path('checkpoint298-original-correction-disassembly.json').write_text(json.dumps(result,indent=2)+'\n')
+          print('CHECKPOINT298_ORIGINAL_ABI_AND_STORES_PINNED')
+          PY
+      - name: Upload original correction inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint298-original-correction-inventory
+          path: checkpoint298-original-correction-disassembly.json
+          if-no-files-found: warn
+          retention-days: 14
