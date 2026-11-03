@@ -1,0 +1,87 @@
+name: Photosphere checkpoint282 original ARM64 original vptr component eligibility (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint282-native-vtable-dispatch.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-components-native
+  cancel-in-progress: false
+jobs:
+  original-arm64-graph-components:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact original native research harness
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 2691950bd5eee1af981eada3caf4fe584188b844
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned source
+        run: test "$(git rev-parse HEAD)" = "2691950bd5eee1af981eada3caf4fe584188b844"
+      - name: Install pinned emulator dependencies
+        run: python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Download exact original APK and verify ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute native edge and original per-image connected-original vptr component eligibility
+        run: |
+          set -euo pipefail
+          if ! python3 research/photosphere/checkpoint282/native_original_component_vptr_dispatch.py > checkpoint282-original.log 2> checkpoint282-original.stderr; then
+            echo "CHECKPOINT282_FAILED_NATIVE_COMPONENT_FIXTURE"
+            tail -n 120 checkpoint282-original.stderr || true
+            tail -n 80 checkpoint282-original.log || true
+            exit 1
+          fi
+          grep -q 'CHECKPOINT282_NATIVE_COMPONENT_END' checkpoint282-original.log
+          grep 'CHECKPOINT282_NATIVE_COMPONENT_CASE ' checkpoint282-original.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=Path('checkpoint282-original.log').read_text()
+          d=json.loads(s.split('CHECKPOINT282_NATIVE_COMPONENT_BEGIN\n')[1].split('\nCHECKPOINT282_NATIVE_COMPONENT_END')[0])
+          expected={
+            'two_linked':[1,1],
+            'three_one_link':[1,1,0],
+            'four_tied_two_links':[1,1,1,1],
+            'three_isolated':[1,1,1],
+          }
+          assert len(d['cases'])==len(expected)
+          assert d['original_estimator_vptr_hex']=='0x3fdca0'
+          assert d['original_component_vtable_offset_hex']=='0x70'
+          assert d['original_component_vtable_target_hex']=='0x11ef24'
+          assert d['native_original_virtual_BLR_caller_not_executed']
+          for c in d['cases']:
+              assert c['original_native_0x11ef24_results']==expected[c['case']]
+              assert c['original_estimator_constructor_vptr_hex']=='0x3fdca0'
+              assert c['original_component_virtual_slot_hex']=='0x3fdd10'
+              assert c['original_removal_virtual_slot_hex']=='0x3fdcd0'
+              assert c['original_eligibility_was_dispatched_through_loaded_original_vptr']
+              assert c['expected_per_image_eligibility']==expected[c['case']]
+              assert c['original_cache_reused_across_queries']
+          Path('checkpoint282-native-component-compact.json').write_text(json.dumps(d,indent=2)+'\n')
+          print('CHECKPOINT282_FULL_ORIGINAL_COMPONENT_SUITE_PASSED',flush=True)
+          PY
+      - name: Archive native graph evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint282-original-native-component
+          path: |
+            checkpoint282-original.log
+            checkpoint282-original.stderr
+            checkpoint282-native-component-compact.json
+          if-no-files-found: warn
+          retention-days: 14
