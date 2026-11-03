@@ -3,7 +3,8 @@
 **Effective date:** 3 November 2026  
 **Product:** Photo Print Size (macOS)  
 **Developer / controller:** Marvin Perzi, trading as Persie0, Austria  
-**Contact:** persie0@protonmail.com
+**Contact:** persie0@protonmail.com  
+**Legal imprint and postal contact:** https://persie0.github.io/translations_imprint/imprint-en.html
 
 This notice applies specifically to the **macOS App Store version** of Photo
 Print Size. It is separate from the privacy policies for other Persie0 apps.
