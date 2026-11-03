@@ -45,6 +45,7 @@ jobs:
             "image_enhancer:test/eula_offline_gate_test.dart"
             "noise_remover:test/platform/platform_policy_test.dart"
             "surebets_calculator:test/apple_store_licensing_test.dart"
+            "hanzi_hero:test/apple_eula_startup_test.dart"
             "vitamindtracker:test/apple_health_consent_separation_test.dart"
           )
           for item in "${cases[@]}"; do
@@ -85,3 +86,41 @@ jobs:
           done
           echo "Apple EULA gate tests: $passed passed, $static_only static-only, $failed failed."
           test "$failed" -eq 0
+
+  sequential-native-apple-gate-parse:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - name: Parse native iOS/macOS app entry points without starting private Actions
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${GH_TOKEN:?Missing private checkout token}"
+          gh auth setup-git >/dev/null
+          for repo in resistor-scanner-ios 3dimageapp video_upscaler; do
+            folder="$RUNNER_TEMP/apple-eula-swift-$repo"
+            gh repo clone "Persie0/$repo" "$folder" -- --depth 1
+            case "$repo" in
+              resistor-scanner-ios)
+                swiftc -frontend -parse "$folder/ResistorScanner/App/ResistorScannerApp.swift"
+                swiftc -frontend -parse "$folder/ResistorScanner/UI/ScannerView.swift"
+                grep -q 'LegalSettingsSection' "$folder/ResistorScanner/UI/SettingsSheet.swift"
+                ! grep -Eq 'EulaConsentView|eulaAccepted|eula_accepted_v1' "$folder/ResistorScanner/UI/ScannerView.swift"
+                ! grep -Eq 'EulaConsentView|eulaAccepted|eula_accepted_v1' "$folder/ResistorScanner/App/ResistorScannerApp.swift"
+                ;;
+              3dimageapp)
+                swiftc -frontend -parse "$folder/ios/Scene3D/Scene3DApp.swift"
+                ! grep -Eq 'EulaConsentView|eulaAccepted|eula_accepted_v1' "$folder/ios/Scene3D/Scene3DApp.swift"
+                ;;
+              video_upscaler)
+                swiftc -frontend -parse "$folder/Sources/VideoUpscalerApp/VideoUpscalerApp.swift"
+                swiftc -frontend -parse "$folder/Sources/VideoUpscalerApp/iOS/VideoUpscalerIOSApp.swift"
+                ! grep -Eq 'EulaConsentView|eulaAccepted|eula_accepted_v1' "$folder/Sources/VideoUpscalerApp/VideoUpscalerApp.swift"
+                ! grep -Eq 'EulaConsentView|eulaAccepted|eula_accepted_v1' "$folder/Sources/VideoUpscalerApp/iOS/VideoUpscalerIOSApp.swift"
+                ;;
+            esac
+            echo "PASS: native Apple license gate removed in $repo"
+            rm -rf "$folder"
+          done
