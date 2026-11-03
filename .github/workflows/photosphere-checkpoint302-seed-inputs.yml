@@ -77,6 +77,23 @@ jobs:
           test "$(git -C research rev-parse HEAD)" = 51a2dc1dd59f2b818192aac2ed022fbf547268f8
           python3 research/research/photosphere/checkpoint302/verify_original_seed_config.py original.so --output checkpoint302-seed-config.json | tee checkpoint302-verifier.log
           grep -q '^CHECKPOINT302_ORIGINAL_SOURCE_PINS_PASSED' checkpoint302-verifier.log
+      - name: Checkout pinned checkpoint302 Rust port
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 97e7f3ecae97af9cbe641c30f5ec9fbd7347143f
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Run original-seed Rust regression and complete library tests
+        working-directory: app
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 97e7f3ecae97af9cbe641c30f5ec9fbd7347143f
+          git diff --check
+          rustfmt --edition 2021 --check src/native_rng_seed.rs
+          cargo test --lib checkpoint302_ -- --nocapture
+          cargo test --lib
       - uses: actions/upload-artifact@v4
         if: always()
         with:
