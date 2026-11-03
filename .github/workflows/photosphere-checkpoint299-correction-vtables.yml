@@ -97,7 +97,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: aeaff9b1a4cff387b30fb9fb908f403517138411
+          ref: 7ddce704b7ec3c1997a4f6256bbc66e080987ea4
           path: decompile
           sparse-checkout: |
             research/photosphere/checkpoint299
@@ -112,7 +112,7 @@ jobs:
       - name: Execute original ARM64 constructor and chained optional correction clones
         run: |
           set -euo pipefail
-          test "$(git -C decompile rev-parse HEAD)" = aeaff9b1a4cff387b30fb9fb908f403517138411
+          test "$(git -C decompile rev-parse HEAD)" = 7ddce704b7ec3c1997a4f6256bbc66e080987ea4
           mkdir -p decompile/research/native
           cp original.so decompile/research/native/liblightcycle.so
           (
@@ -136,6 +136,11 @@ jobs:
           assert sum(len(c['synthetic_correction_clone_calls']) for c in fresh['cases'])==6
           print('CHECKPOINT299_FRESH_ORIGINAL_NATIVE_CLONE_FIXTURE_EQUALITY_PASSED 8 12 6')
           PY
+      - name: Syntax-check optional real-device provenance tracer
+        run: |
+          set -euo pipefail
+          node --check decompile/research/photosphere/checkpoint299/device-correction-trace.frida.js
+          echo CHECKPOINT299_FRIDA_TRACE_SYNTAX_PASSED
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
