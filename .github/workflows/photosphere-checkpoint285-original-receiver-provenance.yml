@@ -1,0 +1,63 @@
+name: Photosphere checkpoint285 original session receiver provenance disassembly (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint285-original-receiver-provenance.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint285-receiver
+  cancel-in-progress: false
+jobs:
+  original-session-callsite-provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact research source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: d270881e0fa2d84ddec871d3e1fd0f17e6d27eef
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source revision and install original ELF decoders
+        run: |
+          test "$(git rev-parse HEAD)" = "d270881e0fa2d84ddec871d3e1fd0f17e6d27eef"
+          python3 -m pip install --break-system-packages --quiet pyelftools capstone
+      - name: Download and verify original GCam APK/ARM64 ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Resolve original virtual caller X0 owner from upstream ARM64 instructions
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint285/disassemble_original_receiver_provenance.py original.so > checkpoint285-original-receiver.log
+          grep '^CHECKPOINT285_ORIGINAL_WINDOW' checkpoint285-original-receiver.log
+          grep '^CHECKPOINT285_ORIGINAL_CODE' checkpoint285-original-receiver.log | grep -E '0x11b(940|950|954)|0x11be(c0|d0|d4)|0x32227c|0x323bec'
+          grep -q '^CHECKPOINT285_ORIGINAL_RECEIVER_CONTEXT_PASSED' checkpoint285-original-receiver.log
+          python3 - <<'PY'
+          import json
+          d=json.load(open('checkpoint285-original-receiver-context.json'))
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert d['two_session_nearby_candidates']['0x11bed0']['original_receiver_x0_field_displacement_hex']=='0x58'
+          assert not d['actual_original_call_target_proven']
+          assert not d['actual_estimator_receiver_vptr_proven']
+          print('CHECKPOINT285_ORIGINAL_RECEIVER_PROVENANCE_LIMITS_PASSED',flush=True)
+          PY
+      - name: Archive disassembly and owner provenance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint285-original-receiver-provenance
+          path: |
+            checkpoint285-original-receiver.log
+            checkpoint285-original-receiver-context.json
+          if-no-files-found: warn
+          retention-days: 14
