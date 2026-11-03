@@ -1,0 +1,54 @@
+name: Review Traffic Counting G1 PR70 (atomic)
+on:
+  push:
+    branches: ['ci/traffic-g1-pr70-20261104']
+    paths: ['.github/workflows/traffic-counting-g1-pr70-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact G1 head
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/traffic-counting-light-main
+          ref: 6e8af469370135b00cf9d609f9818a44659a96d5
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          persist-credentials: false
+          path: app
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check numpy opencv-python-headless pytest pyyaml loguru requests scipy pillow jsonpickle
+      - name: Targeted and baseline tests on Python 3.11
+        env:
+          PYTHONPATH: app/traffic-counting-edge-detection-master/src
+        run: |
+          python -m compileall -q app/traffic-counting-edge-detection-master/src/analysis/traffic/input.py app/traffic-counting-edge-detection-master/src/analysis/traffic/models.py
+          python -m pytest -q \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_native_input.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_route_heatmap.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_waiting_detector.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_pipeline_integration.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_background_refresh.py
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install test dependencies (3.13)
+        run: python -m pip install --disable-pip-version-check numpy opencv-python-headless pytest pyyaml loguru requests scipy pillow jsonpickle
+      - name: Targeted and baseline tests on Python 3.13
+        env:
+          PYTHONPATH: app/traffic-counting-edge-detection-master/src
+        run: |
+          python -m pytest -q \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_native_input.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_route_heatmap.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_waiting_detector.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_pipeline_integration.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_background_refresh.py
