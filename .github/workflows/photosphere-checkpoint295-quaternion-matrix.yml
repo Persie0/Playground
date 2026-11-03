@@ -9,7 +9,7 @@ permissions:
   contents: read
 concurrency:
   group: photosphere-checkpoint295-source-oracle
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   original:
     runs-on: ubuntu-latest
@@ -67,14 +67,22 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 7e088773e00a3f54b1fed587e951836219bb0a8a
+          ref: a2b2d470715c7bb17a2432fb6c2db11eae270e5c
           path: decompile
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          filter: blob:none
+          sparse-checkout: |
+            research/photosphere/checkpoint295
+            research/photosphere/checkpoint292
+            research/photosphere/checkpoint211
+            research/photosphere/checkpoint210
+            research/photosphere/checkpoint209
+            research/photosphere/checkpoint188
           persist-credentials: false
       - name: Execute original ARM64 quaternion-to-matrix and indexed pose setter
         run: |
           set -euo pipefail
-          test "$(git -C decompile rev-parse HEAD)" = 7e088773e00a3f54b1fed587e951836219bb0a8a
+          test "$(git -C decompile rev-parse HEAD)" = a2b2d470715c7bb17a2432fb6c2db11eae270e5c
           mkdir -p decompile/research/native
           cp original.so decompile/research/native/liblightcycle.so
           (
@@ -92,14 +100,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: c4fd681422bc41c2bbd43ff618bf68581cd923c0
+          ref: ebf0c1e769e72fab70ca219d16685a46bca290f4
           path: app
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Compare fresh original ARM64 output against pinned Rust fixture
         run: |
           set -euo pipefail
-          test "$(git -C app rev-parse HEAD)" = c4fd681422bc41c2bbd43ff618bf68581cd923c0
+          test "$(git -C app rev-parse HEAD)" = ebf0c1e769e72fab70ca219d16685a46bca290f4
           python3 - <<'PY'
           import json
           with open('checkpoint295-original-quaternion-matrix-fixtures.json') as f: original=json.load(f)
