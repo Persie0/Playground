@@ -108,14 +108,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: feffbb4b43e6016a099991c30a855c1a2085b400
+          ref: 4b449e029fafb9d7d863ed78d22ccb15ed5fbc82
           path: decompile
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify original indexed writeback receiver, original method bytes and vptr
         run: |
           set -euo pipefail
-          test "$(git -C decompile rev-parse HEAD)" = feffbb4b43e6016a099991c30a855c1a2085b400
+          test "$(git -C decompile rev-parse HEAD)" = 4b449e029fafb9d7d863ed78d22ccb15ed5fbc82
           python3 decompile/research/photosphere/checkpoint294/verify_original_solver_rosette_indexed_writeback.py original.so --output checkpoint294-original-indexed-writeback.json | tee checkpoint294-original-indexed-writeback.log
           grep -q '^CHECKPOINT294_ORIGINAL_INDEXED_WRITEBACK_CHAIN_PASSED' checkpoint294-original-indexed-writeback.log
       - name: Execute original indexed pose setter on bounded native cases
@@ -130,6 +130,30 @@ jobs:
             cp checkpoint294-original-indexed-pose-fixtures.json ..
           )
           grep -q 'CHECKPOINT294_ORIGINAL_INDEXED_SET_CASES_PASSED 12' checkpoint294-original-indexed-native.log
+      - name: Checkout exact PhotosphereCleanroom pose-writeback PR snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: cfeb93e35b2c9f4df0aee69924729928674abc7f
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify Rust original-byte oracle and full Rust library suite
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = cfeb93e35b2c9f4df0aee69924729928674abc7f
+          python3 - <<'PY'
+          import json
+          with open('checkpoint294-original-indexed-pose-fixtures.json') as f: original=json.load(f)
+          with open('app/tests/fixtures/native_indexed_pose_setter_294.json') as f: frozen=json.load(f)
+          assert original == frozen, "Rust frozen native oracle differs from fresh executed original ARM64"
+          print('CHECKPOINT294_RUST_FIXTURE_EQUALS_EXECUTED_ORIGINAL_PASSED',len(original['cases']))
+          PY
+          cd app
+          git diff --check
+          rustfmt --edition 2021 --check src/native_rosette_pose_vector.rs
+          cargo test --lib checkpoint294_original_indexed_rosette_setter_matches_arm64_word_bytes -- --nocapture
+          cargo test --lib
       - name: Publish text-only original evidence
         if: always()
         uses: actions/upload-artifact@v4
