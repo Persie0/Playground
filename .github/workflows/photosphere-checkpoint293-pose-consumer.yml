@@ -1,0 +1,83 @@
+name: Photosphere checkpoint293 original preview-rosette pose-consumer trace
+on:
+  push:
+    branches: [research/photosphere-checkpoint293-pose-snapshot-consumer]
+    paths: ['.github/workflows/photosphere-checkpoint293-pose-consumer.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint293-pose-consumer
+  cancel-in-progress: false
+jobs:
+  original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout public Playground workflow
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install decoder
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+      - name: Fetch SHA-pinned original GCam 8.8.225
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Decode actual finalizer snapshot and preview consumer
+        run: |
+          python3 - <<'PY'
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import json,hashlib
+          from pathlib import Path
+          b=Path("original.so").read_bytes()
+          sha=hashlib.sha256(b).hexdigest()
+          assert sha=="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          d=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          windows={
+            "original_finalizer_pose_and_preview_handoff":(0x11b8dc,0x11bad0),
+            "original_preview_rosette_builder":(0x3440ec,0x3442b0),
+            "original_estimator_preview_handoff_plus48":(0x11ec84,0x11eef4),
+            "original_rosette_pose_accessor_plus70":(0x3454ec,0x34550c),
+          }
+          report={}
+          for k,(start,end) in windows.items():
+            ins=[{"pc":hex(i.address),"instruction":i.mnemonic+" "+i.op_str}
+                 for i in d.disasm(b[start:end],start)]
+            assert ins and ins[0]["pc"]==hex(start)
+            report[k]=ins
+            print("CHECKPOINT293_WINDOW",k, len(ins))
+            for row in ins: print("CHECKPOINT293_NATIVE",k,row["pc"],row["instruction"])
+          rel={}
+          with Path("original.so").open("rb") as f:
+            elf=ELFFile(f)
+            for section in elf.iter_sections():
+              if section["sh_type"]!="SHT_RELA":continue
+              for item in section.iter_relocations():
+                if item["r_info_type"]==1027:rel[int(item["r_offset"])]=int(item["r_addend"])
+          assert rel[0x3fdca0+0x48]==0x11ec84
+          assert rel[0x40dc10+0x70]==0x3454ec
+          report["verified_method_slots"]={"estimator_plus48":hex(rel[0x3fdca0+0x48]),
+              "rosette_plus70":hex(rel[0x40dc10+0x70])}
+          Path("checkpoint293-original-pose-consumer.json").write_text(json.dumps({
+            "original_elf_sha256":sha,
+            "original_instruction_windows":report,
+            "actual_original_session_executed":False,
+            "dataflow_proof_requires_review":True},indent=2)+"\n")
+          print("CHECKPOINT293_ORIGINAL_POSE_CONSUMER_DISASSEMBLY_PASSED")
+          PY
+      - name: Upload text-only original evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint293-original-pose-consumer-disassembly
+          path: checkpoint293-original-pose-consumer.json
+          if-no-files-found: warn
+          retention-days: 14
