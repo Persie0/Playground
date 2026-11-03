@@ -63,11 +63,34 @@ jobs:
                           'per_JPEG_image_identity_proven':False},indent=2)+'\n')
           print('CHECKPOINT295_ORIGINAL_DISASSEMBLY_PASSED')
           PY
+      - name: Checkout pinned decompile original-ARM64 quaternion probe
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 5b41f0cdde0651fe0908be66e3b4a54c1562201f
+          path: decompile
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Execute original ARM64 quaternion-to-matrix and indexed pose setter
+        run: |
+          set -euo pipefail
+          test "$(git -C decompile rev-parse HEAD)" = 5b41f0cdde0651fe0908be66e3b4a54c1562201f
+          mkdir -p decompile/research/native
+          cp original.so decompile/research/native/liblightcycle.so
+          (
+            cd decompile
+            python3 research/photosphere/checkpoint295/native_original_quaternion_writeback.py | tee ../checkpoint295-original-native-quaternion.log
+            cp checkpoint295-original-quaternion-matrix-fixtures.json ..
+          )
+          grep -q 'CHECKPOINT295_NATIVE_QUATERNION_CASES_PASSED 16' checkpoint295-original-native-quaternion.log
       - name: Upload original instruction evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: checkpoint295-original-quaternion-disassembly
-          path: checkpoint295-original-quaternion-disassembly.json
+          path: |
+            checkpoint295-original-quaternion-disassembly.json
+            checkpoint295-original-quaternion-matrix-fixtures.json
+            checkpoint295-original-native-quaternion.log
           retention-days: 14
           if-no-files-found: warn
