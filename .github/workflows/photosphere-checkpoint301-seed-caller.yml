@@ -51,6 +51,34 @@ jobs:
           set -euo pipefail
           python3 research/research/photosphere/checkpoint301/native_seed_argument.py original.so --output checkpoint301-native-seed-argument.json | tee checkpoint301-native-seed.log
           grep -q '^CHECKPOINT301_ORIGINAL_NATIVE_SEED_ARGUMENT_PASSED 8' checkpoint301-native-seed.log
+      - name: Checkout pinned PhotosphereCleanroom Rust port
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 1b1e9b0e5a16765134e01d608fd076689d5a1c0f
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Confirm fresh native execution equals Rust's frozen original fixture
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 1b1e9b0e5a16765134e01d608fd076689d5a1c0f
+          python3 - <<'PY'
+          import json
+          with open('checkpoint301-native-seed-argument.json') as f:
+              actual=json.load(f)
+          with open('app/tests/fixtures/native_original_seed_argument_301.json') as f:
+              expected=json.load(f)
+          assert actual==expected, 'app fixture differs from freshly executed original ARM64 result'
+          print('CHECKPOINT301_FRESH_ORIGINAL_RUST_ORACLE_EQUALITY_PASSED', len(actual['cases']))
+          PY
+      - name: Test production Rust native-argument helper and full library
+        working-directory: app
+        run: |
+          set -euo pipefail
+          git diff --check
+          cargo test --lib checkpoint301_ -- --nocapture
+          cargo test --lib
       - name: Upload bounded original evidence
         if: always()
         uses: actions/upload-artifact@v4
