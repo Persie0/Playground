@@ -73,11 +73,42 @@ jobs:
           Path('checkpoint297-original-camera-intrinsics-disassembly.json').write_text(json.dumps({'checkpoint':297,'sha256':hashlib.sha256(b).hexdigest(),'vtable_slots':targets,'windows':rows,'native_method_execution':False,'real_device_correction_state_proven':False},indent=2)+'\n')
           print('CHECKPOINT297_CAMERA_ABI_DISASSEMBLY_PASSED')
           PY
+      - name: Checkout exact original camera probe in public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 3ca2b9ced73075ec4efe12d13ddba7916f27b963
+          path: decompile
+          sparse-checkout: |
+            research/photosphere/checkpoint297
+            research/photosphere/checkpoint218
+            research/photosphere/checkpoint211
+            research/photosphere/checkpoint210
+            research/photosphere/checkpoint209
+            research/photosphere/checkpoint188
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Execute original ARM64 focal and center setters with bounded inputs
+        run: |
+          set -euo pipefail
+          test "$(git -C decompile rev-parse HEAD)" = 3ca2b9ced73075ec4efe12d13ddba7916f27b963
+          mkdir -p decompile/research/native
+          cp original.so decompile/research/native/liblightcycle.so
+          (
+            cd decompile
+            python3 research/photosphere/checkpoint297/native_original_camera_intrinsics_writeback.py | tee ../checkpoint297-native-camera-intrinsics.log
+            cp checkpoint297-native-camera-intrinsics-fixtures.json ../
+          )
+          grep -q '^CHECKPOINT297_ORIGINAL_NATIVE_INTRINSIC_CASES_PASSED 12' checkpoint297-native-camera-intrinsics.log
       - name: Publish pinned original evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: checkpoint297-original-camera-abi
-          path: checkpoint297-original-camera-intrinsics-disassembly.json
+          path: |
+            checkpoint297-original-camera-intrinsics-disassembly.json
+            checkpoint297-native-camera-intrinsics-fixtures.json
+            checkpoint297-native-camera-intrinsics.log
           retention-days: 14
           if-no-files-found: warn
