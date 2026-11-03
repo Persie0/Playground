@@ -60,6 +60,23 @@ jobs:
           PY
           grep -q '^0x002d3ff0 str      x8, \[x19, #0x60\]' checkpoint302-seed-field.log
           grep -q '^0x002d4068 str      x10, \[x19, #0x60\]' checkpoint302-seed-field.log
+      - name: Checkout exact checkpoint302 research commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 51a2dc1dd59f2b818192aac2ed022fbf547268f8
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint302
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Validate exact original seed-config source pins and caller count
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = 51a2dc1dd59f2b818192aac2ed022fbf547268f8
+          python3 research/research/photosphere/checkpoint302/verify_original_seed_config.py original.so --output checkpoint302-seed-config.json | tee checkpoint302-verifier.log
+          grep -q '^CHECKPOINT302_ORIGINAL_SOURCE_PINS_PASSED' checkpoint302-verifier.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -67,4 +84,6 @@ jobs:
           path: |
             checkpoint302-seed-callers.log
             checkpoint302-seed-field.log
+            checkpoint302-seed-config.json
+            checkpoint302-verifier.log
           retention-days: 14
