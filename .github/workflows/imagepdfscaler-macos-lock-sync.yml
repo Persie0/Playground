@@ -1,0 +1,64 @@
+name: ImagePdfScaler macOS dependency lockfile sync
+
+# Runs only once when this workflow itself is updated in public Playground.
+# Never invokes private-repository GitHub Actions.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/imagepdfscaler-macos-lock-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: imagepdfscaler-macos-lock-sync
+  cancel-in-progress: true
+
+jobs:
+  sync-macos-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate private repo token
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$GH_TOKEN"
+      - name: Checkout private Mac app branch (without persisted credentials)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/ImagePdfScaler
+          ref: feature/macos-app-store-release
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve the Mac app dependency graph
+        working-directory: app
+        run: flutter pub get
+      - name: Update only the private branch dependency lockfile
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- pubspec.lock; then
+            echo "pubspec.lock already matches stable Flutter."
+            exit 0
+          fi
+          original_sha="$(git ls-tree HEAD pubspec.lock | awk '{print $3}')"
+          test -n "$original_sha"
+          new_content="$(base64 -w 0 pubspec.lock)"
+          test -n "$new_content"
+          gh api --method PUT \
+            repos/Persie0/ImagePdfScaler/contents/pubspec.lock \
+            -f branch=feature/macos-app-store-release \
+            -f message="chore: lock verified macOS desktop package versions" \
+            -f sha="$original_sha" \
+            -f content="$new_content" \
+            --jq '.content.path' >/dev/null
+          echo "Updated only pubspec.lock in the private macOS branch."
