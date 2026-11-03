@@ -1,0 +1,80 @@
+name: Photosphere checkpoint286 original camera versus estimator +0x70 vptr (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint286-original-camera-vptr.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint286-camera-vptr
+  cancel-in-progress: false
+jobs:
+  original-native-camera-receiver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact research revision from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: fa831c9db54aafaa41720664837e50a65b7736d2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify research SHA and install original ARM64 emulator
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "fa831c9db54aafaa41720664837e50a65b7736d2"
+          python3 -m pip install --break-system-packages --quiet -r research/photosphere/checkpoint218/requirements.txt
+      - name: Fetch and verify exact original GCam APK and native library
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute real ARM64 camera vtable +0x70 and estimator-vtable disambiguation
+        run: |
+          set -euo pipefail
+          if ! python3 research/photosphere/checkpoint286/native_original_camera_vptr_disambiguation.py > checkpoint286-original.log 2> checkpoint286-original.stderr; then
+            tail -n 120 checkpoint286-original.stderr
+            tail -n 80 checkpoint286-original.log
+            exit 1
+          fi
+          grep '^CHECKPOINT286_ORIGINAL_CAMERA_VPTR_SLOT' checkpoint286-original.log
+          grep '^CHECKPOINT286_NATIVE_CAMERA_CASE' checkpoint286-original.log
+          grep -q '^CHECKPOINT286_ORIGINAL_CAMERA_VPTR_END' checkpoint286-original.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          log=Path("checkpoint286-original.log").read_text()
+          doc=json.loads(log.split("CHECKPOINT286_ORIGINAL_CAMERA_VPTR_BEGIN\n",1)[1].split("\nCHECKPOINT286_ORIGINAL_CAMERA_VPTR_END",1)[0])
+          assert doc["original_elf_sha256"]=="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert doc["original_source_camera_vptr"]=="0x40d540"
+          assert doc["original_estimator_vptr"]=="0x3fdca0"
+          assert doc["original_camera_plus70_target"]=="0x3317bc"
+          assert doc["original_estimator_plus70_target"]=="0x11ef24"
+          assert doc["original_session_candidate_0x11bed0_disqualified_by_source_camera_lineage"]
+          assert doc["original_finalizer_candidate_0x11b950_disqualified_for_native_linear_camera_clone"]
+          assert len(doc["cases"])==4
+          for case in doc["cases"]:
+              assert case["native_camera_method_is_not_estimator_eligibility"]
+              assert case["original_native_final_camera_words_f32_or_i32_u32"][-2:]==case["original_target_size"]
+          Path("checkpoint286-original-camera-compact.json").write_text(json.dumps(doc,indent=2)+"\n")
+          print("CHECKPOINT286_ORIGINAL_CAMERA_VPTR_AND_FOUR_CASES_PASSED",flush=True)
+          PY
+      - name: Archive original native camera evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint286-original-camera-vptr
+          path: |
+            checkpoint286-original.log
+            checkpoint286-original.stderr
+            checkpoint286-original-camera-compact.json
+          if-no-files-found: warn
+          retention-days: 14
