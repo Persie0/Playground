@@ -1,0 +1,58 @@
+name: Photosphere checkpoint300 original RANSAC RNG ownership
+on:
+  push:
+    branches: [research/photosphere-checkpoint300-ransac-rng-ownership]
+    paths: ['.github/workflows/photosphere-checkpoint300-ransac-rng-ownership.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint300-rng
+  cancel-in-progress: true
+jobs:
+  original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Original ELF decode dependencies
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Download exact original GCam APK and extract native SO
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Checkout pinned research probe
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: cf36b3adb3e846a37a47b97c93a4b004df6dcbb2
+          path: decompile
+          sparse-checkout: |
+            research/photosphere/checkpoint300
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify original direct RANSAC rand and process seed linkage
+        run: |
+          set -euo pipefail
+          test "$(git -C decompile rev-parse HEAD)" = cf36b3adb3e846a37a47b97c93a4b004df6dcbb2
+          python3 decompile/research/photosphere/checkpoint300/verify_original_rng_linkage.py original.so --output checkpoint300-original-rng-linkage.json | tee checkpoint300-original-rng-linkage.log
+          grep -q '^CHECKPOINT300_ORIGINAL_RNG_LINKAGE_PASSED' checkpoint300-original-rng-linkage.log
+      - name: Upload exact original linkage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint300-original-rng-linkage
+          path: |
+            checkpoint300-original-rng-linkage.json
+            checkpoint300-original-rng-linkage.log
+          retention-days: 14
+          if-no-files-found: warn
