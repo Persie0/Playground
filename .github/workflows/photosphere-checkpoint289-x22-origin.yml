@@ -18,12 +18,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 93b0ef48fa50e65c118c2fcaedf84272f07abe48
+          ref: eac6302488b9beaa9699ade2b9fedd2e6f50c9cf
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Install decoder and check pinned source
         run: |
-          test "$(git rev-parse HEAD)" = 93b0ef48fa50e65c118c2fcaedf84272f07abe48
+          test "$(git rev-parse HEAD)" = eac6302488b9beaa9699ade2b9fedd2e6f50c9cf
           python3 -m pip install --break-system-packages --quiet capstone
       - name: Obtain original APK and verify exact ELF
         env:
@@ -72,6 +72,23 @@ jobs:
           for r in subset:print('CHECKPOINT289_CODE',r['pc'],r['code'])
           print('CHECKPOINT289_PINNED_ORIGINAL_TRACE_PASS')
           PY
+      - name: Verify checkpoint289 committed original receiver/relocation evidence
+        run: |
+          set -euo pipefail
+          python3 -m pip install --break-system-packages --quiet pyelftools
+          python3 research/photosphere/checkpoint289/verify_original_linear_camera_caller.py --original-so original.so --output checkpoint289-original-verified.json | tee checkpoint289-verification.log
+          grep -q '^CHECKPOINT289_ORIGINAL_CAMERA_CALLER_VERIFIED' checkpoint289-verification.log
+          python3 - <<'PY'
+          import json
+          d=json.load(open('checkpoint289-original-verified.json'))
+          assert d['fresh_original_elf_rechecked']
+          assert d['fresh_check_detail']['no_intervening_x22_writes']
+          assert d['fresh_check_detail']['pins_checked']>=20
+          assert d['clone_plus0x70_target_on_linear_camera_route']=='0x3317bc'
+          assert not d['f1ebc_is_estimator_eligibility_on_verified_caller_path']
+          assert not d['genuine_eligibility_production_caller_found']
+          print('CHECKPOINT289_ORIGINAL_SOURCE_AND_CLONE_VPTR_PASS')
+          PY
       - name: Archive text evidence only (no proprietary ELF/APK)
         if: always()
         uses: actions/upload-artifact@v4
@@ -80,5 +97,7 @@ jobs:
           path: |
             checkpoint289-original-x22-receiver.json
             checkpoint289-original-wide-disassembly.txt
+            checkpoint289-original-verified.json
+            checkpoint289-verification.log
           retention-days: 14
           if-no-files-found: warn
