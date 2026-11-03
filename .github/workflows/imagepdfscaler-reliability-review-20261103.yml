@@ -1,0 +1,41 @@
+name: ImagePdfScaler feature review (public runner)
+on:
+  push:
+    branches:
+      - fix/imagepdfscaler-reliability-review-20261103
+    paths:
+      - .github/workflows/imagepdfscaler-reliability-review-20261103.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Verify private checkout token is available
+        env:
+          APP_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$APP_TOKEN"
+      - name: Checkout reviewed ImagePdfScaler branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/ImagePdfScaler
+          ref: fix/localization-project-reliability-20261103
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve packages and regenerate localization
+        run: |
+          flutter pub get
+          flutter gen-l10n
+      - name: Analyze
+        run: flutter analyze --no-pub
+      - name: Run entire test suite
+        run: flutter test --no-pub --reporter expanded
