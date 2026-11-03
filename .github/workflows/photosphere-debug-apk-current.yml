@@ -1,5 +1,5 @@
 name: Photo Sphere current debug APK
-run-name: Build Photo Sphere debug APK (797e0683b1aa)
+run-name: Build Photo Sphere 360 viewer APK (f6dad2db7bfd)
 on:
   workflow_dispatch:
   push:
@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 100
     env:
-      SOURCE_SHA: 797e0683b1aa404abbbd415245ce0d0b354c5dac
+      SOURCE_SHA: f6dad2db7bfd0c24202f953b1ecbd9caaf959027
     steps:
       - name: Checkout Playground build helpers
         uses: actions/checkout@v4
@@ -94,6 +94,10 @@ jobs:
           mkdir -p "$GRADLE_USER_HOME/init.d"
           cp playground/scripts/photosphere-maven-mirror.init.gradle "$GRADLE_USER_HOME/init.d/photosphere-maven-mirror.gradle"
 
+      - name: Android JVM unit tests and lint
+        working-directory: engine/android
+        run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
+
       - name: Compile native Android libraries for arm64 and x86_64
         working-directory: engine
         run: python3 tools/build_android.py
@@ -110,6 +114,20 @@ jobs:
           mkdir -p out
           cp engine/android/app/build/outputs/apk/debug/app-debug.apk out/PhotoSphere-debug.apk
           sha256sum out/PhotoSphere-debug.apk
+
+      - name: Upload downloadable APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoSphere-360-debug-f6dad2db7bfd
+          path: out/PhotoSphere-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Link APK in run summary
+        run: |
+          echo '## Photo Sphere 360 APK' >> "$GITHUB_STEP_SUMMARY"
+          echo "Built from $SOURCE_SHA (merged PR #111)." >> "$GITHUB_STEP_SUMMARY"
+          echo 'Download PhotoSphere-360-debug-f6dad2db7bfd from this run’s Artifacts section.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish APK in private source repository
         env:
