@@ -1,0 +1,61 @@
+name: Photosphere checkpoint280 original ELF component API relocation resolution (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint280-original-relocations.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint280-original-relocations
+  cancel-in-progress: false
+jobs:
+  relocation-investigation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact original binary research
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 5ab7f4c0e02a4aa4022378b11434614feb688163
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source and install ELF parser
+        run: |
+          test "$(git rev-parse HEAD)" = "5ab7f4c0e02a4aa4022378b11434614feb688163"
+          python3 -m pip install --break-system-packages --quiet pyelftools
+      - name: Fetch and verify original APK and ARM64 ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Resolve original ELF relocation addends to vtable slots
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint280/resolve_original_component_relocations.py original.so > checkpoint280-original-relocations.log
+          grep '^CHECKPOINT280_RAW_QWORD' checkpoint280-original-relocations.log
+          grep '^CHECKPOINT280_ACTUAL_RELOCATIONS' checkpoint280-original-relocations.log | cut -c1-750
+          grep -q 'CHECKPOINT280_RELOCATION_RESOLUTION_PASSED' checkpoint280-original-relocations.log
+          python3 - <<'PY'
+          import json
+          d=json.load(open('checkpoint280-relocations.json'))
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert d['actual_relocation_targets']['0x11ef24']['records']
+          print('CHECKPOINT280_ORIGINAL_ELF_RELOCATIONS_VALIDATED',len(d['qword_hits']))
+          PY
+      - name: Archive exact ELF relocation report, not original binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint280-original-component-relocations
+          path: |
+            checkpoint280-relocations.json
+            checkpoint280-original-relocations.log
+          if-no-files-found: warn
+          retention-days: 14
