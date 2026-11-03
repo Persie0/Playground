@@ -87,11 +87,42 @@ jobs:
           Path('checkpoint298-original-correction-disassembly.json').write_text(json.dumps(result,indent=2)+'\n')
           print('CHECKPOINT298_ORIGINAL_ABI_AND_STORES_PINNED')
           PY
+      - name: Checkout pinned original ARM64 correction execution harness
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: a93f6125208dc6dad97befb7569e30837a3bdb68
+          path: decompile
+          sparse-checkout: |
+            research/photosphere/checkpoint298
+            research/photosphere/checkpoint218
+            research/photosphere/checkpoint211
+            research/photosphere/checkpoint210
+            research/photosphere/checkpoint209
+            research/photosphere/checkpoint188
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Execute original ARM64 camera project/unproject correction virtuals
+        run: |
+          set -euo pipefail
+          test "$(git -C decompile rev-parse HEAD)" = a93f6125208dc6dad97befb7569e30837a3bdb68
+          mkdir -p decompile/research/native
+          cp original.so decompile/research/native/liblightcycle.so
+          (
+            cd decompile
+            python3 research/photosphere/checkpoint298/native_original_optional_correction_calls.py | tee ../checkpoint298-original-native-correction.log
+            cp checkpoint298-native-correction-abi-fixtures.json ../
+          )
+          grep -q '^CHECKPOINT298_NATIVE_OPTIONAL_CORRECTION_CASES_PASSED 12' checkpoint298-original-native-correction.log
       - name: Upload original correction inventory
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: checkpoint298-original-correction-inventory
-          path: checkpoint298-original-correction-disassembly.json
+          path: |
+            checkpoint298-original-correction-disassembly.json
+            checkpoint298-native-correction-abi-fixtures.json
+            checkpoint298-original-native-correction.log
           if-no-files-found: warn
           retention-days: 14
