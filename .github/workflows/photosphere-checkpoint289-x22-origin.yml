@@ -1,0 +1,84 @@
+name: Photosphere checkpoint289 original x22 caller origin (public research)
+on:
+  push:
+    branches: [research/photosphere-checkpoint289-source-provenance]
+    paths: ['.github/workflows/photosphere-checkpoint289-x22-origin.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint289-x22-origin
+  cancel-in-progress: false
+jobs:
+  original-x22-disassembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout pinned private research snapshot without credentials
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 93b0ef48fa50e65c118c2fcaedf84272f07abe48
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install decoder and check pinned source
+        run: |
+          test "$(git rev-parse HEAD)" = 93b0ef48fa50e65c118c2fcaedf84272f07abe48
+          python3 -m pip install --break-system-packages --quiet capstone
+      - name: Obtain original APK and verify exact ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Disassemble wider original x22 assignment and clone path
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, hashlib
+          from pathlib import Path
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+          from capstone.arm64 import ARM64_REG_X22, ARM64_REG_W22
+          raw=Path('original.so').read_bytes()
+          assert hashlib.sha256(raw).hexdigest()=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          d=Cs(CS_ARCH_ARM64,CS_MODE_ARM);d.detail=True
+          start,end=0xee000,0xf1f80
+          rows=[]
+          for ins in d.disasm(raw[start:end],start):
+              reads,writes=ins.regs_access()
+              rows.append(dict(pc=hex(ins.address),code=ins.mnemonic+' '+ins.op_str,
+                               x22_written=(ARM64_REG_X22 in writes or ARM64_REG_W22 in writes)))
+          by={int(r['pc'],16):r['code'] for r in rows}
+          for pc,expected in {0xf1e9c:'ldr x8, [x22]',0xf1ea0:'mov x0, x22',
+                              0xf1ea4:'ldr x8, [x8, #0x10]',0xf1ea8:'blr x8',
+                              0xf1eb0:'mov x23, x0',0xf1eb8:'ldp w1, w2, [x8, #8]',
+                              0xf1ebc:'ldr x8, [x9, #0x70]',0xf1ec0:'blr x8'}.items():
+              assert by[pc]==expected,(hex(pc),by.get(pc),expected)
+          writes=[r for r in rows if r['x22_written'] and int(r['pc'],16)<0xf1e9c]
+          prologues=[r for r in rows if r['code'].startswith('stp x29, x30, [sp, #-')]
+          subset=[r for r in rows if 0xf1d00<=int(r['pc'],16)<0xf1f60]
+          report={'elf_sha256':hashlib.sha256(raw).hexdigest(),'scan_bounds':[hex(start),hex(end)],
+                  'prior_x22_writes':writes,'prologue_candidates':prologues,'near_clone':subset,
+                  'real_clone_vptr_observed':False,'eligibility_production_caller_proven':False}
+          Path('checkpoint289-original-x22-receiver.json').write_text(json.dumps(report,indent=2)+'\n')
+          Path('checkpoint289-original-wide-disassembly.txt').write_text('\n'.join(
+              r['pc']+' '+r['code']+(' [x22-write]' if r['x22_written'] else '') for r in rows)+'\n')
+          print('CHECKPOINT289_X22_WRITES',json.dumps(writes[-35:]))
+          print('CHECKPOINT289_PROLOGUES',json.dumps(prologues[-18:]))
+          for r in subset:print('CHECKPOINT289_CODE',r['pc'],r['code'])
+          print('CHECKPOINT289_PINNED_ORIGINAL_TRACE_PASS')
+          PY
+      - name: Archive text evidence only (no proprietary ELF/APK)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint289-original-x22-receiver-context
+          path: |
+            checkpoint289-original-x22-receiver.json
+            checkpoint289-original-wide-disassembly.txt
+          retention-days: 14
+          if-no-files-found: warn
