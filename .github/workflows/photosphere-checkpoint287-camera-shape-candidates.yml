@@ -1,0 +1,65 @@
+name: Photosphere checkpoint287 original ARM64 rosette/camera receiver candidate disassembly (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint287-camera-shape-candidates.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint287-camera-shapes
+  cancel-in-progress: false
+jobs:
+  original-candidate-dataflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact research source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 8f35608e6968e76f6e7d54339c42a88eba115931
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source and install ARM64 decoder
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "8f35608e6968e76f6e7d54339c42a88eba115931"
+          python3 -m pip install --break-system-packages --quiet capstone
+      - name: Download and pin original GCam APK and ARM64 binary
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Check exact original scale/camera virtual call contexts
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint287/disassemble_original_camera_shape_candidates.py original.so > checkpoint287-original-disasm.log
+          grep '^CHECKPOINT287_ORIGINAL_CODE_WINDOW' checkpoint287-original-disasm.log
+          grep '^CHECKPOINT287_ORIGINAL_ARM64' checkpoint287-original-disasm.log | grep -E '0x344e(e4|e8)|0x3450(a8|ac)|0xf1(ea8|ebc|ec0|ed0|ed4)'
+          grep -q '^CHECKPOINT287_ORIGINAL_CAMERA_SHAPED_CALLS_VERIFIED' checkpoint287-original-disasm.log
+          python3 - <<'PY'
+          import json
+          d=json.load(open('checkpoint287-original-camera-shapes.json'))
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert d['native_rosette_candidates_two_dimension_arguments_verified']
+          assert d['other_candidate_clones_then_sets_two_dimensions_and_width']
+          assert not d['original_real_receiver_vptr_observed_at_callsite']
+          assert not d['original_session_component_eligibility_callsite_identified']
+          print('CHECKPOINT287_ORIGINAL_CANDIDATE_SCOPE_VERIFIED')
+          PY
+      - name: Archive exact source-code disassembly
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint287-original-camera-callsite-dataflow
+          path: |
+            checkpoint287-original-camera-shapes.json
+            checkpoint287-original-disasm.log
+          if-no-files-found: warn
+          retention-days: 14
