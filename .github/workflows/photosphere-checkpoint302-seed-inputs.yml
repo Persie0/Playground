@@ -48,9 +48,23 @@ jobs:
           PY
           grep -q '^CHECKPOINT302_CALLER 0x2d41d8' checkpoint302-seed-callers.log
           grep -q '^CHECKPOINT302_CALLER 0x2d4e3c' checkpoint302-seed-callers.log
+      - name: Trace config register and seed field initialization inside original constructor
+        run: |
+          python3 - <<'PY' | tee checkpoint302-seed-field.log
+          from pathlib import Path
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+          elf=Path("original.so").read_bytes()
+          d=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          for i in d.disasm(elf[0x2d3d98:0x2d40a0],0x2d3d98):
+              print(f"{i.address:#010x} {i.mnemonic:8} {i.op_str}")
+          PY
+          grep -q '^0x002d3ff0 str      x8, \[x19, #0x60\]' checkpoint302-seed-field.log
+          grep -q '^0x002d4068 str      x10, \[x19, #0x60\]' checkpoint302-seed-field.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: checkpoint302-original-seed-callers
-          path: checkpoint302-seed-callers.log
+          path: |
+            checkpoint302-seed-callers.log
+            checkpoint302-seed-field.log
           retention-days: 14
