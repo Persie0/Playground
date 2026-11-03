@@ -84,6 +84,23 @@ jobs:
           python3 research/photosphere/checkpoint292/native_original_pose_vector_assign.py | tee ../checkpoint292-native-pose-vector.log
           grep -q 'CHECKPOINT292_NATIVE_POSE_VECTOR_CASES_PASSED 10' ../checkpoint292-native-pose-vector.log
           cp checkpoint292-native-pose-vector-fixtures.json ..
+      - name: Checkout exact PhotosphereCleanroom Rust checkpoint292 commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 79ce40dcbd813059afbc8f1c46bfc1535baeb48a
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Validate scoped Rust pose-vector fixture and entire Rust library
+        working-directory: app
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 79ce40dcbd813059afbc8f1c46bfc1535baeb48a
+          git diff --check
+          rustfmt --edition 2021 --check src/native_rosette_pose_vector.rs
+          cargo test --lib checkpoint292_original_native_pose_vector_assignment_matches_all_cases -- --nocapture
+          cargo test --lib
       - name: Archive only text disassembly
         if: always()
         uses: actions/upload-artifact@v4
