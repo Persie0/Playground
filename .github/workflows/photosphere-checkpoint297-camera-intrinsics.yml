@@ -1,0 +1,83 @@
+name: Photosphere checkpoint297 original camera intrinsics ABI
+on:
+  push:
+    branches: [research/photosphere-checkpoint297-camera-intrinsics]
+    paths:
+      - .github/workflows/photosphere-checkpoint297-camera-intrinsics.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint297-camera-intrinsics
+  cancel-in-progress: true
+jobs:
+  camera-abi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Original ARM64 disassembly
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Download original SHA-pinned Camera APK
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Read real vtable method targets and near original native bodies
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,hashlib
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          p=Path('original.so');b=p.read_bytes()
+          assert hashlib.sha256(b).hexdigest()=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          rel={}
+          with p.open('rb') as fd:
+            e=ELFFile(fd)
+            for sec in e.iter_sections():
+              if sec['sh_type']!='SHT_RELA': continue
+              for item in sec.iter_relocations():
+                if item['r_info_type']==1027: rel[int(item['r_offset'])]=int(item['r_addend'])
+          model_vptrs={'LinearCamera':0x40d540,'FisheyeCamera':0x40d480,'EquirectCamera':0x40d3c8,'RotatedVerticalEquirectCamera':0x40cdb8}
+          targets={}
+          for name,base in model_vptrs.items():
+            targets[name]={hex(offset):hex(rel.get(base+offset,0)) for offset in (0x10,0x28,0x30,0x38,0x40,0x48,0x50,0x58,0x60,0x68,0x70)}
+            print('CHECKPOINT297_VTABLE',name,json.dumps(targets[name],sort_keys=True))
+          assert rel[0x40dc10+0x20]==0x344828
+          rows={}
+          c=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          for name,(begin,end) in {
+            'original_ba_postsolve_focal_and_center':(0x1296a0,0x129870),
+            'original_standard_rosette_indexed_camera_getter':(0x344828,0x344884),
+            'original_linear_camera_constructor':(0x331344,0x3313c0),
+            'original_linear_camera_focal_setter':(rel[0x40d540+0x58],rel[0x40d540+0x58]+0xa0),
+            'original_linear_camera_center_setter':(rel[0x40d540+0x60],rel[0x40d540+0x60]+0x90),
+            'original_linear_camera_fov_accessor':(rel[0x40d540+0x40],rel[0x40d540+0x40]+0x68),
+            'original_linear_camera_resize':(0x3317bc,0x331810),
+            'original_finalizer_camera_prototype':(0x11b900,0x11b988),
+          }.items():
+            assert 0x10000<begin<end<len(b),(name,hex(begin),hex(end))
+            instructions=[{'pc':hex(i.address),'asm':(i.mnemonic+' '+i.op_str).strip()} for i in c.disasm(b[begin:end],begin)]
+            assert len(instructions)==(end-begin)//4,(name,len(instructions))
+            rows[name]=instructions
+            print('CHECKPOINT297_WINDOW',name,hex(begin),hex(end))
+            for i in instructions:print('CHECKPOINT297_ARM64',name,i['pc'],i['asm'])
+          Path('checkpoint297-original-camera-intrinsics-disassembly.json').write_text(json.dumps({'checkpoint':297,'sha256':hashlib.sha256(b).hexdigest(),'vtable_slots':targets,'windows':rows,'native_method_execution':False,'real_device_correction_state_proven':False},indent=2)+'\n')
+          print('CHECKPOINT297_CAMERA_ABI_DISASSEMBLY_PASSED')
+          PY
+      - name: Publish pinned original evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint297-original-camera-abi
+          path: checkpoint297-original-camera-intrinsics-disassembly.json
+          retention-days: 14
+          if-no-files-found: warn
