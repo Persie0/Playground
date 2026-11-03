@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 696c762b34d375ff1c2b93ab1f81c4b3e2540573
+          ref: 438b332de1a8bb01fa12ecb754284790ccd0616e
           path: decompile
           sparse-checkout: |
             research/photosphere/checkpoint300
@@ -43,9 +43,39 @@ jobs:
       - name: Verify original direct RANSAC rand and process seed linkage
         run: |
           set -euo pipefail
-          test "$(git -C decompile rev-parse HEAD)" = 696c762b34d375ff1c2b93ab1f81c4b3e2540573
+          test "$(git -C decompile rev-parse HEAD)" = 438b332de1a8bb01fa12ecb754284790ccd0616e
           python3 decompile/research/photosphere/checkpoint300/verify_original_rng_linkage.py original.so --output checkpoint300-original-rng-linkage.json | tee checkpoint300-original-rng-linkage.log
           grep -q '^CHECKPOINT300_ORIGINAL_RNG_LINKAGE_PASSED' checkpoint300-original-rng-linkage.log
+      - name: Checkout original native two-frame RANSAC harness and dependencies
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 438b332de1a8bb01fa12ecb754284790ccd0616e
+          path: decompile-native
+          sparse-checkout: |
+            research/photosphere/checkpoint300
+            research/photosphere/checkpoint271
+            research/photosphere/checkpoint218
+            research/photosphere/checkpoint211
+            research/photosphere/checkpoint210
+            research/photosphere/checkpoint209
+            research/photosphere/checkpoint188
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Execute genuine 550-trial ARM64 RANSAC with two alternating controlled pairs
+        run: |
+          set -euo pipefail
+          test "$(git -C decompile-native rev-parse HEAD)" = 438b332de1a8bb01fa12ecb754284790ccd0616e
+          mkdir -p decompile-native/research/native
+          cp original.so decompile-native/research/native/liblightcycle.so
+          (
+            cd decompile-native
+            python3 research/photosphere/checkpoint300/native_original_alternating_ransac.py > ../checkpoint300-native-alternating.log 2> ../checkpoint300-native-alternating.stderr
+            cp checkpoint300-native-alternating-ransac-fixtures.json ..
+          )
+          cat checkpoint300-native-alternating.log
+          grep -q '^CHECKPOINT300_ALTERNATING_NATIVE_550_TRIALS_PASSED 550 1100' checkpoint300-native-alternating.log
       - name: Upload exact original linkage report
         if: always()
         uses: actions/upload-artifact@v4
@@ -54,5 +84,8 @@ jobs:
           path: |
             checkpoint300-original-rng-linkage.json
             checkpoint300-original-rng-linkage.log
+            checkpoint300-native-alternating-ransac-fixtures.json
+            checkpoint300-native-alternating.log
+            checkpoint300-native-alternating.stderr
           retention-days: 14
           if-no-files-found: warn
