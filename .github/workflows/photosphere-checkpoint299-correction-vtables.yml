@@ -1,0 +1,103 @@
+name: Photosphere checkpoint299 original concrete correction vtables
+on:
+  push:
+    branches: [research/photosphere-checkpoint299-correction-vtables]
+    paths: ['.github/workflows/photosphere-checkpoint299-correction-vtables.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint299-correction-vtables
+  cancel-in-progress: true
+jobs:
+  original-elf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare ELF tooling
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+      - name: Download exact original GCam APK and extract native ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Enumerate RTTI-backed vtables and optional 2D-correction method signatures
+        run: |
+          python3 - <<'PY'
+          import json,hashlib,subprocess
+          from pathlib import Path
+          from elftools.elf.elffile import ELFFile
+          b=Path('original.so').read_bytes()
+          rel={}
+          with open('original.so','rb') as f:
+            e=ELFFile(f)
+            for sec in e.iter_sections():
+              if sec['sh_type']!='SHT_RELA':continue
+              for item in sec.iter_relocations():
+                if item['r_info_type']==1027:rel[int(item['r_offset'])]=int(item['r_addend'])
+          assert rel[0x40d540+0x10]==0x3315f8
+          assert rel[0x40d480+0x10]==0x330acc
+          assert rel[0x40d540+0x80]==0x331b54
+          assert rel[0x40d540+0x88]==0x331c38
+          def cstring(address):
+            if not (0<address<len(b)):return None
+            stop=b.find(b'\x00',address,address+350)
+            if stop<0:return None
+            raw=b[address:stop]
+            if not raw or len(raw)>300:return None
+            try:return raw.decode('ascii')
+            except UnicodeDecodeError:return None
+          def ti(vtable):
+            typeinfo=rel.get(vtable-8)
+            if typeinfo is None:return {}
+            string_addr=rel.get(typeinfo+8)
+            if string_addr is None:return {'typeinfo':hex(typeinfo)}
+            name=cstring(string_addr)
+            if not name:return {'typeinfo':hex(typeinfo),'typename_address':hex(string_addr)}
+            return {'typeinfo':hex(typeinfo),'name_raw':name}
+          slots=[0,8,16,24,32,40]
+          bases=[]
+          for v in sorted(rel):
+            if v-8 not in rel:continue
+            if not all(v+offset in rel for offset in slots):continue
+            target=[rel[v+offset] for offset in slots]
+            if not all(0xed630<=x<0x3fb000 for x in target):continue
+            row={'vptr':hex(v),'slots':{hex(k):hex(rel[v+k]) for k in slots},'rtti':ti(v)}
+            bases.append(row)
+          print('CHECKPOINT299_ALL_RTTI_VTABLE_CANDIDATES',len(bases))
+          keys=('correction','distortion','lens','calibr','geometric','radial','fisheye','camera','projection','undistort','transform','warp')
+          selected=[v for v in bases if any(k in v['rtti'].get('name_raw','').lower() for k in keys)]
+          print('CHECKPOINT299_TYPE_FILTERED_VTABLES',len(selected))
+          for i in selected:
+            print('CHECKPOINT299_CANDIDATE',i['vptr'],i['rtti'].get('name_raw'),i['slots'].get('0x10'),i['slots'].get('0x18'),i['slots'].get('0x20'),i['slots'].get('0x28'))
+          for v in [0x40d540,0x40d480,0x40d3c8,0x40cdb8]:
+            print('CHECKPOINT299_VERIFIED_CAMERA',hex(v),json.dumps(ti(v)))
+          report={
+            'checkpoint':299,'sha256':hashlib.sha256(b).hexdigest(),
+            'relative_relocation_count':len(rel),
+            'candidate_vtables_with_vptr_minus8_rtti_and_6_methods':len(bases),
+            'type_filtered_vtables':selected,
+            'all_candidates':bases,
+            'method_signature_is_heuristic_not_identity_proof':True,
+            'real_correction_creation_path_proven':False,
+            'real_correction_algorithm_proven':False
+          }
+          Path('checkpoint299-native-vtable-inventory.json').write_text(json.dumps(report,indent=2)+'\n')
+          print('CHECKPOINT299_RTTI_VTABLE_INVENTORY_PASSED')
+          PY
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint299-native-vtable-inventory
+          path: checkpoint299-native-vtable-inventory.json
+          if-no-files-found: warn
+          retention-days: 14
