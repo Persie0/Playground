@@ -91,7 +91,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: a93f6125208dc6dad97befb7569e30837a3bdb68
+          ref: 023b9aad8f0e8470849a8a5a03e8f0adda76a90f
           path: decompile
           sparse-checkout: |
             research/photosphere/checkpoint298
@@ -106,7 +106,7 @@ jobs:
       - name: Execute original ARM64 camera project/unproject correction virtuals
         run: |
           set -euo pipefail
-          test "$(git -C decompile rev-parse HEAD)" = a93f6125208dc6dad97befb7569e30837a3bdb68
+          test "$(git -C decompile rev-parse HEAD)" = 023b9aad8f0e8470849a8a5a03e8f0adda76a90f
           mkdir -p decompile/research/native
           cp original.so decompile/research/native/liblightcycle.so
           (
@@ -115,6 +115,36 @@ jobs:
             cp checkpoint298-native-correction-abi-fixtures.json ../
           )
           grep -q '^CHECKPOINT298_NATIVE_OPTIONAL_CORRECTION_CASES_PASSED 12' checkpoint298-original-native-correction.log
+      - name: Checkout pinned cleanroom camera correction parity implementation
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 305e7a00162c887b6eb7e7bcf4374432d48f17dd
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Confirm fresh original ARM64 outputs exactly equal frozen Rust fixture
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 305e7a00162c887b6eb7e7bcf4374432d48f17dd
+          python3 - <<'PY'
+          import json
+          with open('checkpoint298-native-correction-abi-fixtures.json') as f: original=json.load(f)
+          with open('app/tests/fixtures/native_camera_correction_abi_298.json') as f: rust=json.load(f)
+          assert original==rust,"original ARM64 correction results changed versus Rust fixture"
+          assert len(original['cases'])==12
+          assert sum(len(x['controlled_virtual_calls']) for x in original['cases'])==9
+          assert sum(not x['original_arm64_return_success'] for x in original['cases'])==4
+          print("CHECKPOINT298_FRESH_NATIVE_CORRECTION_ORACLE_EQUALITY_PASSED",len(original['cases']))
+          PY
+      - name: Rustfmt and original differential projection/unprojection correction tests
+        working-directory: app
+        run: |
+          set -euo pipefail
+          git diff --check
+          rustfmt --edition 2021 --check src/native_camera_correction_abi.rs
+          cargo test --lib checkpoint298_native_linear_camera_optional_correction_parent_project_unproject -- --nocapture
+          cargo test --lib
       - name: Upload original correction inventory
         if: always()
         uses: actions/upload-artifact@v4
