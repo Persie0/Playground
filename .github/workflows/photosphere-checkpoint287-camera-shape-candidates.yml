@@ -18,14 +18,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 8f35608e6968e76f6e7d54339c42a88eba115931
+          ref: aab76f9faeee5d1f52727f4a919087c7f6e79dbc
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify source and install ARM64 decoder
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "8f35608e6968e76f6e7d54339c42a88eba115931"
-          python3 -m pip install --break-system-packages --quiet capstone
+          test "$(git rev-parse HEAD)" = "aab76f9faeee5d1f52727f4a919087c7f6e79dbc"
+          python3 -m pip install --break-system-packages --quiet capstone pyelftools
       - name: Download and pin original GCam APK and ARM64 binary
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -48,6 +48,12 @@ jobs:
           d=json.load(open('checkpoint287-original-camera-shapes.json'))
           assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
           assert d['native_rosette_candidates_two_dimension_arguments_verified']
+          assert d['original_standard_rosette_vptr']=='0x40dc10'
+          assert d['original_standard_rosette_relocated_method_slots']['+0x48']=='0x344d54'
+          assert d['original_standard_rosette_relocated_method_slots']['+0x50']=='0x344f18'
+          assert d['original_rosette_two_callers_load_actual_camera_vector_elements']
+          assert d['original_rosette_method_0x344ee4_is_not_estimator_component_query']
+          assert d['original_rosette_method_0x3450a8_is_not_estimator_component_query']
           assert d['other_candidate_clones_then_sets_two_dimensions_and_width']
           assert not d['original_real_receiver_vptr_observed_at_callsite']
           assert not d['original_session_component_eligibility_callsite_identified']
