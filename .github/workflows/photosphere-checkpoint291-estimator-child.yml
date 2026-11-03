@@ -1,0 +1,82 @@
+name: Photosphere checkpoint291 original estimator-child receiver (one-shot)
+on:
+  push:
+    branches: [research/photosphere-checkpoint291-estimator-child]
+    paths: ['.github/workflows/photosphere-checkpoint291-estimator-child.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint291-source-exact
+  cancel-in-progress: false
+jobs:
+  original-elf-checkpoint291:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact research revision without storing private credentials
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 36ec5070a734dbfebb960ed40906d0efac4d277b
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Check research snapshot and install ARM64 tools
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 36ec5070a734dbfebb960ed40906d0efac4d277b
+          python3 -m pip install --break-system-packages --quiet capstone pyelftools
+      - name: Download hash-pinned original APK and ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Verify original estimator child, rosette relocation and two non-vtable patterns
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint291/verify_original_estimator_child_dispatch.py original.so --output checkpoint291-original-verification.json | tee checkpoint291-original-verification.log
+          grep -q 'CHECKPOINT291_ORIGINAL_THREE_EXCLUSIONS_PASSED 3' checkpoint291-original-verification.log
+      - name: Capture actual original rosette +0x70 implementation instructions
+        run: |
+          python3 - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          data=Path('original.so').read_bytes()
+          assert hashlib.sha256(data).hexdigest() == '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          decoder=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          funcs={
+            'original_standard_rosette_plus0x70':(0x3454ec,0x3456ec),
+            'original_estimator_addimage_receiver':(0x11d6d0,0x11d7c0),
+            'original_global_and_callback_forms':(0xeefe4,0xef018)
+          }
+          out={}
+          for key,(start,end) in funcs.items():
+              rows=[{'pc':hex(i.address),'instruction':i.mnemonic+' '+i.op_str}
+                    for i in decoder.disasm(data[start:end],start)]
+              assert rows and rows[0]['pc']==hex(start)
+              out[key]=rows
+              for r in rows: print('CHECKPOINT291_NATIVE',key,r['pc'],r['instruction'])
+          Path('checkpoint291-original-rosette-plus70-code.json').write_text(json.dumps(
+              {'original_elf_sha256':hashlib.sha256(data).hexdigest(),
+               'original_arm64_disassembly':out,
+               'entire_rosette_method_length_proven':False,
+               'actual_session_executed':False},indent=2)+'\n')
+          print('CHECKPOINT291_ORIGINAL_ROSETTE_DISASSEMBLY_PASSED')
+          PY
+      - name: Archive original disassembly and proof only (not proprietary binary)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint291-original-estimator-child-and-rosette
+          path: |
+            checkpoint291-original-verification.json
+            checkpoint291-original-verification.log
+            checkpoint291-original-rosette-plus70-code.json
+          retention-days: 14
+          if-no-files-found: warn
