@@ -1,0 +1,58 @@
+name: Photosphere checkpoint301 native srand caller provenance
+on:
+  push:
+    branches: [research/photosphere-checkpoint301-seed-caller]
+    paths: ['.github/workflows/photosphere-checkpoint301-seed-caller.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint301-seed-caller
+  cancel-in-progress: true
+jobs:
+  seed-caller:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned-analysis dependencies
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+      - name: Download SHA-pinned original GCam APK and ARM64 ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Checkout exact proposed research commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 1b2750c15fee2d9f0bdb380de7432a82661217a6
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint301
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Prove original srand branch chain and record complete bounded caller
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = 1b2750c15fee2d9f0bdb380de7432a82661217a6
+          python3 research/research/photosphere/checkpoint301/verify_seed_caller.py original.so --output checkpoint301-seed-caller-audit.json | tee checkpoint301-seed-caller.log
+          grep -q '^CHECKPOINT301_ORIGINAL_SEED_CALLER_AUDIT_PASSED' checkpoint301-seed-caller.log
+      - name: Upload bounded original evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint301-seed-caller-evidence
+          path: |
+            checkpoint301-seed-caller-audit.json
+            checkpoint301-seed-caller.log
+          retention-days: 14
+          if-no-files-found: warn
