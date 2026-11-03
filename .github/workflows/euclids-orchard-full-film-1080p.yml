@@ -1,0 +1,153 @@
+name: Euclid's Orchard - All 26 Scenes Native 1080p Film
+
+on:
+  push:
+    branches: [ci/euclids-orchard-full1080p]
+    paths:
+      - .github/workflows/euclids-orchard-full-film-1080p.yml
+      - scripts/euclids-orchard/render_fullfilm.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_SHA: e471557830b2f8e47495133508d78e4c17545699
+  RELEASE_TAG: euclids-orchard-19m12s-native1080p-silent-2026-11-04
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+  PYTHONUNBUFFERED: '1'
+
+concurrency:
+  group: euclids-orchard-native-full1080p-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-render:
+    name: Native 1080p scene ${{ matrix.scene }} / 26
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        scene: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
+    steps:
+      - name: Checkout public Playground scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout pinned private render SOURCE ONLY - no private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+          persist-credentials: false
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install FFmpeg, fonts and Python dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-lato fonts-noto-core
+          python -m pip install -r source/euclids-orchard/requirements.txt
+      - name: Verify pinned private source and public helper syntax
+        run: |
+          set -euo pipefail
+          actual="$(git -C source rev-parse HEAD)"
+          test "$actual" = "$SOURCE_SHA" || { echo "Source SHA mismatch: $actual"; exit 1; }
+          python -m py_compile scripts/euclids-orchard/render_fullfilm.py
+          test -f "source/euclids-orchard/scene${{ matrix.scene }}/render_scene${{ matrix.scene }}.py"
+      - name: Render original source at 1920x1080 30fps
+        env:
+          SCENE: ${{ matrix.scene }}
+        run: |
+          set -euo pipefail
+          scene_filename="$(printf 'scene-%02d.mp4' "$SCENE")"
+          python scripts/euclids-orchard/render_fullfilm.py render \
+            --source-root source/euclids-orchard \
+            --scene "$SCENE" \
+            --output "output/scenes/$scene_filename"
+      - name: Upload validated 1080p scene segment
+        uses: actions/upload-artifact@v4
+        with:
+          name: orchard-scene-${{ matrix.scene }}-native1080p
+          path: output/scenes/scene-*.mp4
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  assemble-verify-publish:
+    name: Assemble full 19m12s silent native 1080p master
+    needs: source-render
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout public Playground scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download 26 verified source renders
+        uses: actions/download-artifact@v4
+        with:
+          pattern: orchard-scene-*-native1080p
+          path: output/scenes
+          merge-multiple: true
+      - name: Assemble, validate precise 19m12s / 34560 frames, fully decode
+        env:
+          EUCLIDS_SOURCE_SHA: ${{ env.SOURCE_SHA }}
+        run: |
+          set -euo pipefail
+          python scripts/euclids-orchard/render_fullfilm.py assemble \
+            --parts-dir output/scenes \
+            --output output/Euclids_Orchard_19m12s_1080p30_SILENT.mp4
+          cd output
+          sha256sum Euclids_Orchard_19m12s_1080p30_SILENT.mp4 RENDER_INFO.txt > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+      - name: Upload complete 19m12s native-HD film
+        uses: actions/upload-artifact@v4
+        with:
+          name: Euclids-Orchard-19m12s-Native1080p30-SILENT
+          path: |
+            output/Euclids_Orchard_19m12s_1080p30_SILENT.mp4
+            output/RENDER_INFO.txt
+            output/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Publish validated SILENT visual export to public Playground prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/orchard-visual-release.md <<'EOF'
+          # Euclid's Orchard - original full 26-scene native 1080p silent export
+
+          - 19:12 (1152.000 seconds), 34,560 frames, 1920x1080 / 30fps H.264.
+          - All 26 scenes rendered directly from original private Python source, including native HD Scene 1.
+          - Source repository: Persie0/manimVideos, commit e471557830b2f8e47495133508d78e4c17545699.
+          - Rendering uses public Persie0/Playground GitHub Actions only; no private-repo Actions.
+          - Full video-stream decode, precise frame count, and SHA256 validated.
+          - SILENT VISUAL EXPORT ONLY. Narration, score, external timed SRT and complete source QA remain outstanding.
+          EOF
+          if gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              output/Euclids_Orchard_19m12s_1080p30_SILENT.mp4 \
+              output/RENDER_INFO.txt output/SHA256SUMS.txt \
+              --repo Persie0/Playground --clobber
+            gh release edit "$RELEASE_TAG" --repo Persie0/Playground \
+              --notes-file /tmp/orchard-visual-release.md --prerelease
+          else
+            gh release create "$RELEASE_TAG" \
+              output/Euclids_Orchard_19m12s_1080p30_SILENT.mp4 \
+              output/RENDER_INFO.txt output/SHA256SUMS.txt \
+              --repo Persie0/Playground --target "$GITHUB_SHA" \
+              --title "Euclid's Orchard - Full 19:12 Native 1080p Visual Export (Silent)" \
+              --notes-file /tmp/orchard-visual-release.md --prerelease
+          fi
+          gh release view "$RELEASE_TAG" --repo Persie0/Playground --json url,assets
