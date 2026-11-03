@@ -1,0 +1,56 @@
+name: Photosphere checkpoint302 original seed inputs
+on:
+  push:
+    branches: [research/photosphere-checkpoint302-seed-inputs]
+    paths: ['.github/workflows/photosphere-checkpoint302-seed-inputs.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-seed-inputs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install original ELF disassembler
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+      - name: Download and SHA-verify original GCam 8.8.225 ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Disassemble BOTH original callers into seed entry at 0x2d70a4
+        run: |
+          python3 - <<'PY' | tee checkpoint302-seed-callers.log
+          from pathlib import Path
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+          import hashlib
+          elf=Path("original.so").read_bytes()
+          assert hashlib.sha256(elf).hexdigest()=="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          d=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          entry=0x2d70a4
+          for caller in (0x2d41d8,0x2d4e3c):
+              instr=list(d.disasm(elf[caller:caller+4],caller))
+              assert len(instr)==1 and instr[0].mnemonic=="bl" and instr[0].op_str==f"#0x{entry:x}",instr
+              print("CHECKPOINT302_CALLER",hex(caller),"bl",hex(entry))
+              start=caller-0x220
+              end=caller+0x50
+              for i in d.disasm(elf[start:end],start):
+                  print(f"{i.address:#010x} {i.mnemonic:8} {i.op_str}")
+              print("CHECKPOINT302_CALLER_END",hex(caller))
+          PY
+          grep -q '^CHECKPOINT302_CALLER 0x2d41d8' checkpoint302-seed-callers.log
+          grep -q '^CHECKPOINT302_CALLER 0x2d4e3c' checkpoint302-seed-callers.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint302-original-seed-callers
+          path: checkpoint302-seed-callers.log
+          retention-days: 14
