@@ -1,0 +1,63 @@
+name: Photosphere checkpoint283 original ARM64 virtual caller scan with positive control (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint283-original-virtual-calls.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint283-virtual-calls
+  cancel-in-progress: false
+jobs:
+  original-indirect-virtual-calls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact research source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 05cfc2701899a0431a6c2e5f77ce4343e18b1ddd
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source and install ELF/ARM64 decoders
+        run: |
+          test "$(git rev-parse HEAD)" = "05cfc2701899a0431a6c2e5f77ce4343e18b1ddd"
+          python3 -m pip install --break-system-packages --quiet pyelftools capstone
+      - name: Download and verify exact original APK and ARM64 ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Execute original virtual callsite scan with strict known 0x11e414 positive control
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint283/scan_original_indirect_virtual_calls.py original.so > checkpoint283-callers.log
+          grep '^CHECKPOINT283_ORIGINAL_OFFSET_RESULTS' checkpoint283-callers.log
+          grep '^CHECKPOINT283_ORIGINAL_INDIRECT_CALL_CANDIDATE' checkpoint283-callers.log | head -70 || true
+          grep -q '^CHECKPOINT283_ORIGINAL_ELF_CALLSITE_SCAN_PASSED' checkpoint283-callers.log
+          python3 - <<'PY'
+          import json
+          d=json.load(open('checkpoint283-callers.json'))
+          assert d['positive_control_found']
+          assert d['positive_control_original_load_pc']=='0x11e414'
+          assert d['positive_control_original_blr_pc']=='0x11e418'
+          assert d['vtable_method_offsets']['0x20']['original_candidate_indirect_call_count']>=1
+          print('CHECKPOINT283_POSITIVE_CONTROL_AND_SCAN_PASSED')
+          PY
+      - name: Archive exact static callsite evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint283-original-vcalls
+          path: |
+            checkpoint283-callers.log
+            checkpoint283-callers.json
+          if-no-files-found: warn
+          retention-days: 14
