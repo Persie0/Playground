@@ -1,0 +1,96 @@
+name: Photosphere checkpoint294 original BA pose setter provenance
+on:
+  push:
+    branches: [research/photosphere-checkpoint294-solve-pose-writeback]
+    paths: ['.github/workflows/photosphere-checkpoint294-pose-provenance.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint294-native-provenance
+  cancel-in-progress: false
+jobs:
+  original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out public Playground
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install original ARM64 decoder
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+      - name: Get checksum-pinned original GCam 8.8.225 APK
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Original estimator to solver to indexed rosette writeback
+        run: |
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          raw=Path('original.so').read_bytes()
+          digest=hashlib.sha256(raw).hexdigest()
+          assert digest=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          d=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          regions={
+            'finalizer_branch_callback':(0x11b9c0,0x11ba50),
+            'estimator_plus48_alignment':(0x11ec84,0x11eea4),
+            'bundle_adjuster_virtual_bridge':(0x122fcc,0x123078),
+            'global_focal_bundle_adjuster_entry':(0x1287c0,0x128a20),
+            'post_solve_quaternion_indexed_writeback':(0x129750,0x12986c),
+            'rosette_indexed_pose_methods':(0x344818,0x344b28),
+            'rosette_copy_constructor':(0x343e74,0x343fbc),
+            'line_aligner_constructor':(0x303b08,0x303c00),
+            'line_aligner_entry':(0x303cf8,0x303d98),
+            'finalizer_followup_type':(0x11bffc,0x11c060),
+          }
+          sections={}
+          for k,(a,b) in regions.items():
+            x=[{'pc':hex(i.address),'instruction':(i.mnemonic+' '+i.op_str).strip()} for i in d.disasm(raw[a:b],a)]
+            assert len(x)==(b-a)//4,(k,len(x))
+            sections[k]=x
+            print('CHECKPOINT294_SECTION',k,len(x))
+            for v in x:print('CHECKPOINT294_ARM64',k,v['pc'],v['instruction'])
+          rel={}
+          with Path('original.so').open('rb') as fh:
+            elf=ELFFile(fh)
+            for sec in elf.iter_sections():
+              if sec['sh_type']!='SHT_RELA':continue
+              for it in sec.iter_relocations():
+                if it['r_info_type']==1027:rel[int(it['r_offset'])]=int(it['r_addend'])
+          vptrs={'estimator':'0x3fdca0','rosette':'0x40dc10'}
+          slots={}
+          for label,ptr in vptrs.items():
+            obj=int(ptr,16)
+            slots[label]={hex(off):hex(rel[obj+off]) for off in range(0x10,0xa8,8) if obj+off in rel}
+          assert slots['estimator']['0x48']=='0x11ec84'
+          assert slots['rosette']['0x90']=='0x3456f4'
+          print('CHECKPOINT294_VTABLE_SLOTS',json.dumps(slots))
+          out={
+            'original_elf_sha256':digest,
+            'evidence':sections,
+            'relocated_original_method_slots':slots,
+            'native_whole_session_executed':False,
+            'index_correspondence_proven':False,
+            'optimizer_pose_mutation_verified':False,
+          }
+          Path('checkpoint294-original-optimizer-pose-disassembly.json').write_text(json.dumps(out,indent=2)+'\n')
+          print('CHECKPOINT294_ORIGINAL_SOLVER_WRITEBACK_DISASSEMBLY_PASSED')
+          PY
+      - name: Publish text-only original evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint294-original-optimizer-pose-disassembly
+          path: checkpoint294-original-optimizer-pose-disassembly.json
+          if-no-files-found: warn
+          retention-days: 14
