@@ -93,11 +93,42 @@ jobs:
           Path('checkpoint299-native-vtable-inventory.json').write_text(json.dumps(report,indent=2)+'\n')
           print('CHECKPOINT299_RTTI_VTABLE_INVENTORY_PASSED')
           PY
+      - name: Checkout pinned original LinearCamera correction-ownership executable probe
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 06f697aba6367988d086c01e9a7591aa8c969876
+          path: decompile
+          sparse-checkout: |
+            research/photosphere/checkpoint299
+            research/photosphere/checkpoint218
+            research/photosphere/checkpoint211
+            research/photosphere/checkpoint210
+            research/photosphere/checkpoint209
+            research/photosphere/checkpoint188
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Execute original ARM64 constructor and chained optional correction clones
+        run: |
+          set -euo pipefail
+          test "$(git -C decompile rev-parse HEAD)" = 06f697aba6367988d086c01e9a7591aa8c969876
+          mkdir -p decompile/research/native
+          cp original.so decompile/research/native/liblightcycle.so
+          (
+            cd decompile
+            python3 research/photosphere/checkpoint299/native_optional_correction_clone.py | tee ../checkpoint299-original-native-correction-clone.log
+            cp checkpoint299-original-linear-correction-clone-fixtures.json ../
+          )
+          grep -q '^CHECKPOINT299_ORIGINAL_NULL_AND_PREATTACHED_CLONE_CASES_PASSED 8' checkpoint299-original-native-correction-clone.log
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: checkpoint299-native-vtable-inventory
-          path: checkpoint299-native-vtable-inventory.json
+          path: |
+            checkpoint299-native-vtable-inventory.json
+            checkpoint299-original-linear-correction-clone-fixtures.json
+            checkpoint299-original-native-correction-clone.log
           if-no-files-found: warn
           retention-days: 14
