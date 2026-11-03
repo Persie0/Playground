@@ -1,0 +1,69 @@
+name: Photosphere checkpoint288 original blender-vptr receiver cross-check (one-shot)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint288-original-blender-vptr.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint288-original-blender-vptr
+  cancel-in-progress: false
+jobs:
+  original-blender-vptr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout pinned decompile research branch snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 879ad1b298526f763e613609a7e0bc73fc3ca0ab
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify research commit and decoder
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "879ad1b298526f763e613609a7e0bc73fc3ca0ab"
+          python3 -m pip install --break-system-packages --quiet capstone pyelftools
+      - name: Fetch SHA-pinned original GCam library from private release
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Verify original vtable relocations and both +0x70 receiver paths
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint288/verify_blender_receiver_dispatch.py \
+            --original-so original.so --output checkpoint288-verified.json \
+            | tee checkpoint288-verification.log
+          grep -q '^CHECKPOINT288_BLENDER_VPTR_CANDIDATES_PASSED' checkpoint288-verification.log
+          python3 - <<'PY'
+          import json
+          d=json.load(open('checkpoint288-verified.json'))
+          assert d['fresh_original_elf_checked']
+          assert d['original_blender_vptr']=='0x40cff8'
+          assert d['blender_plus_0x70_target']=='0x321c74'
+          assert d['original_estimator_vptr']=='0x3fdca0'
+          assert d['estimator_plus_0x70_target']=='0x11ef24'
+          assert d['source_backed_blender_candidate_calls']==['0x322280','0x323bf8']
+          assert not d['normal_blender_path_calls_component_eligibility']
+          assert d['remaining_integer_shape_candidate']=='0xf1ebc'
+          assert not d['proven_original_estimator_eligibility_caller']
+          print('CHECKPOINT288_SCOPE_AND_ORIGINAL_RELOCATIONS_VERIFIED')
+          PY
+      - name: Archive only verification summary, not proprietary original binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint288-original-blender-vptr-validation
+          path: |
+            checkpoint288-verified.json
+            checkpoint288-verification.log
+          if-no-files-found: warn
+          retention-days: 14
