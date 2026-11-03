@@ -65,11 +65,33 @@ jobs:
           },indent=2)+"\n")
           print("CHECKPOINT292_ORIGINAL_RANGE_DISASSEMBLY_PASS")
           PY
+      - name: Checkout checkpoint292 emulator experiment (no private Actions)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 4d0a74ecfee4d2e602f9cb7d56ab3656e7eaf8f5
+          path: research-source
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Execute original ARM64 vector assignment on bounded fixtures
+        run: |
+          set -euo pipefail
+          test "$(git -C research-source rev-parse HEAD)" = 4d0a74ecfee4d2e602f9cb7d56ab3656e7eaf8f5
+          python3 -m pip install --break-system-packages --quiet unicorn
+          mkdir -p research-source/research/native
+          cp original.so research-source/research/native/liblightcycle.so
+          cd research-source
+          python3 research/photosphere/checkpoint292/native_original_pose_vector_assign.py | tee ../checkpoint292-native-pose-vector.log
+          grep -q 'CHECKPOINT292_NATIVE_POSE_VECTOR_CASES_PASSED 10' ../checkpoint292-native-pose-vector.log
+          cp checkpoint292-native-pose-vector-fixtures.json ..
       - name: Archive only text disassembly
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: checkpoint292-original-range-helper-disassembly
-          path: checkpoint292-original-range-instructions.json
+          path: |
+            checkpoint292-original-range-instructions.json
+            checkpoint292-native-pose-vector-fixtures.json
+            checkpoint292-native-pose-vector.log
           if-no-files-found: warn
           retention-days: 14
