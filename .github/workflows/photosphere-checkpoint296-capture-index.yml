@@ -142,6 +142,20 @@ jobs:
           assert any('CaptureStoreOrientationSnapshotTest' in f for f in reports)
           print('CHECKPOINT296_ANDROID_TESTS_PASSED',total,'skipped',skipped)
           PY
+      - name: Print detailed Android JUnit test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          reports=glob.glob('app/android/app/build/test-results/testDebugUnitTest/TEST-*.xml')
+          for path in reports:
+            root=ET.parse(path).getroot()
+            for case in root.iter('testcase'):
+              for failure in list(case.findall('failure'))+list(case.findall('error')):
+                print('CHECKPOINT296_FAILURE',path,case.attrib.get('name'),failure.attrib.get('message'))
+                print((failure.text or '')[:10000])
+          PY
       - name: Export original instruction evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -151,5 +165,6 @@ jobs:
             checkpoint296-original-capture-index-disassembly.json
             checkpoint296-original-capture-index-verified.json
             checkpoint296-original-source-check.log
+            app/android/app/build/test-results/testDebugUnitTest/TEST-*.xml
           if-no-files-found: warn
           retention-days: 14
