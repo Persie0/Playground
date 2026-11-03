@@ -19,14 +19,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: da19fa3ba65213903f3f1dd094ab2028616a5ebf
+          ref: a3e3f9527a9de78088a08b0ca2e6a69c82a25137
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Install source decoder and verify pinned decompile commit
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "da19fa3ba65213903f3f1dd094ab2028616a5ebf"
-          python3 -m pip install --break-system-packages --quiet capstone
+          test "$(git rev-parse HEAD)" = "a3e3f9527a9de78088a08b0ca2e6a69c82a25137"
+          python3 -m pip install --break-system-packages --quiet capstone pyelftools
       - name: Fetch hash-pinned original Google Camera APK and ELF
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -42,6 +42,40 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint290/scan_original_remaining_virtual_calls.py original.so --output checkpoint290-original-receiver-windows.json | tee checkpoint290-original-calls.log
           grep -q '^CHECKPOINT290_ORIGINAL_32_SLOT_LOAD_WINDOWS_PASSED 32$' checkpoint290-original-calls.log
+      - name: Verify two original rosette dispatches and four non-estimator loads
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint290/verify_original_rosette_and_nonvirtual_loads.py original.so --output checkpoint290-six-exclusions.json | tee checkpoint290-six-exclusions.log
+          grep -q '^CHECKPOINT290_SIX_ORIGINAL_PATH_EXCLUSIONS_PASSED 6
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: fe5fca5718f320fa46d376c9bb97e7e52611474b
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Validate only pinned PhotosphereCleanroom revision
+        working-directory: app
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "fe5fca5718f320fa46d376c9bb97e7e52611474b"
+          # Whole-repository rustfmt has pre-existing unrelated drift.
+          git diff --check
+          cargo test --lib checkpoint290_original_linear_camera_clone_resize_width_order_and_isolation -- --nocapture
+          cargo test --lib
+      - name: Archive original textual analysis, never APK/ELF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint290-original-receiver-and-rust-validation
+          path: |
+            checkpoint290-original-receiver-windows.json
+            checkpoint290-original-calls.log
+            checkpoint290-six-exclusions.json
+            checkpoint290-six-exclusions.log
+          if-no-files-found: warn
+          retention-days: 14
+ checkpoint290-six-exclusions.log
       - name: Checkout exact PhotosphereCleanroom code (no app Actions)
         uses: actions/checkout@v4
         with:
