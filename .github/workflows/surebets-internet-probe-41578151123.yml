@@ -1,0 +1,47 @@
+name: Surebets internet probe regression (41578151123)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/surebets-internet-probe-41578151123.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: surebets-internet-probe-41578151123
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out patched Surebets branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: fix/internet-access-async-probe
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Static analysis
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
+
+      - name: Run internet reachability regression tests
+        run: flutter test test/internet_access_test.dart
+
+      - name: Run complete Flutter test suite
+        run: flutter test
