@@ -1,0 +1,85 @@
+name: Photosphere checkpoint296 capture-to-index original ARM64 evidence
+on:
+  push:
+    branches: [research/photosphere-checkpoint296-capture-index-sidecar]
+    paths: ['.github/workflows/photosphere-checkpoint296-capture-index.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint296-capture-index
+  cancel-in-progress: true
+jobs:
+  original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Public Playground workflow
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install original ARM64 decoder
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+      - name: Download pinned original Google Camera 8.8.225 APK
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Recover original native JNI AddImage, file index and rosette append
+        run: |
+          python3 - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          b=Path('original.so').read_bytes()
+          sha=hashlib.sha256(b).hexdigest()
+          assert sha=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          d=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          windows={
+            'JNI_AddImage_accepted_preview_pose':(0xef720,0xef7ac),
+            'Reset_created_builder_add_image':(0x10f6c8,0x10f7a4),
+            'AlignmentEstimator_AddImage_appends_two_rosettes':(0x11d570,0x11d900),
+            'Indexed_unpadded_decimal_JPEG_name':(0x12151c,0x121570),
+            'Alignment_queue_entry':(0x11976c,0x119900),
+          }
+          evidence={}
+          for k,(start,end) in windows.items():
+            rows=[{'pc':hex(i.address),'instruction':(i.mnemonic+' '+i.op_str).strip()}
+                  for i in d.disasm(b[start:end],start)]
+            assert len(rows)==(end-start)//4,(k,len(rows),(end-start)//4)
+            evidence[k]=rows
+            print('CHECKPOINT296_WINDOW',k,len(rows))
+            for v in rows:print('CHECKPOINT296_ARM64',k,v['pc'],v['instruction'])
+          rel={}
+          with Path('original.so').open('rb') as f:
+            e=ELFFile(f)
+            for sec in e.iter_sections():
+              if sec['sh_type']!='SHT_RELA':continue
+              for r in sec.iter_relocations():
+                if r['r_info_type']==1027:rel[int(r['r_offset'])]=int(r['r_addend'])
+          assert rel[0x3fd478+0x18]==0x10f6c8
+          evidence['verified_original_reset_owner_addimage_slot']={
+            'vptr':'0x3fd478','slot':'+0x18','native_target':'0x10f6c8'
+          }
+          Path('checkpoint296-original-capture-index-disassembly.json').write_text(json.dumps({
+              'checkpoint':296,'original_elf_sha256':sha,
+              'original_arm64_windows':evidence,
+              'java_jpeg_callback_executed':False,
+              'image_to_jpeg_temporal_equality_proven':False
+          },indent=2)+'\n')
+          print('CHECKPOINT296_ORIGINAL_INDEX_OWNERS_DISASSEMBLY_PASSED')
+          PY
+      - name: Export original instruction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint296-original-capture-index
+          path: checkpoint296-original-capture-index-disassembly.json
+          if-no-files-found: warn
+          retention-days: 14
