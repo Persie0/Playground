@@ -48,6 +48,7 @@ jobs:
             'global_focal_bundle_adjuster_entry':(0x1287c0,0x128a20),
             'post_solve_quaternion_indexed_writeback':(0x129750,0x12986c),
             'rosette_indexed_pose_methods':(0x344818,0x344b28),
+            'rosette_indexed_pose_setter_plus88':(0x34565c,0x3456f4),
             'rosette_copy_constructor':(0x343e74,0x343fbc),
             'line_aligner_constructor':(0x303b08,0x303c00),
             'line_aligner_entry':(0x303cf8,0x303d98),
@@ -75,9 +76,26 @@ jobs:
           assert slots['estimator']['0x48']=='0x11ec84'
           assert slots['rosette']['0x90']=='0x3456f4'
           print('CHECKPOINT294_VTABLE_SLOTS',json.dumps(slots))
+          # Recover original exact register/stack writes from GFL entry through
+          # its per-index setter. These observations do not by themselves
+          # prove every alias; follow x4/x24 and sp+0x20 separately.
+          full=list(d.disasm(raw[0x1287c0:0x129870],0x1287c0))
+          index_provenance=[
+            {'pc':hex(i.address),'instruction':(i.mnemonic+' '+i.op_str).strip()}
+            for i in full
+            if any(term in i.op_str for term in ('[sp, #0x20]','[sp, #0x18]','x23','x24'))
+              and (i.mnemonic in ('str','stp','ldr','ldp','mov','add','sub') or i.address>=0x129750)
+          ]
+          for item in index_provenance:
+            print('CHECKPOINT294_ORIGINAL_OWNER_CANDIDATE',item['pc'],item['instruction'])
+          assert slots['rosette']['0x88']=='0x34565c'
+          assert sections['rosette_indexed_pose_setter_plus88'][0]['pc']=='0x34565c'
+          print('CHECKPOINT294_INDEXED_SETTER_ORIGINAL_SLOT_PASSED')
+
           out={
             'original_elf_sha256':digest,
             'evidence':sections,
+            'original_optimizer_owner_register_cues':index_provenance,
             'relocated_original_method_slots':slots,
             'native_whole_session_executed':False,
             'index_correspondence_proven':False,
