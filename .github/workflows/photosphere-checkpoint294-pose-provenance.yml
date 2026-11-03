@@ -104,11 +104,42 @@ jobs:
           Path('checkpoint294-original-optimizer-pose-disassembly.json').write_text(json.dumps(out,indent=2)+'\n')
           print('CHECKPOINT294_ORIGINAL_SOLVER_WRITEBACK_DISASSEMBLY_PASSED')
           PY
+      - name: Checkout exact private research commit in public Playground only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: f82b56e390266b5ee4a6b74e5478af94b20d0691
+          path: decompile
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify original indexed writeback receiver, original method bytes and vptr
+        run: |
+          set -euo pipefail
+          test "$(git -C decompile rev-parse HEAD)" = f82b56e390266b5ee4a6b74e5478af94b20d0691
+          python3 decompile/research/photosphere/checkpoint294/verify_original_solver_rosette_indexed_writeback.py original.so --output checkpoint294-original-indexed-writeback.json | tee checkpoint294-original-indexed-writeback.log
+          grep -q '^CHECKPOINT294_ORIGINAL_INDEXED_WRITEBACK_CHAIN_PASSED' checkpoint294-original-indexed-writeback.log
+      - name: Execute original indexed pose setter on bounded native cases
+        run: |
+          set -euo pipefail
+          python3 -m pip install --break-system-packages --quiet unicorn
+          mkdir -p decompile/research/native
+          cp original.so decompile/research/native/liblightcycle.so
+          (
+            cd decompile
+            python3 research/photosphere/checkpoint294/native_original_indexed_rosette_pose_setter.py | tee ../checkpoint294-original-indexed-native.log
+            cp checkpoint294-original-indexed-pose-fixtures.json ..
+          )
+          grep -q 'CHECKPOINT294_ORIGINAL_INDEXED_SET_CASES_PASSED 12' checkpoint294-original-indexed-native.log
       - name: Publish text-only original evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: checkpoint294-original-optimizer-pose-disassembly
-          path: checkpoint294-original-optimizer-pose-disassembly.json
+          path: |
+            checkpoint294-original-optimizer-pose-disassembly.json
+            checkpoint294-original-indexed-writeback.json
+            checkpoint294-original-indexed-writeback.log
+            checkpoint294-original-indexed-pose-fixtures.json
+            checkpoint294-original-indexed-native.log
           if-no-files-found: warn
           retention-days: 14
