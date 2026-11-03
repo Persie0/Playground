@@ -33,6 +33,9 @@ jobs:
         run: |
           set -uo pipefail
           test -n "${GH_TOKEN:-}" || { echo "::error::Missing private checkout token"; exit 1; }
+          # Let flutter pub resolve private Git dependencies through the
+          # same Playground-only token, without persisting tokens in repos.
+          gh auth setup-git >/dev/null
           failed=0
           passed=0
           cases=(
