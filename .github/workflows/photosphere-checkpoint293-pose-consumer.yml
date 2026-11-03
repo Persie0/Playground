@@ -77,16 +77,28 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 11b3dc64b34852728495d4d15b52e8a5da46e36d
+          ref: 4f5922cd0b4a35b09a6f6a34f3cfc262bb879a73
           path: decompile
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify two-stage finalizer pose snapshots and actual +0x90 target
         run: |
           set -euo pipefail
-          test "$(git -C decompile rev-parse HEAD)" = 11b3dc64b34852728495d4d15b52e8a5da46e36d
+          test "$(git -C decompile rev-parse HEAD)" = 4f5922cd0b4a35b09a6f6a34f3cfc262bb879a73
           python3 decompile/research/photosphere/checkpoint293/verify_original_preview_pose_handoff.py original.so --output checkpoint293-original-pose-handoff.json | tee checkpoint293-original-pose-handoff.log
           grep -q 'CHECKPOINT293_ORIGINAL_POSTALIGNMENT_HANDOFF_PASSED' checkpoint293-original-pose-handoff.log
+      - name: Execute original +0x90 update and count mismatch branches on synthetic native pose vectors
+        run: |
+          set -euo pipefail
+          python3 -m pip install --break-system-packages --quiet unicorn
+          mkdir -p decompile/research/native
+          cp original.so decompile/research/native/liblightcycle.so
+          (
+            cd decompile
+            python3 research/photosphere/checkpoint293/native_original_postalign_pose_update.py | tee ../checkpoint293-native-pose-update.log
+            cp checkpoint293-original-postalign-update-fixtures.json ..
+          )
+          grep -q 'CHECKPOINT293_ORIGINAL_POSTALIGN_UPDATE_CASES_PASSED 10' checkpoint293-native-pose-update.log
       - name: Upload text-only original evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -96,5 +108,7 @@ jobs:
             checkpoint293-original-pose-consumer.json
             checkpoint293-original-pose-handoff.json
             checkpoint293-original-pose-handoff.log
+            checkpoint293-original-postalign-update-fixtures.json
+            checkpoint293-native-pose-update.log
           if-no-files-found: warn
           retention-days: 14
