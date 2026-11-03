@@ -58,10 +58,12 @@ you request relies on GDPR Article 6(1)(b) where applicable. Essential local
 preferences are stored to provide and remember your chosen settings. The
 personal information in the files you select remains under your control.
 
-Projects and settings remain on your Mac until you delete individual projects,
-remove local application data or uninstall the app. You can delete saved
-documents within the app. Deleting the app may not remove files you
-previously exported to other folders; delete those separately in Finder.
+Projects and settings remain on your Mac until you delete individual projects
+or remove the application's local data. You can delete saved documents within
+the app. Simply removing the .app from Applications may leave the macOS app
+container under your Library; that container can be removed separately.
+Previously exported PDFs are not automatically deleted and remain wherever
+you saved them in Finder.
 Persie0 does not hold a remote copy of your documents to delete.
 
 Support emails are processed to respond to your inquiry under GDPR Article
