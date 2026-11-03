@@ -11,7 +11,6 @@ import shutil
 import subprocess
 import sys
 import time
-import numpy as np
 
 WIDTH, HEIGHT, FPS = 1920, 1080, 30
 DURATIONS = (20,40,40,46,46,40,35,45,40,38,50,48,42,42,45,50,55,40,30,46,50,60,60,54,50,40)
@@ -70,6 +69,9 @@ def render(source: Path, scene: int, output: Path):
     if not 1 <= scene <= 26:
         raise ValueError("Scene must be 1..26")
     output.parent.mkdir(parents=True,exist_ok=True)
+    # NumPy is only needed when producing source-rendered frames.
+    # The artifact-only assembly job intentionally has no graphics dependencies.
+    import numpy as np
     renderer = load_scene(source,scene)
     count = DURATIONS[scene-1]*FPS
     first = renderer.frame(0)
