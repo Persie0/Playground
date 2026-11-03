@@ -1,0 +1,63 @@
+name: Apple EULA bypass cross-app validation
+
+# One public Playground CI run for this specific workflow update.
+# No private-repository GitHub Actions are used.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apple-eula-bypass-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apple-eula-bypass-validation
+  cancel-in-progress: true
+
+jobs:
+  sequential-apple-gate-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Validate Apple bypass and consent separation tests sequentially
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          test -n "${GH_TOKEN:-}" || { echo "::error::Missing private checkout token"; exit 1; }
+          failed=0
+          passed=0
+          cases=(
+            "ImagePdfScaler:test/eula_gate_test.dart"
+            "toiletcompass:test/eula_screen_test.dart"
+            "image_enhancer:test/eula_offline_gate_test.dart"
+            "noise_remover:test/platform/platform_policy_test.dart"
+            "surebets_calculator:test/apple_store_licensing_test.dart"
+            "vitamindtracker:test/apple_health_consent_separation_test.dart"
+          )
+          for item in "${cases[@]}"; do
+            repo="${item%%:*}"
+            test_file="${item#*:}"
+            folder="$RUNNER_TEMP/apple-eula-$repo"
+            echo "::group::Apple EULA validation — $repo"
+            if gh repo clone "Persie0/$repo" "$folder" -- --depth 1 &&
+               (cd "$folder" && flutter pub get && flutter test --reporter expanded "$test_file"); then
+              echo "PASS: $repo"
+              passed=$((passed + 1))
+            else
+              echo "::error::FAILED: $repo ($test_file)"
+              failed=$((failed + 1))
+            fi
+            rm -rf "$folder"
+            echo "::endgroup::"
+          done
+          echo "Apple EULA gate tests: $passed passed, $failed failed."
+          test "$failed" -eq 0
