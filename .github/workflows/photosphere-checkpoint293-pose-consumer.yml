@@ -73,11 +73,28 @@ jobs:
             "dataflow_proof_requires_review":True},indent=2)+"\n")
           print("CHECKPOINT293_ORIGINAL_POSE_CONSUMER_DISASSEMBLY_PASSED")
           PY
+      - name: Checkout pinned original source-verifier only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 11b3dc64b34852728495d4d15b52e8a5da46e36d
+          path: decompile
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify two-stage finalizer pose snapshots and actual +0x90 target
+        run: |
+          set -euo pipefail
+          test "$(git -C decompile rev-parse HEAD)" = 11b3dc64b34852728495d4d15b52e8a5da46e36d
+          python3 decompile/research/photosphere/checkpoint293/verify_original_preview_pose_handoff.py original.so --output checkpoint293-original-pose-handoff.json | tee checkpoint293-original-pose-handoff.log
+          grep -q 'CHECKPOINT293_ORIGINAL_POSTALIGNMENT_HANDOFF_PASSED' checkpoint293-original-pose-handoff.log
       - name: Upload text-only original evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: checkpoint293-original-pose-consumer-disassembly
-          path: checkpoint293-original-pose-consumer.json
+          path: |
+            checkpoint293-original-pose-consumer.json
+            checkpoint293-original-pose-handoff.json
+            checkpoint293-original-pose-handoff.log
           if-no-files-found: warn
           retention-days: 14
