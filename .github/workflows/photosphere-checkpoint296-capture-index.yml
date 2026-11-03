@@ -79,7 +79,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 3efb8c9d25a7ce09bfb9e377ac4b9aa6f362b214
+          ref: e67110172cc452109d8292c85218b91d9704d688
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: decompile
@@ -89,14 +89,14 @@ jobs:
       - name: Verify original JNI AddImage and source-index instruction bytes
         run: |
           set -euo pipefail
-          test "$(git -C decompile rev-parse HEAD)" = 3efb8c9d25a7ce09bfb9e377ac4b9aa6f362b214
+          test "$(git -C decompile rev-parse HEAD)" = e67110172cc452109d8292c85218b91d9704d688
           python3 decompile/research/photosphere/checkpoint296/verify_original_capture_index_handoff.py original.so --output checkpoint296-original-capture-index-verified.json | tee checkpoint296-original-source-check.log
           grep -q '^CHECKPOINT296_NATIVE_ADDIMAGE_PATH_AND_CAPTURE_INDEX_PASSED ' checkpoint296-original-source-check.log
       - name: Checkout exact Kotlin callback-snapshot and persistence revision
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 405fb68b4d945253452b600a2c7e80b3fc5c5046
+          ref: 5dc877f3d9a7556495ab8d1186e97f343f926882
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: app
@@ -105,17 +105,27 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Android SDK build tools and licenses
-        uses: android-actions/setup-android@v3
-      - name: Install SDK 35 for app unit tests
-        run: sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Install Android SDK 35 with the runner's existing commandline tools
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --version
+          # The preinstalled toolchain is current; do not invoke the old
+          # setup-android action, which requests the removed 'tools' package.
+          if ! test -f "$ANDROID_HOME/platforms/android-35/android.jar"; then
+            (yes || true) | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null
+          fi
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install 'platforms;android-35' 'build-tools;35.0.0'
       - name: Run snapshot, capture-store and whole Android unit test suite
         working-directory: app/android
         env:
           GRADLE_OPTS: '-Dorg.gradle.daemon=false -Xmx2g'
         run: |
           set -euo pipefail
-          test "$(git -C .. rev-parse HEAD)" = 405fb68b4d945253452b600a2c7e80b3fc5c5046
+          test "$(git -C .. rev-parse HEAD)" = 5dc877f3d9a7556495ab8d1186e97f343f926882
           chmod +x gradlew
           ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
           python3 - <<'PY'
