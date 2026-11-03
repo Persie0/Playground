@@ -1,0 +1,73 @@
+name: Photosphere checkpoint295 original BA quaternion matrix writeback
+on:
+  push:
+    branches: [research/photosphere-checkpoint295-quaternion-matrix-writeback]
+    paths:
+      - .github/workflows/photosphere-checkpoint295-quaternion-matrix.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint295-source-oracle
+  cancel-in-progress: false
+jobs:
+  original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Public Playground workflow checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install original ARM64 decoder and emulator
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Download and hash original GCam 8.8.225
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Disassemble quaternion conversion and original session index source
+        run: |
+          python3 - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          b=Path('original.so').read_bytes()
+          assert hashlib.sha256(b).hexdigest()=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          c=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          windows={
+            'original_ba_postsolve_quaternion_full':(0x129750,0x1299b0),
+            'original_ba_params_to_quaternion_array':(0x1287f0,0x128a30),
+            'original_addimage_append_and_pose_pair':(0x11d720,0x11d7bc),
+            'original_rosette_indexed_setter':(0x34565c,0x3456b8),
+            'original_rosette_indexed_camera_accessor':(0x3448d0,0x344960),
+            'original_rosette_constructor_pose_camera_count':(0x343ebc,0x343f34),
+          }
+          out={}
+          for name,(start,end) in windows.items():
+            rows=[{'pc':hex(i.address),'instruction':(i.mnemonic+' '+i.op_str).strip()}
+                  for i in c.disasm(b[start:end],start)]
+            assert len(rows)==(end-start)//4
+            out[name]=rows
+            print('CHECKPOINT295_REGION',name)
+            for v in rows: print('CHECKPOINT295_ARM64',name,v['pc'],v['instruction'])
+          Path('checkpoint295-original-quaternion-disassembly.json').write_text(
+              json.dumps({'original_elf_sha256':hashlib.sha256(b).hexdigest(),
+                          'instruction_windows':out,
+                          'actual_Ceres_solve_executed':False,
+                          'per_JPEG_image_identity_proven':False},indent=2)+'\n')
+          print('CHECKPOINT295_ORIGINAL_DISASSEMBLY_PASSED')
+          PY
+      - name: Upload original instruction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint295-original-quaternion-disassembly
+          path: checkpoint295-original-quaternion-disassembly.json
+          retention-days: 14
+          if-no-files-found: warn
