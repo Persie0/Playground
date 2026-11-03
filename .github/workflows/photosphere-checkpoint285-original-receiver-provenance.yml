@@ -18,12 +18,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: d270881e0fa2d84ddec871d3e1fd0f17e6d27eef
+          ref: bf470e70ea890aa361d2abf0c0d850406a4eae70
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify source revision and install original ELF decoders
         run: |
-          test "$(git rev-parse HEAD)" = "d270881e0fa2d84ddec871d3e1fd0f17e6d27eef"
+          test "$(git rev-parse HEAD)" = "bf470e70ea890aa361d2abf0c0d850406a4eae70"
           python3 -m pip install --break-system-packages --quiet pyelftools capstone
       - name: Download and verify original GCam APK/ARM64 ELF
         env:
@@ -47,6 +47,8 @@ jobs:
           d=json.load(open('checkpoint285-original-receiver-context.json'))
           assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
           assert d['two_session_nearby_candidates']['0x11bed0']['original_receiver_x0_field_displacement_hex']=='0x58'
+          assert d['two_session_nearby_candidates']['0x11bed0']['original_separate_estimator_field_load'].startswith('0x11bed8:')
+          assert not d['two_session_nearby_candidates']['0x11bed0']['receiver_is_direct_estimator_field_load']
           assert not d['actual_original_call_target_proven']
           assert not d['actual_estimator_receiver_vptr_proven']
           print('CHECKPOINT285_ORIGINAL_RECEIVER_PROVENANCE_LIMITS_PASSED',flush=True)
