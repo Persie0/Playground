@@ -67,14 +67,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 5b41f0cdde0651fe0908be66e3b4a54c1562201f
+          ref: 7e088773e00a3f54b1fed587e951836219bb0a8a
           path: decompile
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Execute original ARM64 quaternion-to-matrix and indexed pose setter
         run: |
           set -euo pipefail
-          test "$(git -C decompile rev-parse HEAD)" = 5b41f0cdde0651fe0908be66e3b4a54c1562201f
+          test "$(git -C decompile rev-parse HEAD)" = 7e088773e00a3f54b1fed587e951836219bb0a8a
           mkdir -p decompile/research/native
           cp original.so decompile/research/native/liblightcycle.so
           (
@@ -83,6 +83,39 @@ jobs:
             cp checkpoint295-original-quaternion-matrix-fixtures.json ..
           )
           grep -q 'CHECKPOINT295_NATIVE_QUATERN_CASES_PASSED 16' checkpoint295-original-native-quaternion.log
+      - name: Exact original instruction and vtable verifier
+        run: |
+          set -euo pipefail
+          python3 decompile/research/photosphere/checkpoint295/verify_original_quaternion_writeback.py original.so --output checkpoint295-original-writeback-verification.json | tee checkpoint295-original-writeback-verification.log
+          grep -q '^CHECKPOINT295_ORIGINAL_WRITEBACK_OPCODE_AND_VTABLE_PASSED ' checkpoint295-original-writeback-verification.log
+      - name: Checkout pinned PhotosphereCleanroom Rust writeback and fixtures
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: c4fd681422bc41c2bbd43ff618bf68581cd923c0
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Compare fresh original ARM64 output against pinned Rust fixture
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = c4fd681422bc41c2bbd43ff618bf68581cd923c0
+          python3 - <<'PY'
+          import json
+          with open('checkpoint295-original-quaternion-matrix-fixtures.json') as f: original=json.load(f)
+          with open('app/tests/fixtures/native_quaternion_matrix_295.json') as f: pinned=json.load(f)
+          assert original==pinned, 'original native execution results changed versus frozen Rust fixture'
+          assert len(original['cases'])==16
+          print('CHECKPOINT295_FRESH_ORIGINAL_MATCHES_RUST_FIXTURE_PASSED 16')
+          PY
+      - name: Scoped Rust formatting, differential quaternion test and full library
+        working-directory: app
+        run: |
+          set -euo pipefail
+          git diff --check
+          rustfmt --edition 2021 --check src/native_bundle_quaternion.rs
+          cargo test --lib checkpoint295_original_arm64_quaternion_matrix_and_rosette_writer_bytes -- --nocapture
+          cargo test --lib
       - name: Upload original instruction evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -92,5 +125,7 @@ jobs:
             checkpoint295-original-quaternion-disassembly.json
             checkpoint295-original-quaternion-matrix-fixtures.json
             checkpoint295-original-native-quaternion.log
+            checkpoint295-original-writeback-verification.json
+            checkpoint295-original-writeback-verification.log
           retention-days: 14
           if-no-files-found: warn
