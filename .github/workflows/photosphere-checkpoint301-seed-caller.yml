@@ -18,7 +18,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install pinned-analysis dependencies
-        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
       - name: Download SHA-pinned original GCam APK and ARM64 ELF
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 429cf119e7717e344035a488e6f7152684a46d49
+          ref: e58bd5edf228e2b8ccb0b4792dd3f48661a63894
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint301
@@ -43,9 +43,14 @@ jobs:
       - name: Prove original srand branch chain and record complete bounded caller
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 429cf119e7717e344035a488e6f7152684a46d49
+          test "$(git -C research rev-parse HEAD)" = e58bd5edf228e2b8ccb0b4792dd3f48661a63894
           python3 research/research/photosphere/checkpoint301/verify_seed_caller.py original.so --output checkpoint301-seed-caller-audit.json | tee checkpoint301-seed-caller.log
           grep -q '^CHECKPOINT301_ORIGINAL_SEED_CALLER_AUDIT_PASSED' checkpoint301-seed-caller.log
+      - name: Execute unchanged original ARM64 seed sentinel and chained tail calls
+        run: |
+          set -euo pipefail
+          python3 research/research/photosphere/checkpoint301/native_seed_argument.py original.so --output checkpoint301-native-seed-argument.json | tee checkpoint301-native-seed.log
+          grep -q '^CHECKPOINT301_ORIGINAL_NATIVE_SEED_ARGUMENT_PASSED 8' checkpoint301-native-seed.log
       - name: Upload bounded original evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -54,5 +59,7 @@ jobs:
           path: |
             checkpoint301-seed-caller-audit.json
             checkpoint301-seed-caller.log
+            checkpoint301-native-seed-argument.json
+            checkpoint301-native-seed.log
           retention-days: 14
           if-no-files-found: warn
