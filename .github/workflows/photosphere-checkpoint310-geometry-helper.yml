@@ -93,7 +93,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: d4b39c13a6c477e088d47124ba0fe28f600b019a
+          ref: 284d463ca35d6e46a8e6d52d8d43ec4280bdb267
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint310
@@ -103,11 +103,47 @@ jobs:
       - name: Verify and execute exact original ARM64 affine lookup across 24 cases
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = d4b39c13a6c477e088d47124ba0fe28f600b019a
+          test "$(git -C research rev-parse HEAD)" = 284d463ca35d6e46a8e6d52d8d43ec4280bdb267
           python3 research/research/photosphere/checkpoint310/verify_original_affine_bin_index.py original.so --output checkpoint310-native-affine-pins.json | tee checkpoint310-native-affine-pins.log
           python3 research/research/photosphere/checkpoint310/native_original_affine_bin_index.py original.so --output checkpoint310-original-affine-bin-index.json | tee checkpoint310-original-affine-bin-index.log
           grep -q '^CHECKPOINT310_ORIGINAL_AFFINE_SOURCE_VERIFIED' checkpoint310-native-affine-pins.log
           grep -q '^CHECKPOINT310_ORIGINAL_AFFINE_EXECUTION_PASS 24' checkpoint310-original-affine-bin-index.log
+      - name: Checkout pinned checkpoint310 Rust affine-bin regression
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: fb92f782236ab0cfe0d06aefbbb285f05fb18790
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Compare original source-executed 24-case oracle with Rust fixture and run library tests
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = fb92f782236ab0cfe0d06aefbbb285f05fb18790
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          original=json.loads(Path('checkpoint310-original-affine-bin-index.json').read_text())
+          fixture=json.loads(Path('app/tests/fixtures/native_original_affine_bin_index_310.json').read_text())
+          if original!=fixture:
+              for key in sorted(set(original)|set(fixture)):
+                  if original.get(key)==fixture.get(key):continue
+                  if key=="cases":
+                      for i,(a,b) in enumerate(zip(original.get(key,[]),fixture.get(key,[]))):
+                          for field in sorted(set(a)|set(b)):
+                              if a.get(field)!=b.get(field):
+                                  print('CHECKPOINT310_AFFINE_CASE_DIFFERENCE',i,a.get('name'),field,repr(a.get(field))[:600],repr(b.get(field))[:600])
+                  else:
+                      print('CHECKPOINT310_AFFINE_TOP_DIFFERENCE',key,repr(original.get(key))[:600],repr(fixture.get(key))[:600])
+              raise AssertionError('fresh original 24-case ARM64 affine output differs from Rust fixture')
+          assert original['original_executed_case_count']==24
+          print('CHECKPOINT310_FRESH_NATIVE_RUST_AFFINE_EQUAL',len(original['cases']))
+          PY
+          cd app
+          git diff --check
+          rustfmt --edition 2021 --check src/native_line_affine_bin_index.rs
+          cargo test --lib checkpoint310_ -- --nocapture
+          cargo test --lib
       - uses: actions/upload-artifact@v4
         if: always()
         with:
