@@ -48,14 +48,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: ea79f26fc8332f01766c52574dc8b480cd3815cb
+          ref: fd4359c380f1f0e4c69f4d6e499b4873efa7d691
           path: native-research
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Execute real original ARM64 50-retry exhaustion in full 550-trial path
         run: |
           set -euo pipefail
-          test "$(git -C native-research rev-parse HEAD)" = ea79f26fc8332f01766c52574dc8b480cd3815cb
+          test "$(git -C native-research rev-parse HEAD)" = fd4359c380f1f0e4c69f4d6e499b4873efa7d691
           mkdir -p native-research/research/native
           cp original.so native-research/research/native/liblightcycle.so
           if ! (cd native-research && python3 research/photosphere/checkpoint305/native_original_ransac_retry.py) > checkpoint305-ransac-native.log 2> checkpoint305-ransac-native.err; then
@@ -67,6 +67,40 @@ jobs:
           cat checkpoint305-ransac-native.log
           cp native-research/checkpoint305-original-ransac-retry.json checkpoint305-original-ransac-retry.json
           grep -q '^CHECKPOINT305_ORIGINAL_50_RETRY_550_TRIALS_PASS' checkpoint305-ransac-native.log
+      - name: Independently verify original native RNG consumers and signed sampler retry instructions
+        run: |
+          set -euo pipefail
+          python3 native-research/research/photosphere/checkpoint305/verify_original_rng_consumers.py original.so --output checkpoint305-original-rng-consumers.json | tee checkpoint305-original-rng-consumers.log
+          grep -q '^CHECKPOINT305_ORIGINAL_RNG_OWNERS_VERIFIED' checkpoint305-original-rng-consumers.log
+      - name: Checkout exact PhotosphereCleanroom checkpoint305 Rust regression
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: d4d628de15eddf5855accb25324825206b48fdbe
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Match original full native source fixture and run production Rust RANSAC replay
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = d4d628de15eddf5855accb25324825206b48fdbe
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          original=json.loads(Path('checkpoint305-original-ransac-retry.json').read_text())
+          fixture=json.loads(Path('app/tests/fixtures/native_original_ransac_retry_305.json').read_text())
+          original.pop('original_selected_pairs')
+          original.pop('original_draw_counts_after_each_pair')
+          assert original==fixture,"new original-source measurement differs from Rust fixture"
+          assert original['original_second_trial_attempts']==50
+          assert original['original_rand_draws_consumed']==1198
+          print('CHECKPOINT305_FRESH_ORIGINAL_RUST_FIXTURE_EQUAL',len(fixture))
+          PY
+          cd app
+          git diff --check
+          rustfmt --edition 2021 --check src/alignment_checkpoint305_retry_test.rs
+          cargo test --lib checkpoint305_ -- --nocapture
+          cargo test --lib
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -76,4 +110,6 @@ jobs:
             checkpoint305-ransac-native.log
             checkpoint305-ransac-native.err
             checkpoint305-original-ransac-retry.json
+            checkpoint305-original-rng-consumers.json
+            checkpoint305-original-rng-consumers.log
           retention-days: 14
