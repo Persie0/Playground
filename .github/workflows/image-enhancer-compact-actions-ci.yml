@@ -1,0 +1,44 @@
+name: Validate image enhancer compact result actions
+
+on:
+  push:
+    branches:
+      - image-enhancer-compact-actions-ci
+    paths:
+      - .github/workflows/image-enhancer-compact-actions-ci.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out private image enhancer feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: ui/compact-result-actions-and-export-settings
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: image_enhancer
+          persist-credentials: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: Run UI and preference regression tests
+        working-directory: image_enhancer
+        run: flutter test test/home_layout_test.dart test/settings_provider_test.dart --reporter expanded
+
+      - name: Analyze changed Dart files
+        working-directory: image_enhancer
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings lib/super_resolution_home_page.dart lib/settings_provider.dart test/home_layout_test.dart test/settings_provider_test.dart
