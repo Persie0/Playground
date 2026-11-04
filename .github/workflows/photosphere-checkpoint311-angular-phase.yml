@@ -1,0 +1,57 @@
+name: Photosphere checkpoint311 original angular phase parity
+on:
+  push:
+    branches: [research/photosphere-checkpoint311-angular-phase]
+    paths: [.github/workflows/photosphere-checkpoint311-angular-phase.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-angular:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install original ELF analysis and ARM64 emulator
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Fetch SHA-pinned original GCam 8.8.225 APK and extract original ARM64 ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk'
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Read-only SHA-pinned checkpoint311 native source scripts
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: addb7de4707c04d980cc9701218f42cb2f26ce64
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint311
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Pin original 21 angular opcodes / PLT and run 20 native machine-code cases
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = addb7de4707c04d980cc9701218f42cb2f26ce64
+          python3 research/research/photosphere/checkpoint311/verify_original_angular_filter.py original.so --output checkpoint311-original-pins.json | tee checkpoint311-source.log
+          python3 research/research/photosphere/checkpoint311/native_original_angular_filter.py original.so --output checkpoint311-original-angular-filter.json | tee checkpoint311-native.log
+          grep -q '^CHECKPOINT311_ORIGINAL_ANGULAR_SOURCE_VERIFIED 21 8546 fmodf' checkpoint311-source.log
+          grep -q '^CHECKPOINT311_ORIGINAL_ANGULAR_NATIVE_PASS 20' checkpoint311-native.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint311-original-angular-oracle
+          path: |
+            checkpoint311-source.log
+            checkpoint311-native.log
+            checkpoint311-original-pins.json
+            checkpoint311-original-angular-filter.json
+          retention-days: 14
