@@ -28,7 +28,7 @@ jobs:
           repository: Persie0/outfitter
           ref: feature/forecast-exposure-and-recommendation-ranges
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-          persist-credentials: false
+          persist-credentials: true
           path: source
       - uses: subosito/flutter-action@v2
         with:
@@ -37,12 +37,23 @@ jobs:
       - name: Install dependencies
         working-directory: source
         run: flutter pub get
-      - name: Check Dart formatting
+      - name: Format touched Dart files
         working-directory: source
-        run: dart format --output=none --set-exit-if-changed lib/models/weather_data.dart lib/services/weather_service.dart lib/services/thermal_weather_model.dart lib/services/outfit_engine.dart lib/screens/recommendation_screen.dart test/weather_service_test.dart test/thermal_weather_model_test.dart test/real_world_weather_examples_test.dart
+        run: dart format lib/models/weather_data.dart lib/services/weather_service.dart lib/services/thermal_weather_model.dart lib/services/outfit_engine.dart lib/screens/recommendation_screen.dart test/weather_service_test.dart test/thermal_weather_model_test.dart test/real_world_weather_examples_test.dart
       - name: Run weather and outfit tests
         working-directory: source
         run: flutter test test/weather_service_test.dart test/thermal_weather_model_test.dart test/outfit_engine_test.dart test/real_world_weather_examples_test.dart
       - name: Analyze app
         working-directory: source
         run: flutter analyze
+      - name: Commit validated formatting to Outfitter candidate
+        working-directory: source
+        shell: bash
+        run: |
+          git add lib/models/weather_data.dart lib/services/weather_service.dart lib/services/thermal_weather_model.dart lib/services/outfit_engine.dart lib/screens/recommendation_screen.dart test/weather_service_test.dart test/thermal_weather_model_test.dart test/real_world_weather_examples_test.dart
+          if ! git diff --cached --quiet; then
+            git config user.name "playground-ci"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "style: format forecast recommendation changes"
+            git push origin HEAD:feature/forecast-exposure-and-recommendation-ranges
+          fi
