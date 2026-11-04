@@ -1,0 +1,53 @@
+name: Photosphere checkpoint316 original line-bin caller scan
+on:
+  push:
+    branches: [research/photosphere-checkpoint316-line-caller-provenance]
+    paths: [.github/workflows/photosphere-checkpoint316-line-caller-provenance.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-caller-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install static ARM64 analysis dependencies
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+      - name: Download hash-pinned original camera ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk'
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Checkout pinned decompile scanner read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 393c93438e07ace56f64bec4e58dc47851c525aa
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint316
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Scan all original executable ARM64 .text BL instructions
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = 393c93438e07ace56f64bec4e58dc47851c525aa
+          python3 research/research/photosphere/checkpoint316/scan_original_line_bin_callers.py original.so --output checkpoint316-original-direct-callers.json | tee checkpoint316-original-direct-callers.log
+          grep -q '^CHECKPOINT316_ORIGINAL_DIRECT_CALLERS' checkpoint316-original-direct-callers.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint316-original-direct-callers
+          path: |
+            checkpoint316-original-direct-callers.json
+            checkpoint316-original-direct-callers.log
+          retention-days: 14
