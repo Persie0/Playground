@@ -120,6 +120,58 @@ jobs:
               print("CHECKPOINT303_FDE_SCAN_PASSED")
           PY
           grep -q '^CHECKPOINT303_FDE_SCAN_PASSED' checkpoint303-fde-inbound.log
+      - name: Trace bounded original direct-call ancestry of seed owner and RANSAC
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint303-ancestry.log
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          from elftools.dwarf.callframe import FDE
+          from bisect import bisect_right
+          from collections import defaultdict,deque
+          with Path("original.so").open("rb") as f:
+              e=ELFFile(f);s=e.get_section_by_name(".text")
+              st=int(s["sh_addr"]);ed=st+int(s["sh_size"])
+              frames=sorted((int(v["initial_location"]),int(v["initial_location"])+int(v["address_range"])) for v in e.get_dwarf_info().EH_CFI_entries() if isinstance(v,FDE))
+          starts=[v[0] for v in frames]
+          def owner(pc):
+              k=bisect_right(starts,pc)-1
+              return starts[k] if k>=0 and pc<frames[k][1] else None
+          d=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          data=Path("original.so").read_bytes()
+          incoming=defaultdict(list)
+          for i in d.disasm(data[st:ed],st):
+              if i.mnemonic not in ("bl","b") or not i.op_str.startswith("#0x"):continue
+              try:dest=int(i.op_str[1:],16)
+              except ValueError:continue
+              src_fn=owner(i.address); dest_fn=owner(dest)
+              if src_fn is None or dest_fn is None or src_fn==dest_fn:continue
+              if i.mnemonic=="b" and dest!=dest_fn:continue
+              incoming[dest_fn].append((src_fn,i.address,i.mnemonic))
+          roots={"mode2_null_wrapper_owner":owner(0x2bc1f4),"other_mode2_constructor_caller":owner(0x2c9c7c),"original_ransac":owner(0x30f860),"ransac_addimage_caller":owner(0x120914)}
+          print("CHECKPOINT303_ROOTS",{name:hex(pc) for name,pc in roots.items()})
+          all_anc={}
+          for name,root in roots.items():
+              todo=deque([(root,0)]);seen={root};results=[]
+              while todo:
+                  cur,depth=todo.popleft()
+                  if depth>=6:continue
+                  refs=incoming[cur]
+                  results.append({"owner":hex(cur),"depth":depth,"direct_inbound_count":len(refs),"refs":[(hex(source),hex(site),kind) for source,site,kind in refs[:25]]})
+                  for source,site,kind in refs:
+                      if source not in seen:
+                          seen.add(source);todo.append((source,depth+1))
+                  if len(seen)>180:break
+              all_anc[name]=seen
+              print("CHECKPOINT303_ANCESTRY",name,"nodes",len(seen),"layers",results[:50])
+          for other in ("original_ransac","ransac_addimage_caller"):
+              for seed in ("mode2_null_wrapper_owner","other_mode2_constructor_caller"):
+                  common=all_anc[seed]&all_anc[other]
+                  print("CHECKPOINT303_BOUNDED_DIRECT_INTERSECTION",seed,other,sorted(hex(x) for x in common)[:30])
+          print("CHECKPOINT303_ANCESTRY_SCAN_PASSED")
+          PY
+          grep -q '^CHECKPOINT303_ANCESTRY_SCAN_PASSED' checkpoint303-ancestry.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -128,4 +180,5 @@ jobs:
             checkpoint303-seed-x4.log
             checkpoint303-function-boundary.log
             checkpoint303-fde-inbound.log
+            checkpoint303-ancestry.log
           retention-days: 14
