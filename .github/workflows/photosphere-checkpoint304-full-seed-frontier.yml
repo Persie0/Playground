@@ -205,6 +205,37 @@ jobs:
           print("CHECKPOINT304_CERES_WINDOW_SCAN_PASS",len(windows))
           PY
           grep -q '^CHECKPOINT304_CERES_WINDOW_SCAN_PASS' checkpoint304-ceres-dispatch.log
+      - name: Trace TrustRegion numeric solver-type field and conditional seed bridge
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint304-ceres-field-branch.log
+          import hashlib
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          b=Path("original.so").read_bytes()
+          assert hashlib.sha256(b).hexdigest()=="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          d=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          original_prefix=list(int.from_bytes(b[0x622f0+i:0x622f0+i+4],"little") for i in (0,4,8,12))
+          assert original_prefix==[1,2,1,0],original_prefix
+          print("CHECKPOINT304_SOLVER_OPTIONS_PREFIX",original_prefix)
+          for name,lo,hi in [
+            ("TRUST_REGION_PREPROCESSOR",0x1ad7f4,0x1ae0c0),
+            ("SOLVER_TYPE_CLASSIFIER",0x1ba840,0x1ba8e4),
+            ("TRUST_REGION_CONFIG_INTO_CERES",0x154700,0x154880),
+            ("DENSE_SCHUR_TO_CHOL_BRANCH",0x1af5c0,0x1af820),
+          ]:
+            ins=list(d.disasm(b[lo:hi],lo))
+            print("CHECKPOINT304_FIELD_SCAN",name,"instructions",len(ins))
+            needle=("#0xe8","#0xec","#0x141","#0x130","#0x208","#0x210")
+            matched=[j for j,i in enumerate(ins) if any(x in i.op_str for x in needle) or i.address in (0x1adbe8,0x1adc30,0x1ba858,0x1af758)]
+            if name=="SOLVER_TYPE_CLASSIFIER":
+              matched=list(range(len(ins)))
+            for j in sorted({k for idx in matched for k in range(max(0,idx-2),min(len(ins),idx+4))}):
+              i=ins[j]
+              print(f"{i.address:#010x} {i.mnemonic:8} {i.op_str}")
+          print("CHECKPOINT304_CERES_FIELD_BRANCH_SCAN_PASS")
+          PY
+          grep -q '^CHECKPOINT304_CERES_FIELD_BRANCH_SCAN_PASS' checkpoint304-ceres-field-branch.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -213,4 +244,5 @@ jobs:
             checkpoint304-full-frontier.log
             checkpoint304-function-pointer-ownership.log
             checkpoint304-ceres-dispatch.log
+            checkpoint304-ceres-field-branch.log
           retention-days: 14
