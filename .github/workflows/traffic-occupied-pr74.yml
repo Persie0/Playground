@@ -1,0 +1,68 @@
+name: Traffic Occupied Category Layers PR74
+on:
+  push:
+    branches: ['ci/traffic-occupied-pr74-20261104']
+    paths: ['.github/workflows/traffic-occupied-pr74.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - name: Checkout exact PR 74 head
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/traffic-counting-light-main
+          ref: 50546ed3bdb3f56488ce40d75eeca08ff7405a5a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          persist-credentials: false
+          path: app
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check numpy opencv-python-headless pytest pyyaml loguru requests scipy pillow jsonpickle
+
+      - name: Compile and run category plus existing analysis tests 3.11
+        env:
+          PYTHONPATH: app/traffic-counting-edge-detection-master/src
+        run: |
+          python -m compileall -q app/traffic-counting-edge-detection-master/src/analysis/traffic
+          python -m pytest -q \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_occupied_area_categories.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_occupied_area.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_vehicle_scale.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_route_heatmap.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_native_input.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_pipeline_integration.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_waiting_detector.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_background_refresh.py
+
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install test dependencies for 3.13
+        run: python -m pip install --disable-pip-version-check numpy opencv-python-headless pytest pyyaml loguru requests scipy pillow jsonpickle
+
+      - name: Run same category plus existing tests 3.13
+        env:
+          PYTHONPATH: app/traffic-counting-edge-detection-master/src
+        run: |
+          python -m pytest -q \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_occupied_area_categories.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_occupied_area.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_vehicle_scale.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_route_heatmap.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_native_input.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_pipeline_integration.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_waiting_detector.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_background_refresh.py
