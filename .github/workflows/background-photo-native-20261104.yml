@@ -22,12 +22,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
       - name: Install Android API 37
-        run: yes | sdkmanager --install 'platforms;android-37' 'build-tools;37.0.0' || true
+        run: |
+          sdkmanager --licenses > /dev/null || true
+          sdkmanager --install 'platforms;android-37' 'build-tools;37.0.0'
       - name: Android unit tests and debug assembly
         working-directory: android
         run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace --no-daemon
