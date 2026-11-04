@@ -4,7 +4,7 @@ on:
   push:
     branches: [ci/euclids-orchard-full1080p]
     paths:
-      - .github/workflows/euclids-orchard-full-film-1080p.yml
+      # Workflow-only maintenance must not rerender all 26 expensive scenes.
       - scripts/euclids-orchard/render_fullfilm.py
   workflow_dispatch:
 
@@ -92,6 +92,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Install FFmpeg for artifact verification and full-film assembly
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffprobe -version | sed -n '1p'
       - name: Download 26 verified source renders
         uses: actions/download-artifact@v4
         with:
