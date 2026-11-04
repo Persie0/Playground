@@ -85,7 +85,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 98102215f35724b56bbcab8d103b3133fce4159a
+          ref: 12550478128d1ebcf578ee8592d1bc1b48fd2f9b
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint307
@@ -95,11 +95,14 @@ jobs:
       - name: Verify complete original CFG and execute 11 original ARM64 multi-draw streams
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 98102215f35724b56bbcab8d103b3133fce4159a
+          test "$(git -C research rev-parse HEAD)" = 12550478128d1ebcf578ee8592d1bc1b48fd2f9b
           python3 research/research/photosphere/checkpoint307/verify_original_line_cfg.py original.so --output checkpoint307-line-cfg.json | tee checkpoint307-cfg-verifier.log
           python3 research/research/photosphere/checkpoint307/native_original_line_multidraw.py original.so --output checkpoint307-native-multidraw.json | tee checkpoint307-native-multidraw.log
           grep -q '^CHECKPOINT307_ORIGINAL_CFG_VERIFIED' checkpoint307-cfg-verifier.log
           grep -q '^CHECKPOINT307_ORIGINAL_MULTIDRAW_VERIFIED' checkpoint307-native-multidraw.log
+          grep -q '^CHECKPOINT307_ORIGINAL_COMPACT_WRITTEN' checkpoint307-native-multidraw.log
+          python3 research/research/photosphere/checkpoint307/analyze_device_rng_trace.py --self-test | tee checkpoint307-offline-auditor.log
+          grep -q '^CHECKPOINT307_OFFLINE_FRIDA_AUDITOR_SELF_TEST_PASS' checkpoint307-offline-auditor.log
           node --check research/research/photosphere/checkpoint307/device-process-libc-rng.frida.js
           echo CHECKPOINT307_GLOBAL_LIBC_TRACE_SYNTAX_PASS
       - uses: actions/upload-artifact@v4
@@ -112,4 +115,6 @@ jobs:
             checkpoint307-cfg-verifier.log
             checkpoint307-native-multidraw.json
             checkpoint307-native-multidraw.log
+            checkpoint307-native-multidraw-compact.json
+            checkpoint307-offline-auditor.log
           retention-days: 14
