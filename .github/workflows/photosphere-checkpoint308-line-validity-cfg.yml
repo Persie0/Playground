@@ -1,0 +1,82 @@
+name: Photosphere checkpoint308 original line-validity CFG
+on:
+  push:
+    branches: [research/photosphere-checkpoint308-line-validity-cfg]
+    paths: [.github/workflows/photosphere-checkpoint308-line-validity-cfg.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install original ARM64 analysis
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Fetch SHA-pinned original Google Camera 8.8 APK / library
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk'
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Inspect original candidate geometric validation and backedge candidates
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint308-discovery.log
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from collections import defaultdict,deque
+          from hashlib import sha256
+          b=Path('original.so').read_bytes()
+          assert sha256(b).hexdigest()=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          lo,hi=0x31367c,0x3145c8
+          dis=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          ops=list(dis.disasm(b[lo:hi],lo))
+          ins={i.address:i for i in ops}
+          edges={}
+          inbound=defaultdict(list)
+          for i in ops:
+            pc=i.address
+            name=i.mnemonic
+            nxt=pc+4
+            if name in ('ret','br','eret'):dest=[]
+            elif name=='b' or name.startswith(('b.','cbz','cbnz','tbz','tbnz')):
+              target=int(i.op_str.split(',')[-1].strip()[1:],16)
+              dest=[target] if name=='b' else [nxt,target]
+            else:dest=[nxt]
+            edges[pc]=[e for e in dest if e in ins]
+            for e in edges[pc]:inbound[e].append(pc)
+          def reach(start,end,blocked=()):
+            q=deque([(start,0)]);seen={start}|set(blocked)
+            while q:
+              a,d=q.popleft()
+              if a==end:return d
+              for dest in edges.get(a,()):
+                if dest not in seen:
+                  seen.add(dest);q.append((dest,d+1))
+            return None
+          print('CHECKPOINT308_FUNCTION',hex(lo),hex(hi),len(ins),sum(map(len,edges.values())))
+          for pc in [0x313948,0x31394c,0x313968,0x3140a0,0x3140b0,0x3140b4,0x3140bc,0x3140c0,0x314380,0x3145bc]:
+            print('CHECKPOINT308_BACKEDGE_INBOUND',hex(pc),[(hex(x),ins[x].mnemonic,ins[x].op_str) for x in inbound.get(pc,[])])
+          for from_pc,to_pc in [(0x31396c,0x3140b0),(0x31396c,0x313948),(0x31396c,0x314380),(0x3140c0,0x313948),(0x31396c,0x3145bc),(0x313948,0x314380)]:
+            print('CHECKPOINT308_REACH',hex(from_pc),hex(to_pc),reach(from_pc,to_pc))
+          for name,a,z in [('post-rand-candidate',0x313948,0x313bf0),('candidate-validator-begin',0x313bf0,0x313e70),('line-validator',0x313e70,0x314100),('validation-tail',0x314100,0x3145c8)]:
+            print('CHECKPOINT308_WINDOW_BEGIN',name)
+            for i in dis.disasm(b[a:z],a):
+              print(f'{i.address:#010x} {i.mnemonic:8} {i.op_str}')
+            print('CHECKPOINT308_WINDOW_END',name)
+          print('CHECKPOINT308_DISCOVERY_PASSED')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint308-discovery
+          path: checkpoint308-discovery.log
+          retention-days: 14
