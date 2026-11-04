@@ -1,0 +1,57 @@
+name: Photosphere checkpoint314 native vector growth
+on:
+  push:
+    branches: [research/photosphere-checkpoint314-native-vector-growth]
+    paths: [.github/workflows/photosphere-checkpoint314-native-vector-growth.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-vector-growth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install original ARM64 analysis
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Download original pinned APK and source ARM64 ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk'
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Read-only checkout original reverse-engineering scripts
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 289ee9225173befc53d4227145dc0dde1f2c957c
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint314
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Exact original vector grow branch opcode/PLT verification and native emulation
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = 289ee9225173befc53d4227145dc0dde1f2c957c
+          python3 research/research/photosphere/checkpoint314/verify_original_vector_growth.py original.so --output checkpoint314-original-growth-pins.json | tee checkpoint314-original-growth-pins.log
+          python3 research/research/photosphere/checkpoint314/native_original_vector_growth.py original.so --output checkpoint314-original-growth.json | tee checkpoint314-original-growth.log
+          grep -q '^CHECKPOINT314_ORIGINAL_VECTOR_GROWTH_PINS_VERIFIED' checkpoint314-original-growth-pins.log
+          grep -q '^CHECKPOINT314_NATIVE_VECTOR_GROWTH_PASS' checkpoint314-original-growth.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint314-original-native-growth
+          path: |
+            checkpoint314-original-growth-pins.json
+            checkpoint314-original-growth-pins.log
+            checkpoint314-original-growth.json
+            checkpoint314-original-growth.log
+          retention-days: 14
