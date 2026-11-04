@@ -240,7 +240,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 73e51a6fba43244aa4aa5c1a14cd8dd523a32a27
+          ref: 21dbdd9f5ceebe5705709191524fe781b8bc41fc
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint304
@@ -250,11 +250,12 @@ jobs:
       - name: Verify original virtual dispatch, full direct callgraph and 12 executed Schur cases
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 73e51a6fba43244aa4aa5c1a14cd8dd523a32a27
+          test "$(git -C research rev-parse HEAD)" = 21dbdd9f5ceebe5705709191524fe781b8bc41fc
           python3 research/research/photosphere/checkpoint304/verify_original_ceres_rng_bridge.py original.so --output checkpoint304-original-ceres-rng.json | tee checkpoint304-verifier.log
           python3 research/research/photosphere/checkpoint304/native_original_ceres_schur_type.py original.so --output checkpoint304-original-native-schur.json | tee checkpoint304-native.log
           grep -q '^CHECKPOINT304_ORIGINAL_STATIC_VERIFIED' checkpoint304-verifier.log
           grep -q '^CHECKPOINT304_ORIGINAL_NATIVE_SCHUR_VERIFIED 12' checkpoint304-native.log
+          grep -q '^CHECKPOINT304_ORIGINAL_PREPROCESSOR_GATE_VERIFIED 12' checkpoint304-native.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
