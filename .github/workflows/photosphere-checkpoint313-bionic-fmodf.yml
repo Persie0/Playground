@@ -1,0 +1,67 @@
+name: Photosphere checkpoint313 AOSP Bionic fmodf reference
+on:
+  push:
+    branches: [research/photosphere-checkpoint313-bionic-fmodf]
+    paths: [.github/workflows/photosphere-checkpoint313-bionic-fmodf.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install reference source and ARM64 execution dependencies
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Download immutable AOSP Android 13/14 fmodf C source
+        run: |
+          set -euo pipefail
+          mkdir -p aosp-source
+          curl --fail --location --retry 3 --silent --show-error \
+            'https://raw.githubusercontent.com/aosp-mirror/platform_bionic/0b981d1ec055efaef86d8a5d402cf1b3167ba10b/libm/upstream-freebsd/lib/msun/src/e_fmodf.c' \
+            -o aosp-source/e_fmodf.c
+          test "$(git hash-object aosp-source/e_fmodf.c)" = 1b6bf36f9cba5eeb45bb61943c288310b21248e8
+      - name: Fetch original GCam ARM64 ELF with pinned SHA256
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk'
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Checkout pinned AOSP C oracle builder
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 326980a006b59f16ecbc8c31076899bd335a6a7c
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint313
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Compile pinned original AOSP shift-subtract fmodf and build float32 oracle
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = 326980a006b59f16ecbc8c31076899bd335a6a7c
+          python3 research/research/photosphere/checkpoint313/build_aosp_fmodf_oracle.py \
+            --aosp-source aosp-source/e_fmodf.c \
+            --build-dir compiled-fmodf \
+            --oracle checkpoint313-bionic-fmodf-reference.tsv \
+            --metadata checkpoint313-bionic-fmodf-reference.json | tee checkpoint313-aosp-source.log
+          grep -q '^CHECKPOINT313_AOSP_FMODF_ORIGINAL_C_COMPILED 1b6bf36f9cba5eeb45bb61943c288310b21248e8' checkpoint313-aosp-source.log
+          grep -q '^CHECKPOINT313_AOSP_FMODF_ORACLE_BUILT' checkpoint313-aosp-source.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint313-aosp-reference-oracle
+          path: |
+            checkpoint313-aosp-source.log
+            checkpoint313-bionic-fmodf-reference.json
+            checkpoint313-bionic-fmodf-reference.tsv
+          retention-days: 14
