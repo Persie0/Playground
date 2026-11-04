@@ -1,0 +1,89 @@
+name: Photosphere checkpoint307 original line call CFG
+on:
+  push:
+    branches: [research/photosphere-checkpoint307-line-cfg-rand-order]
+    paths: [.github/workflows/photosphere-checkpoint307-line-cfg-rand-order.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install original ELF tools
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Download sha-pinned original Google Camera ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk'
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Derive original LineAligner CFG and RNG entry branch constraints
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint307-original-cfg.log
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from collections import deque
+          from hashlib import sha256
+          import json
+          b=Path('original.so').read_bytes()
+          assert sha256(b).hexdigest()=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          lo,hi=0x303cf8,0x305618
+          ins=list(Cs(CS_ARCH_ARM64,CS_MODE_ARM).disasm(b[lo:hi],lo))
+          inst={i.address:i for i in ins}
+          edges={}
+          unresolved=[]
+          for i in ins:
+            pc=i.address;nm=i.mnemonic;nextpc=pc+4
+            if nm in ('ret','eret','br'):
+              dest=[]
+            elif nm=='b' or nm.startswith(('b.','cbz','cbnz','tbz','tbnz')):
+              token=i.op_str.split(',')[-1].strip()
+              if not token.startswith('#0x'):
+                unresolved.append((hex(pc),nm,i.op_str));continue
+              target=int(token[1:],16)
+              dest=[target] if nm=='b' else [nextpc,target]
+            else:
+              dest=[nextpc]
+            edges[pc]=[a for a in dest if a in inst]
+          def reach(a,goal,blocked=()):
+            q=deque([(a,0)]);seen={a}|set(blocked)
+            while q:
+              here,dist=q.popleft()
+              if here==goal:return dist,len(seen)
+              for nxt in edges.get(here,()):
+                if nxt not in seen:seen.add(nxt);q.append((nxt,dist+1))
+            return None,len(seen)
+          checks=[
+            ('entry_to_early_line',lo,0x304254,()),
+            ('entry_to_later_ransac',lo,0x304f48,()),
+            ('entry_to_ransac_avoiding_early_line',lo,0x304f48,(0x304254,)),
+            ('early_line_to_later_ransac',0x304254,0x304f48,()),
+            ('later_ransac_to_early_line',0x304f48,0x304254,()),
+            ('line_disabled_branch_to_ransac',0x3042d0,0x304f48,()),
+            ('line_enabled_continuation_to_ransac',0x304258,0x304f48,()),
+          ]
+          for label,a,z,block in checks:
+            depth,visited=reach(a,z,block)
+            print('CHECKPOINT307_CFG',label,'hops',depth,'visited',visited)
+          for name,p in [('LINE_FLAG',0x30420c),('LINE_CALL',0x304254),('ALT_CALL',0x304318),('RANSAC_GATE',0x304edc),('RANSAC_CALL',0x304f48),('LINE_NEXT',0x304258)]:
+            i=inst[p];print('CHECKPOINT307_PIN',name,hex(p),i.mnemonic,i.op_str,'edges',[hex(x) for x in edges[p]])
+          print('CHECKPOINT307_GRAPH_COUNTS',len(inst),len(edges),sum(len(a) for a in edges.values()),'unresolved',unresolved[:50])
+          print('CHECKPOINT307_CFG_SCAN_PASS')
+          PY
+          grep -q '^CHECKPOINT307_CFG_SCAN_PASS' checkpoint307-original-cfg.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint307-source-cfg
+          path: checkpoint307-original-cfg.log
+          retention-days: 14
