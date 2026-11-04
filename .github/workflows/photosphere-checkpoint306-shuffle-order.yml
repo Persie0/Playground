@@ -1,0 +1,95 @@
+name: Photosphere checkpoint306 original shuffle and RANSAC call order
+on:
+  push:
+    branches: [research/photosphere-checkpoint306-shuffle-order]
+    paths: [.github/workflows/photosphere-checkpoint306-shuffle-order.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-graph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install original ARM64 analysis
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+      - name: Verify exact source APK and extract ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Trace original LineAligner and RANSAC/shuffle call paths
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint306-original-graph.log
+          from pathlib import Path
+          from bisect import bisect_right
+          from collections import defaultdict,deque
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          from elftools.dwarf.callframe import FDE
+          import hashlib
+          b=Path('original.so').read_bytes()
+          assert hashlib.sha256(b).hexdigest()=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          with Path('original.so').open('rb') as f:
+            e=ELFFile(f)
+            t=e.get_section_by_name('.text')
+            start=int(t['sh_addr']);end=start+int(t['sh_size'])
+            assert start==int(t['sh_offset'])==0xed630
+            fdes=sorted((int(v['initial_location']),int(v['initial_location'])+int(v['address_range'])) for v in e.get_dwarf_info().EH_CFI_entries() if isinstance(v,FDE))
+          starts=[i for i,j in fdes]
+          def fde(pc):
+            i=bisect_right(starts,pc)-1
+            return fdes[i] if i>=0 and pc<fdes[i][1] else None
+          d=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          ins=list(d.disasm(b[start:end],start))
+          inbound=defaultdict(list)
+          out=defaultdict(list)
+          for op in ins:
+            if op.mnemonic not in ('bl','b') or not op.op_str.startswith('#0x'):continue
+            try:dest=int(op.op_str[1:],16)
+            except ValueError:continue
+            src_owner=fde(op.address);dst_owner=fde(dest)
+            if src_owner is None or dst_owner is None or src_owner[0]==dst_owner[0]:continue
+            if op.mnemonic=='b' and dest!=dst_owner[0]:continue
+            out[src_owner[0]].append((dst_owner[0],op.address,op.mnemonic))
+            inbound[dst_owner[0]].append((src_owner[0],op.address,op.mnemonic))
+          for name,pc in [('linealigner',0x303cf8),('line_ransac_call',0x3074e4),('ransac',0x30f860),('line_shuffle',0x31394c),('shuffle_func',0x31367c)]:
+            print('CHECKPOINT306_FDE',name,hex(pc),tuple(hex(z) for z in fde(pc)))
+          root=fde(0x303cf8)[0]
+          goals=[fde(0x30f860)[0],fde(0x31394c)[0]]
+          q=deque([(root,[])])
+          seen={root}
+          for goal in goals:
+            q=deque([(root,[])]);visited={root};res=None
+            while q:
+              at,path=q.popleft()
+              if at==goal:res=path;break
+              for dest,site,kind in out[at]:
+                if dest not in visited:
+                  visited.add(dest);q.append((dest,path+[(at,dest,site,kind)]))
+            print('CHECKPOINT306_CALLPATH',hex(root),'to',hex(goal),None if res is None else [(hex(a),hex(b),hex(pc),k) for a,b,pc,k in res])
+          for goal in goals:
+            print('CHECKPOINT306_DIRECT_INBOUND',hex(goal),[(hex(a),hex(pc),kind) for a,pc,kind in inbound[goal]])
+          for name,lo,hi in [('LineAlignerRansac',0x307400,0x3076a0),('ShuffleBeforeRand',0x313870,0x3139e0),('ShufflePrologue',0x31367c,0x313790)]:
+            print('CHECKPOINT306_WINDOW_START',name,hex(lo),hex(hi))
+            for i in d.disasm(b[lo:hi],lo):
+              print(f'{i.address:#010x} {i.mnemonic:8} {i.op_str}')
+            print('CHECKPOINT306_WINDOW_END',name)
+          print('CHECKPOINT306_ORIGINAL_CALLPATH_SCAN_PASS',len(fdes),len(ins))
+          PY
+          grep -q '^CHECKPOINT306_ORIGINAL_CALLPATH_SCAN_PASS' checkpoint306-original-graph.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint306-original-callgraph
+          path: checkpoint306-original-graph.log
+          retention-days: 14
