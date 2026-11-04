@@ -44,9 +44,36 @@ jobs:
             print('CHECKPOINT305_WINDOW_END',name)
           print('CHECKPOINT305_ORIGINAL_SAMPLER_DISASM_PASSED')
           PY
+      - name: Checkout exact native RANSAC research and harness
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: ea79f26fc8332f01766c52574dc8b480cd3815cb
+          path: native-research
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Execute real original ARM64 50-retry exhaustion in full 550-trial path
+        run: |
+          set -euo pipefail
+          test "$(git -C native-research rev-parse HEAD)" = ea79f26fc8332f01766c52574dc8b480cd3815cb
+          mkdir -p native-research/research/native
+          cp original.so native-research/research/native/liblightcycle.so
+          if ! (cd native-research && python3 research/photosphere/checkpoint305/native_original_ransac_retry.py) > checkpoint305-ransac-native.log 2> checkpoint305-ransac-native.err; then
+            echo 'CHECKPOINT305_NATIVE_ORIGINAL_FAILED'
+            tail -n 100 checkpoint305-ransac-native.err
+            tail -n 40 checkpoint305-ransac-native.log
+            exit 1
+          fi
+          cat checkpoint305-ransac-native.log
+          cp native-research/checkpoint305-original-ransac-retry.json checkpoint305-original-ransac-retry.json
+          grep -q '^CHECKPOINT305_ORIGINAL_50_RETRY_550_TRIALS_PASS' checkpoint305-ransac-native.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: checkpoint305-original-ransac-evidence
-          path: checkpoint305-original-sampler-boundary.log
+          path: |
+            checkpoint305-original-sampler-boundary.log
+            checkpoint305-ransac-native.log
+            checkpoint305-ransac-native.err
+            checkpoint305-original-ransac-retry.json
           retention-days: 14
