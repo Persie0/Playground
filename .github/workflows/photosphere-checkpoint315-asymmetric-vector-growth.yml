@@ -1,0 +1,79 @@
+name: Photosphere checkpoint315 asymmetric vector growth
+on:
+  push:
+    branches: [research/photosphere-checkpoint315-asymmetric-vector-growth]
+    paths: [.github/workflows/photosphere-checkpoint315-asymmetric-vector-growth.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  asymmetric-vector-growth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install ARM64 original-machine-code verifier dependencies
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Download original SHA-pinned APK and extract liblightcycle.so
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk'
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Checkout pinned decompile source read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 894cbd18277f25bfb767e89d672bcd9d845e3c9f
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint314
+            research/photosphere/checkpoint315
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Source-execute asymmetric vector growth on original ARM64
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = 894cbd18277f25bfb767e89d672bcd9d845e3c9f
+          python3 research/research/photosphere/checkpoint314/verify_original_vector_growth.py original.so --output checkpoint315-growth-opcodes.json | tee checkpoint315-growth-opcodes.log
+          PYTHONPATH=research python3 research/research/photosphere/checkpoint315/native_original_asymmetric_vectors.py original.so --output checkpoint315-original-asymmetric-vectors.json | tee checkpoint315-original-growth.log
+          grep -q '^CHECKPOINT314_ORIGINAL_VECTOR_GROWTH_PINS_VERIFIED' checkpoint315-growth-opcodes.log
+          grep -q '^CHECKPOINT315_ASYMMETRIC_VECTOR_NATIVE_PASS' checkpoint315-original-growth.log
+      - name: Checkout checkpoint315 Rust app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 506ad2fa45598b250beadcf46c925c3d1e556adc
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Run focused and full Rust test suites
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 506ad2fa45598b250beadcf46c925c3d1e556adc
+          cd app
+          rustfmt --edition 2021 --check src/native_line_vector_growth.rs
+          cargo test --lib checkpoint315_ -- --nocapture
+          cargo test --lib
+      - name: Report source-executed fixture for app differential
+        run: |
+          echo CHECKPOINT315_JSON_BEGIN
+          cat checkpoint315-original-asymmetric-vectors.json
+          echo CHECKPOINT315_JSON_END
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint315-original-asymmetric-vectors
+          path: |
+            checkpoint315-original-asymmetric-vectors.json
+            checkpoint315-growth-opcodes.json
+            checkpoint315-growth-opcodes.log
+            checkpoint315-original-growth.log
+          retention-days: 14
