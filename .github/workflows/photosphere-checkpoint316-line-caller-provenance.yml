@@ -51,6 +51,42 @@ jobs:
           echo CHECKPOINT316_DIRECT_CALLERS_JSON_BEGIN
           cat checkpoint316-original-direct-callers.json
           echo CHECKPOINT316_DIRECT_CALLERS_JSON_END
+      - name: Read-only checkout checkpoint316 Rust app
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: b44f393568453ae9504df589e716b8d350053d37
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Compare fresh original ARM64 observations with Rust oracles
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = b44f393568453ae9504df589e716b8d350053d37
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for actual,expected in [
+              ('checkpoint316-original-direct-callers.json', 'app/tests/fixtures/native_original_line_bin_direct_callers_316.json'),
+              ('checkpoint316-original-secondary-mask.json','app/tests/fixtures/native_original_secondary_mask_gate_316.json'),
+          ]:
+              a=json.loads(Path(actual).read_text())
+              b=json.loads(Path(expected).read_text())
+              assert a==b,(actual,expected)
+              print("CHECKPOINT316_ORIGINAL_RUST_FIXTURE_EQUAL",expected)
+          PY
+      - name: Rust checkpoint316 focused and full regression
+        run: |
+          set -euo pipefail
+          cd app
+          rustfmt --edition 2021 src/native_line_secondary_mask.rs
+          cargo test --lib checkpoint316 -- --nocapture
+          cargo test --lib
+      - name: Print formatted Rust secondary gate
+        run: |
+          echo CHECKPOINT316_RUST_FORMATTED_BEGIN
+          cat app/src/native_line_secondary_mask.rs
+          echo CHECKPOINT316_RUST_FORMATTED_END
       - uses: actions/upload-artifact@v4
         if: always()
         with:
