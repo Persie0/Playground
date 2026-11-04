@@ -50,9 +50,33 @@ jobs:
           print('CHECKPOINT309_ORIGINAL_GEOMETRY_ENTRY_DISCOVERY_PASS')
           PY
           grep -q '^CHECKPOINT309_ORIGINAL_GEOMETRY_ENTRY_DISCOVERY_PASS' checkpoint309-discovery.log
+      - name: Read-only checkout original checkpoint309 research and native differential
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 8fccc1f714890c992d850b1eccd11a1f12eb5e8c
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint309
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Source-verify and execute original geometry entry diagnostic pair comparisons
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = 8fccc1f714890c992d850b1eccd11a1f12eb5e8c
+          python3 research/research/photosphere/checkpoint309/verify_original_geometry_entry.py original.so --output checkpoint309-original-geometry-pins.json | tee checkpoint309-original-pins.log
+          python3 research/research/photosphere/checkpoint309/native_original_geometry_entry.py original.so --output checkpoint309-original-geometry-entry.json | tee checkpoint309-original-native.log
+          grep -q '^CHECKPOINT309_GEOMETRY_ENTRY_SOURCE_PINS_VERIFIED' checkpoint309-original-pins.log
+          grep -q '^CHECKPOINT309_ORIGINAL_GEOMETRY_ENTRY_EXECUTION_PASS 14 9' checkpoint309-original-native.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: checkpoint309-source-discovery
-          path: checkpoint309-discovery.log
+          path: |
+            checkpoint309-discovery.log
+            checkpoint309-original-geometry-pins.json
+            checkpoint309-original-geometry-entry.json
+            checkpoint309-original-pins.log
+            checkpoint309-original-native.log
           retention-days: 14
