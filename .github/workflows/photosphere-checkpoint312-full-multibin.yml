@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 53be5d0a8cbde805ce9d54ae2cabd3e38d87b50e
+          ref: 1db8db759102782b79af78e5a9fbed49543232b2
           path: native-research
           sparse-checkout: |
             research/photosphere/checkpoint312
@@ -40,12 +40,50 @@ jobs:
       - name: Execute full original ARM64 bin iteration and actual affine lookup
         run: |
           set -euo pipefail
-          test "$(git -C native-research rev-parse HEAD)" = 53be5d0a8cbde805ce9d54ae2cabd3e38d87b50e
+          test "$(git -C native-research rev-parse HEAD)" = 1db8db759102782b79af78e5a9fbed49543232b2
           python3 native-research/research/photosphere/checkpoint312/verify_original_multibin.py original.so --output checkpoint312-original-loop-pins.json | tee checkpoint312-original-loop-pins.log
           python3 native-research/research/photosphere/checkpoint312/native_original_multibin.py original.so --output checkpoint312-original-multibin.json | tee checkpoint312-native-multibin.log
           grep -q '^CHECKPOINT312_ORIGINAL_LOOP_SOURCE_VERIFIED' checkpoint312-original-loop-pins.log
           grep -q '^CHECKPOINT312_ORIGINAL_MULTIBIN_PASS 12 52 30' checkpoint312-native-multibin.log
           grep -q '^CHECKPOINT312_ORIGINAL_COMPACT_ORACLE_PASS 12 52 30' checkpoint312-native-multibin.log
+      - name: Checkout pinned PhotosphereCleanroom original multi-bin parity regression
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 52c4f285d7472861a6a117dd9b5f174bf877871e
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Fresh original 12-scene multi-bin oracle equals Rust and full suite
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 52c4f285d7472861a6a117dd9b5f174bf877871e
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          native=json.loads(Path('checkpoint312-original-multibin-compact.json').read_text())
+          rust=json.loads(Path('app/tests/fixtures/native_original_multibin_312.json').read_text())
+          if native!=rust:
+              for key in sorted(set(native)|set(rust)):
+                  if native.get(key)==rust.get(key):continue
+                  if key=="cases":
+                      for i,(x,y) in enumerate(zip(native[key],rust[key])):
+                          for field in sorted(set(x)|set(y)):
+                              if x.get(field)!=y.get(field):
+                                  print('CHECKPOINT312_ORIGINAL_RUST_CASE_DIFF',i,x.get('name'),field,repr(x.get(field))[:350],repr(y.get(field))[:350])
+                  else:
+                      print('CHECKPOINT312_ORIGINAL_RUST_TOP_DIFF',key,repr(native.get(key))[:350],repr(rust.get(key))[:350])
+              raise AssertionError('original source-native and Rust oracle diverge')
+          assert native['original_native_scenario_count']==12
+          assert native['original_total_fmod_calls']==52
+          assert native['original_total_affine_calls']==30
+          print('CHECKPOINT312_FRESH_ORIGINAL_RUST_EQUAL',len(native['cases']),native['original_total_fmod_calls'],native['original_total_affine_calls'])
+          PY
+          cd app
+          git diff --check
+          rustfmt --edition 2021 --check src/native_line_multibin.rs
+          cargo test --lib checkpoint312_ -- --nocapture
+          cargo test --lib
       - uses: actions/upload-artifact@v4
         if: always()
         with:
