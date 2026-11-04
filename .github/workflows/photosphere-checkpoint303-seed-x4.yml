@@ -1,0 +1,70 @@
+name: Photosphere checkpoint303 original mode2 seed caller provenance
+on:
+  push:
+    branches: [research/photosphere-checkpoint303-seed-x4]
+    paths: ['.github/workflows/photosphere-checkpoint303-seed-x4.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint303-seed-x4
+  cancel-in-progress: true
+jobs:
+  original-seed-callers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install native disassembly dependencies
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+      - name: Download SHA-pinned original GCam APK and ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Inventory direct mode2 constructor wrapper callsites and inspect x4
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint303-seed-x4.log
+          from pathlib import Path
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import hashlib, collections
+          data=Path("original.so").read_bytes()
+          assert hashlib.sha256(data).hexdigest()=="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          with Path("original.so").open("rb") as f:
+              sec=ELFFile(f).get_section_by_name(".text")
+              st=int(sec["sh_addr"]); ed=st+int(sec["sh_size"])
+              assert st==int(sec["sh_offset"])==0xed630
+          d=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          ins=list(d.disasm(data[st:ed],st))
+          sites=[0x2d4de4,0x2d3d98,0x2d70a4,0x2d4e28]
+          for target in sites:
+              direct=[(i.address,i.mnemonic) for i in ins if i.mnemonic in ("bl","b") and i.op_str==f"#0x{target:x}"]
+              print("CHECKPOINT303_REFERENCES",hex(target),len(direct),[(hex(a),op) for a,op in direct])
+              for pc,op in direct[:30]:
+                  print("CHECKPOINT303_CALLER_CONTEXT_START",hex(pc),hex(target))
+                  start=max(st,pc-0x100);end=min(ed,pc+0x50)
+                  for i in d.disasm(data[start:end],start):
+                      print(f"{i.address:#010x} {i.mnemonic:8} {i.op_str}")
+                  print("CHECKPOINT303_CALLER_CONTEXT_END",hex(pc),hex(target))
+          print("CHECKPOINT303_MODE2_FUNCTION_START")
+          for i in d.disasm(data[0x2d4de4:0x2d4f50],0x2d4de4):
+              print(f"{i.address:#010x} {i.mnemonic:8} {i.op_str}")
+          print("CHECKPOINT303_MODE2_FUNCTION_END")
+          print("CHECKPOINT303_ORIGINAL_CALLSITE_SCAN_PASSED",len(ins))
+          PY
+          grep -q '^CHECKPOINT303_ORIGINAL_CALLSITE_SCAN_PASSED' checkpoint303-seed-x4.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint303-seed-x4-source-evidence
+          path: checkpoint303-seed-x4.log
+          retention-days: 14
