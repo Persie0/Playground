@@ -74,9 +74,29 @@ jobs:
             print('CHECKPOINT308_WINDOW_END',name)
           print('CHECKPOINT308_DISCOVERY_PASSED')
           PY
+      - name: Checkout source-pinned checkpoint308 native original mask-gate harness
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: ab4bf27d2e856929197ff6bea04b27306fb1773b
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint308
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Execute original ARM64 mask rejection and count-one loops with controlled libc returns
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = ab4bf27d2e856929197ff6bea04b27306fb1773b
+          python3 research/research/photosphere/checkpoint308/native_original_line_mask_retry.py original.so --output checkpoint308-original-mask-retry.json | tee checkpoint308-original-mask-retry.log
+          grep -q '^CHECKPOINT308_ORIGINAL_MASK_RETRY_VERIFIED' checkpoint308-original-mask-retry.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: checkpoint308-discovery
-          path: checkpoint308-discovery.log
+          path: |
+            checkpoint308-discovery.log
+            checkpoint308-original-mask-retry.json
+            checkpoint308-original-mask-retry.log
           retention-days: 14
