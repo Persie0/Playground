@@ -59,11 +59,14 @@ jobs:
           set -euo pipefail
           test "$(git -C app rev-parse HEAD)" = 506ad2fa45598b250beadcf46c925c3d1e556adc
           cd app
-          rustfmt --edition 2021 --check src/native_line_vector_growth.rs
+          rustfmt --edition 2021 src/native_line_vector_growth.rs
           cargo test --lib checkpoint315_ -- --nocapture
           cargo test --lib
       - name: Report source-executed fixture for app differential
         run: |
+          echo CHECKPOINT315_RUST_FORMATTED_BEGIN
+          cat app/src/native_line_vector_growth.rs
+          echo CHECKPOINT315_RUST_FORMATTED_END
           echo CHECKPOINT315_JSON_BEGIN
           cat checkpoint315-original-asymmetric-vectors.json
           echo CHECKPOINT315_JSON_END
