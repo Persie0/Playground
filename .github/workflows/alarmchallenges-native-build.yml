@@ -1,0 +1,47 @@
+name: AlarmChallenges native Android validation
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/alarmchallenges-native-build.yml'
+      - 'alarmchallenges-ci-trigger.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Checkout private AlarmChallenges source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          test -n "$REPO_TOKEN" || { echo "Configure a token with access to Persie0/alarmchallenges"; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            clone --depth=1 --branch=feature/native-alarm-challenges \
+            https://github.com/Persie0/alarmchallenges.git source
+      - name: Run unit tests and build debug APK
+        working-directory: source/android
+        run: gradle --no-daemon testDebugUnitTest assembleDebug --stacktrace
+      - name: Upload debug APK and test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alarmchallenges-debug-and-test-reports
+          path: |
+            source/android/app/build/outputs/apk/debug/*.apk
+            source/android/app/build/reports/tests/
+          if-no-files-found: warn
+          retention-days: 7
