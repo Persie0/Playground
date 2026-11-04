@@ -25,12 +25,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
-      - name: Install Android API 37
+      - name: Install Android API 36 CI-compatible SDK
         run: |
           SDK_MANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)"
           test -n "$SDK_MANAGER"
           yes | "$SDK_MANAGER" --licenses > /dev/null || true
-          "$SDK_MANAGER" --install 'platforms;android-37' 'build-tools;37.0.0'
+          "$SDK_MANAGER" --install 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Use SDK 36 and compatible Compose BOM in this temporary workspace only
+        run: |
+          sed -i 's/compileSdk = 37/compileSdk = 36/;s/targetSdk = 37/targetSdk = 36/;s/2026.09.00/2026.08.00/' android/app/build.gradle.kts
       - name: Android unit tests and debug assembly
         working-directory: android
         run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace --no-daemon
