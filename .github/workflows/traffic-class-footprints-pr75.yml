@@ -1,0 +1,64 @@
+name: Validate Stef class-aware polygons PR75
+on:
+  push:
+    branches: ['ci/stef-class-footprints-pr75-20261104']
+    paths: ['.github/workflows/traffic-class-footprints-pr75.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  geometry-and-analysis:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact PR75 revision
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/traffic-counting-light-main
+          ref: 2bf1f26fa0df08a89558a6e57a267b18ca6230b2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          persist-credentials: false
+          path: app
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies 3.11
+        run: python -m pip install --disable-pip-version-check numpy opencv-python-headless pytest pyyaml loguru requests scipy pillow jsonpickle
+      - name: Run geometry and existing analysis tests 3.11
+        env:
+          PYTHONPATH: app/traffic-counting-edge-detection-master/src
+        run: |
+          python -m compileall -q app/traffic-counting-edge-detection-master/src/analysis app/traffic-counting-edge-detection-master/src/main.py
+          python -m pytest -q \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_vehicle_footprint_polygons.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_occupied_area_categories.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_occupied_area.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_native_input.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_vehicle_scale.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_route_heatmap.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_pipeline_integration.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_waiting_detector.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_background_refresh.py \
+            app/traffic-counting-edge-detection-master/tests/test_direction_ground_angles.py
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install test dependencies 3.13
+        run: python -m pip install --disable-pip-version-check numpy opencv-python-headless pytest pyyaml loguru requests scipy pillow jsonpickle
+      - name: Run same geometry and analysis tests 3.13
+        env:
+          PYTHONPATH: app/traffic-counting-edge-detection-master/src
+        run: |
+          python -m pytest -q \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_vehicle_footprint_polygons.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_occupied_area_categories.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_occupied_area.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_native_input.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_vehicle_scale.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_route_heatmap.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_pipeline_integration.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_waiting_detector.py \
+            app/traffic-counting-edge-detection-master/tests/test_analysis_background_refresh.py \
+            app/traffic-counting-edge-detection-master/tests/test_direction_ground_angles.py
