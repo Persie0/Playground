@@ -1,0 +1,48 @@
+name: Outfitter recommendation validation
+
+# Uses PUBLIC Playground Actions minutes only. The private source is checked
+# out temporarily using an existing Playground secret, never published here.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/outfitter-recommendation-validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Verify private checkout credential exists
+        shell: bash
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout Outfitter candidate
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/outfitter
+          ref: feature/forecast-exposure-and-recommendation-ranges
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        working-directory: source
+        run: flutter pub get
+      - name: Check Dart formatting
+        working-directory: source
+        run: dart format --output=none --set-exit-if-changed lib/models/weather_data.dart lib/services/weather_service.dart lib/services/thermal_weather_model.dart lib/services/outfit_engine.dart lib/screens/recommendation_screen.dart test/weather_service_test.dart test/thermal_weather_model_test.dart test/real_world_weather_examples_test.dart
+      - name: Run weather and outfit tests
+        working-directory: source
+        run: flutter test test/weather_service_test.dart test/thermal_weather_model_test.dart test/outfit_engine_test.dart test/real_world_weather_examples_test.dart
+      - name: Analyze app
+        working-directory: source
+        run: flutter analyze
