@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: b052cc5d355fbc75a934071e7c5279f5e1625e0d
+          ref: c1d39f7d6bb78082a4af959b1a90cc3a2d7bb720
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint314
@@ -40,11 +40,50 @@ jobs:
       - name: Exact original vector grow branch opcode/PLT verification and native emulation
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = b052cc5d355fbc75a934071e7c5279f5e1625e0d
+          test "$(git -C research rev-parse HEAD)" = c1d39f7d6bb78082a4af959b1a90cc3a2d7bb720
           python3 research/research/photosphere/checkpoint314/verify_original_vector_growth.py original.so --output checkpoint314-original-growth-pins.json | tee checkpoint314-original-growth-pins.log
           python3 research/research/photosphere/checkpoint314/native_original_vector_growth.py original.so --output checkpoint314-original-growth.json | tee checkpoint314-original-growth.log
           grep -q '^CHECKPOINT314_ORIGINAL_VECTOR_GROWTH_PINS_VERIFIED' checkpoint314-original-growth-pins.log
           grep -q '^CHECKPOINT314_NATIVE_VECTOR_GROWTH_PASS' checkpoint314-original-growth.log
+      - name: Checkout pinned original-vector-growth Rust source and regression
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 49dc8924fb2344f4515906f1a667064d6171c9f9
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Compare fresh SHA-pinned original ARM64 vector growth vs Rust regression
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 49dc8924fb2344f4515906f1a667064d6171c9f9
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          native=json.loads(Path("checkpoint314-original-growth.json").read_text())
+          rust=json.loads(Path("app/tests/fixtures/native_original_vector_growth_314.json").read_text())
+          if native!=rust:
+              for key in sorted(set(native)|set(rust)):
+                  if native.get(key)==rust.get(key): continue
+                  if key=="cases":
+                      for i,(a,b) in enumerate(zip(native[key],rust[key])):
+                          for sub in sorted(set(a)|set(b)):
+                              if a.get(sub)!=b.get(sub):
+                                  print("CHECKPOINT314_NATIVE_RUST_CASE_DIFF",i,a.get("name"),sub,repr(a.get(sub))[:450],repr(b.get(sub))[:450])
+                  else:
+                      print("CHECKPOINT314_NATIVE_RUST_TOP_DIFF",key,repr(native.get(key))[:450],repr(rust.get(key))[:450])
+              raise AssertionError("fresh source-executed native vector growth differs from Rust fixture")
+          assert native["original_fixture_count"]==12
+          assert native["original_total_allocation_calls"]==50
+          assert native["original_total_memcpy_calls"]==38
+          assert native["original_total_deallocation_calls"]==38
+          print("CHECKPOINT314_FRESH_NATIVE_RUST_GROWTH_EQUAL",len(native["cases"]),50,38,38)
+          PY
+          cd app
+          git diff --check
+          rustfmt --edition 2021 --check src/native_line_vector_growth.rs
+          cargo test --lib checkpoint314_ -- --nocapture
+          cargo test --lib
       - uses: actions/upload-artifact@v4
         if: always()
         with:
