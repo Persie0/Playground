@@ -18,7 +18,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Capstone and ELF analysis
-        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
       - name: Download exact original GCam 8.8.225 ARM64 ELF
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -236,6 +236,25 @@ jobs:
           print("CHECKPOINT304_CERES_FIELD_BRANCH_SCAN_PASS")
           PY
           grep -q '^CHECKPOINT304_CERES_FIELD_BRANCH_SCAN_PASS' checkpoint304-ceres-field-branch.log
+      - name: Checkout original-source checkpoint304 research
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 73e51a6fba43244aa4aa5c1a14cd8dd523a32a27
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint304
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify original virtual dispatch, full direct callgraph and 12 executed Schur cases
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = 73e51a6fba43244aa4aa5c1a14cd8dd523a32a27
+          python3 research/research/photosphere/checkpoint304/verify_original_ceres_rng_bridge.py original.so --output checkpoint304-original-ceres-rng.json | tee checkpoint304-verifier.log
+          python3 research/research/photosphere/checkpoint304/native_original_ceres_schur_type.py original.so --output checkpoint304-original-native-schur.json | tee checkpoint304-native.log
+          grep -q '^CHECKPOINT304_ORIGINAL_STATIC_VERIFIED' checkpoint304-verifier.log
+          grep -q '^CHECKPOINT304_ORIGINAL_NATIVE_SCHUR_VERIFIED 12' checkpoint304-native.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -245,4 +264,8 @@ jobs:
             checkpoint304-function-pointer-ownership.log
             checkpoint304-ceres-dispatch.log
             checkpoint304-ceres-field-branch.log
+            checkpoint304-original-ceres-rng.json
+            checkpoint304-original-native-schur.json
+            checkpoint304-verifier.log
+            checkpoint304-native.log
           retention-days: 14
