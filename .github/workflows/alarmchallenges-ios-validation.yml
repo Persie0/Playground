@@ -1,0 +1,51 @@
+name: AlarmChallenges native iOS validation
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/alarmchallenges-ios-validation.yml'
+      - 'alarmchallenges-ios-ci-trigger.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - name: Show Xcode SDKs
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+      - name: Checkout private AlarmChallenges source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          test -n "$REPO_TOKEN" || { echo "Configure a token with access to Persie0/alarmchallenges"; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            clone --depth=1 --branch=feature/native-alarm-challenges \
+            https://github.com/Persie0/alarmchallenges.git source
+      - name: Generate Xcode project
+        working-directory: source/ios
+        run: xcodegen generate
+      - name: Compile iOS app and widget for simulator
+        working-directory: source/ios
+        run: |
+          set -o pipefail
+          xcodebuild -project AlarmChallenges.xcodeproj -scheme AlarmChallenges \
+            -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee xcodebuild.log
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alarmchallenges-ios-xcodebuild-log
+          path: source/ios/xcodebuild.log
+          if-no-files-found: warn
+          retention-days: 7
