@@ -1,0 +1,50 @@
+name: Background Remover photo native validation
+on:
+  push:
+    branches:
+      - validation/background-photo-20261104
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out private feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/BackgroundVideoRemover
+          ref: feature/photo-background-removal
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Install Android API 37
+        run: yes | sdkmanager --install 'platforms;android-37' 'build-tools;37.0.0' || true
+      - name: Android unit tests and debug assembly
+        working-directory: android
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace --no-daemon
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - name: Check out private feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/BackgroundVideoRemover
+          ref: feature/photo-background-removal
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - name: Compile iOS simulator app
+        run: |
+          xcodebuild -project ios/BackgroundVideoRemover.xcodeproj \
+            -scheme BackgroundVideoRemover \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build
