@@ -1,0 +1,122 @@
+name: Photosphere checkpoint304 full seed caller frontier
+on:
+  push:
+    branches: [research/photosphere-checkpoint304-full-seed-frontier]
+    paths: ['.github/workflows/photosphere-checkpoint304-full-seed-frontier.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint304-full-seed-frontier
+  cancel-in-progress: true
+jobs:
+  native-seed-frontier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Capstone and ELF analysis
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+      - name: Download exact original GCam 8.8.225 ARM64 ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Inspect original full direct callgraph, export roots and indirect static function pointers
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint304-full-frontier.log
+          import hashlib,collections,json
+          from pathlib import Path
+          from bisect import bisect_right
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          from elftools.elf.relocation import RelocationSection
+          from elftools.dwarf.callframe import FDE
+          p=Path('original.so');blob=p.read_bytes()
+          assert hashlib.sha256(blob).hexdigest()=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          with p.open('rb') as src:
+            elf=ELFFile(src)
+            sec=elf.get_section_by_name('.text')
+            start=int(sec['sh_addr']);end=start+int(sec['sh_size'])
+            assert start==int(sec['sh_offset'])==0xed630
+            fdes=sorted((int(x['initial_location']),int(x['initial_location'])+int(x['address_range'])) for x in elf.get_dwarf_info().EH_CFI_entries() if isinstance(x,FDE))
+            dynsym=[]
+            for section in elf.iter_sections():
+              if section['sh_type'] in ('SHT_SYMTAB','SHT_DYNSYM'):
+                for sym in section.iter_symbols():
+                  addr=int(sym['st_value'])
+                  if addr>0 and sym.name and (sym['st_info']['type'] in ('STT_FUNC','STT_NOTYPE')):
+                    dynsym.append((addr,sym.name))
+            relocs=collections.defaultdict(list)
+            for section in elf.iter_sections():
+              if isinstance(section,RelocationSection):
+                for rel in section.iter_relocations():
+                  if rel.is_RELA():
+                    addr=int(rel['r_addend'])
+                    if start<=addr<end:relocs[addr].append((int(rel['r_offset']),int(rel['r_info_type']),section.name))
+          starts=[x for x,y in fdes]
+          def owner(a):
+            i=bisect_right(starts,a)-1
+            return starts[i] if i>=0 and a<fdes[i][1] else None
+          d=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          ins=list(d.disasm(blob[start:end],start))
+          incoming=collections.defaultdict(list)
+          direct=collections.defaultdict(list)
+          for x in ins:
+            if x.mnemonic not in ('b','bl') or not x.op_str.startswith('#0x'):continue
+            try:target=int(x.op_str[1:],16)
+            except ValueError:continue
+            direct[(x.mnemonic,target)].append(x.address)
+            src=owner(x.address);dst=owner(target)
+            if src is None or dst is None or src==dst:continue
+            if x.mnemonic=='b' and target!=dst:continue
+            incoming[dst].append((src,x.address,x.mnemonic))
+          roots={'null_seed_mode2_owner':0x2bbe10,'other_seed_mode2_owner':0x2c9bb0,'RANSAC_original':0x30f860,'RANSAC_caller':0x120600,'AddImage_estimator':0x11d570,'JNI_AddImage':owner(0xef720),'native_finalizer':owner(0x11b8f4)}
+          print('CHECKPOINT304_ROOTS',json.dumps({k:hex(v) if v else None for k,v in roots.items()},sort_keys=True))
+          def ancestry(root):
+            if root is None:return {}
+            q=collections.deque([(root,0)]);dist={root:0}
+            while q:
+              cur,depth=q.popleft()
+              if depth>=100:continue
+              for src,site,kind in incoming[cur]:
+                if src not in dist:
+                  dist[src]=depth+1;q.append((src,depth+1))
+            return dist
+          reaches={k:ancestry(v) for k,v in roots.items()}
+          for key,distance in reaches.items():
+            top=sorted(distance.items(),key=lambda v:(-v[1],v[0]))
+            terminal=sorted(x for x in distance if not incoming[x])
+            members=[(hex(addr),name) for addr,name in dynsym if owner(addr) in distance]
+            ptrs=[(hex(addr),hex(offs),typ) for addr,rl in relocs.items() if owner(addr) in distance for offs,typ,secname in rl]
+            print('CHECKPOINT304_ANCESTRY_SUMMARY',key,'nodes',len(distance),'max_depth',max(distance.values(),default=0),'leaf_roots',list(map(hex,terminal))[:90])
+            print('CHECKPOINT304_SYMBOLS',key,members[:80])
+            print('CHECKPOINT304_CODE_POINTER_RELOCS',key,ptrs[:55])
+            print('CHECKPOINT304_DEEPEST',key,[(hex(x),v) for x,v in top[:40]])
+          for a,b in [('null_seed_mode2_owner','RANSAC_original'),('other_seed_mode2_owner','RANSAC_original'),('null_seed_mode2_owner','JNI_AddImage'),('other_seed_mode2_owner','JNI_AddImage'),('null_seed_mode2_owner','AddImage_estimator'),('other_seed_mode2_owner','AddImage_estimator'),('null_seed_mode2_owner','other_seed_mode2_owner')]:
+            common=sorted(set(reaches[a])&set(reaches[b]))
+            print('CHECKPOINT304_FULL_DIRECT_INTERSECTION',a,b,[hex(x) for x in common[:80]],'count',len(common))
+          for target in (0x2b9a80,0x2ba04c,0x17d30c,0x17d724,0x1ad7f4,0x1957f0,0x2a9cc8,0x2bc644,0x2c9bb0,0x120600):
+            print('CHECKPOINT304_DIRECT_REFS',hex(target),[(hex(src),hex(site),kind) for src,site,kind in incoming[target]])
+            print('CHECKPOINT304_POINTER_REFS',hex(target),[(hex(ofs),typ) for ofs,typ,secname in relocs[target][:30]])
+          for pc in (0x2bca8c,0x2aa2d4,0x2ba8b4,0x17d83c,0x195908,0x11db88):
+            print('CHECKPOINT304_CONTEXT',hex(pc),'owner',hex(owner(pc)) if owner(pc) else None)
+            for x in d.disasm(blob[pc-0xa0:pc+0x24],pc-0xa0):
+              print(f'{x.address:#010x} {x.mnemonic:8} {x.op_str}')
+          print('CHECKPOINT304_SOURCE_SCAN_PASS',len(fdes),len(ins),sum(len(x) for x in relocs.values()))
+          PY
+          grep -q '^CHECKPOINT304_SOURCE_SCAN_PASS' checkpoint304-full-frontier.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint304-original-full-frontier
+          path: checkpoint304-full-frontier.log
+          retention-days: 14
