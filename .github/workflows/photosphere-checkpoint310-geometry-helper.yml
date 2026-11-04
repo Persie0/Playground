@@ -89,6 +89,25 @@ jobs:
           print('CHECKPOINT310_ORIGINAL_MATH_IMPORT_RESOLVED')
           PY
           grep -q '^CHECKPOINT310_ORIGINAL_MATH_IMPORT_RESOLVED' checkpoint310-original-math-import.log
+      - name: Read-only original checkpoint310 research checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: d4b39c13a6c477e088d47124ba0fe28f600b019a
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint310
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify and execute exact original ARM64 affine lookup across 24 cases
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = d4b39c13a6c477e088d47124ba0fe28f600b019a
+          python3 research/research/photosphere/checkpoint310/verify_original_affine_bin_index.py original.so --output checkpoint310-native-affine-pins.json | tee checkpoint310-native-affine-pins.log
+          python3 research/research/photosphere/checkpoint310/native_original_affine_bin_index.py original.so --output checkpoint310-original-affine-bin-index.json | tee checkpoint310-original-affine-bin-index.log
+          grep -q '^CHECKPOINT310_ORIGINAL_AFFINE_SOURCE_VERIFIED' checkpoint310-native-affine-pins.log
+          grep -q '^CHECKPOINT310_ORIGINAL_AFFINE_EXECUTION_PASS 24' checkpoint310-original-affine-bin-index.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -96,4 +115,8 @@ jobs:
           path: |
             checkpoint310-original-disasm.log
             checkpoint310-original-math-import.log
+            checkpoint310-native-affine-pins.json
+            checkpoint310-native-affine-pins.log
+            checkpoint310-original-affine-bin-index.json
+            checkpoint310-original-affine-bin-index.log
           retention-days: 14
