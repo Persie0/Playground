@@ -163,6 +163,48 @@ jobs:
           print("CHECKPOINT304_VPTR_IDENTIFICATION_PASSED",len(fronts))
           PY
           grep -q '^CHECKPOINT304_VPTR_IDENTIFICATION_PASSED' checkpoint304-function-pointer-ownership.log
+      - name: Follow Photo Sphere Ceres TrustRegion factory and seeded descendant branch windows
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint304-ceres-dispatch.log
+          import hashlib
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          from elftools.elf.relocation import RelocationSection
+          blob=Path("original.so").read_bytes()
+          assert hashlib.sha256(blob).hexdigest()=="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          with Path("original.so").open("rb") as fd:
+            e=ELFFile(fd)
+            rel={}
+            for sec in e.iter_sections():
+              if isinstance(sec,RelocationSection):
+                for r in sec.iter_relocations():
+                  if r.is_RELA() and r["r_info_type"]==1027:rel[int(r["r_offset"])]=int(r["r_addend"])
+          assert rel[0x401470+0x10]==0x1ad7f4, "original trust-region preprocessor method drift"
+          assert rel[0x3fdca0+0x28]==0x11d570,"original alignment-estimator AddImage drift"
+          windows=[
+            ("BA_CERES_OPTIONS",0x129230,0x129330),
+            ("BA_CERES_SOLVE_HANDOFF",0x129520,0x129584),
+            ("CERES_TRUST_REGION_FACTORY",0x15ee4c,0x15ef10),
+            ("CERES_SOLVE_SELECTS_PREPROCESSOR",0x1527b0,0x152850),
+            ("TRUST_REGION_METHOD_ENTRY",0x1ad7f4,0x1ad880),
+            ("TRUST_REGION_SOURCE_TO_SEED_1",0x1adb30,0x1adc60),
+            ("CERES_CHOL_SOLVER_DESCENDANT",0x17d30c,0x17d430),
+            ("CERES_CHOL_BRANCH_TO_NUMERIC",0x2ba780,0x2ba910),
+            ("CERES_NUMERIC_NULL_SEED_WRAPPER_CALL",0x2bc1c0,0x2bc234),
+            ("CERES_NUMERIC_PREP_CALLER",0x2b9d40,0x2b9f90),
+          ]
+          dec=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          for label,lo,hi in windows:
+            print('CHECKPOINT304_NATIVE_WINDOW_START',label,hex(lo),hex(hi))
+            for i in dec.disasm(blob[lo:hi],lo):
+              print(f"{i.address:#010x} {i.mnemonic:8} {i.op_str}")
+            print('CHECKPOINT304_NATIVE_WINDOW_END',label)
+          print("CHECKPOINT304_TRUST_REGION_VPTR",hex(rel[0x401470+0x10]))
+          print("CHECKPOINT304_CERES_WINDOW_SCAN_PASS",len(windows))
+          PY
+          grep -q '^CHECKPOINT304_CERES_WINDOW_SCAN_PASS' checkpoint304-ceres-dispatch.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -170,4 +212,5 @@ jobs:
           path: |
             checkpoint304-full-frontier.log
             checkpoint304-function-pointer-ownership.log
+            checkpoint304-ceres-dispatch.log
           retention-days: 14
