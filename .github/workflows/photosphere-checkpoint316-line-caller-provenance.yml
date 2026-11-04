@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 393c93438e07ace56f64bec4e58dc47851c525aa
+          ref: e19e575f5fb9ba345de304ba510e930d3ce34d08
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint316
@@ -40,9 +40,17 @@ jobs:
       - name: Scan all original executable ARM64 .text BL instructions
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 393c93438e07ace56f64bec4e58dc47851c525aa
+          test "$(git -C research rev-parse HEAD)" = e19e575f5fb9ba345de304ba510e930d3ce34d08
           python3 research/research/photosphere/checkpoint316/scan_original_line_bin_callers.py original.so --output checkpoint316-original-direct-callers.json | tee checkpoint316-original-direct-callers.log
           grep -q '^CHECKPOINT316_ORIGINAL_DIRECT_CALLERS' checkpoint316-original-direct-callers.log
+          python3 research/research/photosphere/checkpoint316/native_original_secondary_mask_gate.py original.so --output checkpoint316-original-secondary-mask.json | tee checkpoint316-original-secondary-mask.log
+          grep -q '^CHECKPOINT316_ORIGINAL_SECONDARY_MASK_PASS' checkpoint316-original-secondary-mask.log
+          echo CHECKPOINT316_SECONDARY_MASK_JSON_BEGIN
+          cat checkpoint316-original-secondary-mask.json
+          echo CHECKPOINT316_SECONDARY_MASK_JSON_END
+          echo CHECKPOINT316_DIRECT_CALLERS_JSON_BEGIN
+          cat checkpoint316-original-direct-callers.json
+          echo CHECKPOINT316_DIRECT_CALLERS_JSON_END
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -50,4 +58,6 @@ jobs:
           path: |
             checkpoint316-original-direct-callers.json
             checkpoint316-original-direct-callers.log
+            checkpoint316-original-secondary-mask.json
+            checkpoint316-original-secondary-mask.log
           retention-days: 14
