@@ -87,9 +87,37 @@ jobs:
           print('CHECKPOINT306_ORIGINAL_CALLPATH_SCAN_PASS',len(fdes),len(ins))
           PY
           grep -q '^CHECKPOINT306_ORIGINAL_CALLPATH_SCAN_PASS' checkpoint306-original-graph.log
+      - name: Inspect exact original branch guards and sampled-coordinate remove
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint306-callsite-guards.log
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          import hashlib
+          b=Path('original.so').read_bytes()
+          assert hashlib.sha256(b).hexdigest()=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          cs=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          for name,lo,hi in [
+            ('LineAligner-shuffle-call',0x304118,0x304344),
+            ('LineAligner-ransac-call',0x304e44,0x305064),
+            ('line-shuffle-adapter',0x306d64,0x306ecc),
+            ('line-shuffle-chooser',0x3068d0,0x306a00),
+            ('LineAligner-ransac-dispatch',0x303900,0x3039b0),
+            ('randomized-coordinate-begin',0x3138e0,0x3139c0),
+            ('randomized-coordinate-loop',0x313e60,0x314180),
+          ]:
+            print('CHECKPOINT306_GUARD_WINDOW_BEGIN',name)
+            for i in cs.disasm(b[lo:hi],lo):
+              print(f'{i.address:#010x} {i.mnemonic:8} {i.op_str}')
+            print('CHECKPOINT306_GUARD_WINDOW_END',name)
+          print('CHECKPOINT306_CALLSITE_GUARDS_PASSED')
+          PY
+          grep -q '^CHECKPOINT306_CALLSITE_GUARDS_PASSED' checkpoint306-callsite-guards.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: checkpoint306-original-callgraph
-          path: checkpoint306-original-graph.log
+          path: |
+            checkpoint306-original-graph.log
+            checkpoint306-callsite-guards.log
           retention-days: 14
