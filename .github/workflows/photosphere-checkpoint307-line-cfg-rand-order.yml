@@ -85,7 +85,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 1a9d11bffc08a071d40aec0a34a25553688252ce
+          ref: fc5fc7e28126c2a5e50c010ff2e3c04811d8af79
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint307
@@ -95,12 +95,13 @@ jobs:
       - name: Verify complete original CFG and execute 11 original ARM64 multi-draw streams
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 1a9d11bffc08a071d40aec0a34a25553688252ce
+          test "$(git -C research rev-parse HEAD)" = fc5fc7e28126c2a5e50c010ff2e3c04811d8af79
           python3 research/research/photosphere/checkpoint307/verify_original_line_cfg.py original.so --output checkpoint307-line-cfg.json | tee checkpoint307-cfg-verifier.log
           python3 research/research/photosphere/checkpoint307/native_original_line_multidraw.py original.so --output checkpoint307-native-multidraw.json | tee checkpoint307-native-multidraw.log
           grep -q '^CHECKPOINT307_ORIGINAL_CFG_VERIFIED' checkpoint307-cfg-verifier.log
           grep -q '^CHECKPOINT307_ORIGINAL_MULTIDRAW_VERIFIED' checkpoint307-native-multidraw.log
           grep -q '^CHECKPOINT307_ORIGINAL_COMPACT_WRITTEN' checkpoint307-native-multidraw.log
+          grep -q '^CHECKPOINT307_ORIGINAL_COUNT_ONE_TERMINAL_VERIFIED 7' checkpoint307-native-multidraw.log
           python3 research/research/photosphere/checkpoint307/analyze_device_rng_trace.py --self-test | tee checkpoint307-offline-auditor.log
           grep -q '^CHECKPOINT307_OFFLINE_FRIDA_AUDITOR_SELF_TEST_PASS' checkpoint307-offline-auditor.log
           node --check research/research/photosphere/checkpoint307/device-process-libc-rng.frida.js
@@ -109,14 +110,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 235cdedaea76cac2dcf5d3e2ab7c9c6a42f9a956
+          ref: 95217aba36008f9e6409f80584bf176842795ce5
           path: app
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify original ARM64 stateful candidate corpus against Rust and full library tests
         run: |
           set -euo pipefail
-          test "$(git -C app rev-parse HEAD)" = 235cdedaea76cac2dcf5d3e2ab7c9c6a42f9a956
+          test "$(git -C app rev-parse HEAD)" = 95217aba36008f9e6409f80584bf176842795ce5
           python3 - <<'PY'
           from pathlib import Path
           import json
@@ -135,7 +136,8 @@ jobs:
                           print("CHECKPOINT307_NATIVE_RUST_TOP_DIFFERENCE",repr(original.get(k))[:200],repr(rust.get(k))[:200])
               raise AssertionError("Original native checkpoint307 oracle diverged from the Rust fixture")
           assert original["original_executed_scenarios"]==11
-          assert original["original_executed_draw_total"]==45
+          assert original["original_executed_draw_total"]==52
+          assert original["original_count_one_terminal_draw_scenarios"]==7
           print("CHECKPOINT307_NATIVE_RUST_45_DRAW_EQUAL",original["original_executed_scenarios"],original["original_executed_draw_total"])
           PY
           cd app
