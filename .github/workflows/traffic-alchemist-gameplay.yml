@@ -15,7 +15,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   godot:
@@ -41,8 +41,30 @@ jobs:
           use-dotnet: false
           include-templates: false
       - name: Import game resources
+        id: import
         working-directory: game
         run: timeout 60s godot --headless --editor --path . --import --quit
       - name: Run all existing game suites
+        id: tests
         working-directory: game
         run: python3 tests/run_checks.py
+      - name: Checkout public report branch
+        if: always()
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/Playground
+          ref: ci/traffic-alchemist-gameplay
+          path: report-workspace
+      - name: Publish run ID and status without private source
+        if: always()
+        working-directory: report-workspace
+        env:
+          IMPORT_STATUS: ${{ steps.import.outcome }}
+          TEST_STATUS: ${{ steps.tests.outcome }}
+        run: |
+          printf 'run_id=%s\nimport=%s\ntests=%s\n' "$GITHUB_RUN_ID" "$IMPORT_STATUS" "$TEST_STATUS" > traffic-alchemist-test-status.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add traffic-alchemist-test-status.txt
+          git commit -m "Report Traffic Alchemist CI result ($GITHUB_RUN_ID)" || true
+          git push origin HEAD:ci/traffic-alchemist-gameplay
