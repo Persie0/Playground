@@ -62,9 +62,35 @@ jobs:
           print("CHECKPOINT303_ORIGINAL_CALLSITE_SCAN_PASSED",len(ins))
           PY
           grep -q '^CHECKPOINT303_ORIGINAL_CALLSITE_SCAN_PASSED' checkpoint303-seed-x4.log
+      - name: Investigate surrounding function boundary and native caller ownership
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint303-function-boundary.log
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          d=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          b=Path("original.so").read_bytes()
+          with Path("original.so").open("rb") as f:
+              image=ELFFile(f)
+              print("CHECKPOINT303_UNWIND_SECTIONS",[(x.name,int(x["sh_addr"])) for x in image.iter_sections() if "eh_frame" in x.name or "exidx" in x.name or "symtab" in x.name])
+          print("CHECKPOINT303_SURROUNDING_BOUNDARY_START")
+          for i in d.disasm(b[0x2bba00:0x2bc100],0x2bba00):
+              print(f"{i.address:#010x} {i.mnemonic:8} {i.op_str}")
+          print("CHECKPOINT303_SURROUNDING_BOUNDARY_END")
+          print("CHECKPOINT303_PRIOR_RET_PROLOGUE_CANDIDATES")
+          for i in d.disasm(b[0x2bb000:0x2bc1f4],0x2bb000):
+              if i.mnemonic in ("ret","stp","sub") and (i.mnemonic=="ret" or "sp" in i.op_str and ("x29" in i.op_str or "x30" in i.op_str or i.mnemonic=="sub")):
+                  if i.address>=0x2bb900:
+                      print(f"{i.address:#010x} {i.mnemonic:8} {i.op_str}")
+          print("CHECKPOINT303_ORIGINAL_BOUNDARY_SCAN_PASSED")
+          PY
+          grep -q '^CHECKPOINT303_ORIGINAL_BOUNDARY_SCAN_PASSED' checkpoint303-function-boundary.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: checkpoint303-seed-x4-source-evidence
-          path: checkpoint303-seed-x4.log
+          path: |
+            checkpoint303-seed-x4.log
+            checkpoint303-function-boundary.log
           retention-days: 14
