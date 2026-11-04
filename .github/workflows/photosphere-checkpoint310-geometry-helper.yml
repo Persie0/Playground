@@ -1,0 +1,70 @@
+name: Photosphere checkpoint310 original numerical geometry
+on:
+  push:
+    branches: [research/photosphere-checkpoint310-geometry-helper]
+    paths: [.github/workflows/photosphere-checkpoint310-geometry-helper.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install source ARM64 analysis
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Fetch original source APK and extract SHA-pinned ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk'
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Inspect original numerical-helper FDE and geometry caller
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint310-original-disasm.log
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          from elftools.dwarf.callframe import FDE
+          from hashlib import sha256
+          from bisect import bisect_right
+          b=Path('original.so').read_bytes()
+          assert sha256(b).hexdigest()=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          with Path('original.so').open('rb') as f:
+              elf=ELFFile(f)
+              fdes=sorted((int(e['initial_location']),int(e['initial_location'])+int(e['address_range'])) for e in elf.get_dwarf_info().EH_CFI_entries() if isinstance(e,FDE))
+          starts=[p for p,e in fdes]
+          def fde(pc):
+              ix=bisect_right(starts,pc)-1
+              return fdes[ix] if ix>=0 and pc<fdes[ix][1] else None
+          for addr in [0x3139c0,0x3139fc,0x313a40,0x313ac4,0x3145c8,0x314650,0x314800]:
+              print('CHECKPOINT310_FDE',hex(addr),tuple(hex(z) for z in fde(addr)) if fde(addr) else None)
+          cs=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          for name,lo,hi in [
+              ('entry-geometry',0x3139c0,0x313a9c),
+              ('return-validator',0x313a9c,0x313bd0),
+              ('later-geometry',0x313bd0,0x313dd0),
+              ('native-helper',0x3145c8,0x314780),
+              ('helper-continuation',0x314780,0x3149c0),
+          ]:
+              print('CHECKPOINT310_WINDOW_START',name,hex(lo),hex(hi))
+              for i in cs.disasm(b[lo:hi],lo):
+                  print(f'{i.address:#010x} {i.mnemonic:8} {i.op_str}')
+              print('CHECKPOINT310_WINDOW_END',name)
+          print('CHECKPOINT310_ORIGINAL_GEOMETRY_DISCOVERY_PASS',len(fdes))
+          PY
+          grep -q '^CHECKPOINT310_ORIGINAL_GEOMETRY_DISCOVERY_PASS' checkpoint310-original-disasm.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint310-original-geometry-disasm
+          path: checkpoint310-original-disasm.log
+          retention-days: 14
