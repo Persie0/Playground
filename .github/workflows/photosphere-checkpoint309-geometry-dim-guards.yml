@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 8fccc1f714890c992d850b1eccd11a1f12eb5e8c
+          ref: d13fae93e9589c64aed060bc9c10f56e6312a622
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint309
@@ -64,11 +64,47 @@ jobs:
       - name: Source-verify and execute original geometry entry diagnostic pair comparisons
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 8fccc1f714890c992d850b1eccd11a1f12eb5e8c
+          test "$(git -C research rev-parse HEAD)" = d13fae93e9589c64aed060bc9c10f56e6312a622
           python3 research/research/photosphere/checkpoint309/verify_original_geometry_entry.py original.so --output checkpoint309-original-geometry-pins.json | tee checkpoint309-original-pins.log
           python3 research/research/photosphere/checkpoint309/native_original_geometry_entry.py original.so --output checkpoint309-original-geometry-entry.json | tee checkpoint309-original-native.log
           grep -q '^CHECKPOINT309_GEOMETRY_ENTRY_SOURCE_PINS_VERIFIED' checkpoint309-original-pins.log
           grep -q '^CHECKPOINT309_ORIGINAL_GEOMETRY_ENTRY_EXECUTION_PASS 14 9' checkpoint309-original-native.log
+      - name: Read-only checkout source-pinned PhotosphereCleanroom geometry guard and fixture
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: b4879b4f133616d8463d004746fa0c0ea5425970
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Compare fresh original 14 signed-word branch outcomes against Rust regression
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = b4879b4f133616d8463d004746fa0c0ea5425970
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          original=json.loads(Path("checkpoint309-original-geometry-entry.json").read_text())
+          fixture=json.loads(Path("app/tests/fixtures/native_original_geometry_entry_309.json").read_text())
+          if original != fixture:
+              for key in sorted(set(original)|set(fixture)):
+                  if original.get(key)==fixture.get(key):continue
+                  if key=="cases":
+                      for index,(a,b) in enumerate(zip(original[key],fixture[key])):
+                          for field in sorted(set(a)|set(b)):
+                              if a.get(field)!=b.get(field):
+                                  print("CHECKPOINT309_CASE_DIFF",index,a.get("name"),field,repr(a.get(field))[:350],repr(b.get(field))[:350])
+                  else:
+                      print("CHECKPOINT309_FIXTURE_DIFF",key,repr(original.get(key))[:350],repr(fixture.get(key))[:350])
+              raise AssertionError("Original source geometry-entry ARM64 fixture differs from Rust")
+          assert original["original_native_executed_cases"]==14
+          print("CHECKPOINT309_NATIVE_RUST_FIXTURE_EQUAL",original["original_native_executed_cases"])
+          PY
+          cd app
+          git diff --check
+          rustfmt --edition 2021 --check src/native_line_geometry_entry.rs
+          cargo test --lib checkpoint309_ -- --nocapture
+          cargo test --lib
       - uses: actions/upload-artifact@v4
         if: always()
         with:
