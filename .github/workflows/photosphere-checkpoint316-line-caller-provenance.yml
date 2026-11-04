@@ -55,14 +55,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: b44f393568453ae9504df589e716b8d350053d37
+          ref: e984346047e58567792c6c595cde4fde362e6aac
           path: app
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Compare fresh original ARM64 observations with Rust oracles
         run: |
           set -euo pipefail
-          test "$(git -C app rev-parse HEAD)" = b44f393568453ae9504df589e716b8d350053d37
+          test "$(git -C app rev-parse HEAD)" = e984346047e58567792c6c595cde4fde362e6aac
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -79,7 +79,7 @@ jobs:
         run: |
           set -euo pipefail
           cd app
-          rustfmt --edition 2021 src/native_line_secondary_mask.rs
+          rustfmt --edition 2021 --check src/native_line_secondary_mask.rs
           cargo test --lib checkpoint316 -- --nocapture
           cargo test --lib
       - name: Print formatted Rust secondary gate
