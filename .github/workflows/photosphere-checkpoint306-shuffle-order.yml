@@ -15,7 +15,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install original ARM64 analysis
-        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
       - name: Verify exact source APK and extract ELF
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -113,6 +113,27 @@ jobs:
           print('CHECKPOINT306_CALLSITE_GUARDS_PASSED')
           PY
           grep -q '^CHECKPOINT306_CALLSITE_GUARDS_PASSED' checkpoint306-callsite-guards.log
+      - name: Checkout pinned checkpoint306 original research
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 2cb4ec3633c8e25dfe7a0f43ceb2e5314270f1ca
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint306
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify original opcode/call graph and execute 12 candidate-choice cases
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = 2cb4ec3633c8e25dfe7a0f43ceb2e5314270f1ca
+          python3 research/research/photosphere/checkpoint306/verify_original_line_rng.py original.so --output checkpoint306-original-line-rng-ownership.json | tee checkpoint306-verifier.log
+          python3 research/research/photosphere/checkpoint306/native_original_line_candidate_pick.py original.so --output checkpoint306-native-line-candidate-pick.json | tee checkpoint306-native.log
+          grep -q '^CHECKPOINT306_ORIGINAL_LINE_RNG_VERIFIED' checkpoint306-verifier.log
+          grep -q '^CHECKPOINT306_ORIGINAL_NATIVE_LINE_CANDIDATE_VERIFIED 12' checkpoint306-native.log
+          node --check research/research/photosphere/checkpoint306/device-line-rng-order.frida.js
+          echo CHECKPOINT306_READONLY_DEVICE_TRACE_SYNTAX_PASS
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -120,4 +141,8 @@ jobs:
           path: |
             checkpoint306-original-graph.log
             checkpoint306-callsite-guards.log
+            checkpoint306-original-line-rng-ownership.json
+            checkpoint306-native-line-candidate-pick.json
+            checkpoint306-verifier.log
+            checkpoint306-native.log
           retention-days: 14
