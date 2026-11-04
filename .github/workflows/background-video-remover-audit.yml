@@ -30,7 +30,11 @@ jobs:
       - name: Install Android SDK
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "build-tools;36.0.0"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          # API 37 is not available on hosted CI; test against API 36 without
+          # modifying the real private repository's target SDK.
+          sed -i -e 's/compileSdk = 37/compileSdk = 36/' \
+                 -e 's/targetSdk = 37/targetSdk = 36/' app/android/app/build.gradle.kts
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
