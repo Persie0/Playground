@@ -151,7 +151,19 @@ jobs:
           from pathlib import Path
           native=json.loads(Path("checkpoint306-native-line-candidate-pick.json").read_text())
           fixture=json.loads(Path("app/tests/fixtures/native_original_line_candidate_pick_306.json").read_text())
-          assert native==fixture,"fresh original ARM64 execution differs from Rust fixture"
+          if native != fixture:
+              for key in sorted(set(native) | set(fixture)):
+                  if native.get(key) == fixture.get(key):
+                      continue
+                  if key == "cases":
+                      print("CHECKPOINT306_FIXTURE_MISMATCH_CASE_COUNT",len(native.get(key,[])),len(fixture.get(key,[])))
+                      for index,(a,b) in enumerate(zip(native.get(key,[]),fixture.get(key,[]))):
+                          for subkey in sorted(set(a) | set(b)):
+                              if a.get(subkey) != b.get(subkey):
+                                  print("CHECKPOINT306_FIXTURE_MISMATCH",index,a.get("name"),subkey,repr(a.get(subkey))[:600],repr(b.get(subkey))[:600])
+                  else:
+                      print("CHECKPOINT306_FIXTURE_MISMATCH_TOP",key,repr(native.get(key))[:600],repr(fixture.get(key))[:600])
+              raise AssertionError("fresh original ARM64 execution differs from Rust fixture")
           assert native["original_executed_case_count"]==12
           print("CHECKPOINT306_NATIVE_RUST_FIXTURE_EQUAL",len(native["cases"]))
           PY
