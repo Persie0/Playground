@@ -134,6 +134,32 @@ jobs:
           grep -q '^CHECKPOINT306_ORIGINAL_NATIVE_LINE_CANDIDATE_VERIFIED 12' checkpoint306-native.log
           node --check research/research/photosphere/checkpoint306/device-line-rng-order.frida.js
           echo CHECKPOINT306_READONLY_DEVICE_TRACE_SYNTAX_PASS
+      - name: Checkout pinned PhotosphereCleanroom checkpoint306 Rust parity helper
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: d8d20e1ca04a20aec9ea3877e3893ced8ff64451
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Compare fresh original ARM64 cases against Rust fixture and run all Rust tests
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = d8d20e1ca04a20aec9ea3877e3893ced8ff64451
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          native=json.loads(Path("checkpoint306-native-line-candidate-pick.json").read_text())
+          fixture=json.loads(Path("app/tests/fixtures/native_original_line_candidate_pick_306.json").read_text())
+          assert native==fixture,"fresh original ARM64 execution differs from Rust fixture"
+          assert native["original_executed_case_count"]==12
+          print("CHECKPOINT306_NATIVE_RUST_FIXTURE_EQUAL",len(native["cases"]))
+          PY
+          cd app
+          git diff --check
+          rustfmt --edition 2021 --check src/native_line_candidate_rng.rs
+          cargo test --lib checkpoint306_ -- --nocapture
+          cargo test --lib
       - uses: actions/upload-artifact@v4
         if: always()
         with:
