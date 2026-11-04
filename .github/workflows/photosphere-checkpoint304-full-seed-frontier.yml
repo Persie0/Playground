@@ -114,9 +114,60 @@ jobs:
           print('CHECKPOINT304_SOURCE_SCAN_PASS',len(fdes),len(ins),sum(len(x) for x in relocs.values()))
           PY
           grep -q '^CHECKPOINT304_SOURCE_SCAN_PASS' checkpoint304-full-frontier.log
+      - name: Identify original seed frontier function pointer RTTI and virtual dispatch owners
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint304-function-pointer-ownership.log
+          from pathlib import Path
+          from elftools.elf.elffile import ELFFile
+          from elftools.elf.relocation import RelocationSection
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          import hashlib,json
+          b=Path("original.so").read_bytes()
+          assert hashlib.sha256(b).hexdigest()=="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          with Path("original.so").open("rb") as f:
+            e=ELFFile(f);rel={}
+            for s in e.iter_sections():
+              if isinstance(s,RelocationSection):
+                for r in s.iter_relocations():
+                  if r.is_RELA() and r["r_info_type"]==1027:rel[int(r["r_offset"])]=int(r["r_addend"])
+          def type_name(vptr):
+            ti=rel.get(vptr-8)
+            if ti is None:return None
+            naddr=rel.get(ti+8)
+            if naddr is None or naddr<=0 or naddr>=len(b):return None
+            end=b.find(b'\0',naddr,naddr+240)
+            if end<0 or end==naddr:return None
+            try:return b[naddr:end].decode('ascii')
+            except UnicodeDecodeError:return None
+          fronts={
+            "null-seed-root-one":0x17d724,
+            "null-seed-root-two":0x1955a4,
+            "null-seed-root-three":0x1ad7f4,
+            "original-photo-ransac":0x11d570,
+            "other-native-ransac":0x303cf8
+          }
+          for label,target in fronts.items():
+            pointers=sorted(addr for addr,value in rel.items() if value==target)
+            print("CHECKPOINT304_SOURCE_FUNCTION_POINTER",label,hex(target),"relocations",[hex(x) for x in pointers])
+            for address in pointers:
+              owners=[]
+              for j in range(0,36):
+                v=address-8*j
+                if rel.get(v-8) is None:continue
+                name=type_name(v)
+                if name:
+                  owners.append({"vptr":hex(v),"slot":hex(address-v),"rtti":name,"typeinfo":hex(rel[v-8])})
+              print("CHECKPOINT304_RTTI_OWNERS",label,hex(address),json.dumps(owners[:25]))
+              print("CHECKPOINT304_ADJACENT_METHODS",label,[(hex(a),hex(rel[a])) for a in sorted(rel) if address-0x48<=a<=address+0x38][:35])
+          print("CHECKPOINT304_VPTR_IDENTIFICATION_PASSED",len(fronts))
+          PY
+          grep -q '^CHECKPOINT304_VPTR_IDENTIFICATION_PASSED' checkpoint304-function-pointer-ownership.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: checkpoint304-original-full-frontier
-          path: checkpoint304-full-frontier.log
+          path: |
+            checkpoint304-full-frontier.log
+            checkpoint304-function-pointer-ownership.log
           retention-days: 14
