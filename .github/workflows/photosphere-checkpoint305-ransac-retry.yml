@@ -1,0 +1,52 @@
+name: Photosphere checkpoint305 sampler retries and RNG boundary
+on:
+  push:
+    branches: [research/photosphere-checkpoint305-ransac-retry]
+    paths: ['.github/workflows/photosphere-checkpoint305-ransac-retry.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint305-ransac-retry
+  cancel-in-progress: true
+jobs:
+  original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Install original ARM64 analysis tools
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Download and pin source ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Audit complete original RANSAC sample rejection and nearby RNG callsites
+        run: |
+          python3 - <<'PY' | tee checkpoint305-original-sampler-boundary.log
+          import hashlib
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          b=Path('original.so').read_bytes()
+          assert hashlib.sha256(b).hexdigest()=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          for name,lo,hi in [('sample-loop',0x30fd18,0x30fe70),('trial-loop-terminator',0x3103bc,0x31044c),('other-rand',0x31391c,0x313984),('seed-wrapper',0x2d80d8,0x2d80f8)]:
+            print('CHECKPOINT305_WINDOW_START',name)
+            for i in Cs(CS_ARCH_ARM64,CS_MODE_ARM).disasm(b[lo:hi],lo):
+              print(f'{i.address:#010x} {i.mnemonic:8} {i.op_str}')
+            print('CHECKPOINT305_WINDOW_END',name)
+          print('CHECKPOINT305_ORIGINAL_SAMPLER_DISASM_PASSED')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint305-original-ransac-evidence
+          path: checkpoint305-original-sampler-boundary.log
+          retention-days: 14
