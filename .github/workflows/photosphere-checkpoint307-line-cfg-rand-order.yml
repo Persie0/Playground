@@ -110,14 +110,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 95217aba36008f9e6409f80584bf176842795ce5
+          ref: df6ec84b5a1f352cc249128bcb5166bbd22b34d9
           path: app
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify original ARM64 stateful candidate corpus against Rust and full library tests
         run: |
           set -euo pipefail
-          test "$(git -C app rev-parse HEAD)" = 95217aba36008f9e6409f80584bf176842795ce5
+          test "$(git -C app rev-parse HEAD)" = df6ec84b5a1f352cc249128bcb5166bbd22b34d9
           python3 - <<'PY'
           from pathlib import Path
           import json
@@ -138,11 +138,11 @@ jobs:
           assert original["original_executed_scenarios"]==11
           assert original["original_executed_draw_total"]==52
           assert original["original_count_one_terminal_draw_scenarios"]==7
-          print("CHECKPOINT307_NATIVE_RUST_45_DRAW_EQUAL",original["original_executed_scenarios"],original["original_executed_draw_total"])
+          print("CHECKPOINT307_NATIVE_RUST_52_DRAW_EQUAL",original["original_executed_scenarios"],original["original_executed_draw_total"])
           PY
           cd app
           git diff --check
-          rustfmt --edition 2021 --check src/native_line_candidate_rng_checkpoint307_test.rs
+          rustfmt --edition 2021 --check src/native_line_candidate_rng_checkpoint307_test.rs src/native_line_candidate_rng.rs
           cargo test --lib checkpoint307_ -- --nocapture
           cargo test --lib
       - uses: actions/upload-artifact@v4
