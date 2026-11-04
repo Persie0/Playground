@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 58c3a3761670d3de26a310d7acae74117ea24879
+          ref: 3910efbcc65ade65a9415d3ddfe6e226283f5b44
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint311
@@ -40,11 +40,49 @@ jobs:
       - name: Pin original 21 angular opcodes / PLT and run 20 native machine-code cases
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 58c3a3761670d3de26a310d7acae74117ea24879
+          test "$(git -C research rev-parse HEAD)" = 3910efbcc65ade65a9415d3ddfe6e226283f5b44
           python3 research/research/photosphere/checkpoint311/verify_original_angular_filter.py original.so --output checkpoint311-original-pins.json | tee checkpoint311-source.log
           python3 research/research/photosphere/checkpoint311/native_original_angular_filter.py original.so --output checkpoint311-original-angular-filter.json | tee checkpoint311-native.log
           grep -q '^CHECKPOINT311_ORIGINAL_ANGULAR_SOURCE_VERIFIED 21 8546 fmodf' checkpoint311-source.log
           grep -q '^CHECKPOINT311_ORIGINAL_ANGULAR_NATIVE_PASS 20' checkpoint311-native.log
+      - name: Read-only checkout checkpoint311 PhotosphereCleanroom numerical regression
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 7d1b49d1ab58a3b79f30a45470706e9179f18e55
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Fresh original ARM64 fmod-stub oracle equals Rust fixture and full suite
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 7d1b49d1ab58a3b79f30a45470706e9179f18e55
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path('checkpoint311-original-angular-filter.json').read_text())
+          b=json.loads(Path('app/tests/fixtures/native_original_angular_filter_311.json').read_text())
+          if a!=b:
+              for key in sorted(set(a)|set(b)):
+                  if a.get(key)==b.get(key): continue
+                  if key=="cases":
+                      for i,(x,y) in enumerate(zip(a.get(key,[]),b.get(key,[]))):
+                          for field in sorted(set(x)|set(y)):
+                              if x.get(field)!=y.get(field):
+                                  print('CHECKPOINT311_NATIVE_RUST_CASE_DIFFERENCE',i,x.get('name'),field,repr(x.get(field))[:500],repr(y.get(field))[:500])
+                  else:
+                      print('CHECKPOINT311_NATIVE_RUST_TOP_DIFFERENCE',key,repr(a.get(key))[:500],repr(b.get(key))[:500])
+              raise AssertionError('fresh original ARM64 angular oracle differs from committed Rust fixture')
+          assert a['original_native_executed_cases']==20
+          assert a['original_fmodf_import_mocked_with_test_values']
+          assert not a['original_android_bionic_fmodf_executed']
+          print('CHECKPOINT311_FRESH_ORIGINAL_RUST_EQUAL',len(a['cases']))
+          PY
+          cd app
+          git diff --check
+          rustfmt --edition 2021 --check src/native_line_angular_filter.rs
+          cargo test --lib checkpoint311_ -- --nocapture
+          cargo test --lib
       - uses: actions/upload-artifact@v4
         if: always()
         with:
