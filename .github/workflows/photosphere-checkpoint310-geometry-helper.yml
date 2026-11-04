@@ -62,9 +62,38 @@ jobs:
           print('CHECKPOINT310_ORIGINAL_GEOMETRY_DISCOVERY_PASS',len(fdes))
           PY
           grep -q '^CHECKPOINT310_ORIGINAL_GEOMETRY_DISCOVERY_PASS' checkpoint310-original-disasm.log
+      - name: Resolve original imported math function and matching lookup helper
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint310-original-math-import.log
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          from elftools.dwarf.callframe import FDE
+          from bisect import bisect_right
+          b=Path('original.so').read_bytes()
+          with Path('original.so').open('rb') as f:
+            e=ELFFile(f);p=e.get_section_by_name('.plt');re=e.get_section_by_name('.rela.plt');sym=e.get_section(int(re['sh_link']))
+            mapping={int(p['sh_addr'])+0x20+j*0x10:sym.get_symbol(r['r_info_sym']).name for j,r in enumerate(re.iter_relocations())}
+            fdes=sorted((int(v['initial_location']),int(v['initial_location'])+int(v['address_range'])) for v in e.get_dwarf_info().EH_CFI_entries() if isinstance(v,FDE))
+          print('CHECKPOINT310_IMPORTED_3FBF70',mapping.get(0x3fbf70))
+          for x in [0x3fbf70,0x3fbf30,0x313524,0x3139fc,0x3145c8,0x314824]:
+            ix=bisect_right([a for a,z in fdes],x)-1
+            v=fdes[ix] if ix>=0 and x<fdes[ix][1] else None
+            print('CHECKPOINT310_OWNER',hex(x),None if v is None else tuple(hex(k) for k in v))
+          cs=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          for name,a,z in [('lookup-helper',0x313524,0x31363c),('native-helper-return',0x314800,0x314874),('math-threshold',0x314640,0x3146b8)]:
+            print('CHECKPOINT310_WINDOW_START',name)
+            for i in cs.disasm(b[a:z],a):print(f'{i.address:#010x} {i.mnemonic:8} {i.op_str}')
+            print('CHECKPOINT310_WINDOW_END',name)
+          print('CHECKPOINT310_ORIGINAL_MATH_IMPORT_RESOLVED')
+          PY
+          grep -q '^CHECKPOINT310_ORIGINAL_MATH_IMPORT_RESOLVED' checkpoint310-original-math-import.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: checkpoint310-original-geometry-disasm
-          path: checkpoint310-original-disasm.log
+          path: |
+            checkpoint310-original-disasm.log
+            checkpoint310-original-math-import.log
           retention-days: 14
