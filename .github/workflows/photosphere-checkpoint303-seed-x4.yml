@@ -172,6 +172,23 @@ jobs:
           print("CHECKPOINT303_ANCESTRY_SCAN_PASSED")
           PY
           grep -q '^CHECKPOINT303_ANCESTRY_SCAN_PASSED' checkpoint303-ancestry.log
+      - name: Checkout exact checkpoint303 original research source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 96aa28c32152bd0746a2d5de57b67c3241c15104
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint303
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Run pinned original null-seed provenance verifier
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = 96aa28c32152bd0746a2d5de57b67c3241c15104
+          python3 research/research/photosphere/checkpoint303/verify_original_seed_x4.py original.so --output checkpoint303-original-seed-provenance.json | tee checkpoint303-verifier.log
+          grep -q '^CHECKPOINT303_NATIVE_ORIGINAL_VERIFIED' checkpoint303-verifier.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -181,4 +198,6 @@ jobs:
             checkpoint303-function-boundary.log
             checkpoint303-fde-inbound.log
             checkpoint303-ancestry.log
+            checkpoint303-original-seed-provenance.json
+            checkpoint303-verifier.log
           retention-days: 14
