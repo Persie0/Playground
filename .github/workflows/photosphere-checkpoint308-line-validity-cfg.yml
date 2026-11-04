@@ -78,7 +78,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 926b36a566f377daa50c944ad21005eb846ce5a7
+          ref: d75305a1351847de22e1cb6b527a20dd625fec84
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint308
@@ -88,11 +88,48 @@ jobs:
       - name: Execute original ARM64 mask rejection and count-one loops with controlled libc returns
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 926b36a566f377daa50c944ad21005eb846ce5a7
+          test "$(git -C research rev-parse HEAD)" = d75305a1351847de22e1cb6b527a20dd625fec84
           python3 research/research/photosphere/checkpoint308/verify_original_line_mask_cfg.py original.so --output checkpoint308-original-mask-cfg.json | tee checkpoint308-mask-cfg.log
           python3 research/research/photosphere/checkpoint308/native_original_line_mask_retry.py original.so --output checkpoint308-original-mask-retry.json | tee checkpoint308-original-mask-retry.log
           grep -q '^CHECKPOINT308_ORIGINAL_MASK_GATE_VERIFIED' checkpoint308-mask-cfg.log
           grep -q '^CHECKPOINT308_ORIGINAL_MASK_RETRY_VERIFIED' checkpoint308-original-mask-retry.log
+      - name: Checkout SHA-pinned PhotosphereCleanroom mask-gate port and fixture
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 87ede6341ab8d449abb18e863b693de1606d3e5f
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Compare fresh original ARM64 mask-gate execution and Rust fixture; run full Rust tests
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 87ede6341ab8d449abb18e863b693de1606d3e5f
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          original=json.loads(Path('checkpoint308-original-mask-retry.json').read_text())
+          rust=json.loads(Path('app/tests/fixtures/native_original_mask_retry_308.json').read_text())
+          if original != rust:
+              for key in sorted(set(original) | set(rust)):
+                  if original.get(key) != rust.get(key):
+                      if key == 'cases':
+                          for i,(a,b) in enumerate(zip(original[key],rust[key])):
+                              for sub in sorted(set(a) | set(b)):
+                                  if a.get(sub)!=b.get(sub):
+                                      print('CHECKPOINT308_FIXTURE_CASE_DIFF',i,a['name'],sub,repr(a.get(sub))[:300],repr(b.get(sub))[:300])
+                      else:
+                          print('CHECKPOINT308_FIXTURE_DIFF',key,repr(original.get(key))[:300],repr(rust.get(key))[:300])
+              raise AssertionError('original executable mask-gate results differ from Rust fixture')
+          assert original['original_scenario_count'] == 10
+          assert original['original_rand_return_count'] == 26
+          print('CHECKPOINT308_FRESH_NATIVE_RUST_FIXTURE_EQUAL',len(original['cases']),original['original_rand_return_count'])
+          PY
+          cd app
+          git diff --check
+          rustfmt --edition 2021 --check src/native_line_mask_gate.rs
+          cargo test --lib checkpoint308_ -- --nocapture
+          cargo test --lib
       - uses: actions/upload-artifact@v4
         if: always()
         with:
