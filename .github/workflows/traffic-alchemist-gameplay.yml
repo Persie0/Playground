@@ -1,0 +1,48 @@
+name: Traffic Alchemist strategic gameplay verification
+
+on:
+  push:
+    branches:
+      - ci/traffic-alchemist-gameplay
+    paths:
+      - .github/workflows/traffic-alchemist-gameplay.yml
+  workflow_dispatch:
+    inputs:
+      private_ref:
+        description: Traffic Alchemist private branch or SHA
+        required: true
+        default: feat/clear-strategic-gameplay
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  godot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify private repository token exists
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout private game without persisting credentials
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/trafficalchemist
+          ref: ${{ inputs.private_ref || 'feat/clear-strategic-gameplay' }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: game
+      - name: Install Godot 4.7.2
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.7.2
+          use-dotnet: false
+          include-templates: false
+      - name: Import game resources
+        working-directory: game
+        run: timeout 60s godot --headless --editor --path . --import --quit
+      - name: Run all existing game suites
+        working-directory: game
+        run: python3 tests/run_checks.py
