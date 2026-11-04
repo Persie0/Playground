@@ -43,7 +43,13 @@ jobs:
       - name: Import game resources
         id: import
         working-directory: game
-        run: timeout 60s godot --headless --editor --path . --import --quit
+        run: |
+          set -o pipefail
+          timeout 60s godot --headless --editor --path . --import --quit 2>&1 | tee /tmp/traffic-alchemist-import.log
+          if grep -Eq 'SCRIPT ERROR:|Failed to load script' /tmp/traffic-alchemist-import.log; then
+            echo 'Godot parser or class load failed'
+            exit 1
+          fi
       - name: Run all existing game suites
         id: tests
         working-directory: game
