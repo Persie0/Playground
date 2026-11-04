@@ -85,7 +85,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 12550478128d1ebcf578ee8592d1bc1b48fd2f9b
+          ref: 1a9d11bffc08a071d40aec0a34a25553688252ce
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint307
@@ -95,7 +95,7 @@ jobs:
       - name: Verify complete original CFG and execute 11 original ARM64 multi-draw streams
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 12550478128d1ebcf578ee8592d1bc1b48fd2f9b
+          test "$(git -C research rev-parse HEAD)" = 1a9d11bffc08a071d40aec0a34a25553688252ce
           python3 research/research/photosphere/checkpoint307/verify_original_line_cfg.py original.so --output checkpoint307-line-cfg.json | tee checkpoint307-cfg-verifier.log
           python3 research/research/photosphere/checkpoint307/native_original_line_multidraw.py original.so --output checkpoint307-native-multidraw.json | tee checkpoint307-native-multidraw.log
           grep -q '^CHECKPOINT307_ORIGINAL_CFG_VERIFIED' checkpoint307-cfg-verifier.log
@@ -105,6 +105,44 @@ jobs:
           grep -q '^CHECKPOINT307_OFFLINE_FRIDA_AUDITOR_SELF_TEST_PASS' checkpoint307-offline-auditor.log
           node --check research/research/photosphere/checkpoint307/device-process-libc-rng.frida.js
           echo CHECKPOINT307_GLOBAL_LIBC_TRACE_SYNTAX_PASS
+      - name: Checkout pinned PhotosphereCleanroom checkpoint307 Rust parity tests
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 0c369db6435755cf5f5b2985c1b4b45601443b2b
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify original ARM64 stateful candidate corpus against Rust and full library tests
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 0c369db6435755cf5f5b2985c1b4b45601443b2b
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          original=json.loads(Path("checkpoint307-native-multidraw-compact.json").read_text())
+          rust=json.loads(Path("app/tests/fixtures/native_original_line_multidraw_307.json").read_text())
+          if original!=rust:
+              for k in sorted(set(original)|set(rust)):
+                  if original.get(k)!=rust.get(k):
+                      print("CHECKPOINT307_NATIVE_RUST_DIFFERENCE",k)
+                      if k=="cases":
+                          for i,(x,y) in enumerate(zip(original[k],rust[k])):
+                              for sub in sorted(set(x)|set(y)):
+                                  if x.get(sub)!=y.get(sub):
+                                      print("CHECKPOINT307_NATIVE_RUST_CASE_DIFFERENCE",i,sub,repr(x.get(sub))[:200],repr(y.get(sub))[:200])
+                      else:
+                          print("CHECKPOINT307_NATIVE_RUST_TOP_DIFFERENCE",repr(original.get(k))[:200],repr(rust.get(k))[:200])
+              raise AssertionError("Original native checkpoint307 oracle diverged from the Rust fixture")
+          assert original["original_executed_scenarios"]==11
+          assert original["original_executed_draw_total"]==45
+          print("CHECKPOINT307_NATIVE_RUST_45_DRAW_EQUAL",original["original_executed_scenarios"],original["original_executed_draw_total"])
+          PY
+          cd app
+          git diff --check
+          rustfmt --edition 2021 --check src/native_line_candidate_rng_checkpoint307_test.rs
+          cargo test --lib checkpoint307_ -- --nocapture
+          cargo test --lib
       - uses: actions/upload-artifact@v4
         if: always()
         with:
