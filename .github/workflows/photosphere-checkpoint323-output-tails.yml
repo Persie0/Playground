@@ -65,14 +65,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 58f7817bef9cd7e978eddd6a5b1bff8b4a42630c
+          ref: ae444c30e6b10f1e11c2938bb81af726574c7e6b
           path: app
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Compare regenerated source-original oracles with Rust frozen fixtures
         run: |
           set -euo pipefail
-          test "$(git -C app rev-parse HEAD)" = 58f7817bef9cd7e978eddd6a5b1bff8b4a42630c
+          test "$(git -C app rev-parse HEAD)" = ae444c30e6b10f1e11c2938bb81af726574c7e6b
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -99,7 +99,7 @@ jobs:
         run: |
           set -euo pipefail
           cd app
-          rustfmt --edition 2021 src/native_line_tail_fwrite_atomic.rs src/native_line_tail_fwrite_atomic_checkpoint323_test.rs
+          rustfmt --edition 2021 --check src/native_line_tail_fwrite_atomic.rs src/native_line_tail_fwrite_atomic_checkpoint323_test.rs
           cargo test --lib checkpoint323 -- --nocapture
           cargo test --lib
       - name: Print formatted Rust source for exact readback
