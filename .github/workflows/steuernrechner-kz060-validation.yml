@@ -1,0 +1,35 @@
+name: steuernrechner KZ060 validation
+on:
+  push:
+    branches: [ci/steuernrechner-kz060-validation]
+    paths: ['.github/workflows/steuernrechner-kz060-validation.yml']
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - name: Check out public tax calculator branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/steuernrechner
+          ref: fix/kz060-paid-invoice-quarter
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: TypeScript check
+        run: npx tsc --noEmit
+      - name: ESLint
+        run: npm run lint
+      - name: Regression tests
+        run: node --experimental-strip-types --test tests/*.test.ts
+      - name: Next production build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
