@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 43e4afac2220b86c91410a0d10fed62a27fa76f4
+          ref: 0949090c2265638d02562f6aa23053fb2e90abc8
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint325
@@ -40,7 +40,7 @@ jobs:
       - name: Inspect original FOV estimator and pair status gates
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 43e4afac2220b86c91410a0d10fed62a27fa76f4
+          test "$(git -C research rev-parse HEAD)" = 0949090c2265638d02562f6aa23053fb2e90abc8
           python3 research/research/photosphere/checkpoint325/scan_original_attempt.py original.so --output checkpoint325-original-attempt-scan.json | tee checkpoint325-original-attempt-scan.log
           grep -q '^CHECKPOINT325_ORIGINAL_ESTIMATOR_SCAN' checkpoint325-original-attempt-scan.log
           python3 research/research/photosphere/checkpoint325/native_original_pair_status_gate.py original.so --output checkpoint325-original-pair-gate.json | tee checkpoint325-original-pair-gate.log
@@ -48,6 +48,47 @@ jobs:
           echo CHECKPOINT325_PAIR_GATE_JSON_BEGIN
           cat checkpoint325-original-pair-gate.json
           echo CHECKPOINT325_PAIR_GATE_JSON_END
+      - name: Read only checkout checkpoint325 app commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 42ec853307a5746559e63a5ccdb79b770f202dad
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Differential newly executed original pair gate with frozen Rust fixture
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 42ec853307a5746559e63a5ccdb79b770f202dad
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          original=json.loads(Path("checkpoint325-original-pair-gate.json").read_text())
+          frozen=json.loads(Path("app/tests/fixtures/native_original_fov_pair_gate_325.json").read_text())
+          assert original==frozen,"fresh GCam ARM64 pair-result gate diverges from Rust fixture"
+          assert original["original_case_count"]==11
+          assert original["original_opcode_pins"]==17
+          assert original["original_virtual_getter_calls"]==10
+          assert original["original_full_estimator_executed"] is False
+          print("CHECKPOINT325_FRESH_ORIGINAL_RUST_FIXTURE_EQUAL",11,17,10)
+          PY
+      - name: Run checkpoint325 source gate and full Rust regressions
+        run: |
+          set -euo pipefail
+          cd app
+          rustfmt --edition 2021 src/native_fov_pair_gate.rs src/native_fov_pair_gate_checkpoint325_test.rs
+          cargo test --lib checkpoint325 -- --nocapture
+          cargo test --lib
+          cargo check --no-default-features
+          cargo check --features android-jni
+      - name: Read back rustfmt output
+        run: |
+          echo CHECKPOINT325_RUST_MODULE_BEGIN
+          cat app/src/native_fov_pair_gate.rs
+          echo CHECKPOINT325_RUST_MODULE_END
+          echo CHECKPOINT325_RUST_TEST_BEGIN
+          cat app/src/native_fov_pair_gate_checkpoint325_test.rs
+          echo CHECKPOINT325_RUST_TEST_END
       - uses: actions/upload-artifact@v4
         if: always()
         with:
