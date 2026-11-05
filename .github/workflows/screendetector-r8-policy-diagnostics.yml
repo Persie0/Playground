@@ -80,6 +80,45 @@ jobs:
         working-directory: app
         run: flutter pub get
 
+      - name: Optimize obsolete BidMachine blanket Google Play services rule (experiment)
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          git_cache = Path(os.environ.get('PUB_CACHE', str(Path.home()/'.pub-cache'))) / 'git'
+          candidates = list(git_cache.glob('*/android/appodeal-r8-optimizer.gradle'))
+          if len(candidates) != 1:
+              raise SystemExit(f'Expected one Appodeal fork R8 optimizer, found {len(candidates)}: {candidates}')
+          path = candidates[0]
+          data = path.read_text()
+          original_filter = "return input.name.toLowerCase(java.util.Locale.ROOT).contains('vungle')"
+          updated_filter = "return input.name.toLowerCase(java.util.Locale.ROOT).contains('vungle') || input.name == 'ads-3.7.1.aar'"
+          if data.count(original_filter) != 1:
+              raise SystemExit('Unknown Appodeal fork transform artifact filter')
+          data = data.replace(original_filter, updated_filter)
+          original_var = "boolean containsVungleRules = original.contains('com.vungle.ads')"
+          if data.count(original_var) != 1:
+              raise SystemExit('Unknown Appodeal transform rule matching logic')
+          data = data.replace(original_var, original_var + "\n        boolean containsBidMachineRules = original.contains('io.bidmachine.')")
+          marker = '            if (containsVungleRules &&'
+          if data.count(marker) != 1:
+              raise SystemExit('Could not patch Appodeal transform consumer rules')
+          replacement = """            if (containsBidMachineRules &&
+                    rule == '-keep class com.google.android.gms.common.** { *; }') {
+                patched << '# CI experiment: removed BidMachine blanket GMS common keep (Google libraries have own consumer rules)'
+                return
+            }
+
+"""
+          data = data.replace(marker, replacement + marker)
+          path.write_text(data)
+          print('Enabled narrowly scoped BidMachine GMS common R8 experiment at', path)
+          PY
+
       - name: Build release bundle for local inspection only
         working-directory: app
         shell: bash
