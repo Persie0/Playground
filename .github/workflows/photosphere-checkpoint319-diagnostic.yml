@@ -60,14 +60,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 6bb8c20b9b3724ff04e3c2af8a0001d31ee1dd31
+          ref: b7a32a9241ce8e3b80b30758c513b3a17805baf9
           path: app
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Compare fresh original ARM64 oracles to Rust fixtures
         run: |
           set -euo pipefail
-          test "$(git -C app rev-parse HEAD)" = 6bb8c20b9b3724ff04e3c2af8a0001d31ee1dd31
+          test "$(git -C app rev-parse HEAD)" = b7a32a9241ce8e3b80b30758c513b3a17805baf9
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -99,7 +99,7 @@ jobs:
         run: |
           set -euo pipefail
           cd app
-          rustfmt --edition 2021 src/native_line_diagnostic_resume.rs src/native_line_diagnostic_resume_checkpoint319_test.rs
+          rustfmt --edition 2021 --check src/native_line_diagnostic_resume.rs src/native_line_diagnostic_resume_checkpoint319_test.rs
           cargo test --lib checkpoint319 -- --nocapture
           cargo test --lib
       - name: Print formatted Rust parity source for exact readback
