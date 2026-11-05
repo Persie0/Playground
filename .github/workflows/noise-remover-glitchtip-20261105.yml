@@ -1,4 +1,4 @@
-name: Noise Remover GlitchTip SAF and long-file fixes
+name: Noise Remover merged SAF integration full regression
 # Revalidate after analyzer lint fix on private branch.
 
 on:
@@ -44,22 +44,19 @@ jobs:
         working-directory: app
         run: |
           dart format --output=none --set-exit-if-changed \
+            test/services/android_saf_export_regression_test.dart \
             lib/services/settings_service.dart \
             lib/services/android_saf_export_policy.dart \
             lib/screens/result_screen.dart \
             lib/services/android_long_foreground_worker.dart \
             lib/utils/long_file_failure_diagnostics.dart \
             test/services/android_saf_export_policy_test.dart \
+            test/services/android_saf_export_regression_test.dart \
             test/utils/long_file_failure_diagnostics_test.dart
 
-      - name: Targeted Flutter regression tests
+      - name: Full Flutter regression suite (combined SAF and EULA fixes)
         working-directory: app
-        run: |
-          flutter test \
-            test/services/android_saf_export_policy_test.dart \
-            test/utils/long_file_failure_diagnostics_test.dart \
-            test/full_error_hardening_regression_test.dart \
-            test/recording_storage_regression_test.dart
+        run: flutter test --no-pub
 
       - name: Analyze touched sources
         working-directory: app
