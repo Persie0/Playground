@@ -15,7 +15,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install original-code tools
-        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
       - name: Retrieve checksum-pinned original Google Camera library
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 048615324ad313829bbf54852667bc9082d7104d
+          ref: d715e0a076ed86af36554db402d464d6c8f33fe5
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint324
@@ -40,9 +40,14 @@ jobs:
       - name: Verify original native FOV retry opcode sequence
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 048615324ad313829bbf54852667bc9082d7104d
+          test "$(git -C research rev-parse HEAD)" = d715e0a076ed86af36554db402d464d6c8f33fe5
           python3 research/research/photosphere/checkpoint324/scan_original_fov_retry.py original.so --output checkpoint324-original-fov.json | tee checkpoint324-original-fov.log
           grep -q '^CHECKPOINT324_ORIGINAL_FOV_SOURCE_PASS' checkpoint324-original-fov.log
+          python3 research/research/photosphere/checkpoint324/native_original_fov_retry_wrapper.py original.so --output checkpoint324-fov-retry-native.json | tee checkpoint324-fov-retry-native.log
+          grep -q '^CHECKPOINT324_ORIGINAL_RETRY_WRAPPER_PASS' checkpoint324-fov-retry-native.log
+          echo CHECKPOINT324_FOV_NATIVE_JSON_BEGIN
+          cat checkpoint324-fov-retry-native.json
+          echo CHECKPOINT324_FOV_NATIVE_JSON_END
           echo CHECKPOINT324_FOV_SOURCE_JSON_BEGIN
           cat checkpoint324-original-fov.json
           echo CHECKPOINT324_FOV_SOURCE_JSON_END
@@ -74,4 +79,6 @@ jobs:
           path: |
             checkpoint324-original-fov.json
             checkpoint324-original-fov.log
+            checkpoint324-fov-retry-native.json
+            checkpoint324-fov-retry-native.log
           retention-days: 14
