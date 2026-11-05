@@ -52,14 +52,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 42ec853307a5746559e63a5ccdb79b770f202dad
+          ref: 69c95eddfbe82cff219764d426537f2abdb606ac
           path: app
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Differential newly executed original pair gate with frozen Rust fixture
         run: |
           set -euo pipefail
-          test "$(git -C app rev-parse HEAD)" = 42ec853307a5746559e63a5ccdb79b770f202dad
+          test "$(git -C app rev-parse HEAD)" = 69c95eddfbe82cff219764d426537f2abdb606ac
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -76,7 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           cd app
-          rustfmt --edition 2021 src/native_fov_pair_gate.rs src/native_fov_pair_gate_checkpoint325_test.rs
+          rustfmt --edition 2021 --check src/native_fov_pair_gate.rs src/native_fov_pair_gate_checkpoint325_test.rs
           cargo test --lib checkpoint325 -- --nocapture
           cargo test --lib
           cargo check --no-default-features
