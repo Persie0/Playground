@@ -1,0 +1,56 @@
+name: Photosphere checkpoint321 original output and threshold
+on:
+  push:
+    branches: [research/photosphere-checkpoint321-output]
+    paths: [.github/workflows/photosphere-checkpoint321-output.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install original-code inspection tools
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Retrieve SHA-pinned original GCam ARM64 ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk'
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Read-only checkout original source analysis
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: c85deae1ee7a28383fae35a622cb2a50a47c501c
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint321
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Scan original output and threshold
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = c85deae1ee7a28383fae35a622cb2a50a47c501c
+          python3 research/research/photosphere/checkpoint321/scan_original_output_threshold.py original.so --output checkpoint321-output-scan.json | tee checkpoint321-output-scan.log
+          grep -q '^CHECKPOINT321_ORIGINAL_OUTPUT_THRESHOLD_SCAN' checkpoint321-output-scan.log
+          echo CHECKPOINT321_OUTPUT_SCAN_BEGIN
+          cat checkpoint321-output-scan.json
+          echo CHECKPOINT321_OUTPUT_SCAN_END
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint321-original-output-scan
+          path: |
+            checkpoint321-output-scan.json
+            checkpoint321-output-scan.log
+          retention-days: 14
