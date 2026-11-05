@@ -50,14 +50,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 3ee1f18cff80eff30b3ed0e89c385e329c1ccebb
+          ref: d49a28cd811654623b69ef1eb80ab247f0f68776
           path: app
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Compare fresh original ARM64 oracle with checked-in Rust fixture
         run: |
           set -euo pipefail
-          test "$(git -C app rev-parse HEAD)" = 3ee1f18cff80eff30b3ed0e89c385e329c1ccebb
+          test "$(git -C app rev-parse HEAD)" = d49a28cd811654623b69ef1eb80ab247f0f68776
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           cd app
-          rustfmt --edition 2021 src/native_line_output_branches.rs src/native_line_output_branches_checkpoint322_test.rs
+          rustfmt --edition 2021 --check src/native_line_output_branches.rs src/native_line_output_branches_checkpoint322_test.rs
           cargo test --lib checkpoint322 -- --nocapture
           cargo test --lib
       - name: Read back formatted Rust source
