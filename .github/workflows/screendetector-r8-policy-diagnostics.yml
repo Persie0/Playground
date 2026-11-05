@@ -34,12 +34,16 @@ jobs:
         with:
           channel: stable
 
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
       - name: Install Android SDK/NDK
         shell: bash
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --channel=3 "platforms;android-37.0" "ndk;29.0.13599879" >/dev/null || true
+          sdkmanager --channel=3 "platforms;android-37.0" "ndk;29.0.13599879" >/dev/null
           if [ -d "$ANDROID_SDK_ROOT/platforms/android-37.0" ] && [ ! -e "$ANDROID_SDK_ROOT/platforms/android-37" ]; then
             ln -s android-37.0 "$ANDROID_SDK_ROOT/platforms/android-37"
           fi
@@ -55,26 +59,22 @@ jobs:
           remove_folders: /usr/share/swift
           testing: false
 
-      - name: Configure signing without logging secrets
+      - name: Use temporary CI-only upload signing key
         working-directory: app
-        env:
-          STORE_PASS: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          props = Path('android/key.properties')
-          text = props.read_text()
-          for key, env in [('KEYSTORE_PASS', 'STORE_PASS'), ('KEYSTORE_KEY_PASS', 'KEY_PASS')]:
-              secret = os.environ.get(env)
-              if not secret:
-                  raise SystemExit(f'::error::{env} secret is unavailable')
-              text = text.replace('#{' + key + '}#', secret)
-          props.write_text(text)
-          PY
+          keytool -genkeypair -noprompt -keystore android/app/r8-ci.jks \
+            -storepass diagnostic -keypass diagnostic -alias ci \
+            -keyalg RSA -keysize 2048 -validity 365 \
+            -dname "CN=R8 Diagnostic, OU=CI, O=CI, L=CI, S=CI, C=US"
+          cat > android/key.properties <<'EOF'
+          storePassword=diagnostic
+          keyPassword=diagnostic
+          keyAlias=ci
+          storeFile=r8-ci.jks
+          EOF
+          # This unsigned-for-Play diagnostic is never published or uploaded.
 
       - name: Resolve Flutter dependencies
         working-directory: app
