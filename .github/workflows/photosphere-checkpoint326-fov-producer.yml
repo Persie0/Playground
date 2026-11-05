@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 828c1785e5c35cb5be5c7300e0d6d5721849ad44
+          ref: 451c4bc3d03bfdd999b00dbe36c24e7e8d0fd400
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint326
@@ -40,7 +40,7 @@ jobs:
       - name: Scan exact original registration producer and result collector
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 828c1785e5c35cb5be5c7300e0d6d5721849ad44
+          test "$(git -C research rev-parse HEAD)" = 451c4bc3d03bfdd999b00dbe36c24e7e8d0fd400
           python3 research/research/photosphere/checkpoint326/scan_original_registration_collector.py original.so --output checkpoint326-source-functions.json | tee checkpoint326-source-functions.log
           grep -q '^CHECKPOINT326_ORIGINAL_PRODUCER_COLLECTOR_SCAN' checkpoint326-source-functions.log
           python3 research/research/photosphere/checkpoint326/native_original_pair_selection.py original.so --output checkpoint326-original-selection.json | tee checkpoint326-original-selection.log
@@ -48,6 +48,64 @@ jobs:
           echo CHECKPOINT326_ORIGINAL_SELECTION_JSON_BEGIN
           cat checkpoint326-original-selection.json
           echo CHECKPOINT326_ORIGINAL_SELECTION_JSON_END
+      - name: Read-only checkout exact checkpoint326 Rust app
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: a42de355b1d2eb3f2e3a8ccdf8998843700ca831
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Compare freshly executed original ARM64 source against frozen Rust oracle
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = a42de355b1d2eb3f2e3a8ccdf8998843700ca831
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          native=json.loads(Path("checkpoint326-original-selection.json").read_text())
+          for c in native["collector_cases"]:
+              t=c.pop("original_source_instruction_pcs")
+              c["original_source_start_pc"]=t[0]
+              c["original_source_stop_pc"]=t[-1]
+              c["original_source_instruction_count"]=len(t)
+              c["original_record_index_reads"]=t.count("0x3187f8")
+              c["original_ret_executed"]="0x318924" in t
+              c["original_order_check_executed"]="0x318830" in t
+          for c in native["return_cases"]:
+              t=c.pop("original_instruction_pcs")
+              c["original_source_start_pc"]=t[0]
+              c["original_source_stop_pc"]=t[-1]
+              c["original_source_instruction_count"]=len(t)
+              c["original_and_bit0_executed"]="0xf206c" in t
+          frozen=json.loads(Path("app/tests/fixtures/native_original_fov_collector_326.json").read_text())
+          assert native==frozen,"original source-executed FOV record selectors differ from Rust regression fixture"
+          assert native["original_collector_case_count"]==14
+          assert native["original_producer_return_case_count"]==8
+          assert native["original_opcode_pins"]==18
+          print("CHECKPOINT326_FRESH_SOURCE_RUST_ORACLE_EQUAL",14,8,18)
+          scan=json.loads(Path("checkpoint326-source-functions.json").read_text())
+          lengths=[x["original_instruction_count"] for x in scan["functions"]]
+          assert lengths==[253,136] and sum(len(x["calls"]) for x in scan["functions"])==50
+          print("CHECKPOINT326_ORIGINAL_REGISTRATION_FDE_PROVENANCE_EQUAL",253,136,50)
+          PY
+      - name: Run focused and full Rust library validation
+        run: |
+          set -euo pipefail
+          cd app
+          rustfmt --edition 2021 src/native_fov_collector.rs src/native_fov_collector_checkpoint326_test.rs
+          cargo test --lib checkpoint326 -- --nocapture
+          cargo test --lib
+          cargo check --no-default-features
+          cargo check --features android-jni
+      - name: Print formatted Rust for source readback
+        run: |
+          echo CHECKPOINT326_RUST_MODEL_BEGIN
+          cat app/src/native_fov_collector.rs
+          echo CHECKPOINT326_RUST_MODEL_END
+          echo CHECKPOINT326_RUST_TEST_BEGIN
+          cat app/src/native_fov_collector_checkpoint326_test.rs
+          echo CHECKPOINT326_RUST_TEST_END
       - uses: actions/upload-artifact@v4
         if: always()
         with:
