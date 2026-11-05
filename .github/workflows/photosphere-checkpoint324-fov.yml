@@ -1,0 +1,77 @@
+name: Photosphere checkpoint324 production FOV calibration
+on:
+  push:
+    branches: [research/photosphere-checkpoint324-fov]
+    paths: [.github/workflows/photosphere-checkpoint324-fov.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fov-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install original-code tools
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools
+      - name: Retrieve checksum-pinned original Google Camera library
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk'
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Checkout original FOV source research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 048615324ad313829bbf54852667bc9082d7104d
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint324
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify original native FOV retry opcode sequence
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = 048615324ad313829bbf54852667bc9082d7104d
+          python3 research/research/photosphere/checkpoint324/scan_original_fov_retry.py original.so --output checkpoint324-original-fov.json | tee checkpoint324-original-fov.log
+          grep -q '^CHECKPOINT324_ORIGINAL_FOV_SOURCE_PASS' checkpoint324-original-fov.log
+          echo CHECKPOINT324_FOV_SOURCE_JSON_BEGIN
+          cat checkpoint324-original-fov.json
+          echo CHECKPOINT324_FOV_SOURCE_JSON_END
+      - name: Checkout exact app checkpoint324 commit read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 4d1892d46c45a02a2e29078917dc44284a577957
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Run focused and full FOV application Rust regressions
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 4d1892d46c45a02a2e29078917dc44284a577957
+          cd app
+          rustfmt --edition 2021 src/session_checkpoint324_fov_test.rs
+          cargo test --lib checkpoint324 -- --nocapture
+          cargo test --lib
+      - name: Read back formatted Rust integration test
+        run: |
+          echo CHECKPOINT324_TEST_BEGIN
+          cat app/src/session_checkpoint324_fov_test.rs
+          echo CHECKPOINT324_TEST_END
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint324-native-source
+          path: |
+            checkpoint324-original-fov.json
+            checkpoint324-original-fov.log
+          retention-days: 14
