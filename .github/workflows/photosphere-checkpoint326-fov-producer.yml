@@ -52,14 +52,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: a42de355b1d2eb3f2e3a8ccdf8998843700ca831
+          ref: e55085c7016077815ef7bd31696874958a174fba
           path: app
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Compare freshly executed original ARM64 source against frozen Rust oracle
         run: |
           set -euo pipefail
-          test "$(git -C app rev-parse HEAD)" = a42de355b1d2eb3f2e3a8ccdf8998843700ca831
+          test "$(git -C app rev-parse HEAD)" = e55085c7016077815ef7bd31696874958a174fba
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -93,7 +93,7 @@ jobs:
         run: |
           set -euo pipefail
           cd app
-          rustfmt --edition 2021 src/native_fov_collector.rs src/native_fov_collector_checkpoint326_test.rs
+          rustfmt --edition 2021 --check src/native_fov_collector.rs src/native_fov_collector_checkpoint326_test.rs
           cargo test --lib checkpoint326 -- --nocapture
           cargo test --lib
           cargo check --no-default-features
