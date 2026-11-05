@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 8c1e69bed1f8c4e050e3c8b28ad9f0ce7156ff83
+          ref: 74b86c91e78f60c90fb877ba9935a5b0dea3e277
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint319
@@ -40,9 +40,14 @@ jobs:
       - name: Inspect source-original diagnostic function bodies
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 8c1e69bed1f8c4e050e3c8b28ad9f0ce7156ff83
+          test "$(git -C research rev-parse HEAD)" = 74b86c91e78f60c90fb877ba9935a5b0dea3e277
           python3 research/research/photosphere/checkpoint319/scan_original_diagnostic_callees.py original.so --output checkpoint319-original-callees.json | tee checkpoint319-original-callees.log
           grep -q '^CHECKPOINT319_ORIGINAL_DIAGNOSTIC_CALLEES_SCANNED' checkpoint319-original-callees.log
+          python3 research/research/photosphere/checkpoint319/native_original_diagnostic_severity.py original.so --output checkpoint319-original-severity-gate.json | tee checkpoint319-original-severity-gate.log
+          grep -q '^CHECKPOINT319_ORIGINAL_SEVERITY_GATE_PASS' checkpoint319-original-severity-gate.log
+          echo CHECKPOINT319_SEVERITY_JSON_BEGIN
+          cat checkpoint319-original-severity-gate.json
+          echo CHECKPOINT319_SEVERITY_JSON_END
           echo CHECKPOINT319_CALLEES_JSON_BEGIN
           cat checkpoint319-original-callees.json
           echo CHECKPOINT319_CALLEES_JSON_END
@@ -53,4 +58,6 @@ jobs:
           path: |
             checkpoint319-original-callees.json
             checkpoint319-original-callees.log
+            checkpoint319-original-severity-gate.json
+            checkpoint319-original-severity-gate.log
           retention-days: 14
