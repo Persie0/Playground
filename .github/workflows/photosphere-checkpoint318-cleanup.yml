@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 3877615ceda1eb7faee164ed5d071e05a4166d25
+          ref: c0c070cfd0cb3d3fd61994146ac215ef11fa41a1
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint318
@@ -40,7 +40,7 @@ jobs:
       - name: Execute original machine-code cleanup and print oracle
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 3877615ceda1eb7faee164ed5d071e05a4166d25
+          test "$(git -C research rev-parse HEAD)" = c0c070cfd0cb3d3fd61994146ac215ef11fa41a1
           python3 research/research/photosphere/checkpoint318/native_original_secondary_cleanup.py original.so --output checkpoint318-original-cleanup.json | tee checkpoint318-original-cleanup.log
           grep -q '^CHECKPOINT318_NATIVE_SECONDARY_CLEANUP_PASS' checkpoint318-original-cleanup.log
           python3 research/research/photosphere/checkpoint318/native_original_secondary_diagnostic.py original.so --output checkpoint318-original-diagnostic.json | tee checkpoint318-original-diagnostic.log
@@ -51,6 +51,50 @@ jobs:
           echo CHECKPOINT318_CLEANUP_JSON_BEGIN
           cat checkpoint318-original-cleanup.json
           echo CHECKPOINT318_CLEANUP_JSON_END
+      - name: Read-only checkout pinned checkpoint318 Rust app
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 878b373ba0bc09eb099eb0a84441e752a6ef4cb3
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Compare regenerated original native oracles with Rust fixtures
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 878b373ba0bc09eb099eb0a84441e752a6ef4cb3
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          original=json.loads(Path("checkpoint318-original-cleanup.json").read_text())
+          for case in original["cases"]:
+              pcs=case.pop("original_trace_pcs")
+              case["original_trace_start_pc"]=pcs[0]
+              case["original_trace_end_pc"]=pcs[-1]
+              case["original_trace_instruction_count"]=len(pcs)
+          frozen=json.loads(Path("app/tests/fixtures/native_original_second_line_cleanup_318.json").read_text())
+          assert original==frozen, "native ARM64 cleanup trace differs from Rust fixture"
+          print("CHECKPOINT318_ORIGINAL_CLEANUP_FIXTURE_EQUAL",original["original_fixture_count"],original["original_release_calls"])
+          diagnostic=json.loads(Path("checkpoint318-original-diagnostic.json").read_text())
+          frozen=json.loads(Path("app/tests/fixtures/native_original_second_line_diagnostic_318.json").read_text())
+          assert diagnostic==frozen, "source ARM64 diagnostic provenance differs from Rust fixture"
+          print("CHECKPOINT318_ORIGINAL_DIAGNOSTIC_FIXTURE_EQUAL",len(diagnostic["original_source_executed_prefixes"]))
+          PY
+      - name: Run Rust checkpoint318 focused and full regressions
+        run: |
+          set -euo pipefail
+          cd app
+          rustfmt --edition 2021 src/native_line_secondary_cleanup.rs src/native_line_secondary_cleanup_checkpoint318_test.rs
+          cargo test --lib checkpoint318 -- --nocapture
+          cargo test --lib
+      - name: Print formatted Rust source for exact readback
+        run: |
+          echo CHECKPOINT318_RUST_MODEL_BEGIN
+          cat app/src/native_line_secondary_cleanup.rs
+          echo CHECKPOINT318_RUST_MODEL_END
+          echo CHECKPOINT318_RUST_TEST_BEGIN
+          cat app/src/native_line_secondary_cleanup_checkpoint318_test.rs
+          echo CHECKPOINT318_RUST_TEST_END
       - uses: actions/upload-artifact@v4
         if: always()
         with:
