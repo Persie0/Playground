@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 94e2d4fb5e831d9c5f03a21ac16a510351cbebdb
+          ref: f1d64900a4ab6311ac7e6daf69200e1d0b8dcb31
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint325
@@ -40,9 +40,14 @@ jobs:
       - name: Inspect original FOV estimator and pair status gates
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 94e2d4fb5e831d9c5f03a21ac16a510351cbebdb
+          test "$(git -C research rev-parse HEAD)" = f1d64900a4ab6311ac7e6daf69200e1d0b8dcb31
           python3 research/research/photosphere/checkpoint325/scan_original_attempt.py original.so --output checkpoint325-original-attempt-scan.json | tee checkpoint325-original-attempt-scan.log
           grep -q '^CHECKPOINT325_ORIGINAL_ESTIMATOR_SCAN' checkpoint325-original-attempt-scan.log
+          python3 research/research/photosphere/checkpoint325/native_original_pair_status_gate.py original.so --output checkpoint325-original-pair-gate.json | tee checkpoint325-original-pair-gate.log
+          grep -q '^CHECKPOINT325_ORIGINAL_PAIR_GATE_PASS' checkpoint325-original-pair-gate.log
+          echo CHECKPOINT325_PAIR_GATE_JSON_BEGIN
+          cat checkpoint325-original-pair-gate.json
+          echo CHECKPOINT325_PAIR_GATE_JSON_END
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -50,4 +55,6 @@ jobs:
           path: |
             checkpoint325-original-attempt-scan.json
             checkpoint325-original-attempt-scan.log
+            checkpoint325-original-pair-gate.json
+            checkpoint325-original-pair-gate.log
           retention-days: 14
