@@ -1,0 +1,72 @@
+name: Traffic Alchemist deep puzzles and tower upgrade validation
+on:
+  push:
+    branches: [ci/traffic-alchemist-upgrades]
+    paths:
+      - .github/workflows/traffic-alchemist-upgrades.yml
+  workflow_dispatch:
+    inputs:
+      private_ref:
+        description: Private game branch or SHA to test
+        type: string
+        required: true
+        default: feat/deeper-puzzles-tower-upgrades
+permissions:
+  contents: write
+jobs:
+  godot-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Require private source access
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout private game
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/trafficalchemist
+          ref: ${{ inputs.private_ref || 'feat/deeper-puzzles-tower-upgrades' }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: game
+      - name: Install Godot 4.7.2
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.7.2
+          use-dotnet: false
+          include-templates: false
+      - name: Import Godot and fail on GDScript parsing errors
+        id: import
+        working-directory: game
+        run: |
+          set -o pipefail
+          timeout 60s godot --headless --editor --path . --import --quit 2>&1 | tee /tmp/traffic-alchemist-import.log
+          if grep -Eq 'SCRIPT ERROR:|Failed to load script' /tmp/traffic-alchemist-import.log; then
+            echo 'GDScript parser or class loading failed'
+            exit 1
+          fi
+      - name: Run game and tower tests
+        id: tests
+        working-directory: game
+        run: python3 tests/run_checks.py
+      - name: Checkout report branch
+        if: always()
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/Playground
+          ref: ci/traffic-alchemist-upgrades
+          path: report-workspace
+      - name: Publish result (without private source)
+        if: always()
+        working-directory: report-workspace
+        env:
+          IMPORT_STATUS: ${{ steps.import.outcome }}
+          TEST_STATUS: ${{ steps.tests.outcome }}
+        run: |
+          printf 'run_id=%s\nimport=%s\ntests=%s\n' "$GITHUB_RUN_ID" "$IMPORT_STATUS" "$TEST_STATUS" > traffic-alchemist-upgrades-status.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add traffic-alchemist-upgrades-status.txt
+          git commit -m "Report Traffic Alchemist tower CI ($GITHUB_RUN_ID)" || true
+          git push origin HEAD:ci/traffic-alchemist-upgrades
