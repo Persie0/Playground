@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: d715e0a076ed86af36554db402d464d6c8f33fe5
+          ref: e457422c8bbb4010947562bbfcafe79cd810ebcd
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint324
@@ -40,7 +40,7 @@ jobs:
       - name: Verify original native FOV retry opcode sequence
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = d715e0a076ed86af36554db402d464d6c8f33fe5
+          test "$(git -C research rev-parse HEAD)" = e457422c8bbb4010947562bbfcafe79cd810ebcd
           python3 research/research/photosphere/checkpoint324/scan_original_fov_retry.py original.so --output checkpoint324-original-fov.json | tee checkpoint324-original-fov.log
           grep -q '^CHECKPOINT324_ORIGINAL_FOV_SOURCE_PASS' checkpoint324-original-fov.log
           python3 research/research/photosphere/checkpoint324/native_original_fov_retry_wrapper.py original.so --output checkpoint324-fov-retry-native.json | tee checkpoint324-fov-retry-native.log
@@ -55,14 +55,34 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 4d1892d46c45a02a2e29078917dc44284a577957
+          ref: af8d3de76ce21876023c9570d6ffd278fdeb2deb
           path: app
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
+      - name: Differential original ELF source output against app fixtures
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          sources=[
+            ("checkpoint324-original-fov.json","app/tests/fixtures/native_original_fov_source_324.json"),
+            ("checkpoint324-fov-retry-native.json","app/tests/fixtures/native_original_fov_retry_324.json"),
+          ]
+          for source,fixture in sources:
+            a=json.loads(Path(source).read_text())
+            b=json.loads(Path(fixture).read_text())
+            assert a==b,(source,"fresh original native GCam source diverged from Rust oracle")
+            print("CHECKPOINT324_SOURCE_NATIVE_RUST_EQUAL",source)
+          original=json.loads(Path(sources[1][0]).read_text())
+          assert original["original_case_count"]==7
+          assert original["original_total_inner_attempts"]==15
+          assert original["original_real_numerical_fov_solver_executed"] is False
+          PY
       - name: Run focused and full FOV application Rust regressions
         run: |
           set -euo pipefail
-          test "$(git -C app rev-parse HEAD)" = 4d1892d46c45a02a2e29078917dc44284a577957
+          test "$(git -C app rev-parse HEAD)" = af8d3de76ce21876023c9570d6ffd278fdeb2deb
           cd app
           rustfmt --edition 2021 src/session_checkpoint324_fov_test.rs
           cargo test --lib checkpoint324 -- --nocapture
