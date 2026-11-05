@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 765f37e1fb3aeb782342d186dcb852f4dc61843a
+          ref: 3877615ceda1eb7faee164ed5d071e05a4166d25
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint318
@@ -40,9 +40,14 @@ jobs:
       - name: Execute original machine-code cleanup and print oracle
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 765f37e1fb3aeb782342d186dcb852f4dc61843a
+          test "$(git -C research rev-parse HEAD)" = 3877615ceda1eb7faee164ed5d071e05a4166d25
           python3 research/research/photosphere/checkpoint318/native_original_secondary_cleanup.py original.so --output checkpoint318-original-cleanup.json | tee checkpoint318-original-cleanup.log
           grep -q '^CHECKPOINT318_NATIVE_SECONDARY_CLEANUP_PASS' checkpoint318-original-cleanup.log
+          python3 research/research/photosphere/checkpoint318/native_original_secondary_diagnostic.py original.so --output checkpoint318-original-diagnostic.json | tee checkpoint318-original-diagnostic.log
+          grep -q '^CHECKPOINT318_ORIGINAL_DIAGNOSTIC_PROVENANCE_PASS' checkpoint318-original-diagnostic.log
+          echo CHECKPOINT318_DIAGNOSTIC_JSON_BEGIN
+          cat checkpoint318-original-diagnostic.json
+          echo CHECKPOINT318_DIAGNOSTIC_JSON_END
           echo CHECKPOINT318_CLEANUP_JSON_BEGIN
           cat checkpoint318-original-cleanup.json
           echo CHECKPOINT318_CLEANUP_JSON_END
@@ -53,4 +58,6 @@ jobs:
           path: |
             checkpoint318-original-cleanup.json
             checkpoint318-original-cleanup.log
+            checkpoint318-original-diagnostic.json
+            checkpoint318-original-diagnostic.log
           retention-days: 14
