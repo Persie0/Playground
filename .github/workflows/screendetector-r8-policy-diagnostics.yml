@@ -107,13 +107,13 @@ jobs:
           marker = '            if (containsVungleRules &&'
           if data.count(marker) != 1:
               raise SystemExit('Could not patch Appodeal transform consumer rules')
-          replacement = """            if (containsBidMachineRules &&
-                    rule == '-keep class com.google.android.gms.common.** { *; }') {
-                patched << '# CI experiment: removed BidMachine blanket GMS common keep (Google libraries have own consumer rules)'
-                return
-            }
-
-"""
+          replacement = (
+              "            if (containsBidMachineRules &&\n"
+              "                    rule == '-keep class com.google.android.gms.common.** { *; }') {\n"
+              "                patched << '# CI experiment: removed BidMachine blanket GMS common keep'\n"
+              "                return\n"
+              "            }\n\n"
+          )
           data = data.replace(marker, replacement + marker)
           path.write_text(data)
           print('Enabled narrowly scoped BidMachine GMS common R8 experiment at', path)
