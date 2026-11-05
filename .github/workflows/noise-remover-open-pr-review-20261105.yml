@@ -1,0 +1,68 @@
+name: Noise Remover PR 227 and 224 review validation
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/noise-remover-open-pr-review-20261105.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Verify private checkout credentials
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$TOKEN"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Checkout EULA/consent PR 227
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: chore/remove-launch-eula-platform-links-20261105
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app227
+      - name: Resolve EULA/consent dependencies
+        working-directory: app227
+        run: flutter pub get
+      - name: PR 227 Flutter regression tests
+        working-directory: app227
+        run: flutter test --no-pub
+      - name: PR 227 analyze changed files
+        working-directory: app227
+        run: |
+          flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings \
+            lib/main.dart lib/platform/platform_policy.dart \
+            lib/services/ad_service.dart lib/services/settings_service.dart \
+            test/platform/platform_policy_test.dart
+
+      - name: Checkout SAF PR 224
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: fix/android-saf-writable-folder-issue-199
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app224
+      - name: Resolve SAF dependencies
+        working-directory: app224
+        run: flutter pub get
+      - name: PR 224 Flutter regression tests
+        working-directory: app224
+        run: flutter test --no-pub
+      - name: PR 224 analyze changed files
+        working-directory: app224
+        run: |
+          flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings \
+            lib/services/settings_service.dart \
+            lib/services/output_filename_service.dart \
+            test/services/android_saf_export_regression_test.dart
