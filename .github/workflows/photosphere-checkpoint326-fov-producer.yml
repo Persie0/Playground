@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: e5a71f84eda1a557cd9188612eb89162ebfc2172
+          ref: 8e1428e9da4219af274cc4669f87ed1eea7b3e23
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint326
@@ -40,9 +40,14 @@ jobs:
       - name: Scan exact original registration producer and result collector
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = e5a71f84eda1a557cd9188612eb89162ebfc2172
+          test "$(git -C research rev-parse HEAD)" = 8e1428e9da4219af274cc4669f87ed1eea7b3e23
           python3 research/research/photosphere/checkpoint326/scan_original_registration_collector.py original.so --output checkpoint326-source-functions.json | tee checkpoint326-source-functions.log
           grep -q '^CHECKPOINT326_ORIGINAL_PRODUCER_COLLECTOR_SCAN' checkpoint326-source-functions.log
+          python3 research/research/photosphere/checkpoint326/native_original_pair_selection.py original.so --output checkpoint326-original-selection.json | tee checkpoint326-original-selection.log
+          grep -q '^CHECKPOINT326_ORIGINAL_SELECTION_PASS' checkpoint326-original-selection.log
+          echo CHECKPOINT326_ORIGINAL_SELECTION_JSON_BEGIN
+          cat checkpoint326-original-selection.json
+          echo CHECKPOINT326_ORIGINAL_SELECTION_JSON_END
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -50,4 +55,6 @@ jobs:
           path: |
             checkpoint326-source-functions.json
             checkpoint326-source-functions.log
+            checkpoint326-original-selection.json
+            checkpoint326-original-selection.log
           retention-days: 14
