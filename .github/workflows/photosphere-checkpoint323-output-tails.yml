@@ -1,0 +1,56 @@
+name: Photosphere checkpoint323 original output tails
+on:
+  push:
+    branches: [research/photosphere-checkpoint323-output-tails]
+    paths: [.github/workflows/photosphere-checkpoint323-output-tails.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-tail-provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install original machine code inspection tools
+        run: python3 -m pip install --break-system-packages --quiet capstone pyelftools unicorn
+      - name: Retrieve original hash-verified Google Camera ARM64 ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk'
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Read-only checkout original research
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: b5560859401c837723fc0146a2264fd6fc67f677
+          path: research
+          sparse-checkout: |
+            research/photosphere/checkpoint323
+          filter: blob:none
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Disassemble two original output tail targets
+        run: |
+          set -euo pipefail
+          test "$(git -C research rev-parse HEAD)" = b5560859401c837723fc0146a2264fd6fc67f677
+          python3 research/research/photosphere/checkpoint323/scan_original_output_tails.py original.so --output checkpoint323-original-tail-scan.json | tee checkpoint323-original-tail-scan.log
+          grep -q '^CHECKPOINT323_ORIGINAL_TAIL_SCAN' checkpoint323-original-tail-scan.log
+          echo CHECKPOINT323_SCAN_JSON_BEGIN
+          cat checkpoint323-original-tail-scan.json
+          echo CHECKPOINT323_SCAN_JSON_END
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkpoint323-original-output-tails
+          path: |
+            checkpoint323-original-tail-scan.json
+            checkpoint323-original-tail-scan.log
+          retention-days: 14
