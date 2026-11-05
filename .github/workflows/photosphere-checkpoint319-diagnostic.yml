@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 74b86c91e78f60c90fb877ba9935a5b0dea3e277
+          ref: b87173986d078f0444546a47ad0a472c458c91ae
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint319
@@ -40,11 +40,16 @@ jobs:
       - name: Inspect source-original diagnostic function bodies
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 74b86c91e78f60c90fb877ba9935a5b0dea3e277
+          test "$(git -C research rev-parse HEAD)" = b87173986d078f0444546a47ad0a472c458c91ae
           python3 research/research/photosphere/checkpoint319/scan_original_diagnostic_callees.py original.so --output checkpoint319-original-callees.json | tee checkpoint319-original-callees.log
           grep -q '^CHECKPOINT319_ORIGINAL_DIAGNOSTIC_CALLEES_SCANNED' checkpoint319-original-callees.log
           python3 research/research/photosphere/checkpoint319/native_original_diagnostic_severity.py original.so --output checkpoint319-original-severity-gate.json | tee checkpoint319-original-severity-gate.log
           grep -q '^CHECKPOINT319_ORIGINAL_SEVERITY_GATE_PASS' checkpoint319-original-severity-gate.log
+          python3 research/research/photosphere/checkpoint319/native_original_diagnostic_returning.py original.so --output checkpoint319-original-returning-diagnostic.json | tee checkpoint319-original-returning-diagnostic.log
+          grep -q '^CHECKPOINT319_ORIGINAL_CONDITIONAL_RESUME_PASS' checkpoint319-original-returning-diagnostic.log
+          echo CHECKPOINT319_RESUME_JSON_BEGIN
+          cat checkpoint319-original-returning-diagnostic.json
+          echo CHECKPOINT319_RESUME_JSON_END
           echo CHECKPOINT319_SEVERITY_JSON_BEGIN
           cat checkpoint319-original-severity-gate.json
           echo CHECKPOINT319_SEVERITY_JSON_END
@@ -60,4 +65,6 @@ jobs:
             checkpoint319-original-callees.log
             checkpoint319-original-severity-gate.json
             checkpoint319-original-severity-gate.log
+            checkpoint319-original-returning-diagnostic.json
+            checkpoint319-original-returning-diagnostic.log
           retention-days: 14
