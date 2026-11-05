@@ -55,14 +55,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 241c93ae71b756d6413adedac4e1274b0f301a02
+          ref: 37627b28d2e64873f8e26d07e39e17b754da5db3
           path: app
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Validate fresh original ARM64 oracles against frozen Rust fixtures
         run: |
           set -euo pipefail
-          test "$(git -C app rev-parse HEAD)" = 241c93ae71b756d6413adedac4e1274b0f301a02
+          test "$(git -C app rev-parse HEAD)" = 37627b28d2e64873f8e26d07e39e17b754da5db3
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -96,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           cd app
-          rustfmt --edition 2021 src/native_line_output_dispatch.rs src/native_line_output_dispatch_checkpoint321_test.rs
+          rustfmt --edition 2021 --check src/native_line_output_dispatch.rs src/native_line_output_dispatch_checkpoint321_test.rs
           cargo test --lib checkpoint321 -- --nocapture
           cargo test --lib
       - name: Print formatted Rust source for readback
