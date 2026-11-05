@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: c85deae1ee7a28383fae35a622cb2a50a47c501c
+          ref: 2b354fc0d44042b331236a47fcddac316d296d66
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint321
@@ -40,9 +40,14 @@ jobs:
       - name: Scan original output and threshold
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = c85deae1ee7a28383fae35a622cb2a50a47c501c
+          test "$(git -C research rev-parse HEAD)" = 2b354fc0d44042b331236a47fcddac316d296d66
           python3 research/research/photosphere/checkpoint321/scan_original_output_threshold.py original.so --output checkpoint321-output-scan.json | tee checkpoint321-output-scan.log
           grep -q '^CHECKPOINT321_ORIGINAL_OUTPUT_THRESHOLD_SCAN' checkpoint321-output-scan.log
+          python3 research/research/photosphere/checkpoint321/native_original_atomic_dispatch.py original.so --output checkpoint321-original-atomic-dispatch.json | tee checkpoint321-original-atomic-dispatch.log
+          grep -q '^CHECKPOINT321_ORIGINAL_ATOMIC_AND_DISPATCH_PASS' checkpoint321-original-atomic-dispatch.log
+          echo CHECKPOINT321_ORIGINAL_ATOMIC_DISPATCH_BEGIN
+          cat checkpoint321-original-atomic-dispatch.json
+          echo CHECKPOINT321_ORIGINAL_ATOMIC_DISPATCH_END
           echo CHECKPOINT321_OUTPUT_SCAN_BEGIN
           cat checkpoint321-output-scan.json
           echo CHECKPOINT321_OUTPUT_SCAN_END
@@ -53,4 +58,6 @@ jobs:
           path: |
             checkpoint321-output-scan.json
             checkpoint321-output-scan.log
+            checkpoint321-original-atomic-dispatch.json
+            checkpoint321-original-atomic-dispatch.log
           retention-days: 14
