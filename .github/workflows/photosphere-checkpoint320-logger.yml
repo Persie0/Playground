@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 580e4e6c3adebf291d7fc8ea30a9c764b663c4a8
+          ref: 9ddeb574dee2767b079c747b61fcc315d089c8fc
           path: research
           sparse-checkout: |
             research/photosphere/checkpoint320
@@ -40,7 +40,7 @@ jobs:
       - name: Execute original severity-one nested logger and finalizer
         run: |
           set -euo pipefail
-          test "$(git -C research rev-parse HEAD)" = 580e4e6c3adebf291d7fc8ea30a9c764b663c4a8
+          test "$(git -C research rev-parse HEAD)" = 9ddeb574dee2767b079c747b61fcc315d089c8fc
           python3 research/research/photosphere/checkpoint320/native_original_logger_finalizer.py original.so --output checkpoint320-original-logger.json | tee checkpoint320-original-logger.log
           grep -q '^CHECKPOINT320_ORIGINAL_LOGGER_RETURN_PASS' checkpoint320-original-logger.log
           python3 research/research/photosphere/checkpoint320/scan_original_logger_helpers.py original.so --output checkpoint320-original-nested.json | tee checkpoint320-original-nested.log
@@ -51,6 +51,57 @@ jobs:
           echo CHECKPOINT320_ORIGINAL_LOGGER_JSON_BEGIN
           cat checkpoint320-original-logger.json
           echo CHECKPOINT320_ORIGINAL_LOGGER_JSON_END
+      - name: Checkout pinned Rust checkpoint320 app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: fc34ff46d07504879155f9e43f80d055e52829d7
+          path: app
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Compare fresh original ELF results with Rust frozen fixtures
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = fc34ff46d07504879155f9e43f80d055e52829d7
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path("checkpoint320-original-logger.json").read_text())
+          for c in report["cases"]:
+              trace=c.pop("original_instruction_trace")
+              c["original_trace_start_pc"]=trace[0]
+              c["original_trace_end_pc"]=trace[-1]
+              c["original_trace_instruction_count"]=len(trace)
+          frozen=json.loads(Path("app/tests/fixtures/native_original_logger_finalizer_320.json").read_text())
+          assert report==frozen, "source-executed ARM64 logger differs from Rust source fixture"
+          assert report["original_synthetic_case_count"]==9
+          assert report["original_exact_opcode_pins"]==33
+          print("CHECKPOINT320_FRESH_SOURCE_LOGGER_FIXTURE_EQUAL",9,33)
+          source=json.loads(Path("checkpoint320-original-nested.json").read_text())
+          for f in source["functions"]:
+              if f["original_helper_entry_pc"] not in ("0x3b87f4","0x3b70b8","0x3b6ce4"):
+                  items=f["original_instructions"]
+                  f["original_instructions"]=items[:6]+items[-6:]
+          frozen=json.loads(Path("app/tests/fixtures/native_original_logger_nested_helpers_320.json").read_text())
+          assert source==frozen, "nested helper disassembly differs from Rust source fixture"
+          assert source["original_nested_helper_count"]==6
+          print("CHECKPOINT320_FRESH_SOURCE_NESTED_FIXTURE_EQUAL",6)
+          PY
+      - name: Run focused and full Rust regression
+        run: |
+          set -euo pipefail
+          cd app
+          rustfmt --edition 2021 src/native_line_logger_finalizer.rs src/native_line_logger_finalizer_checkpoint320_test.rs
+          cargo test --lib checkpoint320 -- --nocapture
+          cargo test --lib
+      - name: Print formatted Rust source for exact readback
+        run: |
+          echo CHECKPOINT320_RUST_MODEL_BEGIN
+          cat app/src/native_line_logger_finalizer.rs
+          echo CHECKPOINT320_RUST_MODEL_END
+          echo CHECKPOINT320_RUST_TEST_BEGIN
+          cat app/src/native_line_logger_finalizer_checkpoint320_test.rs
+          echo CHECKPOINT320_RUST_TEST_END
       - uses: actions/upload-artifact@v4
         if: always()
         with:
