@@ -1,0 +1,105 @@
+name: Photosphere checkpoint338 Rust native pair transfer parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint338-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint338-rust
+  cancel-in-progress: false
+jobs:
+  original-pair-vector-ownership:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout pinned private app source read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: fb502867871fe3b3a620631a60cefcfd8af07931
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Check exact private application SHA
+        run: test "$(git rev-parse HEAD)" = "fb502867871fe3b3a620631a60cefcfd8af07931"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Verify 25 helper and 14 source joined caller fixtures against actual original ARM64 output
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42267227150 --repo Persie0/Playground --name photosphere-checkpoint338-source --dir original-native
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path('tests/fixtures/native_original_pair_transfer_338.json').read_text())
+          b=json.loads(Path('tests/fixtures/native_original_pair_transfer_caller_338.json').read_text())
+          source=json.loads(Path('original-native/checkpoint338-original-transfer-execution.json').read_text())
+          caller=json.loads(Path('original-native/checkpoint338-original-caller-join.json').read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert a['checkpoint']==b['checkpoint']==source['checkpoint']==caller['checkpoint']==338
+          assert a['elf_sha256']==b['elf_sha256']==source['elf_sha256']==caller['elf_sha256']==sha
+          assert source['opcode_pins']==18 and caller['opcode_pins']==13
+          assert source['original_source_estimator_to_fov_ownership_bridge_resolved'] is True
+          assert source['original_transfer_helper_source_executed'] is True
+          assert source['original_record_copy_constructor_executed'] is True
+          assert source['original_opaque_member_copy_stubbed'] is True
+          assert source['original_bionic_memory_allocators_stubbed'] is True
+          assert source['original_registration_producer_executed'] is False
+          assert caller['original_source_caller_to_transfer_join_executed'] is True
+          assert caller['original_transfer_full_helper_executed_for_non_skipped_cases'] is True
+          assert caller['source_original_complete_finalizer_executed'] is False
+          assert caller['source_original_camera_producer_executed'] is False
+          for fixture,observed,count,title in [
+              (a,source,25,"transfer"),
+              (b,caller,14,"caller"),
+          ]:
+              assert len(fixture['cases'])==len(observed['cases'])==count
+              for expected,actual in zip(fixture['cases'],observed['cases']):
+                  assert expected['name']==actual['name']
+                  for key,value in expected.items():
+                      assert key in actual and value==actual[key],(title,expected['name'],key,value,actual.get(key))
+              print('CHECKPOINT338_ORIGINAL_FIXTURE_PASS',title,count)
+          PY
+      - name: Five focused checkpoint338 Rust source parity tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint338 -- --nocapture > checkpoint338-focused.log 2>&1 || { tail -n 200 checkpoint338-focused.log; exit 1; }
+          grep -q 'test result: ok. 5 passed; 0 failed' checkpoint338-focused.log
+          tail -n 20 checkpoint338-focused.log
+      - name: Entire Rust library and integration regression suite
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint338-lib.log 2>&1 || { tail -n 220 checkpoint338-lib.log; exit 1; }
+          grep '^test result:' checkpoint338-lib.log | tail -1
+          cargo test --locked --tests > checkpoint338-integration.log 2>&1 || { tail -n 220 checkpoint338-integration.log; exit 1; }
+          grep '^test result:' checkpoint338-integration.log | tail -8
+      - name: Checkout pinned native research for syntax verification read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 8f2db3cfab5e3636db616f31251f20045b5b067e
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Verify original ARM64 source harness syntax
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research/research/photosphere/checkpoint338/scan_original_pair_transfer.py
+          python3 -m py_compile research/research/photosphere/checkpoint338/native_original_pair_transfer.py
+          python3 -m py_compile research/research/photosphere/checkpoint338/native_original_pair_transfer_caller.py
+      - name: Archive nonproprietary Rust validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint338-rust
+          path: |
+            checkpoint338-focused.log
+            checkpoint338-lib.log
+            checkpoint338-integration.log
+          retention-days: 7
+          if-no-files-found: warn
