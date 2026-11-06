@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: a8d26db4b69565f1e56917a4f1d2fc98817da45f
+          ref: cce2ea54c7ecdfbec0eb69821c00d37df9ff2d50
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify pinned private checkout and install tooling
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "a8d26db4b69565f1e56917a4f1d2fc98817da45f"
+          test "$(git rev-parse HEAD)" = "cce2ea54c7ecdfbec0eb69821c00d37df9ff2d50"
           python3 -m pip install --quiet --break-system-packages capstone unicorn pyelftools
       - name: Obtain SHA-verified original GCam binary read-only from release
         env:
@@ -40,18 +40,18 @@ jobs:
         run: |
           set -euo pipefail
           python3 research/photosphere/checkpoint340/scan_original_aux24_status.py original.so --output checkpoint340-original-source-map.json > checkpoint340-source.log
-          grep -q '^CHECKPOINT340_STATIC_SOURCE_PASS 5' checkpoint340-source.log
+          grep -q '^CHECKPOINT340_STATIC_SOURCE_PASS 7' checkpoint340-source.log
           grep '^CHECKPOINT340_FDE' checkpoint340-source.log
-      - name: Execute original native 24-byte nested vector assignment
-        run: |
-          set -euo pipefail
-          python3 research/photosphere/checkpoint340/native_original_aux24.py original.so --output checkpoint340-original-aux24.json | tee checkpoint340-aux24.log
-          grep -q '^CHECKPOINT340_AUX24_SOURCE_PASS 19 8' checkpoint340-aux24.log
       - name: Execute original AddImage status5-to6 graph selection into actual FOV copy
         run: |
           set -euo pipefail
           python3 research/photosphere/checkpoint340/native_original_status_group_handoff.py original.so --output checkpoint340-original-pair-status-join.json | tee checkpoint340-status-join.log
           grep -q '^CHECKPOINT340_ORIGINAL_STATUS_GROUP_JOIN_PASS 15 27' checkpoint340-status-join.log
+      - name: Execute original native 24-byte nested vector assignment
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint340/native_original_aux24.py original.so --output checkpoint340-original-aux24.json | tee checkpoint340-aux24.log
+          grep -q '^CHECKPOINT340_AUX24_SOURCE_PASS 19 8' checkpoint340-aux24.log
       - name: Archive original nonproprietary text only
         if: always()
         uses: actions/upload-artifact@v4
