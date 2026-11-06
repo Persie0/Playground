@@ -1,0 +1,64 @@
+name: Photosphere checkpoint334 Rust graph-group parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint334-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint334-rust
+  cancel-in-progress: false
+jobs:
+  native-graph-group-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact private Rust app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 6b843d3445930aa6bec1a58440af8a24386cb1a7
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned Rust app commit
+        run: test "$(git rev-parse HEAD)" = "6b843d3445930aa6bec1a58440af8a24386cb1a7"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Original 25-case source graph winner differential
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint334 -- --nocapture > checkpoint334-focused.log 2>&1 || { tail -n 180 checkpoint334-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint334-focused.log
+          tail -n 20 checkpoint334-focused.log
+      - name: Full library and integration regression
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint334-lib.log 2>&1 || { tail -n 180 checkpoint334-lib.log; exit 1; }
+          grep '^test result:' checkpoint334-lib.log | tail -1
+          cargo test --locked --tests > checkpoint334-integration.log 2>&1 || { tail -n 180 checkpoint334-integration.log; exit 1; }
+          grep '^test result:' checkpoint334-integration.log | tail -8
+      - name: Checkout pinned research scripts read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: d0be11c76d8f417baf5313c0ce78109076189aee
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Python native source oracle syntax
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research/research/photosphere/checkpoint334/native_original_graph_group_winner.py
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint334-rust-evidence
+          path: |
+            checkpoint334-focused.log
+            checkpoint334-lib.log
+            checkpoint334-integration.log
+          retention-days: 7
+          if-no-files-found: warn
