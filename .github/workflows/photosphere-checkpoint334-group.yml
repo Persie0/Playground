@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 472b71421c8b484ee0dc15f6f2a760479385c499
+          ref: 03e0dc23a3ee91628f34c970c66c98f908f34763
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify commit and dependencies
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "472b71421c8b484ee0dc15f6f2a760479385c499"
+          test "$(git rev-parse HEAD)" = "03e0dc23a3ee91628f34c970c66c98f908f34763"
           python3 -m pip install --quiet --break-system-packages capstone unicorn pyelftools
       - name: Acquire SHA-pinned original ARM64 library
         env:
@@ -41,6 +41,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint334/native_original_graph_group_winner.py original.so --output checkpoint334-native-groups.json | tee checkpoint334-native-groups.log
           grep -q '^CHECKPOINT334_ORIGINAL_GROUP_WINNER_PASS 25 18' checkpoint334-native-groups.log
+      - name: Execute the earlier original max-degree cohort formation and winner
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint334/native_original_max_degree_cohort.py original.so --output checkpoint334-original-cohort.json | tee checkpoint334-cohort.log
+          grep -q '^CHECKPOINT334_NATIVE_COHORT_PASS 24 18' checkpoint334-cohort.log
       - name: Preserve oracle evidence without proprietary binary
         if: always()
         uses: actions/upload-artifact@v4
@@ -49,5 +54,7 @@ jobs:
           path: |
             checkpoint334-native-groups.json
             checkpoint334-native-groups.log
+            checkpoint334-original-cohort.json
+            checkpoint334-cohort.log
           retention-days: 7
           if-no-files-found: warn
