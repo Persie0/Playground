@@ -1,0 +1,64 @@
+name: Photosphere checkpoint332 Rust postregistration parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint332-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint332-rust
+  cancel-in-progress: false
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout pinned private Rust app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 48a6be527d73a4730e815a88b626cff18614e009
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact revision
+        run: test "$(git rev-parse HEAD)" = "48a6be527d73a4730e815a88b626cff18614e009"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Verify 16 source-original checkpoint332 fixtures
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint332 -- --nocapture > checkpoint332-focused.log 2>&1 || { tail -n 180 checkpoint332-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint332-focused.log
+          tail -n 18 checkpoint332-focused.log
+      - name: Entire Rust lib and integration suite
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint332-lib.log 2>&1 || { tail -n 180 checkpoint332-lib.log; exit 1; }
+          grep '^test result:' checkpoint332-lib.log | tail -1
+          cargo test --locked --tests > checkpoint332-integration.log 2>&1 || { tail -n 180 checkpoint332-integration.log; exit 1; }
+          grep '^test result:' checkpoint332-integration.log | tail -8
+      - name: Checkout exact native research scripts read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: f5cef0ae0476604c0916255b033645f401683080
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Check original research scripts syntax
+        run: |
+          python3 -m py_compile research/research/photosphere/checkpoint332/scan_original_pair_provenance.py
+          python3 -m py_compile research/research/photosphere/checkpoint332/native_original_registration_to_collector.py
+      - name: Upload validation logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint332-rust-evidence
+          path: |
+            checkpoint332-focused.log
+            checkpoint332-lib.log
+            checkpoint332-integration.log
+          if-no-files-found: warn
+          retention-days: 7
