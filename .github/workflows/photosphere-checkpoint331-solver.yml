@@ -18,12 +18,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 6a11aff5a1c5013ec63d7a8c410a6bdddf431f1a
+          ref: 02e8739ecdfcbd28faf7b753433ce7896d5f8a4e
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify research revision and dependencies
         run: |
-          test "$(git rev-parse HEAD)" = "6a11aff5a1c5013ec63d7a8c410a6bdddf431f1a"
+          test "$(git rev-parse HEAD)" = "02e8739ecdfcbd28faf7b753433ce7896d5f8a4e"
           python3 -m pip install --quiet --break-system-packages capstone unicorn pyelftools
       - name: Fetch checksum-verified original ELF
         env:
@@ -51,6 +51,11 @@ jobs:
           print('CHECKPOINT331_INSPECTION_PASS')
           PY
           grep -q '^CHECKPOINT331_INSPECTION_PASS' checkpoint331-original-instructions.log
+      - name: Execute original Ceres post-solve gate against controlled inputs
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint331/native_original_postsolve_gates.py original.so --output checkpoint331-original-report.json | tee checkpoint331-original-run.log
+          grep -q '^CHECKPOINT331_ORIGINAL_POSTSOLVE_PASS' checkpoint331-original-run.log
       - name: Upload instructions and oracle report (never binary)
         if: always()
         uses: actions/upload-artifact@v4
