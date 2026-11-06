@@ -1,0 +1,55 @@
+name: Photosphere checkpoint337 original angular halfturn
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint337-native.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint337-native
+  cancel-in-progress: false
+jobs:
+  source-original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout original research pinned read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 162106077c2ac69ce24a6dfbc5b25f7a05f79557
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source revision and dependencies
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "162106077c2ac69ce24a6dfbc5b25f7a05f79557"
+          python3 -m pip install --quiet --break-system-packages capstone unicorn pyelftools
+      - name: Fetch SHA-pinned original camera native library
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Execute native half-turn fallback on full original ARM64
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint337/native_original_halfturn.py original.so --output checkpoint337-halfturn.json | tee checkpoint337-halfturn.log
+          grep -q '^CHECKPOINT337_ORIGINAL_HALFTURN_PASS 33 ' checkpoint337-halfturn.log
+      - name: Upload nonproprietary source execution results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint337-native
+          path: |
+            checkpoint337-halfturn.json
+            checkpoint337-halfturn.log
+            checkpoint337-graph-preparation.json
+            checkpoint337-graph-preparation.log
+          retention-days: 7
+          if-no-files-found: warn
