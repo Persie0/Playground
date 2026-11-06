@@ -18,12 +18,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 343c255be85918f91af956cae579dc6f76d79ec0
+          ref: 412f9dc83c4f0a78f1f081420500ea8704579a5f
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify revision and install ARM64 support
         run: |
-          test "$(git rev-parse HEAD)" = "343c255be85918f91af956cae579dc6f76d79ec0"
+          test "$(git rev-parse HEAD)" = "412f9dc83c4f0a78f1f081420500ea8704579a5f"
           python3 -m pip install --quiet --break-system-packages capstone unicorn
       - name: Acquire checksum-verified original ELF
         env:
@@ -52,11 +52,20 @@ jobs:
           PY
           cat checkpoint329-original-abi.log
           grep -q '^CHECKPOINT329_INSPECTION_PASS' checkpoint329-original-abi.log
+      - name: Run original collector and acceptance gate over constructed output vector
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint329/native_original_collector_gate.py original.so --output checkpoint329-integrated-collector.json | tee checkpoint329-integrated.log
+          grep -q '^CHECKPOINT329_INTEGRATED_ORIGINAL_PASS' checkpoint329-integrated.log
       - name: Upload decoded instructions only
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: checkpoint329-disassembly
-          path: checkpoint329-original-abi.log
+          path: |
+            checkpoint329-original-abi.log
+            checkpoint329-integrated.log
+            checkpoint329-integrated-collector.json
           if-no-files-found: warn
           retention-days: 7
