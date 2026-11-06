@@ -1,0 +1,52 @@
+name: Photosphere checkpoint332 original pair provenance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint332-pair.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint332-pair
+  cancel-in-progress: false
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 6ec077bd013dc3532c86649eecfc4ecd887c96da
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify SHA and install native disassembler
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "6ec077bd013dc3532c86649eecfc4ecd887c96da"
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools unicorn
+      - name: Acquire verified exact original GCam executable
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Trace original call and ownership chain
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint332/scan_original_pair_provenance.py original.so --output checkpoint332-provenance.json | tee checkpoint332-original.log
+          grep -q '^CHECKPOINT332_ORIGINAL_PROVENANCE_SURVEY_PASS 5' checkpoint332-original.log
+      - name: Upload code-derived report not copyrighted ELF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint332-research
+          path: |
+            checkpoint332-original.log
+            checkpoint332-provenance.json
+          retention-days: 7
+          if-no-files-found: warn
