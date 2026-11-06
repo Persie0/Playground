@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: cce2ea54c7ecdfbec0eb69821c00d37df9ff2d50
+          ref: cf4ac93387fcd306eb8520f58628c43a525375f2
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify pinned private checkout and install tooling
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "cce2ea54c7ecdfbec0eb69821c00d37df9ff2d50"
+          test "$(git rev-parse HEAD)" = "cf4ac93387fcd306eb8520f58628c43a525375f2"
           python3 -m pip install --quiet --break-system-packages capstone unicorn pyelftools
       - name: Obtain SHA-verified original GCam binary read-only from release
         env:
@@ -51,7 +51,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 research/photosphere/checkpoint340/native_original_aux24.py original.so --output checkpoint340-original-aux24.json | tee checkpoint340-aux24.log
-          grep -q '^CHECKPOINT340_AUX24_SOURCE_PASS 19 8' checkpoint340-aux24.log
+          grep -q '^CHECKPOINT340_AUX24_SOURCE_PASS 19 10' checkpoint340-aux24.log
       - name: Archive original nonproprietary text only
         if: always()
         uses: actions/upload-artifact@v4
