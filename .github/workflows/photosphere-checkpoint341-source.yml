@@ -1,4 +1,4 @@
-name: Photosphere checkpoint341 original graph index-transfer static scan
+name: Photosphere checkpoint341 original graph index-transfer source
 on:
   push:
     branches: [main]
@@ -21,12 +21,12 @@ jobs:
           ref: ea48bc1ed5105d82d49dbb3bca08c3ea54e05f12
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
-      - name: Verify exact source commit and install disassembler
+      - name: Verify exact source commit and install tools
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "ea48bc1ed5105d82d49dbb3bca08c3ea54e05f12"
           python3 -m pip install --quiet --break-system-packages capstone unicorn
-      - name: Acquire verified source binary read-only
+      - name: Acquire SHA-verified original source binary read-only
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: |
@@ -36,16 +36,17 @@ jobs:
           echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
           unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
           echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
-      - name: Inspect native triangle-to-pair index conversion
+      - name: Trace source graph instruction transfer
         run: |
           set -euo pipefail
-          python3 research/photosphere/checkpoint341/scan_original_partition_index_transfer.py original.so --output checkpoint341-original-source.json | tee checkpoint341-source.log
+          python3 research/photosphere/checkpoint341/scan_original_partition_index_transfer.py original.so --output checkpoint341-original-source.json > checkpoint341-source.log
           grep -q '^CHECKPOINT341_STATIC_PASS 545 148$' checkpoint341-source.log
-      - name: Execute bounded original candidate triangle to pair-record index bridge
+      - name: Execute bounded original triangle candidate pair transfer
         run: |
           set -euo pipefail
           python3 research/photosphere/checkpoint341/native_original_index_transfer.py original.so --output checkpoint341-original-index-transfer.json | tee checkpoint341-index-transfer.log
-          grep -q '^CHECKPOINT341_ORIGINAL_INDEX_TRANSFER_PASS 18 9
+          grep -q '^CHECKPOINT341_ORIGINAL_INDEX_TRANSFER_PASS 18 9$' checkpoint341-index-transfer.log
+      - name: Archive research text only
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -53,17 +54,6 @@ jobs:
           path: |
             checkpoint341-original-index-transfer.json
             checkpoint341-index-transfer.log
-            checkpoint341-original-source.json
-            checkpoint341-source.log
-          if-no-files-found: warn
-          retention-days: 7
- checkpoint341-index-transfer.log
-      - name: Archive research text only
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: photosphere-checkpoint341-original-source
-          path: |
             checkpoint341-original-source.json
             checkpoint341-source.log
           if-no-files-found: warn
