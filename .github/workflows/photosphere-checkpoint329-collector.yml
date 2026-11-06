@@ -1,0 +1,62 @@
+name: Photosphere checkpoint329 full FOV collector integration
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint329-collector.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint329-collector
+  cancel-in-progress: false
+jobs:
+  source-collector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout pinned private original research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 343c255be85918f91af956cae579dc6f76d79ec0
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify revision and install ARM64 support
+        run: |
+          test "$(git rev-parse HEAD)" = "343c255be85918f91af956cae579dc6f76d79ec0"
+          python3 -m pip install --quiet --break-system-packages capstone unicorn
+      - name: Acquire checksum-verified original ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Inspect original collector, pair helper and exception boundaries
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > checkpoint329-original-abi.log
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from pathlib import Path
+          data=Path('original.so').read_bytes()
+          cs=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          for name,start,end in [('collector_prologue',0x318770,0x3187f4),('pair_helper',0x3170a4,0x3171cc),('result_gate',0xf10ec,0xf1180)]:
+              print('FUNC',name,hex(start),hex(end))
+              rows=list(cs.disasm(data[start:end],start))
+              assert len(rows)*4==end-start
+              for i in rows:print(hex(i.address),i.mnemonic,i.op_str)
+          print('CHECKPOINT329_INSPECTION_PASS')
+          PY
+          cat checkpoint329-original-abi.log
+          grep -q '^CHECKPOINT329_INSPECTION_PASS' checkpoint329-original-abi.log
+      - name: Upload decoded instructions only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint329-disassembly
+          path: checkpoint329-original-abi.log
+          if-no-files-found: warn
+          retention-days: 7
