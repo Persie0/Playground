@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 8efa77460b818b6ea9563eb37d1ff8739474e311
+          ref: 1cfb1d200536437a8733742882fc0486513d14aa
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify exact private source SHA and dependencies
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "8efa77460b818b6ea9563eb37d1ff8739474e311"
+          test "$(git rev-parse HEAD)" = "1cfb1d200536437a8733742882fc0486513d14aa"
           python3 -m pip install --quiet --break-system-packages capstone unicorn pyelftools
       - name: Obtain checksum-pinned original Google Camera native binary
         env:
@@ -46,6 +46,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint338/native_original_pair_transfer.py original.so --output checkpoint338-original-transfer-execution.json | tee checkpoint338-transfer-execution.log
           grep -q '^CHECKPOINT338_TRANSFER_SOURCE_PASS 25 18' checkpoint338-transfer-execution.log
+      - name: Execute original finalizer and camera-update caller into real native pair copy
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint338/native_original_pair_transfer_caller.py original.so --output checkpoint338-original-caller-join.json | tee checkpoint338-caller-join.log
+          grep -q '^CHECKPOINT338_CALLER_JOIN_PASS 14 13' checkpoint338-caller-join.log
       - name: Archive evidence with no proprietary ELF
         if: always()
         uses: actions/upload-artifact@v4
@@ -56,5 +61,7 @@ jobs:
             checkpoint338-source-map.log
             checkpoint338-original-transfer-execution.json
             checkpoint338-transfer-execution.log
+            checkpoint338-original-caller-join.json
+            checkpoint338-caller-join.log
           retention-days: 7
           if-no-files-found: warn
