@@ -19,12 +19,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 6c83f3865ae15a30ab9babde44d74777a994a4af
+          ref: 0c57125a490c606c441831a1ac57dea1918322ff
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Install ARM64 analysis packages
         run: |
-          test "$(git rev-parse HEAD)" = "6c83f3865ae15a30ab9babde44d74777a994a4af"
+          test "$(git rev-parse HEAD)" = "0c57125a490c606c441831a1ac57dea1918322ff"
           python3 -m pip install --quiet --break-system-packages pyelftools capstone
       - name: Acquire verified source-original binary
         env:
@@ -77,6 +77,13 @@ jobs:
           print('CHECKPOINT328_ORIGINAL_VECTOR_SCAN_PASS')
           PY
           grep -q '^CHECKPOINT328_ORIGINAL_VECTOR_SCAN_PASS' checkpoint328-trace.log
+      - name: Source-execute original record constructor and vector growth
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages unicorn
+          python3 research/photosphere/checkpoint328/native_original_output_vector.py original.so --output checkpoint328-original-vector-exec.json | tee checkpoint328-source-exec.log
+          grep -q '^CHECKPOINT328_SOURCE_EXEC_PASS' checkpoint328-source-exec.log
       - name: Upload only decoded evidence (never original proprietary ELF)
         if: always()
         uses: actions/upload-artifact@v4
@@ -85,5 +92,7 @@ jobs:
           path: |
             checkpoint328-trace.log
             checkpoint328-original-vector-abi.json
+            checkpoint328-source-exec.log
+            checkpoint328-original-vector-exec.json
           if-no-files-found: warn
           retention-days: 7
