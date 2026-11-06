@@ -18,14 +18,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 7b1f7315451223a270cba1126386bdc80a9d8e81
+          ref: ea48bc1ed5105d82d49dbb3bca08c3ea54e05f12
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify exact source commit and install disassembler
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "7b1f7315451223a270cba1126386bdc80a9d8e81"
-          python3 -m pip install --quiet --break-system-packages capstone
+          test "$(git rev-parse HEAD)" = "ea48bc1ed5105d82d49dbb3bca08c3ea54e05f12"
+          python3 -m pip install --quiet --break-system-packages capstone unicorn
       - name: Acquire verified source binary read-only
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -41,6 +41,23 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint341/scan_original_partition_index_transfer.py original.so --output checkpoint341-original-source.json | tee checkpoint341-source.log
           grep -q '^CHECKPOINT341_STATIC_PASS 545 148$' checkpoint341-source.log
+      - name: Execute bounded original candidate triangle to pair-record index bridge
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint341/native_original_index_transfer.py original.so --output checkpoint341-original-index-transfer.json | tee checkpoint341-index-transfer.log
+          grep -q '^CHECKPOINT341_ORIGINAL_INDEX_TRANSFER_PASS 18 9
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint341-original-source
+          path: |
+            checkpoint341-original-index-transfer.json
+            checkpoint341-index-transfer.log
+            checkpoint341-original-source.json
+            checkpoint341-source.log
+          if-no-files-found: warn
+          retention-days: 7
+ checkpoint341-index-transfer.log
       - name: Archive research text only
         if: always()
         uses: actions/upload-artifact@v4
