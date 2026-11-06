@@ -1,0 +1,103 @@
+name: Photosphere checkpoint327 original FOV pair-construction trace
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-checkpoint327-original-fov-constructor.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-original-fov-checkpoint327
+  cancel-in-progress: false
+jobs:
+  inspect-original-helper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout pinned private research tree read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 837ecdf80e640a8f4f3898f960011b7684acc642
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install original ARM64 decoders
+        run: |
+          test "$(git rev-parse HEAD)" = "837ecdf80e640a8f4f3898f960011b7684acc642"
+          python3 -m pip install --quiet --break-system-packages pyelftools capstone
+      - name: Acquire checksum-verified original LightCycle library
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Trace original helper ABI and status writebacks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > checkpoint327-trace.log
+          import bisect,hashlib,json,re
+          from pathlib import Path
+          from elftools.elf.elffile import ELFFile
+          from elftools.dwarf.callframe import FDE
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          raw=Path("original.so").read_bytes()
+          sha=hashlib.sha256(raw).hexdigest()
+          assert sha=="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          with open("original.so","rb") as f:
+              elf=ELFFile(f)
+              frames=sorted((int(e["initial_location"]),int(e["initial_location"])+int(e["address_range"])) for e in elf.get_dwarf_info().EH_CFI_entries() if isinstance(e,FDE))
+          starts=[a for a,b in frames]
+          def owner(pc):
+              idx=bisect.bisect_right(starts,pc)-1
+              return frames[idx] if idx>=0 and pc<frames[idx][1] else None
+          dis=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          items={}
+          for name,entry in [("collector",0x318770),("pair_helper",0x3170a4),("result_constructor",0x318b28)]:
+              bounds=owner(entry)
+              assert bounds and bounds[0]<=entry<bounds[1] and bounds[1]-bounds[0]<0x6000,(name,bounds)
+              begin,end=bounds
+              instr=list(dis.disasm(raw[begin:end],begin))
+              assert len(instr)*4==end-begin,(name,len(instr),hex(end-begin))
+              lines=[{"pc":hex(i.address),"op":i.mnemonic,"args":i.op_str,"word":raw[i.address:i.address+4].hex()} for i in instr]
+              calls=[]
+              for i in instr:
+                  if i.mnemonic in ("bl","blr"):
+                      target=int(i.op_str[1:],16) if i.op_str.startswith("#0x") else None
+                      calls.append({"pc":hex(i.address),"mnemonic":i.mnemonic,"operand":i.op_str,"target_owner":[hex(v) for v in owner(target)] if target is not None and owner(target) else None})
+              items[name]={"entry":hex(entry),"fde":[hex(begin),hex(end)],"instruction_count":len(instr),"calls":calls,"instructions":lines}
+              print("CHECKPOINT327_FUNCTION",name,hex(begin),hex(end),len(instr),"CALLS",len(calls))
+              for call in calls:
+                  print("CALL",name,call["pc"],call["mnemonic"],call["operand"],call["target_owner"])
+              if name in ("pair_helper","result_constructor"):
+                  for line in lines:
+                      if re.search(r"#0x(?:40|44|48|80)\b",line["args"]) or (line["op"].startswith(("str","stp","stur")) and ("[x0" in line["args"] or "[x1" in line["args"] or "[x2" in line["args"])):
+                          print("FIELD_OR_WRITE",name,line["pc"],line["op"],line["args"])
+              if name=="collector":
+                  for line in lines:
+                      pc=int(line["pc"],16)
+                      if 0x3187d0<=pc<=0x318950:
+                          print("COLLECTOR",line["pc"],line["op"],line["args"])
+          report={"checkpoint":327,"elf_sha256":sha,"source_executed":False,"functions":items}
+          Path("checkpoint327-original-fov-helper.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
+          assert items["collector"]["entry"]=="0x318770"
+          assert items["pair_helper"]["entry"]=="0x3170a4"
+          print("CHECKPOINT327_SCAN_COMPLETE")
+          PY
+          cat checkpoint327-trace.log
+          grep -q '^CHECKPOINT327_SCAN_COMPLETE' checkpoint327-trace.log
+      - name: Upload original disassembly evidence, not proprietary ELF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint327-original-fov-helper
+          path: |
+            checkpoint327-trace.log
+            checkpoint327-original-fov-helper.json
+          if-no-files-found: warn
+          retention-days: 7
