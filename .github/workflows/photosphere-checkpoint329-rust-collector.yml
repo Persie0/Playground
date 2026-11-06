@@ -1,0 +1,62 @@
+name: Photosphere checkpoint329 Rust FOV collector-to-gate regression
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint329-rust-collector.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint329-rust
+  cancel-in-progress: false
+jobs:
+  source-backed-rust-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout pinned private Rust app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: a9a36ded9818361844c4eb85e08dab75b7b35b57
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact Rust revision
+        run: test "$(git rev-parse HEAD)" = "a9a36ded9818361844c4eb85e08dab75b7b35b57"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Validate all checkpoint329 original collector-to-gate cases
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint329 -- --nocapture > checkpoint329-focused.log 2>&1 || { tail -n 150 checkpoint329-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint329-focused.log
+          tail -n 16 checkpoint329-focused.log
+      - name: Check the complete Rust library and integration suites
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint329-lib.log 2>&1 || { tail -n 150 checkpoint329-lib.log; exit 1; }
+          grep '^test result:' checkpoint329-lib.log | tail -1
+          cargo test --locked --tests > checkpoint329-integration.log 2>&1 || { tail -n 150 checkpoint329-integration.log; exit 1; }
+          grep '^test result:' checkpoint329-integration.log | tail -6
+      - name: Checkout source harness read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 92152b5de584b1e1b3c42e1231ebadd5497dd69f
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Verify native test script syntax
+        run: python3 -m py_compile research/research/photosphere/checkpoint329/native_original_collector_gate.py
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint329-rust-tests
+          path: |
+            checkpoint329-focused.log
+            checkpoint329-lib.log
+            checkpoint329-integration.log
+          if-no-files-found: warn
+          retention-days: 7
