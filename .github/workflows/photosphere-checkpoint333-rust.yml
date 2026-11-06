@@ -1,0 +1,66 @@
+name: Photosphere checkpoint333 original graph status Rust parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint333-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint333-rust
+  cancel-in-progress: false
+jobs:
+  rust-graph-status-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact private Rust app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: ce6283c2e866e99d9649c7a0ad58cd965c7312e6
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned app revision
+        run: test "$(git rev-parse HEAD)" = "ce6283c2e866e99d9649c7a0ad58cd965c7312e6"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Run original source-backed 19-case checkpoint333 tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint333 -- --nocapture > checkpoint333-focused.log 2>&1 || { tail -n 200 checkpoint333-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint333-focused.log
+          tail -n 20 checkpoint333-focused.log
+      - name: Run all Rust library and integration regressions
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint333-lib.log 2>&1 || { tail -n 200 checkpoint333-lib.log; exit 1; }
+          grep '^test result:' checkpoint333-lib.log | tail -1
+          cargo test --locked --tests > checkpoint333-integration.log 2>&1 || { tail -n 200 checkpoint333-integration.log; exit 1; }
+          grep '^test result:' checkpoint333-integration.log | tail -8
+      - name: Checkout exact native research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: b4c47dbba46fafa4efb7418025ab7507e835bd9a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Compile native oracle harness scripts
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research/research/photosphere/checkpoint333/trace_pair_record_writer.py
+          python3 -m py_compile research/research/photosphere/checkpoint333/scan_original_pair_writer_candidate.py
+          python3 -m py_compile research/research/photosphere/checkpoint333/native_original_graph_status_writer.py
+      - name: Upload nonproprietary test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint333-rust-regression
+          path: |
+            checkpoint333-focused.log
+            checkpoint333-lib.log
+            checkpoint333-integration.log
+          if-no-files-found: warn
+          retention-days: 7
