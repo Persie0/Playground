@@ -1,0 +1,109 @@
+name: Photosphere checkpoint339 Rust original pair creator and 12-byte auxiliary gates
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint339-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint339-rust
+  cancel-in-progress: false
+jobs:
+  native-pair-creator-and-aux12:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact pinned private Photosphere Rust code read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 589b45a5106ead53265319b147755db342c7d496
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source SHA and install Rust
+        run: test "$(git rev-parse HEAD)" = "589b45a5106ead53265319b147755db342c7d496"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Differentially compare 15 original 128-byte producer-to-FOV joins and 18 auxiliary copies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42308493171 --repo Persie0/Playground --name photosphere-checkpoint339-native-evidence --dir original-native
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          a=json.loads(Path('tests/fixtures/native_original_pair_creation_339.json').read_text())
+          b=json.loads(Path('tests/fixtures/native_original_aux12_transfer_339.json').read_text())
+          p=json.loads(Path('original-native/checkpoint339-original-pair-producer.json').read_text())
+          q=json.loads(Path('original-native/checkpoint339-original-12byte-vector.json').read_text())
+          assert a['checkpoint']==b['checkpoint']==p['checkpoint']==q['checkpoint']==339
+          assert a['original_elf_sha256']==b['original_elf_sha256']==p['original_elf_sha256']==q['original_elf_sha256']==sha
+          assert p['opcode_pins']==24 and q['source_opcode_pins']==13
+          assert p['source_original_unmodified_constructor_0x316e24_executed']
+          assert p['source_original_unmodified_append_0x3171cc_executed']
+          assert p['source_original_addimage_constructor_through_finalizer_transfer_joined']
+          assert p['source_original_FOV_transfer_executed_in_this_probe']
+          assert p['original_full_addimage_successful_return_executed'] is False
+          assert q['original_12byte_vector_assign_source_executed']
+          assert q['original_real_camera_aux_vector_producer_executed'] is False
+          assert q['original_original_aux_transfer_callers_executed'] is False
+          for title,fixture,oracle,count in [
+            ('pair_producer_to_fov',a,p,15),
+            ('auxiliary12',b,q,18),
+          ]:
+            assert len(fixture['cases'])==len(oracle['cases'])==count
+            for expected,actual in zip(fixture['cases'],oracle['cases']):
+              assert expected['name']==actual['name'],(title,expected['name'],actual['name'])
+              for key,value in expected.items():
+                if key=='source_input_seed':continue # test seed is fixture documentation
+                assert key in actual,(title,expected['name'],key,'missing')
+                assert actual[key]==value,(title,expected['name'],key,value,actual[key])
+            print('CHECKPOINT339_ORIGINAL_ARTIFACT_PARITY_PASS',title,count)
+          assert sum(x['source_original_pair_creator_to_fov_copier_joined'] for x in p['cases'])==15
+          assert sum(x['source_new_record_full_status_u32']==5 for x in p['cases'])==15
+          print('CHECKPOINT339_ORIGINAL_PRODUCER_JOIN_PASS 15 24')
+          PY
+      - name: Run all six focused checkpoint339 Rust regression tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint339 -- --nocapture > checkpoint339-focused.log 2>&1 || { tail -n 250 checkpoint339-focused.log; exit 1; }
+          grep -q 'test result: ok. 6 passed; 0 failed' checkpoint339-focused.log
+          tail -n 30 checkpoint339-focused.log
+      - name: Run all Rust library and integration suites
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint339-lib.log 2>&1 || { tail -n 250 checkpoint339-lib.log; exit 1; }
+          grep '^test result:' checkpoint339-lib.log | tail -1
+          cargo test --locked --tests > checkpoint339-integration.log 2>&1 || { tail -n 220 checkpoint339-integration.log; exit 1; }
+          grep '^test result:' checkpoint339-integration.log | tail -8
+      - name: Checkout exact pinned research source read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 13b21ef7df1babfb2cbd87f56c4f89a35ae1f256
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Check all four original checkpoint339 source scripts syntax
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research/research/photosphere/checkpoint339/scan_original_pair_producer.py
+          python3 -m py_compile research/research/photosphere/checkpoint339/trace_original_pair_upstream.py
+          python3 -m py_compile research/research/photosphere/checkpoint339/native_original_aux12_vector.py
+          python3 -m py_compile research/research/photosphere/checkpoint339/native_original_pair_creation_join.py
+      - name: Archive nonproprietary Rust regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint339-rust
+          path: |
+            checkpoint339-focused.log
+            checkpoint339-lib.log
+            checkpoint339-integration.log
+          retention-days: 7
+          if-no-files-found: warn
