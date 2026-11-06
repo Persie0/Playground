@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: photosphere-checkpoint334-rust
   cancel-in-progress: false
@@ -26,6 +27,28 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
+      - name: Compare committed native fixtures with unmodified source-oracle artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42248221648 --repo Persie0/Playground --name photosphere-checkpoint334-group-oracle --dir original-oracle
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          inputs=[
+              ('tests/fixtures/native_original_graph_group_334.json','original-oracle/checkpoint334-native-groups.json',25),
+              ('tests/fixtures/native_original_graph_cohort_334.json','original-oracle/checkpoint334-original-cohort.json',24),
+          ]
+          for app_path,original_path,expected in inputs:
+              app=json.loads(Path(app_path).read_text())
+              original=json.loads(Path(original_path).read_text())
+              assert app['elf_sha256']==original['elf_sha256']
+              assert app['opcode_pins']==original['opcode_pins']==18
+              assert len(app['cases'])==len(original['cases'])==expected
+              assert app['cases']==original['cases'], (app_path,'source-original cases do not match the executed ELF artifact')
+              print('CHECKPOINT334_FIXTURE_BYTEWISE_PARITY_PASS',expected,app_path)
+          PY
       - name: Original 25-case source graph winner differential
         run: |
           set -euo pipefail
