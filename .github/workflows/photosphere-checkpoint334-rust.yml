@@ -18,11 +18,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 6b843d3445930aa6bec1a58440af8a24386cb1a7
+          ref: a519f71a4f14045ff89cd5d588b72f8c48c59c52
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify pinned Rust app commit
-        run: test "$(git rev-parse HEAD)" = "6b843d3445930aa6bec1a58440af8a24386cb1a7"
+        run: test "$(git rev-parse HEAD)" = "a519f71a4f14045ff89cd5d588b72f8c48c59c52"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo test --locked --lib checkpoint334 -- --nocapture > checkpoint334-focused.log 2>&1 || { tail -n 180 checkpoint334-focused.log; exit 1; }
-          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint334-focused.log
+          grep -q 'test result: ok. 5 passed; 0 failed' checkpoint334-focused.log
           tail -n 20 checkpoint334-focused.log
       - name: Full library and integration regression
         run: |
@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: d0be11c76d8f417baf5313c0ce78109076189aee
+          ref: 8235b589d2e83701295288fc46f7a66365be022b
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: research
@@ -51,6 +51,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m py_compile research/research/photosphere/checkpoint334/native_original_graph_group_winner.py
+          python3 -m py_compile research/research/photosphere/checkpoint334/native_original_max_degree_cohort.py
       - name: Upload test evidence
         if: always()
         uses: actions/upload-artifact@v4
