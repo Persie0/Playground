@@ -1,0 +1,62 @@
+name: Photosphere checkpoint327 Rust FOV status-copy regression
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint327-rust-status.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint327-rust
+  cancel-in-progress: false
+jobs:
+  rust-fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout pinned private Rust app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 68db5bf2478070b36c2324b567a1ccf87e794a2c
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify branch revision
+        run: test "$(git rev-parse HEAD)" = "68db5bf2478070b36c2324b567a1ccf87e794a2c"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Focused original ARM64 status-copy differential
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint327 -- --nocapture > checkpoint327-focused.log 2>&1 || { tail -n 120 checkpoint327-focused.log; exit 1; }
+          grep -q 'test result: ok. 2 passed; 0 failed' checkpoint327-focused.log
+          tail -n 14 checkpoint327-focused.log
+      - name: All Rust library and integration tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint327-lib.log 2>&1 || { tail -n 140 checkpoint327-lib.log; exit 1; }
+          grep '^test result:' checkpoint327-lib.log | tail -1
+          cargo test --locked --tests > checkpoint327-integration.log 2>&1 || { tail -n 140 checkpoint327-integration.log; exit 1; }
+          grep '^test result:' checkpoint327-integration.log | tail -6
+      - name: Check research script syntax
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: dd23d5046b9f5f90158cba6499d3d6c767830849
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Compile independent source oracle script
+        run: python3 -m py_compile research/research/photosphere/checkpoint327/native_original_status_copy.py
+      - name: Archive regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint327-regression
+          path: |
+            checkpoint327-focused.log
+            checkpoint327-lib.log
+            checkpoint327-integration.log
+          if-no-files-found: warn
+          retention-days: 7
