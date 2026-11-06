@@ -13,8 +13,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
-      - name: Checkout public developertaxes (no private credits)
-        run: git clone --depth 1 https://github.com/Persie0/developertaxes.git tax
+      - name: Checkout private developertaxes through Playground secrets
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/developertaxes
+          path: tax
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
       - name: Check syntax
         run: python -m compileall -q scripts tests
         working-directory: tax
