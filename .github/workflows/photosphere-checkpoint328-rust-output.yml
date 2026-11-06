@@ -1,0 +1,63 @@
+name: Photosphere checkpoint328 native FOV output Rust regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-checkpoint328-rust-output.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint328-rust-output
+  cancel-in-progress: false
+jobs:
+  rust-original-differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout pinned private app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: a4251643fc1a40cc9535c3b1387f28f30fe3a87b
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify app revision
+        run: test "$(git rev-parse HEAD)" = "a4251643fc1a40cc9535c3b1387f28f30fe3a87b"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Validate 12 source-executed FOV output cases and boundaries
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint328 -- --nocapture > checkpoint328-focused.log 2>&1 || { tail -n 140 checkpoint328-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint328-focused.log
+          tail -n 14 checkpoint328-focused.log
+      - name: All Rust library and integration tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint328-lib.log 2>&1 || { tail -n 140 checkpoint328-lib.log; exit 1; }
+          grep '^test result:' checkpoint328-lib.log | tail -1
+          cargo test --locked --tests > checkpoint328-integration.log 2>&1 || { tail -n 140 checkpoint328-integration.log; exit 1; }
+          grep '^test result:' checkpoint328-integration.log | tail -6
+      - name: Checkout pinned private research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 4418fc665ff1f19839c76bf48b4d351e7509148b
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Compile original oracle harness
+        run: python3 -m py_compile research/research/photosphere/checkpoint328/native_original_output_vector.py
+      - name: Upload diagnostics, not private sources
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint328-rust-tests
+          path: |
+            checkpoint328-focused.log
+            checkpoint328-lib.log
+            checkpoint328-integration.log
+          if-no-files-found: warn
+          retention-days: 7
