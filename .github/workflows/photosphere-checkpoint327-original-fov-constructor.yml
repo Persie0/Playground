@@ -115,8 +115,8 @@ jobs:
               vm.mem_write(0x317000,binary[0x317000:0x318000])
               vm.mem_map(0x3f2000,0x2000)
               vm.mem_map(0x3cd000,0x1000)
-              vm.mem_write(0x3f2d5c,b"\\xc0\\x03\\x5f\\xd6")
-              vm.mem_write(0x3cd2bc,b"\\xc0\\x03\\x5f\\xd6")
+              vm.mem_write(0x3f2d5c,b"\xc0\x03\x5f\xd6")
+              vm.mem_write(0x3cd2bc,b"\xc0\x03\x5f\xd6")
               vm.mem_map(0x240000,0x4000)
               vm.mem_map(0x250000,0x2000)
               SRC,DST,SP=0x241000,0x242000,0x250800
@@ -126,7 +126,7 @@ jobs:
               data[0x40:0x44]=struct.pack("<I",status)
               data[0x44:0x4c]=struct.pack("<ii",-7,9)
               vm.mem_write(SRC,bytes(data))
-              vm.mem_write(DST,b"\\xa5"*128)
+              vm.mem_write(DST,b"\xa5"*128)
               vm.reg_write(UC_ARM64_REG_X0,SRC)
               vm.reg_write(UC_ARM64_REG_X1,1)
               vm.reg_write(UC_ARM64_REG_X2,DST)
@@ -145,7 +145,7 @@ jobs:
               assert output[0x40:0x44]==data[0x40:0x44],status
               cases.append({"source_status_bits":status,"copied_status_bits":struct.unpack("<I",output[0x40:0x44])[0],"executed_pc_count":len(pcs),"original_status_copy_pcs":["0x317128","0x31712c"],"nonlocal_calls":["0x3f2d5c RET stub","0x3cd2bc RET stub"]})
           report={"checkpoint":327,"original_source_fragment_executed":True,"entire_helper_executed":False,"original_collector_executed":False,"original_optimizer_executed":False,"elf_sha256":hashlib.sha256(binary).hexdigest(),"oracle_cases":cases,"opcode_pins":len(pins)}
-          Path("checkpoint327-original-status-transfer.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\\n")
+          Path("checkpoint327-original-status-transfer.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
           print("CHECKPOINT327_STATUS_TRANSFER_PASS",len(cases),len(pins))
           PY
           cat checkpoint327-status-transfer.log
