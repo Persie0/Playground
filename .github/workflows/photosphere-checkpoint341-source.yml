@@ -1,0 +1,53 @@
+name: Photosphere checkpoint341 original graph index-transfer static scan
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint341-source.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint341-source
+  cancel-in-progress: false
+jobs:
+  source-graph-index-provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout pinned private research without persisting credentials
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 7b1f7315451223a270cba1126386bdc80a9d8e81
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact source commit and install disassembler
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "7b1f7315451223a270cba1126386bdc80a9d8e81"
+          python3 -m pip install --quiet --break-system-packages capstone
+      - name: Acquire verified source binary read-only
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Inspect native triangle-to-pair index conversion
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint341/scan_original_partition_index_transfer.py original.so --output checkpoint341-original-source.json | tee checkpoint341-source.log
+          grep -q '^CHECKPOINT341_STATIC_PASS 545 148$' checkpoint341-source.log
+      - name: Archive research text only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint341-original-source
+          path: |
+            checkpoint341-original-source.json
+            checkpoint341-source.log
+          if-no-files-found: warn
+          retention-days: 7
