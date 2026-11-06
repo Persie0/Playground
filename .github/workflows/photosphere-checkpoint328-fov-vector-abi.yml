@@ -1,0 +1,89 @@
+name: Photosphere checkpoint328 original FOV output vector ABI
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-checkpoint328-fov-vector-abi.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-original-fov-checkpoint328
+  cancel-in-progress: false
+jobs:
+  inspect-original-vector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout pinned private research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 6c83f3865ae15a30ab9babde44d74777a994a4af
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install ARM64 analysis packages
+        run: |
+          test "$(git rev-parse HEAD)" = "6c83f3865ae15a30ab9babde44d74777a994a4af"
+          python3 -m pip install --quiet --break-system-packages pyelftools capstone
+      - name: Acquire verified source-original binary
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Decode insertion, relocation and collector instructions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint328-trace.log
+          import bisect, hashlib, json
+          from pathlib import Path
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          from elftools.dwarf.callframe import FDE
+          raw=Path('original.so').read_bytes()
+          sha=hashlib.sha256(raw).hexdigest()
+          assert sha=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          with open('original.so','rb') as f:
+              elf=ELFFile(f)
+              frames=sorted((int(e['initial_location']),int(e['initial_location'])+int(e['address_range'])) for e in elf.get_dwarf_info().EH_CFI_entries() if isinstance(e,FDE))
+          starts=[a for a,b in frames]
+          def owner(pc):
+              idx=bisect.bisect_right(starts,pc)-1
+              return frames[idx] if idx>=0 and pc<frames[idx][1] else None
+          dis=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          funcs={}
+          for name,entry in [('insertion',0x1246e8),('growth',0x318b28),('collector',0x318770),('selected_record',0x3170a4)]:
+              bounds=owner(entry)
+              assert bounds and bounds[0]==entry and 0<bounds[1]-bounds[0]<0x1000,(name,bounds)
+              begin,end=bounds
+              instructions=list(dis.disasm(raw[begin:end],begin))
+              assert len(instructions)*4==end-begin
+              lines=[{'pc':hex(i.address),'op':i.mnemonic,'args':i.op_str,'opcode':raw[i.address:i.address+4].hex()} for i in instructions]
+              calls=[i for i in lines if i['op'] in ('bl','blr')]
+              funcs[name]={'range':[hex(begin),hex(end)],'count':len(lines),'calls':calls,'instructions':lines}
+              print('CHECKPOINT328_FUNCTION',name,hex(begin),hex(end),len(lines),'CALLS',len(calls))
+              if name in ('insertion','growth'):
+                  for i in lines:
+                      print('ARM64',name,i['pc'],i['op'],i['args'])
+          assert any(i['pc']=='0x318860' and i['args']=='#0x1246e8' for i in funcs['collector']['calls'])
+          assert any(i['pc']=='0x3188b4' and i['args']=='#0x318b28' for i in funcs['collector']['calls'])
+          Path('checkpoint328-original-vector-abi.json').write_text(json.dumps({'checkpoint':328,'elf_sha256':sha,'source_executed':False,'functions':funcs},indent=2,sort_keys=True)+'\n')
+          print('CHECKPOINT328_ORIGINAL_VECTOR_SCAN_PASS')
+          PY
+          grep -q '^CHECKPOINT328_ORIGINAL_VECTOR_SCAN_PASS' checkpoint328-trace.log
+      - name: Upload only decoded evidence (never original proprietary ELF)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint328-original-vector-abi
+          path: |
+            checkpoint328-trace.log
+            checkpoint328-original-vector-abi.json
+          if-no-files-found: warn
+          retention-days: 7
