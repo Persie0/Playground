@@ -1,0 +1,40 @@
+name: developertaxes Google tax smoke
+on:
+  push:
+    branches:
+      - ci/developertaxes-google-tax-20261106
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+      - name: Checkout public developertaxes (no private credits)
+        run: git clone --depth 1 https://github.com/Persie0/developertaxes.git tax
+      - name: Check syntax
+        run: python -m compileall -q scripts tests
+        working-directory: tax
+      - name: Execute synthetic and real-data tax regression tests
+        run: python -m unittest discover -s tests -p 'test_google_tax.py' -v
+        working-directory: tax
+      - name: Generate Excel workbooks without external dependencies
+        run: |
+          python scripts/google_ea.py --year 2026
+          python scripts/google_quarterly.py --year 2026 --quarter 3
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          for f in [Path('reports/2026/google_ea.xlsx'), Path('reports/2026/google_uva_zm_2026_q3.xlsx')]:
+              assert f.exists() and f.stat().st_size > 5000, f
+              with ZipFile(f) as z:
+                  assert z.testzip() is None
+                  assert 'xl/workbook.xml' in z.namelist()
+                  assert 'xl/styles.xml' in z.namelist()
+              print(f.name, 'OK', f.stat().st_size, 'bytes')
+          PY
+        working-directory: tax
+      # Do not upload the generated private financial spreadsheets or source PDFs.
