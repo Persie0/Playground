@@ -17,13 +17,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 6ec077bd013dc3532c86649eecfc4ecd887c96da
+          ref: fa37dc1c910bc8ad6b2f7dcbbe21c0e087398623
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify SHA and install native disassembler
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "6ec077bd013dc3532c86649eecfc4ecd887c96da"
+          test "$(git rev-parse HEAD)" = "fa37dc1c910bc8ad6b2f7dcbbe21c0e087398623"
           python3 -m pip install --quiet --break-system-packages capstone pyelftools unicorn
       - name: Acquire verified exact original GCam executable
         env:
@@ -40,6 +40,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint332/scan_original_pair_provenance.py original.so --output checkpoint332-provenance.json | tee checkpoint332-original.log
           grep -q '^CHECKPOINT332_ORIGINAL_PROVENANCE_SURVEY_PASS 5' checkpoint332-original.log
+      - name: Execute post-registration source through full original collector and gate
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint332/native_original_registration_to_collector.py original.so --output checkpoint332-gated-collector.json | tee checkpoint332-gated-collector.log
+          grep -q '^CHECKPOINT332_GATED_COLLECTOR_PASS 16 12' checkpoint332-gated-collector.log
       - name: Upload code-derived report not copyrighted ELF
         if: always()
         uses: actions/upload-artifact@v4
@@ -48,5 +53,7 @@ jobs:
           path: |
             checkpoint332-original.log
             checkpoint332-provenance.json
+            checkpoint332-gated-collector.log
+            checkpoint332-gated-collector.json
           retention-days: 7
           if-no-files-found: warn
