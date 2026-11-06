@@ -18,12 +18,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 9db5766fd78fc99f6e9adac35f8fcedb578b9872
+          ref: 3d20f573cd9214479d556569c6fa0d35efbe0e79
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify revision and install decoder
         run: |
-          test "$(git rev-parse HEAD)" = "9db5766fd78fc99f6e9adac35f8fcedb578b9872"
+          test "$(git rev-parse HEAD)" = "3d20f573cd9214479d556569c6fa0d35efbe0e79"
           python3 -m pip install --quiet --break-system-packages capstone pyelftools unicorn
       - name: Extract exact original ELF
         env:
@@ -120,6 +120,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint330/scan_original_factory.py original.so --output checkpoint330-model-factory-scan.json | tee checkpoint330-factory.log
           grep -q '^CHECKPOINT330_FACTORY_SCAN_PASS' checkpoint330-factory.log
+      - name: Resolve the actual pair-record writer vtable slot and relocation
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint330/resolve_original_writer_vtable.py original.so --output checkpoint330-vtable-writer.json | tee checkpoint330-vtable-writer.log
+          grep -q '^CHECKPOINT330_VTABLE_WRITER_SCAN_PASS' checkpoint330-vtable-writer.log
       - name: Upload assembly report, never proprietary executable
         if: always()
         uses: actions/upload-artifact@v4
@@ -133,5 +138,7 @@ jobs:
             checkpoint330-constructor-context.log
             checkpoint330-factory.log
             checkpoint330-model-factory-scan.json
+            checkpoint330-vtable-writer.json
+            checkpoint330-vtable-writer.log
           if-no-files-found: warn
           retention-days: 7
