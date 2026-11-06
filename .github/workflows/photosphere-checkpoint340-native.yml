@@ -1,0 +1,58 @@
+name: Photosphere checkpoint340 original status and 24-byte auxiliary
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint340-native.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint340-native
+  cancel-in-progress: false
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact original research SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 4406c76173cab5b52d70335cf53f8ee506e85b5e
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned private checkout and install tooling
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "4406c76173cab5b52d70335cf53f8ee506e85b5e"
+          python3 -m pip install --quiet --break-system-packages capstone unicorn pyelftools
+      - name: Obtain SHA-verified original GCam binary read-only from release
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Resolve original source aux24 and record status instructions
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint340/scan_original_aux24_status.py original.so --output checkpoint340-original-source-map.json > checkpoint340-source.log
+          grep -q '^CHECKPOINT340_STATIC_SOURCE_PASS 5' checkpoint340-source.log
+          grep '^CHECKPOINT340_FDE' checkpoint340-source.log
+      - name: Archive original nonproprietary text only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint340-original
+          path: |
+            checkpoint340-original-source-map.json
+            checkpoint340-source.log
+            checkpoint340-original-aux24.json
+            checkpoint340-aux24.log
+            checkpoint340-original-pair-status-join.json
+            checkpoint340-status-join.log
+          if-no-files-found: warn
+          retention-days: 7
