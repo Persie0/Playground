@@ -1,0 +1,109 @@
+name: Photosphere checkpoint340 Rust status and native ordered tree parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint340-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint340-rust
+  cancel-in-progress: false
+jobs:
+  native-status6-and-aux24-tree:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact pinned private Rust app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 415fdf342d823702b703ecb933758fe25179aaa2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Check exact private app SHA and install stable Rust
+        run: test "$(git rev-parse HEAD)" = "415fdf342d823702b703ecb933758fe25179aaa2"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Independently match 15 original status handoffs and 19 original nested auxiliary tree copies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42311581668 --repo Persie0/Playground --name photosphere-checkpoint340-original --dir original-native
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          f_status=json.loads(Path('tests/fixtures/native_original_status_handoff_340.json').read_text())
+          f_tree=json.loads(Path('tests/fixtures/native_original_aux24_tree_340.json').read_text())
+          o_status=json.loads(Path('original-native/checkpoint340-original-pair-status-join.json').read_text())
+          o_tree=json.loads(Path('original-native/checkpoint340-original-aux24.json').read_text())
+          assert f_status['checkpoint']==f_tree['checkpoint']==o_status['checkpoint']==o_tree['checkpoint']==340
+          assert f_status['original_elf_sha256']==f_tree['original_elf_sha256']==o_status['original_elf_sha256']==o_tree['original_elf_sha256']==sha
+          assert o_status['opcode_pins']==27
+          assert o_tree['source_opcode_pins']==10
+          assert o_status['source_original_status5_to6_graph_group_joined'] is True
+          assert o_status['source_original_addimage_constructor_through_finalizer_transfer_joined'] is True
+          assert o_status['source_full_graph_partition_executed'] is False
+          assert o_status['source_original_bionic_memory_and_opaque_member_copy_stubbed'] is True
+          assert o_tree['original_aux24_tree_assignment_source_executed'] is True
+          assert o_tree['original_nested_tree_node_bytes']==40
+          assert o_tree['original_aux24_outer_record_bytes']==24
+          assert o_tree['original_real_camera_aux24_producer_executed'] is False
+          for name,fixture,original,n in [
+            ('status5_to6_fov',f_status,o_status,15),
+            ('native_owned_aux24_tree',f_tree,o_tree,19),
+          ]:
+            assert len(fixture['cases'])==len(original['cases'])==n
+            for want,observed in zip(fixture['cases'],original['cases']):
+              assert want['name']==observed['name']
+              for key,value in want.items():
+                assert key in observed,(name,want['name'],key,'missing')
+                assert observed[key]==value,(name,want['name'],key,value,observed[key])
+            print('CHECKPOINT340_ORIGINAL_SOURCE_FIXTURE_PASS',name,n)
+          assert all(x['source_final_FOV_pair_status']==6 for x in o_status['cases'])
+          assert all(x['source_original_group_selection_is_synthetic'] for x in o_status['cases'])
+          assert sum(x['source_native_red_black_rebalance_executed'] for x in o_tree['cases'])==6
+          print('CHECKPOINT340_NATIVE_SOURCE_PROVENANCE_PASS 15 19')
+          PY
+      - name: Run all six focused checkpoint340 Rust parity tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint340 -- --nocapture > checkpoint340-focused.log 2>&1 || { tail -n 250 checkpoint340-focused.log; exit 1; }
+          grep -q 'test result: ok. 6 passed; 0 failed' checkpoint340-focused.log
+          tail -n 35 checkpoint340-focused.log
+      - name: Run complete Rust library and integration regression suites
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint340-lib.log 2>&1 || { tail -n 220 checkpoint340-lib.log; exit 1; }
+          grep '^test result:' checkpoint340-lib.log | tail -1
+          cargo test --locked --tests > checkpoint340-integration.log 2>&1 || { tail -n 220 checkpoint340-integration.log; exit 1; }
+          grep '^test result:' checkpoint340-integration.log | tail -8
+      - name: Checkout exact pinned source research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: e8c0025d2f0b9333749ee5be4af2d4c05326414d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Check source-original native experiment scripts syntax
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research/research/photosphere/checkpoint340/scan_original_aux24_status.py
+          python3 -m py_compile research/research/photosphere/checkpoint340/native_original_status_group_handoff.py
+          python3 -m py_compile research/research/photosphere/checkpoint340/native_original_aux24.py
+      - name: Archive nonproprietary Rust test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint340-rust-gates
+          path: |
+            checkpoint340-focused.log
+            checkpoint340-lib.log
+            checkpoint340-integration.log
+          if-no-files-found: warn
+          retention-days: 7
