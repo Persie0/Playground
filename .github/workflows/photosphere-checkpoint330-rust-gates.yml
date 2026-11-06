@@ -1,0 +1,65 @@
+name: Photosphere checkpoint330 Rust registration entry parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint330-rust-gates.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint330-rust-gates
+  cancel-in-progress: false
+jobs:
+  source-backed-registration-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout private Rust app revision read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 470cd3e266f5cf7c054cdde996fb35d1170bfb51
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned app revision
+        run: test "$(git rev-parse HEAD)" = "470cd3e266f5cf7c054cdde996fb35d1170bfb51"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Rust checkpoint330 focused nine original ARM64 cases
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint330 -- --nocapture > checkpoint330-focused.log 2>&1 || { tail -n 160 checkpoint330-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint330-focused.log
+          tail -n 15 checkpoint330-focused.log
+      - name: Entire Rust library and integration regression
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint330-lib.log 2>&1 || { tail -n 170 checkpoint330-lib.log; exit 1; }
+          grep '^test result:' checkpoint330-lib.log | tail -1
+          cargo test --locked --tests > checkpoint330-integration.log 2>&1 || { tail -n 170 checkpoint330-integration.log; exit 1; }
+          grep '^test result:' checkpoint330-integration.log | tail -6
+      - name: Checkout private original research scripts read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 5bf47bd8084f2caff18874c7b514b104c5ec2cd5
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Check original ARM64 research harness syntax
+        run: |
+          python3 -m py_compile research/research/photosphere/checkpoint330/native_original_registration_entry.py
+          python3 -m py_compile research/research/photosphere/checkpoint330/scan_original_factory.py
+          python3 -m py_compile research/research/photosphere/checkpoint330/resolve_original_writer_vtable.py
+      - name: Upload regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint330-rust-tests
+          path: |
+            checkpoint330-focused.log
+            checkpoint330-lib.log
+            checkpoint330-integration.log
+          if-no-files-found: warn
+          retention-days: 7
