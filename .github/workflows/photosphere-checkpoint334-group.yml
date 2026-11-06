@@ -1,0 +1,53 @@
+name: Photosphere checkpoint334 original graph group winner
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint334-group.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint334-group
+  cancel-in-progress: false
+jobs:
+  source-original-graph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout pinned original research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 472b71421c8b484ee0dc15f6f2a760479385c499
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify commit and dependencies
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "472b71421c8b484ee0dc15f6f2a760479385c499"
+          python3 -m pip install --quiet --break-system-packages capstone unicorn pyelftools
+      - name: Acquire SHA-pinned original ARM64 library
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Execute original graph winner+mutator
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint334/native_original_graph_group_winner.py original.so --output checkpoint334-native-groups.json | tee checkpoint334-native-groups.log
+          grep -q '^CHECKPOINT334_ORIGINAL_GROUP_WINNER_PASS 25 18' checkpoint334-native-groups.log
+      - name: Preserve oracle evidence without proprietary binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint334-group-oracle
+          path: |
+            checkpoint334-native-groups.json
+            checkpoint334-native-groups.log
+          retention-days: 7
+          if-no-files-found: warn
