@@ -1,0 +1,87 @@
+name: Photosphere checkpoint335 Rust triangle candidate parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint335-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint335-rust
+  cancel-in-progress: false
+jobs:
+  source-derived-triplet-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout pinned private Rust source read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 9350c495ecfdf4ef084d60028709bcedb218b8cd
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact Rust revision
+        run: test "$(git rev-parse HEAD)" = "9350c495ecfdf4ef084d60028709bcedb218b8cd"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Compare 23 fixture cases with actual executed ARM64 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42253211595 --repo Persie0/Playground --name photosphere-checkpoint335-native-evidence --dir original-oracle
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          app=json.loads(Path('tests/fixtures/native_original_triplet_candidates_335.json').read_text())
+          original=json.loads(Path('original-oracle/checkpoint335-triplets.json').read_text())
+          assert app['checkpoint']==original['checkpoint']==335
+          assert app['elf_sha256']==original['elf_sha256']
+          assert app['opcode_pins']==original['opcode_pins']==15
+          assert len(app['cases'])==len(original['cases'])==23
+          for app_case,source_case in zip(app['cases'],original['cases']):
+              assert app_case['name']==source_case['name']
+              for key,expected in app_case.items():
+                  assert key in source_case and source_case[key]==expected, (app_case['name'],key,expected,source_case.get(key))
+          print('CHECKPOINT335_ORIGINAL_FIXTURE_PARITY_PASS 23')
+          PY
+      - name: Focused checkpoint335 original source-derived Rust tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint335 -- --nocapture > checkpoint335-focused.log 2>&1 || { tail -n 180 checkpoint335-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint335-focused.log
+          tail -n 18 checkpoint335-focused.log
+      - name: Entire Rust library and integration regressions
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint335-lib.log 2>&1 || { tail -n 180 checkpoint335-lib.log; exit 1; }
+          grep '^test result:' checkpoint335-lib.log | tail -1
+          cargo test --locked --tests > checkpoint335-integration.log 2>&1 || { tail -n 180 checkpoint335-integration.log; exit 1; }
+          grep '^test result:' checkpoint335-integration.log | tail -8
+      - name: Checkout original research harness read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 4d79cd8470147acc5f9997adf03fbd3b059802d6
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Check source original ARM64 harness syntax
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research/research/photosphere/checkpoint335/inspect_original_graph_triplets.py
+          python3 -m py_compile research/research/photosphere/checkpoint335/native_original_triplet_candidates.py
+      - name: Upload nonproprietary validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint335-rust
+          path: |
+            checkpoint335-focused.log
+            checkpoint335-lib.log
+            checkpoint335-integration.log
+          retention-days: 7
+          if-no-files-found: warn
