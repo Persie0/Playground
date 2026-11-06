@@ -46,6 +46,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint334/native_original_max_degree_cohort.py original.so --output checkpoint334-original-cohort.json | tee checkpoint334-cohort.log
           grep -q '^CHECKPOINT334_NATIVE_COHORT_PASS 24 18' checkpoint334-cohort.log
+      - name: Verify original FOV to model owner pointer provenance
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint334/native_original_fov_owner_bridge.py original.so --output checkpoint334-original-owner-bridge.json | tee checkpoint334-owner-bridge.log
+          grep -q '^CHECKPOINT334_OWNER_BRIDGE_PASS 12 15' checkpoint334-owner-bridge.log
       - name: Preserve oracle evidence without proprietary binary
         if: always()
         uses: actions/upload-artifact@v4
@@ -56,5 +61,7 @@ jobs:
             checkpoint334-native-groups.log
             checkpoint334-original-cohort.json
             checkpoint334-cohort.log
+            checkpoint334-original-owner-bridge.json
+            checkpoint334-owner-bridge.log
           retention-days: 7
           if-no-files-found: warn
