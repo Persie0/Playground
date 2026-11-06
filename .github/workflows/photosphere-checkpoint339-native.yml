@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 353cb66857a062683e0c23c7b3c7d61fb2e15d87
+          ref: e5159852d109ae772ad0c3f36bc01e2fca1b0366
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify pinned research and dependencies
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "353cb66857a062683e0c23c7b3c7d61fb2e15d87"
+          test "$(git rev-parse HEAD)" = "e5159852d109ae772ad0c3f36bc01e2fca1b0366"
           python3 -m pip install --quiet --break-system-packages capstone unicorn pyelftools
       - name: Fetch checksum-pinned Google Camera original binary from private release
         env:
@@ -47,6 +47,12 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint339/native_original_aux12_vector.py original.so --output checkpoint339-original-12byte-vector.json | tee checkpoint339-aux12.log
           grep -q '^CHECKPOINT339_AUX12_SOURCE_PASS 18 13' checkpoint339-aux12.log
+      - name: Trace original AddImage upstream pair-record instruction chain
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint339/trace_original_pair_upstream.py original.so --output checkpoint339-original-upstream-producer.json > checkpoint339-original-upstream.log
+          grep -q '^CHECKPOINT339_ORIGINAL_UPSTREAM_SURVEY_PASS 7' checkpoint339-original-upstream.log
+          grep '^CHECKPOINT339_UPSTREAM_FDE' checkpoint339-original-upstream.log
       - name: Archive nonproprietary original source evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -55,6 +61,8 @@ jobs:
           path: |
             checkpoint339-original-producer-survey.json
             checkpoint339-original-producer-survey.log
+            checkpoint339-original-upstream-producer.json
+            checkpoint339-original-upstream.log
             checkpoint339-original-12byte-vector.json
             checkpoint339-aux12.log
           if-no-files-found: warn
