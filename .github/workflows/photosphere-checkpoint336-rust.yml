@@ -1,0 +1,118 @@
+name: Photosphere checkpoint336 Rust original numerical triangle parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint336-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint336-rust
+  cancel-in-progress: false
+jobs:
+  numerical-triangle-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout pinned private Rust app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 8a587f13fb4badcd0b77934b9a2252b155c3dba4
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact Rust application revision
+        run: test "$(git rev-parse HEAD)" = "8a587f13fb4badcd0b77934b9a2252b155c3dba4"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Verify all 31 compact fixtures against source-executed original ARM64 output
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42258055641 --repo Persie0/Playground --name photosphere-checkpoint336-numeric-evidence --dir original-oracle
+          python3 - <<'PY'
+          import json, math, struct
+          from pathlib import Path
+          original=json.loads(Path('original-oracle/checkpoint336-original-numeric.json').read_text())
+          app=json.loads(Path('tests/fixtures/native_original_triangle_numeric_336.json').read_text())
+          assert original['checkpoint']==app['checkpoint']==336
+          assert original['original_elf_sha256']==app['original_elf_sha256']
+          assert original['opcode_pins']==app['original_opcode_pins']==14
+          assert original['original_metric_helper_source_executed'] is True
+          assert original['original_triangle_scorer_source_executed'] is True
+          assert original['external_android_libm_original_executed'] is False
+          assert original['imported_libm_math_stubbed'] is True
+          def to_bits(x):
+              return struct.unpack('<I',struct.pack('<f',x))[0]
+          def to_float(x):
+              return struct.unpack('<f',struct.pack('<f',x))[0]
+          def matrix(spec):
+              axis=spec['axis']; deg=spec['degrees']
+              if axis=='I':
+                  assert deg==0
+                  return [1.,0.,0.,0.,1.,0.,0.,0.,1.]
+              t=math.radians(deg)
+              c=to_float(math.cos(t)); s=to_float(math.sin(t))
+              if axis=='x':return [1.,0.,0.,0.,c,-s,0.,s,c]
+              if axis=='y':return [c,0.,s,0.,1.,0.,-s,0.,c]
+              if axis=='z':return [c,-s,0.,s,c,0.,0.,0.,1.]
+              raise AssertionError(spec)
+          for typ,source_key,expected in [
+              ('helper_cases','helper_cases',17),
+              ('scorer_cases','scorer_cases',14),
+          ]:
+              ours=app[typ]
+              theirs=original[source_key]
+              assert len(ours)==len(theirs)==expected
+              for row,source in zip(ours,theirs):
+                  assert row['name']==source['name']
+                  assert row['original_output_f32_bits']==source['original_native_output_f32_bits'],row['name']
+                  specs=[row['first'],row['second']]
+                  if typ=='scorer_cases':specs.append(row['third'])
+                  actual_input=[[to_bits(x) for x in matrix(spec)] for spec in specs]
+                  assert source['input_matrices_f32_bits']==actual_input,row['name']
+                  assert source['source_executed_original_helper'] is True
+                  assert source['imported_bionic_libm_stubbed'] is True
+                  assert [a['name'] for a in source['source_imported_libm_calls']]==['acosf','sinf'],row['name']
+              print('CHECKPOINT336_ORIGINAL_ARTIFACT_PARITY_PASS',typ,expected)
+          PY
+      - name: Focused original numeric helper and triangle scorer parity
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint336 -- --nocapture > checkpoint336-focused.log 2>&1 || { tail -n 180 checkpoint336-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint336-focused.log
+          tail -n 20 checkpoint336-focused.log
+      - name: Full Rust library and integration regressions
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint336-lib.log 2>&1 || { tail -n 200 checkpoint336-lib.log; exit 1; }
+          grep '^test result:' checkpoint336-lib.log | tail -1
+          cargo test --locked --tests > checkpoint336-integration.log 2>&1 || { tail -n 200 checkpoint336-integration.log; exit 1; }
+          grep '^test result:' checkpoint336-integration.log | tail -8
+      - name: Checkout exact native research scripts read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: d8d95c0ad2c58fdda2912cd7a6c6b5340f84a1d6
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Check original numeric source harness syntax
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research/research/photosphere/checkpoint336/survey_original_triangle_metric.py
+          python3 -m py_compile research/research/photosphere/checkpoint336/native_original_triangle_numeric.py
+      - name: Upload nonproprietary test evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint336-rust-validation
+          path: |
+            checkpoint336-focused.log
+            checkpoint336-lib.log
+            checkpoint336-integration.log
+          retention-days: 7
+          if-no-files-found: warn
