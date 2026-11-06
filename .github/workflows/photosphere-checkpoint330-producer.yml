@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: c9475214a8073321a20959f40816e6b851edd75a
+          ref: be1ecff4fee4f0a9601c5ef5c71a456b95894087
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify revision and install decoder
         run: |
-          test "$(git rev-parse HEAD)" = "c9475214a8073321a20959f40816e6b851edd75a"
-          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+          test "$(git rev-parse HEAD)" = "be1ecff4fee4f0a9601c5ef5c71a456b95894087"
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools unicorn
       - name: Extract exact original ELF
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -83,6 +83,38 @@ jobs:
           print('CHECKPOINT330_PRODUCER_TRACE_PASS')
           PY
           grep -q '^CHECKPOINT330_PRODUCER_TRACE_PASS' checkpoint330-producer-trace.log
+      - name: Execute native registration entry virtual gate and count tests
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint330/native_original_registration_entry.py original.so --output checkpoint330-original-registration-entry.json | tee checkpoint330-entry.log
+          grep -q '^CHECKPOINT330_REGISTRATION_ENTRY_PASS' checkpoint330-entry.log
+      - name: Inspect constructors that set producer model pointers
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint330-constructor-context.log
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          from elftools.dwarf.callframe import FDE
+          import bisect
+          raw=Path('original.so').read_bytes()
+          with open('original.so','rb') as f:
+              frames=sorted((int(e['initial_location']),int(e['initial_location'])+int(e['address_range'])) for e in ELFFile(f).get_dwarf_info().EH_CFI_entries() if isinstance(e,FDE))
+          starts=[x[0] for x in frames]
+          cs=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          for name,entry in [('setup_A',0xf1cd0),('setup_B',0xf213c),('image_string',0x347b0c),('model_factory',0x3441e0)]:
+              index=bisect.bisect_right(starts,entry)-1
+              assert index>=0 and frames[index][0]==entry,(name,frames[index])
+              lo,hi=frames[index]
+              ins=list(cs.disasm(raw[lo:hi],lo))
+              assert len(ins)*4==hi-lo
+              print('CHECKPOINT330_CONTEXT',name,hex(lo),hex(hi),len(ins))
+              for i in ins:
+                  if name in ('setup_A','setup_B') or ('#0x10' in i.op_str) or i.mnemonic in ('blr','ret'):
+                      print(name,hex(i.address),i.mnemonic,i.op_str)
+          print('CHECKPOINT330_CONSTRUCTOR_CONTEXT_PASS')
+          PY
+          grep -q '^CHECKPOINT330_CONSTRUCTOR_CONTEXT_PASS' checkpoint330-constructor-context.log
       - name: Upload assembly report, never proprietary executable
         if: always()
         uses: actions/upload-artifact@v4
@@ -91,5 +123,8 @@ jobs:
           path: |
             checkpoint330-producer-trace.log
             checkpoint330-registration-assembly.json
+            checkpoint330-original-registration-entry.json
+            checkpoint330-entry.log
+            checkpoint330-constructor-context.log
           if-no-files-found: warn
           retention-days: 7
