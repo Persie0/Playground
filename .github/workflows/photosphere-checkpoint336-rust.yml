@@ -19,11 +19,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 8a587f13fb4badcd0b77934b9a2252b155c3dba4
+          ref: b924da2404c0348ca27f73658cdeca5e03a88f2b
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify exact Rust application revision
-        run: test "$(git rev-parse HEAD)" = "8a587f13fb4badcd0b77934b9a2252b155c3dba4"
+        run: test "$(git rev-parse HEAD)" = "b924da2404c0348ca27f73658cdeca5e03a88f2b"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
@@ -79,6 +79,36 @@ jobs:
                   assert [a['name'] for a in source['source_imported_libm_calls']]==['acosf','sinf'],row['name']
               print('CHECKPOINT336_ORIGINAL_ARTIFACT_PARITY_PASS',typ,expected)
           PY
+      - name: Verify 18 original integrated numeric scorer and threshold cases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42260605680 --repo Persie0/Playground --name photosphere-checkpoint336-numeric-evidence --dir original-joined
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          original=json.loads(Path('original-joined/checkpoint336-original-integrated.json').read_text())
+          assert original['checkpoint']==336
+          assert original['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert original['opcode_pins']==12
+          assert original['original_scorer_and_helper_and_candidate_source_executed_together'] is True
+          assert original['original_imported_libm_test_only_stubs'] is True
+          assert original['source_actual_camera_record_generation_executed'] is False
+          cases={row['name']:row for row in original['cases']}
+          assert len(cases)==18
+          b=cases['z_10_native_boundary']
+          assert b['original_actual_scorer_f32_bits']==[0x41200001]
+          assert b['source_candidate_triangle_indices']==[0]
+          assert b['source_vertex_degrees_i32']==[1,1,1]
+          assert cases['z_30_equal_threshold']['source_candidate_triangle_indices']==[]
+          assert cases['z_30_equal_threshold']['original_actual_scorer_f32_bits']==[0x41f00000]
+          assert cases['z_5_z_30_shared']['source_candidate_triangle_indices']==[1]
+          assert cases['repeated_source_vertex']['source_vertex_degrees_i32']==[2,1]
+          assert cases['repeated_triangle_grow']['source_candidate_triangle_indices']==[0,1,2,3]
+          assert cases['noncommuting_xyz']['source_candidate_triangle_indices']==[0]
+          print('CHECKPOINT336_ORIGINAL_INTEGRATED_ARTIFACT_PASS',len(cases))
+          PY
       - name: Focused original numeric helper and triangle scorer parity
         run: |
           set -euo pipefail
@@ -96,7 +126,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: d8d95c0ad2c58fdda2912cd7a6c6b5340f84a1d6
+          ref: 845305b2a08615435484a888c1562400f52c620c
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: research
@@ -105,6 +135,7 @@ jobs:
           set -euo pipefail
           python3 -m py_compile research/research/photosphere/checkpoint336/survey_original_triangle_metric.py
           python3 -m py_compile research/research/photosphere/checkpoint336/native_original_triangle_numeric.py
+          python3 -m py_compile research/research/photosphere/checkpoint336/native_original_numeric_candidate_join.py
       - name: Upload nonproprietary test evidence only
         if: always()
         uses: actions/upload-artifact@v4
