@@ -1,0 +1,64 @@
+name: Photosphere checkpoint331 Rust postsolve oracle regression
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint331-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint331-rust
+  cancel-in-progress: false
+jobs:
+  native-source-backed-rust-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout pinned private Rust app (read-only)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 6ecdffa0349ac040bd43a0b2e704b75656736465
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact application revision
+        run: test "$(git rev-parse HEAD)" = "6ecdffa0349ac040bd43a0b2e704b75656736465"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Test 24 native source-original postsolve cases
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint331 -- --nocapture > checkpoint331-focused.log 2>&1 || { tail -n 180 checkpoint331-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint331-focused.log
+          tail -n 17 checkpoint331-focused.log
+      - name: Full Rust library and integration tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint331-lib.log 2>&1 || { tail -n 180 checkpoint331-lib.log; exit 1; }
+          grep '^test result:' checkpoint331-lib.log | tail -1
+          cargo test --locked --tests > checkpoint331-integration.log 2>&1 || { tail -n 180 checkpoint331-integration.log; exit 1; }
+          grep '^test result:' checkpoint331-integration.log | tail -8
+      - name: Checkout source harness read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: de965f65ae624aa6febd0a38789e0c10021dc01e
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Validate native research harness syntax
+        run: |
+          python3 -m py_compile research/research/photosphere/checkpoint331/native_original_postsolve_gates.py
+          python3 -m py_compile research/research/photosphere/checkpoint331/native_original_adjuster_dispatch.py
+      - name: Upload regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint331-rust-results
+          path: |
+            checkpoint331-focused.log
+            checkpoint331-lib.log
+            checkpoint331-integration.log
+          if-no-files-found: warn
+          retention-days: 7
