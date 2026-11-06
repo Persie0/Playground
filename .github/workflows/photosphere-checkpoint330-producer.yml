@@ -18,12 +18,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: be1ecff4fee4f0a9601c5ef5c71a456b95894087
+          ref: 9db5766fd78fc99f6e9adac35f8fcedb578b9872
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify revision and install decoder
         run: |
-          test "$(git rev-parse HEAD)" = "be1ecff4fee4f0a9601c5ef5c71a456b95894087"
+          test "$(git rev-parse HEAD)" = "9db5766fd78fc99f6e9adac35f8fcedb578b9872"
           python3 -m pip install --quiet --break-system-packages capstone pyelftools unicorn
       - name: Extract exact original ELF
         env:
@@ -115,6 +115,11 @@ jobs:
           print('CHECKPOINT330_CONSTRUCTOR_CONTEXT_PASS')
           PY
           grep -q '^CHECKPOINT330_CONSTRUCTOR_CONTEXT_PASS' checkpoint330-constructor-context.log
+      - name: Trace native model factory and writer dispatch provenance
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint330/scan_original_factory.py original.so --output checkpoint330-model-factory-scan.json | tee checkpoint330-factory.log
+          grep -q '^CHECKPOINT330_FACTORY_SCAN_PASS' checkpoint330-factory.log
       - name: Upload assembly report, never proprietary executable
         if: always()
         uses: actions/upload-artifact@v4
@@ -126,5 +131,7 @@ jobs:
             checkpoint330-original-registration-entry.json
             checkpoint330-entry.log
             checkpoint330-constructor-context.log
+            checkpoint330-factory.log
+            checkpoint330-model-factory-scan.json
           if-no-files-found: warn
           retention-days: 7
