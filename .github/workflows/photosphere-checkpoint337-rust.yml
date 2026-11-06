@@ -1,0 +1,124 @@
+name: Photosphere checkpoint337 Rust source graph and halfturn parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint337-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint337-rust
+  cancel-in-progress: false
+jobs:
+  original-graph-halfturn-differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact pinned private Rust app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 25fac20d88ac03d2eac2b85fdb3d3a6e71f684c6
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify app SHA and stable Rust toolchain
+        run: test "$(git rev-parse HEAD)" = "25fac20d88ac03d2eac2b85fdb3d3a6e71f684c6"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Compare 29 native graph cases, 33 halfturn cases and two empty paths against original source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42263731445 --repo Persie0/Playground --name photosphere-checkpoint337-native --dir original-source
+          python3 - <<'PY'
+          import json, struct, math
+          from pathlib import Path
+          appg=json.loads(Path('tests/fixtures/native_original_graph_preparation_337.json').read_text())
+          apph=json.loads(Path('tests/fixtures/native_original_halfturn_337.json').read_text())
+          originalg=json.loads(Path('original-source/checkpoint337-nonempty-preparation.json').read_text())
+          originalh=json.loads(Path('original-source/checkpoint337-halfturn.json').read_text())
+          empty=json.loads(Path('original-source/checkpoint337-graph-preparation.json').read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert appg['checkpoint']==apph['checkpoint']==originalg['checkpoint']==originalh['checkpoint']==337
+          assert appg['original_elf_sha256']==apph['elf_sha256']==originalg['source_elf_sha256']==originalh['source_elf_sha256']==sha
+          assert originalg['original_builder_and_preparation_source_executed'] is True
+          assert originalg['actual_camera_input_pair_producer_executed'] is False
+          assert originalh['source_original_helper_and_triangle_scorer_executed'] is True
+          assert originalh['imported_bionic_acosf_sinf_stubbed'] is True
+          assert len(appg['cases'])==len(originalg['cases'])==29
+          assert len(apph['cases'])==len(originalh['cases'])==33
+          def triples(hexstr):
+              raw=bytes.fromhex(hexstr)
+              assert len(raw)%12==0
+              return [list(struct.unpack_from('<iii',raw,i)) for i in range(0,len(raw),12)]
+          for row,source in zip(appg['cases'],originalg['cases']):
+              assert row['name']==source['name']
+              assert row['input_pair_records']==source['original_source_input_pair_metadata'],row['name']
+              assert source['source_original_full_graph_prep_executed'] is True
+              assert row['original_node_count']*24==source['headers']['nodes']['length_bytes'],row['name']
+              assert row['original_pair_index_triangles']==triples(source['headers']['triangles']['payload_hex']),row['name']
+              assert row['original_image_vertex_triangles']==triples(source['headers']['aux']['payload_hex']),row['name']
+              assert row['original_alloc_sizes']==source['source_original_alloc_sizes'],row['name']
+              assert row['original_copy_sizes']==source['source_original_memcpy_sizes'],row['name']
+              assert row['original_unique_edge_count']==source['source_original_alloc_sizes'].count(40),row['name']
+          assert len(empty['cases'])==2
+          for row in empty['cases']:
+              assert row['source_original_preparation_executed_through_return'] is True
+              assert row['original_graph_changed_bytes']==[]
+              assert row['original_instruction_count']==78
+          for row,source in zip(apph['cases'],originalh['cases']):
+              assert row['name']==source['name']
+              for k in ['axis','degrees','reference_axis','reference_degrees']:
+                  assert row[k]==source[k],(row['name'],k)
+              a=source['source_helper'];b=source['source_full_scorer']
+              assert row['helper_bits']==a['source_output_f32_bits'],row['name']
+              assert row['scorer_bits']==b['source_output_f32_bits'],row['name']
+              assert row['helper_fallback']==a['source_halfturn_diagonal_branch'],row['name']
+              assert row['scorer_fallback']==b['source_halfturn_diagonal_branch'],row['name']
+              assert len(a['source_libm_calls'])==2 and len(b['source_libm_calls'])==2
+          assert sum(x['helper_fallback'] for x in apph['cases'])==20
+          print('CHECKPOINT337_SOURCE_GRAPH_FIXTURE_PASS 29')
+          print('CHECKPOINT337_SOURCE_HALFTURN_FIXTURE_PASS 33 20')
+          print('CHECKPOINT337_SOURCE_EMPTY_GRAPH_PASS 2')
+          PY
+      - name: Run checkpoint337 focused Rust parity tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint337 -- --nocapture > checkpoint337-focused.log 2>&1 || { tail -n 220 checkpoint337-focused.log; exit 1; }
+          grep -q 'test result: ok. 6 passed; 0 failed' checkpoint337-focused.log
+          tail -n 20 checkpoint337-focused.log
+      - name: Run all Rust library and integration test suites
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint337-lib.log 2>&1 || { tail -n 220 checkpoint337-lib.log; exit 1; }
+          grep '^test result:' checkpoint337-lib.log | tail -1
+          cargo test --locked --tests > checkpoint337-integration.log 2>&1 || { tail -n 220 checkpoint337-integration.log; exit 1; }
+          grep '^test result:' checkpoint337-integration.log | tail -8
+      - name: Checkout source execution research pinned read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 46f8c86ef5078a1747c58355854ea5261d4c0fea
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: research
+      - name: Syntax-check original ARM64 execution harnesses
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research/research/photosphere/checkpoint337/native_original_halfturn.py
+          python3 -m py_compile research/research/photosphere/checkpoint337/native_original_graph_preparation.py
+          python3 -m py_compile research/research/photosphere/checkpoint337/native_original_graph_preparation_nonempty.py
+      - name: Archive nonproprietary validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint337-rust
+          path: |
+            checkpoint337-focused.log
+            checkpoint337-lib.log
+            checkpoint337-integration.log
+          retention-days: 7
+          if-no-files-found: warn
