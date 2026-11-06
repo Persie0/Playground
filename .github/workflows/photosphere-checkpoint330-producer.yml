@@ -1,0 +1,95 @@
+name: Photosphere checkpoint330 registration producer write provenance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint330-producer.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint330-producer
+  cancel-in-progress: false
+jobs:
+  source-producer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout pinned private research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: c9475214a8073321a20959f40816e6b851edd75a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify revision and install decoder
+        run: |
+          test "$(git rev-parse HEAD)" = "c9475214a8073321a20959f40816e6b851edd75a"
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+      - name: Extract exact original ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Trace all original registration instructions and callsites
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee checkpoint330-producer-trace.log
+          import bisect,hashlib,json
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          from elftools.dwarf.callframe import FDE
+          raw=Path('original.so').read_bytes()
+          sha=hashlib.sha256(raw).hexdigest()
+          assert sha=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          with open('original.so','rb') as f:
+              elf=ELFFile(f)
+              bounds=sorted((int(e['initial_location']),int(e['initial_location'])+int(e['address_range'])) for e in elf.get_dwarf_info().EH_CFI_entries() if isinstance(e,FDE))
+          starts=[a for a,b in bounds]
+          def owner(pc):
+              idx=bisect.bisect_right(starts,pc)-1
+              return bounds[idx] if idx>=0 and pc<bounds[idx][1] else None
+          decoder=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          functions={}
+          for name,entry in [('registration_producer',0xf1d48),('fov_estimator',0xf0fc8),('collector',0x318770)]:
+              span=owner(entry)
+              assert span and span[0]==entry,(name,span)
+              items=list(decoder.disasm(raw[span[0]:span[1]],span[0]))
+              assert len(items)*4==span[1]-span[0]
+              lines=[{'pc':hex(i.address),'op':i.mnemonic,'arg':i.op_str,'word':raw[i.address:i.address+4].hex()} for i in items]
+              functions[name]={'start':hex(span[0]),'end':hex(span[1]),'instructions':lines}
+              print('CHECKPOINT330_FUNC',name,hex(span[0]),hex(span[1]),len(lines))
+              if name=='registration_producer':
+                  for x in lines:print('PRODUCER',x['pc'],x['op'],x['arg'])
+              elif name=='fov_estimator':
+                  for x in lines:
+                      if 0xf0ff0<=int(x['pc'],16)<=0xf10f0:print('CALLER',x['pc'],x['op'],x['arg'])
+              calls=[]
+              for x in lines:
+                  if x['op'] not in ('bl','blr'):continue
+                  tgt=int(x['arg'][1:],16) if x['arg'].startswith('#0x') else None
+                  o=owner(tgt) if tgt is not None else None
+                  calls.append({'pc':x['pc'],'op':x['op'],'arg':x['arg'],'target_function':[hex(v) for v in o] if o else None})
+                  if name=='registration_producer':print('PRODUCER_CALL',x['pc'],x['op'],x['arg'],o)
+              functions[name]['calls']=calls
+          report={'checkpoint':330,'elf_sha256':sha,'source_executed':False,'functions':functions}
+          Path('checkpoint330-registration-assembly.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+          assert len(functions['registration_producer']['instructions'])==253
+          print('CHECKPOINT330_PRODUCER_TRACE_PASS')
+          PY
+          grep -q '^CHECKPOINT330_PRODUCER_TRACE_PASS' checkpoint330-producer-trace.log
+      - name: Upload assembly report, never proprietary executable
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint330-producer-abi
+          path: |
+            checkpoint330-producer-trace.log
+            checkpoint330-registration-assembly.json
+          if-no-files-found: warn
+          retention-days: 7
