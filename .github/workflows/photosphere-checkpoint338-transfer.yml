@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 9bd5d3c39294adbff710affd86a9b763e781b03d
+          ref: 6be7eb955b86e7df5ade8c1cfdfeee22be4de41d
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify exact private source SHA and dependencies
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "9bd5d3c39294adbff710affd86a9b763e781b03d"
+          test "$(git rev-parse HEAD)" = "6be7eb955b86e7df5ade8c1cfdfeee22be4de41d"
           python3 -m pip install --quiet --break-system-packages capstone unicorn pyelftools
       - name: Obtain checksum-pinned original Google Camera native binary
         env:
@@ -41,6 +41,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint338/scan_original_pair_transfer.py original.so --output checkpoint338-transfer-source-map.json | tee checkpoint338-source-map.log
           grep -q '^CHECKPOINT338_ORIGINAL_TRANSFER_MAP_PASS 5 8' checkpoint338-source-map.log
+      - name: Execute original native deep-copy vector assignment on source and FOV memory
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint338/native_original_pair_transfer.py original.so --output checkpoint338-original-transfer-execution.json | tee checkpoint338-transfer-execution.log
+          grep -q '^CHECKPOINT338_TRANSFER_SOURCE_PASS 21 18' checkpoint338-transfer-execution.log
       - name: Archive evidence with no proprietary ELF
         if: always()
         uses: actions/upload-artifact@v4
