@@ -1,0 +1,151 @@
+name: Photosphere checkpoint353 original AddImage provider append Rust differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint353-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint353-rust
+  cancel-in-progress: false
+jobs:
+  native-original-provider-append-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact SHA private app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 739153ef0eb1bda14a011e5f5200d66c478661d9
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify app source SHA-pinned, install Rust
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "739153ef0eb1bda14a011e5f5200d66c478661d9"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Fetch public original ARM64 11 native append rows and provider vtable source survey
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42413263187 --repo Persie0/Playground --name photosphere-checkpoint353-append --dir source353append
+          gh run download 42413023109 --repo Persie0/Playground --name photosphere-checkpoint353-source --dir source353survey
+      - name: Independently compare 11 original ARM64 provider append observations and 34 opcode pins
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          f=json.loads(Path("tests/fixtures/native_original_provider_append_353.json").read_text())
+          source=json.loads(Path("source353append/checkpoint353-original-append.json").read_text())
+          survey=json.loads(Path("source353survey/checkpoint353-provider-methods.json").read_text())
+          callers=json.loads(Path("source353survey/checkpoint353-append-callsites.json").read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert f["checkpoint"]==source["checkpoint"]==survey["checkpoint"]==callers["checkpoint"]==353
+          assert f["source_run"]==42413263187
+          assert f["source_original_elf_sha256"]==source["original_elf_sha256"]==survey["original_elf_sha256"]==callers["original_elf_sha256"]==sha
+          assert f["source_original_opcode_pins"]==source["source_original_opcode_pins"]==34
+          assert survey["source_original_opcode_pins"]==19
+          assert survey["source_original_provider_factory_initializes_child_pointer_array_with_memset_zero"] is True
+          assert survey["source_original_zero_child_pointer_buffer_size_is_count_times_eight"] is True
+          assert survey["source_original_provider_constructor_copies_initial_pointer_slots"] is True
+          assert survey["source_original_provider_vtable_method_count"]==18
+          assert callers["candidate_vtable_match_alone_proves_caller_identity"] is False
+          assert callers["candidate_count"]==38
+          specific=[c for c in callers["candidate_virtual_plus_0x60_callsites"]
+                    if c["vtable_slot_load_pc"]=="0x11d7a4"]
+          assert len(specific)==1 and specific[0]["indirect_call_pc"]=="0x11d7a8"
+          assert specific[0]["proximity_to_estimator_plus_0x70_read"] is True
+          assert f["source_original_factory_initial_pointer_array_zeroed"] is True
+          assert f["source_original_provider_vptr"]==source["source_original_provider_vptr_va"]=="0x40dc10"
+          assert f["source_original_append_virtual_slot"]=="0x60"
+          assert f["source_original_append_virtual_slot_va"]==source["source_original_provider_append_slot_va"]=="0x40dc70"
+          assert f["source_original_provider_append_method"]==source["source_original_provider_append_method_pc"]=="0x3450dc"
+          assert f["source_original_addimage_estimator_provider_offset"]=="0x70"
+          assert f["source_original_addimage_method_caller"]=="0x11d794"
+          assert f["source_original_addimage_provider_blr"]=="0x11d7a8"
+          assert f["source_original_addimage_next_instruction"]=="0x11d7ac"
+          assert f["source_original_child_pointer_array_offset"]=="0x28"
+          assert f["source_original_metadata_array_offset"]=="0x10"
+          assert f["source_original_child_pointer_stride_bytes"]==source["source_original_pointer_stride_bytes"]==8
+          assert f["source_original_metadata_stride_bytes"]==source["source_original_metadata_stride_bytes"]==36
+          assert f["source_original_preallocated_capacity"]==5
+          assert f["source_original_model_child_virtual_creator_stubbed"]==source["source_original_virtual_child_constructor_still_stubbed"] is True
+          assert f["source_original_config_image_count_virtual_stubbed"]==source["source_original_virtual_config_count_still_stubbed"] is True
+          assert f["source_original_full_addimage_not_executed"] is True
+          assert source["source_original_full_addimage_body_executed"] is False
+          assert f["source_original_full_provider_append_executed"]==source["source_original_0x3450dc_entire_normal_return_path_executed"] is True
+          assert source["source_original_addimage_concrete_provider_dispatch_executed"] is True
+          assert f["source_original_vector_growth_not_executed"] is True
+          assert source["source_original_nonpreallocated_growth_executed"] is False
+          assert f["source_original_real_child_vtable_unresolved"] is True
+          assert source["source_original_real_children_vtable_proven"] is False
+          assert len(f["cases"])==source["source_original_case_count"]==len(source["cases"])==5
+          total=0
+          for expected,observed in zip(f["cases"],source["cases"]):
+              n=expected["requested_count"]
+              assert n==observed["requested_count"]
+              assert observed["source_original_addimage_real_estimator_plus70_blr_executed"] is True
+              assert observed["source_original_full_provider_append_0x3450dc_executed"] is True
+              assert observed["source_original_method_real_child_constructors_executed"] is False
+              assert observed["source_original_provider_child_pointer_array_grew"] is False
+              assert observed["source_original_provider_metadata_array_grew"] is False
+              assert len(expected["source_original_appends"])==len(observed["original_appends"])==n
+              for exp,obs in zip(expected["source_original_appends"],observed["original_appends"]):
+                  i=exp["index"]
+                  assert i==obs["append_index"]
+                  assert exp["original_child_ptr"]==obs["source_original_pointer_appended"]
+                  assert exp["original_metadata36_hex"]==obs["source_original_metadata_36_bytes_hex"]
+                  assert exp["source_original_child_count"]==obs["original_provider_pointer_vector_length"]==i+1
+                  assert exp["source_original_metadata36_count"]==obs["original_provider_metadata_36_byte_vector_length"]==i+1
+                  assert exp["source_original_original_arm64_pc_hooks_including_stop"]==obs["source_original_original_vm_instruction_hooks_including_synthetic_return"]==66
+                  assert obs["source_original_addimage_caller_entry_pc"]=="0x11d794"
+                  assert obs["source_original_addimage_original_blr_pc"]=="0x11d7a8"
+                  assert obs["source_original_addimage_resume_stop_pc"]=="0x11d7ac"
+                  assert obs["source_original_addimage_estimator_plus_0x70_provider"] is True
+                  assert obs["source_original_child_virtual_plus_0x10_test_stub"] is True
+                  assert obs["source_original_config_virtual_plus_0x20_test_stub"] is True
+                  assert obs["source_original_full_method_source_executed"] is True
+                  assert obs["source_original_pointer_and_metadata_bytes_exact"] is True
+                  assert obs["source_original_method_entry_pc"]=="0x3450dc"
+                  assert obs["source_original_method_return_pc"]=="0x34532c"
+                  assert len(bytes.fromhex(exp["original_metadata36_hex"]))==36
+                  total+=1
+              assert observed["source_original_final_child_pointer_values"]==[
+                  row["original_child_ptr"] for row in expected["source_original_appends"]]
+              assert observed["source_original_final_metadata_36_bytes_rows"]==[
+                  row["original_metadata36_hex"] for row in expected["source_original_appends"]]
+          assert f["source_original_total_appends"]==source["source_original_total_appends"]==total==11
+          print("CHECKPOINT353_INDEPENDENT_NATIVE_ADDIMAGE_PROVIDER_APPEND_PASS 5 34 11")
+          print("CHECKPOINT353_STATIC_FACTORY_ZEROED_AND_ACTUAL_PROVIDER_CALLSITE_PASS 19 18 38")
+          PY
+      - name: Focused checkpoint353 source-backed native append Rust tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint353 -- --nocapture > checkpoint353-focused.log 2>&1 || { tail -n 200 checkpoint353-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint353-focused.log
+          tail -n 25 checkpoint353-focused.log
+      - name: Full Rust library and integration regression
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint353-lib.log 2>&1 || { tail -n 250 checkpoint353-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint353-integration.log 2>&1 || { tail -n 250 checkpoint353-integration.log; exit 1; }
+          grep '^test result:' checkpoint353-lib.log | tail -1
+          grep '^test result:' checkpoint353-integration.log | tail -9
+      - name: Archive source-oracle diagnostic logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint353-rust
+          path: |
+            checkpoint353-focused.log
+            checkpoint353-lib.log
+            checkpoint353-integration.log
+          retention-days: 7
+          if-no-files-found: warn
