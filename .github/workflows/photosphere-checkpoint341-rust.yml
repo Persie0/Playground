@@ -1,0 +1,92 @@
+name: Photosphere checkpoint341 Rust original graph index transfer parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint341-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint341-rust
+  cancel-in-progress: false
+jobs:
+  original-index-transfer-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact pinned private app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 5f163741e176b6872f7beb786b9dbf2c056c52e1
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify private app SHA
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "5f163741e176b6872f7beb786b9dbf2c056c52e1"
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Download independent source-original 18-case artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42315860539 --repo Persie0/Playground --name photosphere-checkpoint341-original-source --dir original-native
+      - name: Compare committed Rust fixture against independent original ELF JSON
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          fx=json.loads(Path('tests/fixtures/native_original_index_transfer_341.json').read_text())
+          so=json.loads(Path('original-native/checkpoint341-original-index-transfer.json').read_text())
+          assert fx['checkpoint']==so['checkpoint']==341
+          assert fx['original_elf_sha256']==so['original_elf_sha256']==sha
+          assert fx['original_opcode_pins']==so['original_opcode_pins']==9
+          assert so['source_original_index_transfer_executed'] is True
+          assert so['source_original_all_candidate_iteration_executed'] is False
+          assert so['source_original_full_graph_partition_executed'] is False
+          assert len(fx['cases'])==len(so['cases'])==18
+          aliases={
+            'source_triangle_pair_indices':'synthetic_triangle_pair_indices',
+            'source_candidate_triangle_indices':'synthetic_candidate_triangle_indices',
+            'source_minimum_pair_score_bits':'synthetic_record_minimum_score_bits',
+            'source_threshold_f32_bits':'threshold_f32_bits',
+            'source_selected_pair_record_indices':'original_output_pair_record_indices',
+            'source_stop_pc':'original_stop_pc',
+          }
+          for ours,original in zip(fx['cases'],so['cases']):
+            assert ours['name']==original['name']
+            for k,j in aliases.items():
+              assert ours[k]==original[j],(ours['name'],k,ours[k],original[j])
+          print("CHECKPOINT341_INDEPENDENT_NATIVE_FIXTURE_PASS 18 9")
+          PY
+      - name: Run four focused Rust original-graph transfer tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint341 -- --nocapture > checkpoint341-focused.log 2>&1 || { tail -n 200 checkpoint341-focused.log; exit 1; }
+          grep -q 'test result: ok. 4 passed; 0 failed' checkpoint341-focused.log
+          tail -n 25 checkpoint341-focused.log
+      - name: Run full Rust library and integration regression
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint341-lib.log 2>&1 || { tail -n 220 checkpoint341-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint341-integration.log 2>&1 || { tail -n 220 checkpoint341-integration.log; exit 1; }
+          grep '^test result:' checkpoint341-lib.log | tail -1
+          grep '^test result:' checkpoint341-integration.log | tail -8
+      - name: Archive nonproprietary test logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint341-rust
+          path: |
+            checkpoint341-focused.log
+            checkpoint341-lib.log
+            checkpoint341-integration.log
+          if-no-files-found: warn
+          retention-days: 7
