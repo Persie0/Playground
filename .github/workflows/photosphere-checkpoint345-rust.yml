@@ -1,0 +1,136 @@
+name: Photosphere checkpoint345 natural finalizer graph FOV gate parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint345-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint345-rust
+  cancel-in-progress: false
+jobs:
+  source-original-finalizer-gate-differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact private app SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: db9979edf5107e1e20df940997dbb6958c19c7e3
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify private app SHA and install Rust
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "db9979edf5107e1e20df940997dbb6958c19c7e3"
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Fetch original ARM64 FOV-gate and finalizer-callsite oracle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42327087363 --repo Persie0/Playground --name photosphere-checkpoint345-original --dir source-original
+      - name: Independently verify original 15 FOV gate cases and graph caller X22 provenance
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          fixture=json.loads(Path("tests/fixtures/native_original_finalizer_fov_gate_345.json").read_text())
+          source=json.loads(Path("source-original/checkpoint345-original.json").read_text())
+          calls=json.loads(Path("source-original/checkpoint345-direct-callers.json").read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert fixture["checkpoint"]==source["checkpoint"]==calls["checkpoint"]==345
+          assert fixture["elf_sha256"]==source["original_elf_sha256"]==calls["original_elf_sha256"]==sha
+          assert fixture["source_run"]==42327087363
+          assert fixture["opcode_pins"]==source["source_original_opcode_pins"]==22
+          assert source["source_original_addimage_graph_and_fov_one_memory_join"] is True
+          assert source["source_original_fov_postregistration_gate_source_executed"] is True
+          assert source["source_original_real_camera_features_executed"] is False
+          assert source["source_original_complete_addimage_function_executed"] is False
+          assert source["source_original_fov_optimizer_executed"] is False
+          assert len(fixture["rows"])==len(source["cases"])==15
+          assert calls["source_direct_arm64_call_scan_only"] is True
+          direct=calls["source_exact_direct_call_or_branch_sites"]["full_graph"]
+          assert len(direct)==1
+          assert direct[0]["pc"]=="0x11e930" and direct[0]["kind"]=="BL"
+          assert direct[0]["owner_fde"]==["0x11e87c","0x11ec84"]
+          a={i["pc"]:(i["op"],i["args"]) for i in calls["original_finalizer_pre_graph_instructions"]}
+          assert a["0x11e91c"]==("cbz","w0, #0x11eaa4")
+          assert a["0x11e920"]==("add","x22, x19, #0xf8")
+          assert a["0x11e928"]==("fmov","s0, #10.00000000")
+          assert a["0x11e92c"]==("mov","x0, x22")
+          assert a["0x11e930"]==("bl","#0x3172a4")
+          accepted=0
+          rejected=0
+          for row,c in zip(fixture["rows"],source["cases"]):
+              (name,inputs,threshold,pair_triangles,image_triangles,
+               score_bits,candidates,marks,statuses,final_scores,
+               selected_statuses,selected_endpoints,pass_gate,stop,focal)=row
+              assert c["name"]==name,name
+              assert c["synthetic_image_pairs"]==inputs,name
+              assert c["threshold_float32_bits"]==threshold==1092616192,name
+              assert c["source_graph_pair_record_index_triangles"]==pair_triangles,name
+              assert c["source_graph_image_vertex_triangles"]==image_triangles,name
+              assert c["source_original_scorer_float32_bits"]==score_bits,name
+              assert c["source_original_candidate_triangles"]==candidates,name
+              assert c["source_original_status6_record_indices"]==marks,name
+              assert c["source_original_estimator_statuses"]==statuses,name
+              assert c["source_original_fov_copied_statuses"]==statuses,name
+              assert c["source_original_estimator_score_bits"]==final_scores,name
+              assert c["source_original_fov_copied_score_bits"]==final_scores,name
+              assert c["source_original_gate_selected_statuses"]==selected_statuses,name
+              assert c["source_original_gate_selected_image_pairs"]==selected_endpoints,name
+              assert c["source_original_gate_accepts"] is pass_gate,name
+              assert c["source_original_gate_stop_pc"]==stop,name
+              assert c["source_original_gate_focal_result_bits"]==focal,name
+              assert c["source_original_natural_finalizer_graph_bl_executed"] is True,name
+              assert c["source_original_graph_member_owner_is_estimator_plus_f8"] is True,name
+              assert c["source_original_graph_struct_not_separate_synthetic_object"] is True,name
+              assert c["source_original_graph_threshold_from_caller_f32_bits"]==1092616192,name
+              assert c["source_original_registration_w0_test_supplied"] is True,name
+              assert c["source_original_fov_collector_and_gate_joined_on_source_copy"] is True,name
+              assert c["source_original_gate_getter_calls"]==(
+                  ["model_virtual_0x20","model_virtual_0x40"] if pass_gate else []),name
+              assert c["source_original_source_unchanged_by_fov_copy"] is True,name
+              if pass_gate:
+                  assert not selected_statuses and stop=="0xf1178" and focal==0x42908000,name
+                  accepted+=1
+              else:
+                  assert any(s!=0 for s in selected_statuses) and stop=="0xf12a0" and focal==0,name
+                  rejected+=1
+          assert (accepted,rejected)==(2,13)
+          assert sum(bool(c["source_original_failed_registration_shortcircuit_executed"]) for c in source["cases"])==1
+          print("CHECKPOINT345_INDEPENDENT_SOURCE_FIXTURE_PASS 15 22 13 2")
+          print("CHECKPOINT345_FINALIZER_GRAPH_POINTER_PASS estimator+0xf8 graph+0x18/0x30/0x48")
+          PY
+      - name: Run focused checkpoint345 Rust parity tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint345 -- --nocapture > checkpoint345-focused.log 2>&1 || { tail -n 250 checkpoint345-focused.log; exit 1; }
+          grep -q 'test result: ok. 2 passed; 0 failed' checkpoint345-focused.log
+          tail -n 25 checkpoint345-focused.log
+      - name: Run complete Rust library and integration suites
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint345-lib.log 2>&1 || { tail -n 250 checkpoint345-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint345-integration.log 2>&1 || { tail -n 250 checkpoint345-integration.log; exit 1; }
+          grep '^test result:' checkpoint345-lib.log | tail -1
+          grep '^test result:' checkpoint345-integration.log | tail -9
+      - name: Archive logs only without proprietary binaries or private code
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint345-rust
+          path: |
+            checkpoint345-focused.log
+            checkpoint345-lib.log
+            checkpoint345-integration.log
+          if-no-files-found: warn
+          retention-days: 7
