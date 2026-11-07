@@ -46,30 +46,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 research/photosphere/checkpoint343/native_original_full_graph_join.py original.so --continue-marked-return --output checkpoint343-original-return.json | tee checkpoint343-original-return.log
-          grep -q '^CHECKPOINT343_JOINED_ORIGINAL_PASS 20 12
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: photosphere-checkpoint343-original
-          path: |
-            checkpoint343-original-return.json
-            checkpoint343-original-return.log
-            checkpoint343-original-joined.json
-            checkpoint343-original-joined.log
-          if-no-files-found: warn
-          retention-days: 7
- checkpoint343-original-return.log
-          grep -q '^CHECKPOINT343_MARKED_RETURN_PASS 13 20
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: photosphere-checkpoint343-original
-          path: |
-            checkpoint343-original-joined.json
-            checkpoint343-original-joined.log
-          if-no-files-found: warn
-          retention-days: 7
- checkpoint343-original-return.log
+          grep -q '^CHECKPOINT343_JOINED_ORIGINAL_PASS 20 12$' checkpoint343-original-return.log
+          grep -q '^CHECKPOINT343_MARKED_RETURN_PASS 13 20$' checkpoint343-original-return.log
       - name: Archive original outcome JSON and diagnostic text only
         if: always()
         uses: actions/upload-artifact@v4
@@ -78,5 +56,7 @@ jobs:
           path: |
             checkpoint343-original-joined.json
             checkpoint343-original-joined.log
+            checkpoint343-original-return.json
+            checkpoint343-original-return.log
           if-no-files-found: warn
           retention-days: 7
