@@ -1,0 +1,54 @@
+name: Photosphere checkpoint352 original provider getter through solver BLR
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint352-source.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint352-source
+  cancel-in-progress: false
+jobs:
+  native-original-getter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Read-only exact original research SHA
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 3bb2ae5731f979d36c23f6f8a1abb7e26684a5ce
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact SHA and install ARM64 emulator
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "3bb2ae5731f979d36c23f6f8a1abb7e26684a5ce"
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint352/native_original_provider_getter_join.py
+      - name: Get original Google Camera ELF checksum verified
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Source execute original provider getter real ARM64 on 15 original graph cases
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint352/native_original_provider_getter_join.py original.so --output checkpoint352-source.json | tee checkpoint352-source.log
+          grep -q '^CHECKPOINT352_REAL_PROVIDER_GETTER_SOURCE_PASS 15 104$' checkpoint352-source.log
+      - name: Upload only result JSON and diagnostic log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint352-source
+          path: |
+            checkpoint352-source.json
+            checkpoint352-source.log
+          if-no-files-found: warn
+          retention-days: 7
