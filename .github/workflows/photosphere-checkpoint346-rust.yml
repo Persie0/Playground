@@ -1,0 +1,151 @@
+name: Photosphere checkpoint346 source-original four vector FOV parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint346-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint346-rust
+  cancel-in-progress: false
+jobs:
+  native-original-four-vector-differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact private Rust app SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 41f1c3eaaf80a24e324791ee367dee37acb277bf
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify SHA-locked app and install Rust
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "41f1c3eaaf80a24e324791ee367dee37acb277bf"
+      - name: Install Rust 1.99.1
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Fetch exact original ARM64 four-vector source artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42328886898 --repo Persie0/Playground --name photosphere-checkpoint346-source --dir original-346
+      - name: Independently compare 15 native source four-vector transfers and 7 FDEs
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path(".")
+          new=json.loads((root/"tests/fixtures/native_original_four_vector_fov_transfer_346.json").read_text())
+          prior=json.loads((root/"tests/fixtures/native_original_finalizer_fov_gate_345.json").read_text())
+          native=json.loads((root/"original-346/checkpoint346-four-vectors.json").read_text())
+          static=json.loads((root/"original-346/checkpoint346-static.json").read_text())
+          calls=json.loads((root/"original-346/checkpoint346-callees.json").read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert new["checkpoint"]==native["checkpoint"]==static["checkpoint"]==calls["checkpoint"]==346
+          assert new["source_run"]==42328886898
+          assert new["original_elf_sha256"]==native["original_elf_sha256"]==static["original_elf_sha256"]==calls["original_elf_sha256"]==prior["elf_sha256"]==sha
+          assert new["source_original_opcode_pins"]==native["source_original_opcode_pins"]==31
+          assert new["source_original_finalizer_four_vector_copies_executed"] is True
+          assert native["source_original_four_vector_finalizer_complete"] is True
+          assert native["source_original_complete_addimage_function_executed"] is False
+          assert native["source_original_fov_optimizer_executed"] is False
+          assert native["source_original_real_camera_features_executed"] is False
+          assert native["source_original_device_pixels_verified"] is False
+          assert new["source_helpers"]==["0x124098","0x124880","0x12512c","0x12512c"]
+          assert new["source_estimator_offsets"]==["0xf8","0x110","0x128","0x140"]
+          assert new["source_fov_owner_offsets"]==["0x48","0x60","0x78","0x90"]
+          assert new["auxiliary_nodes_24_byte_payload_semantics_proven"] is False
+          assert new["test_only_registration_w0"] is True
+          assert new["original_graph_threshold_bits"]==1092616192
+          assert len(new["cases"])==len(native["cases"])==len(prior["rows"])==15
+          accepted=0
+          rejected=0
+          for (name,node_count,pair_count,image_count),row,old in zip(new["cases"],native["cases"],prior["rows"]):
+              assert name==row["name"]==old[0],name
+              assert row["synthetic_image_pairs"]==old[1],name
+              assert row["threshold_float32_bits"]==old[2]==1092616192,name
+              assert row["source_original_scorer_float32_bits"]==old[5],name
+              assert row["source_graph_pair_record_index_triangles"]==old[3],name
+              assert row["source_graph_image_vertex_triangles"]==old[4],name
+              assert row["source_original_candidate_triangles"]==old[6],name
+              assert row["source_original_status6_record_indices"]==old[7],name
+              assert row["source_original_estimator_statuses"]==row["source_original_fov_copied_statuses"]==old[8],name
+              assert row["source_original_estimator_score_bits"]==row["source_original_fov_copied_score_bits"]==old[9],name
+              assert row["source_original_gate_selected_statuses"]==old[10],name
+              assert row["source_original_gate_selected_image_pairs"]==old[11],name
+              assert row["source_original_gate_accepts"] is old[12],name
+              assert row["source_original_gate_stop_pc"]==old[13],name
+              assert row["source_original_gate_focal_result_bits"]==old[14],name
+              expected={"node_24":node_count,"pair_triplets":pair_count,"image_triplets":image_count}
+              assert row["source_original_estimator_aux_counts"]==row["source_original_fov_aux_counts"]==expected,name
+              assert row["source_original_estimator_auxiliary_graph_field_element_counts"]=={
+                  "vertices":node_count,"pair_triangles":pair_count,"image_triangles":image_count
+              },name
+              assert len(row["source_graph_pair_record_index_triangles"])==pair_count,name
+              assert len(row["source_graph_image_vertex_triangles"])==image_count,name
+              assert row["source_original_node_24_copy_helper_calls"]==1,name
+              assert row["source_original_triplet_copy_helper_calls"]==2,name
+              assert row["source_original_all_four_finalizer_vector_copies_executed"] is True,name
+              assert row["source_original_triplet_12byte_copy_byte_exact"] is True,name
+              assert row["source_original_full_finalizer_not_executed"] is True,name
+              assert row["source_original_registration_w0_test_supplied"] is True,name
+              assert row["source_original_fov_collector_and_gate_joined_on_source_copy"] is True,name
+              assert row["source_original_source_unchanged_by_fov_copy"] is True,name
+              assert row["source_original_fov_copy_helper_executed"] is True,name
+              if name!="empty":
+                  assert row["source_original_estimator_and_fov_storage_separate"] is True,name
+              accepted+=int(row["source_original_gate_accepts"])
+              rejected+=int(not row["source_original_gate_accepts"])
+          assert (accepted,rejected)==(2,13)
+          assert static["opcode_pins"]==7
+          names={x["name"]:x for x in static["original_regions"]}
+          assert len(names)==5
+          assert len(names["finalizer_after_original_graph_return"]["original_instructions"])==212
+          instructions={r["pc"]:(r["op"],r["args"]) for r in names["finalizer_after_original_graph_return"]["original_instructions"]}
+          required={"0x11e950":"#0x11ccfc","0x11ec14":"#0x124098","0x11ec20":"#0x124880","0x11ec2c":"#0x12512c","0x11ec38":"#0x12512c"}
+          for pc,target in required.items():assert instructions[pc]==("bl",target),(pc,instructions.get(pc))
+          assert calls["source_original_static_disassembly_only"] is True
+          assert calls["source_original_optimizer_function_executed"] is False
+          assert calls["source_original_pair_status_zero_mutation_proven"] is False
+          fdes={x["name"]:x for x in calls["functions"]}
+          assert len(fdes)==7
+          assert [fdes["postgraph_finalize_helper"]["start"],fdes["postgraph_finalize_helper"]["end"]]==["0x11ccfc","0x11d0f0"]
+          assert len(fdes["postgraph_finalize_helper"]["original_instructions"])==253
+          assert len(fdes["postgraph_model_solver"]["original_instructions"])==218
+          assert len(fdes["registration_entry"]["original_instructions"])==253
+          assert sum(len(f["original_instructions"]) for f in fdes.values())==1377
+          print("CHECKPOINT346_INDEPENDENT_SOURCE_FOUR_TRANSFER_PASS 15 31 4")
+          print("CHECKPOINT346_ORIGINAL_FINALIZER_STATIC_FDE_PASS 5 7 1377")
+          PY
+      - name: Run focused checkpoint346 Rust parity tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint346 -- --nocapture > checkpoint346-focused.log 2>&1 || { tail -n 230 checkpoint346-focused.log; exit 1; }
+          grep -q 'test result: ok. 2 passed; 0 failed' checkpoint346-focused.log
+          tail -n 30 checkpoint346-focused.log
+      - name: Run full Rust library and integration regressions
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint346-lib.log 2>&1 || { tail -n 240 checkpoint346-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint346-integration.log 2>&1 || { tail -n 240 checkpoint346-integration.log; exit 1; }
+          grep '^test result:' checkpoint346-lib.log | tail -1
+          grep '^test result:' checkpoint346-integration.log | tail -9
+      - name: Archive diagnostics only, no proprietary code or native ELF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint346-rust
+          path: |
+            checkpoint346-focused.log
+            checkpoint346-lib.log
+            checkpoint346-integration.log
+          if-no-files-found: warn
+          retention-days: 7
