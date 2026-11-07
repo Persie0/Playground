@@ -1,0 +1,39 @@
+name: developertaxes Google invoice smoke
+
+on:
+  push:
+    paths:
+      - '.github/workflows/developertaxes-google-invoice-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  invoice-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout private code using public Playground runner
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/developertaxes
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: tax
+          persist-credentials: false
+      - name: Install synthetic PDF-test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y poppler-utils
+          python -m pip install --disable-pip-version-check -r tax/scripts/google/requirements.txt
+      - name: Check code and invoice regression tests
+        working-directory: tax
+        run: |
+          python -m compileall -q scripts tests
+          python -m unittest discover -s tests -p 'test_google_invoices.py' -v
+          python -m unittest discover -s tests -p 'test_google_tax.py' -v
+          python -m unittest discover -s tests -p 'test_appodeal_invoices.py' -v
+      - name: Check no real financial PDFs were published
+        run: |
+          test ! -d tax/reports/google/invoices
+          echo 'Only synthetic invoice data used by tests; no artifacts uploaded.'
