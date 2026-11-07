@@ -1,0 +1,55 @@
+name: Photosphere checkpoint342 original graph continuation research
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint342-original.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint342-original
+  cancel-in-progress: false
+jobs:
+  scan-original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact private research SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: b18ea37d2742314028cb1dda7cefcf9be23c09b0
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned source and install tooling
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "b18ea37d2742314028cb1dda7cefcf9be23c09b0"
+          python3 -m pip install --quiet --break-system-packages capstone unicorn
+          python3 -m py_compile research/photosphere/checkpoint342/scan_original_graph_continuation.py
+      - name: Obtain checksum-pinned original GCam ELF read-only
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Scan all original candidate continuation instructions
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint342/scan_original_graph_continuation.py original.so --output checkpoint342-static.json | tee checkpoint342-static.log
+          grep -q '^CHECKPOINT342_DISASM_PASS 438$' checkpoint342-static.log
+      - name: Archive nonproprietary source-text evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint342-static
+          path: |
+            checkpoint342-static.json
+            checkpoint342-static.log
+          retention-days: 7
+          if-no-files-found: warn
