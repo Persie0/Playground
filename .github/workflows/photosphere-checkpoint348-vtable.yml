@@ -18,15 +18,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: eea99fcb73ddf6d37e06ed85425d3b730cad2808
+          ref: 70b279cfe0ff138a65a2a302d9b69299d71d23e8
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify source SHA and install exact ELF inspection dependencies
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "eea99fcb73ddf6d37e06ed85425d3b730cad2808"
-          python3 -m pip install --quiet --break-system-packages capstone pyelftools
-          python3 -m py_compile research/photosphere/checkpoint348/resolve_original_solver_vtable.py research/photosphere/checkpoint348/scan_original_solver_pair_eligibility.py
+          test "$(git rev-parse HEAD)" = "70b279cfe0ff138a65a2a302d9b69299d71d23e8"
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools unicorn
+          python3 -m py_compile research/photosphere/checkpoint348/resolve_original_solver_vtable.py research/photosphere/checkpoint348/scan_original_solver_pair_eligibility.py research/photosphere/checkpoint348/native_original_solver_pair_eligibility.py
       - name: Retrieve original GCam ARM64 library with SHA checksum
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -47,6 +47,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint348/scan_original_solver_pair_eligibility.py original.so --output checkpoint348-pair-predicate.json | tee checkpoint348-pair-predicate.log
           grep -q 'CHECKPOINT348_PAIR_PREDICATE_SOURCE_PASS 8 ' checkpoint348-pair-predicate.log
+      - name: Execute native original per-pair solver status predicate on all 34 u32 boundaries
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint348/native_original_solver_pair_eligibility.py original.so --output checkpoint348-eligibility-native.json | tee checkpoint348-eligibility-native.log
+          grep -q 'CHECKPOINT348_SOLVER_NATIVE_PREDICATE_PASS 34 7' checkpoint348-eligibility-native.log
       - name: Archive JSON diagnostics only
         if: always()
         uses: actions/upload-artifact@v4
@@ -57,5 +62,7 @@ jobs:
             checkpoint348-solver-target.log
             checkpoint348-pair-predicate.json
             checkpoint348-pair-predicate.log
+            checkpoint348-eligibility-native.json
+            checkpoint348-eligibility-native.log
           if-no-files-found: warn
           retention-days: 7
