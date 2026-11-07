@@ -18,15 +18,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 0e8f9d0d45dc96d31e322a7fb79aa67ae7ca7c8c
+          ref: 3dfd7617961a3940727ce836a30ac52a2ba3219f
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify original research revision and install disassembler
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "0e8f9d0d45dc96d31e322a7fb79aa67ae7ca7c8c"
+          test "$(git rev-parse HEAD)" = "3dfd7617961a3940727ce836a30ac52a2ba3219f"
           python3 -m pip install --quiet --break-system-packages capstone pyelftools
-          python3 -m py_compile research/photosphere/checkpoint353/survey_original_provider_population.py research/photosphere/checkpoint353/scan_original_provider_append_callsites.py
+          python3 -m py_compile research/photosphere/checkpoint353/survey_original_provider_population.py research/photosphere/checkpoint353/scan_original_provider_append_callsites.py research/photosphere/checkpoint353/trace_original_addimage_child_source.py
       - name: Retrieve SHA-locked original GCam 8.8 ARM64
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -47,6 +47,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint353/scan_original_provider_append_callsites.py original.so --output checkpoint353-append-callsites.json | tee checkpoint353-append-callsites.log
           grep -q '^CHECKPOINT353_APPEND_CALLSITE_SCAN_PASS ' checkpoint353-append-callsites.log
+      - name: Source original AddImage child X28 and 36byte metadata X25 provenance
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint353/trace_original_addimage_child_source.py original.so --output checkpoint353-addimage-x28.json | tee checkpoint353-addimage-x28.log
+          grep -q '^CHECKPOINT353_ADDIMAGE_ORIGINAL_CHILD_SOURCE_PROVENANCE_PASS 9 ' checkpoint353-addimage-x28.log
       - name: Archive research JSON and logs, never binary
         if: always()
         uses: actions/upload-artifact@v4
@@ -57,5 +62,7 @@ jobs:
             checkpoint353-provider-methods.log
             checkpoint353-append-callsites.json
             checkpoint353-append-callsites.log
+            checkpoint353-addimage-x28.json
+            checkpoint353-addimage-x28.log
           retention-days: 7
           if-no-files-found: warn
