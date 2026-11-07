@@ -1,0 +1,54 @@
+name: Photosphere checkpoint351 source original solver empty residual headers
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint351-source.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint351-source
+  cancel-in-progress: false
+jobs:
+  source-original-empty-residual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Exact source research SHA-pinned read-only checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 27c2e6a17734d2add0f09848b8d43e43a34684f6
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source SHA and install ARM64 native emulator
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "27c2e6a17734d2add0f09848b8d43e43a34684f6"
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint351/native_original_solver_empty_residual.py
+      - name: Verify original Google Camera ELF and APK SHA256
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Execute original AddImage graph postgraph solver callbacks empty-residual FOV collector
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint351/native_original_solver_empty_residual.py original.so --output checkpoint351-source.json | tee checkpoint351-source.log
+          grep -q '^CHECKPOINT351_EMPTY_RESIDUAL_SOURCE_PASS 15 91$' checkpoint351-source.log
+      - name: Archive source result JSON and nonproprietary logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint351-source
+          path: |
+            checkpoint351-source.json
+            checkpoint351-source.log
+          retention-days: 7
+          if-no-files-found: warn
