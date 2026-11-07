@@ -1,0 +1,54 @@
+name: Photosphere checkpoint348 original solver virtual receiver resolution
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint348-vtable.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint348-vtable
+  cancel-in-progress: false
+jobs:
+  native-original-solver-receiver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: SHA-pin private decompile read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: d5f1050747b9f346cacbea01ab4a1606a924ed33
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source SHA and install exact ELF inspection dependencies
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "d5f1050747b9f346cacbea01ab4a1606a924ed33"
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint348/resolve_original_solver_vtable.py
+      - name: Retrieve original GCam ARM64 library with SHA checksum
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Inspect source ELF vtable plus eighteen and concrete virtual target
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint348/resolve_original_solver_vtable.py original.so --output checkpoint348-solver-target.json | tee checkpoint348-solver-target.log
+          grep -q 'CHECKPOINT348_VTABLE_TARGET_SOURCE_RESOLVED ' checkpoint348-solver-target.log
+      - name: Archive JSON diagnostics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint348-vtable
+          path: |
+            checkpoint348-solver-target.json
+            checkpoint348-solver-target.log
+          if-no-files-found: warn
+          retention-days: 7
