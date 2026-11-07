@@ -18,15 +18,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 3293bb063b1f16d2edb59b78145b1f2d262107a1
+          ref: 8ed5cba04d55aeec4b0f39b30091f2ea86b4f05f
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify SHA and install source disassembly tooling
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "3293bb063b1f16d2edb59b78145b1f2d262107a1"
+          test "$(git rev-parse HEAD)" = "8ed5cba04d55aeec4b0f39b30091f2ea86b4f05f"
           python3 -m pip install --quiet --break-system-packages capstone pyelftools
-          python3 -m py_compile research/photosphere/checkpoint351/scan_original_model_provider_writers.py research/photosphere/checkpoint351/inspect_original_owner_candidate.py research/photosphere/checkpoint351/scan_original_provider_factory.py research/photosphere/checkpoint351/inspect_original_provider_impl.py
+          python3 -m py_compile research/photosphere/checkpoint351/scan_original_model_provider_writers.py research/photosphere/checkpoint351/inspect_original_owner_candidate.py research/photosphere/checkpoint351/scan_original_provider_factory.py research/photosphere/checkpoint351/inspect_original_provider_impl.py research/photosphere/checkpoint351/resolve_original_provider_vtable.py
       - name: Retrieve original GCam ARM64 ELF without archiving
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -58,6 +58,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint351/inspect_original_provider_impl.py original.so --output checkpoint351-impl.json | tee checkpoint351-impl.log
           grep -q '^CHECKPOINT351_PROVIDER_IMPL_SOURCE_SCAN_PASS 2 ' checkpoint351-impl.log
+      - name: Resolve source-native provider 0x40dc10 vtable +0x28 real callback target
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint351/resolve_original_provider_vtable.py original.so --output checkpoint351-vtable.json | tee checkpoint351-vtable.log
+          grep -q '^CHECKPOINT351_CONCRETE_PROVIDER_GETTER_VTABLE_PASS ' checkpoint351-vtable.log
       - name: Archive only nonproprietary source-address survey
         if: always()
         uses: actions/upload-artifact@v4
@@ -72,5 +77,7 @@ jobs:
             checkpoint351-factory.log
             checkpoint351-impl.json
             checkpoint351-impl.log
+            checkpoint351-vtable.json
+            checkpoint351-vtable.log
           retention-days: 7
           if-no-files-found: warn
