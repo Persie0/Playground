@@ -1,0 +1,137 @@
+name: Photosphere checkpoint351 original residual-vector branch Rust differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint351-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint351-rust
+  cancel-in-progress: false
+jobs:
+  original-native-empty-residual-differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout SHA-locked private Rust app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 2172f319fff1808a72676bc358803ce1e3c060c8
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Assert exact private app source revision
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "2172f319fff1808a72676bc358803ce1e3c060c8"
+      - name: Install exact Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Fetch SHA-pinned source-original ARM64 native report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42403472903 --repo Persie0/Playground --name photosphere-checkpoint351-source --dir original351
+      - name: Independently compare every 38 original residual-empty branch against fixture
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          f=json.loads(Path("tests/fixtures/native_original_solver_empty_residual_351.json").read_text())
+          source=json.loads(Path("original351/checkpoint351-source.json").read_text())
+          old=json.loads(Path("tests/fixtures/native_original_finalizer_fov_gate_345.json").read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert f["checkpoint"]==source["checkpoint"]==351
+          assert f["source_run"]==42403472903
+          assert f["original_elf_sha256"]==source["original_elf_sha256"]==old["elf_sha256"]==sha
+          assert f["source_original_opcode_pins"]==source["source_original_opcode_pins"]==91
+          assert f["source_original_36byte_vector_header_offset"]=="0x68"
+          assert f["source_original_28byte_vector_header_offset"]=="0x50"
+          assert f["source_original_branch_start_pc"]=="0x128d84"
+          assert f["source_original_empty_branch_next_cursor_pc"]=="0x128b10"
+          assert f["source_original_real_callback_implementations_executed"] is False
+          assert f["source_original_full_solver_executed"] is False
+          assert f["source_original_pair_buffer_writes"]==0
+          assert source["source_original_solver_empty_nested_residual_shortcircuit_executed"] is True
+          assert source["source_original_real_solver_model_vtable_targets_executed"] is False
+          assert source["source_original_complete_virtual_solver_source_executed"] is False
+          assert source["source_original_complete_addimage_function_executed"] is False
+          assert source["source_original_real_camera_features_executed"] is False
+          assert source["source_original_fov_optimizer_executed"] is False
+          assert source["source_original_postgraph_model_count_and_libm_stubbed"] is True
+          assert source["source_original_four_vector_finalizer_complete"] is True
+          assert source["source_original_fov_postregistration_gate_source_executed"] is True
+          assert source["source_original_device_pixels_verified"] is False
+          assert len(f["cases"])==len(source["cases"])==len(old["rows"])==15
+          expected_pcs=f["source_original_13_hook_pcs_including_stop"]
+          assert expected_pcs==[
+              "0x128d84","0x128d88","0x128d8c","0x128d90",
+              "0x128d94","0x128d98","0x128d9c","0x128da0",
+              "0x128da4","0x128ed4","0x128ed8","0x128edc","0x128b10"
+          ]
+          count=skipped=0
+          for fix,obs,prior in zip(f["cases"],source["cases"],old["rows"]):
+              name=fix["name"]
+              assert name==obs["name"]==prior[0],name
+              assert fix["source_original_full_u32_statuses"]==prior[8]==obs["source_original_estimator_statuses"],name
+              assert obs["source_original_source_unchanged_by_fov_copy"] is True,name
+              assert obs["source_original_solver_pair_status5_6_loop_source_executed"] is True,name
+              assert obs["source_original_solver_callback_dispatch_original_ARM64_executed"] is True,name
+              assert obs["source_original_empty_residual_native_arm64_executed"] is True,name
+              assert obs["source_original_empty_residual_callbacks_test_stubbed"] is True,name
+              assert obs["source_original_empty_residual_pair_memory_writes"]==0,name
+              assert obs["source_original_solver_callback_pair_record_writes"]==0,name
+              indices=[i for i,s in enumerate(prior[8]) if s==5]
+              skipped+=sum(s==6 for s in prior[8])
+              assert fix["eligible_pair_indices"]==indices,name
+              assert fix["source_original_empty_residual_branch_count"]==len(indices)==obs["source_original_empty_residual_case_count"],name
+              assert len(obs["source_original_empty_residual_rows"])==len(indices),name
+              for row,idx in zip(obs["source_original_empty_residual_rows"],indices):
+                  assert row["pair_index"]==idx,name
+                  assert row["source_original_pair_status"]==5,name
+                  assert row["source_original_28byte_vector_empty"] is True,name
+                  assert row["source_original_36byte_vector_empty"] is True,name
+                  assert row["source_original_first_empty_branch_taken"] is False,name
+                  assert row["source_original_second_empty_branch_taken"] is True,name
+                  assert row["source_original_residual_ceres_rows_constructed"]==0,name
+                  assert row["source_original_branch_stop_pc"]=="0x128b10",name
+                  assert row["source_original_instruction_pcs_including_hook_stop"]==expected_pcs,name
+                  assert row["source_original_source_pair_record_write_count"]==0,name
+                  assert row["source_original_callbacks_real_implementation_executed"] is False,name
+                  count+=1
+              assert obs["source_original_gate_selected_statuses"]==prior[10],name
+              assert obs["source_original_gate_accepts"] is prior[12],name
+          assert (count,skipped)==(38,13)
+          assert f["total_original_empty_residual_segments"]==count
+          print("CHECKPOINT351_INDEPENDENT_SOURCE_NATIVE_EMPTY_RESIDUAL_PASS 15 91 38")
+          print("CHECKPOINT351_STATUS5_EMPTY_VECTORS_AND_STATUS6_SKIPS_PASS 38 13")
+          PY
+      - name: Run focused checkpoint351 native source-compatible Rust tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint351 -- --nocapture > checkpoint351-focused.log 2>&1 || { tail -n 240 checkpoint351-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint351-focused.log
+          tail -n 30 checkpoint351-focused.log
+      - name: Run all Rust library and integration regressions
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint351-lib.log 2>&1 || { tail -n 240 checkpoint351-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint351-integration.log 2>&1 || { tail -n 240 checkpoint351-integration.log; exit 1; }
+          grep '^test result:' checkpoint351-lib.log | tail -1
+          grep '^test result:' checkpoint351-integration.log | tail -9
+      - name: Archive only nonproprietary focused and regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint351-rust
+          path: |
+            checkpoint351-focused.log
+            checkpoint351-lib.log
+            checkpoint351-integration.log
+          retention-days: 7
+          if-no-files-found: warn
