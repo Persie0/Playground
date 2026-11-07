@@ -1,0 +1,55 @@
+name: Photosphere checkpoint351 original estimator model-provider pointer survey
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint351-provider.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint351-provider
+  cancel-in-progress: false
+jobs:
+  source-original-estimator-model-provider:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout SHA-pinned private original research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: a87492298b1e0314fb95c58fb326824319e402f8
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify SHA and install source disassembly tooling
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "a87492298b1e0314fb95c58fb326824319e402f8"
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint351/scan_original_model_provider_writers.py
+      - name: Retrieve original GCam ARM64 ELF without archiving
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Scan actual estimator model-provider loads and candidate owner stores
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint351/scan_original_model_provider_writers.py original.so --output checkpoint351-provider.json | tee checkpoint351-provider.log
+          grep -q '^CHECKPOINT351_MODEL_PROVIDER_SOURCE_SURVEY_PASS .* 6$' checkpoint351-provider.log
+          grep -q '^CHECKPOINT351_SOURCE_CONCRETE_VTABLE_NOT_PROVEN$' checkpoint351-provider.log
+      - name: Archive only nonproprietary source-address survey
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint351-provider
+          path: |
+            checkpoint351-provider.json
+            checkpoint351-provider.log
+          retention-days: 7
+          if-no-files-found: warn
