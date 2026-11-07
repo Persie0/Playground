@@ -1,0 +1,54 @@
+name: Photosphere checkpoint353 original provider child lifecycle survey
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint353-source.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint353-source
+  cancel-in-progress: false
+jobs:
+  source-original-provider-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout private research exact SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 8791a7f8abfee49aecb43ddeed960ce1240aad65
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify original research revision and install disassembler
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "8791a7f8abfee49aecb43ddeed960ce1240aad65"
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint353/survey_original_provider_population.py
+      - name: Retrieve SHA-locked original GCam 8.8 ARM64
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Original provider vtable and initial zero-child-pointer source opcode survey
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint353/survey_original_provider_population.py original.so --output checkpoint353-provider-methods.json | tee checkpoint353-provider-methods.log
+          grep -q '^CHECKPOINT353_PROVIDER_POPULATION_SURVEY_PASS 19 18 ' checkpoint353-provider-methods.log
+      - name: Archive research JSON and logs, never binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint353-source
+          path: |
+            checkpoint353-provider-methods.json
+            checkpoint353-provider-methods.log
+          retention-days: 7
+          if-no-files-found: warn
