@@ -18,15 +18,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: d5f1050747b9f346cacbea01ab4a1606a924ed33
+          ref: eea99fcb73ddf6d37e06ed85425d3b730cad2808
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify source SHA and install exact ELF inspection dependencies
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "d5f1050747b9f346cacbea01ab4a1606a924ed33"
+          test "$(git rev-parse HEAD)" = "eea99fcb73ddf6d37e06ed85425d3b730cad2808"
           python3 -m pip install --quiet --break-system-packages capstone pyelftools
-          python3 -m py_compile research/photosphere/checkpoint348/resolve_original_solver_vtable.py
+          python3 -m py_compile research/photosphere/checkpoint348/resolve_original_solver_vtable.py research/photosphere/checkpoint348/scan_original_solver_pair_eligibility.py
       - name: Retrieve original GCam ARM64 library with SHA checksum
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -42,6 +42,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint348/resolve_original_solver_vtable.py original.so --output checkpoint348-solver-target.json | tee checkpoint348-solver-target.log
           grep -q 'CHECKPOINT348_VTABLE_TARGET_SOURCE_RESOLVED ' checkpoint348-solver-target.log
+      - name: Trace original receiver 128-byte pair loop and native eligibility helper
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint348/scan_original_solver_pair_eligibility.py original.so --output checkpoint348-pair-predicate.json | tee checkpoint348-pair-predicate.log
+          grep -q 'CHECKPOINT348_PAIR_PREDICATE_SOURCE_PASS 8 ' checkpoint348-pair-predicate.log
       - name: Archive JSON diagnostics only
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,5 +55,7 @@ jobs:
           path: |
             checkpoint348-solver-target.json
             checkpoint348-solver-target.log
+            checkpoint348-pair-predicate.json
+            checkpoint348-pair-predicate.log
           if-no-files-found: warn
           retention-days: 7
