@@ -1,0 +1,160 @@
+name: Photosphere checkpoint352 real source provider getter Rust differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint352-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint352-rust
+  cancel-in-progress: false
+jobs:
+  native-source-getter-rust-differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Read-only private app exact SHA checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 94e38495181038feeb5d1a4666796a91ad22ef41
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact private Rust source SHA
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "94e38495181038feeb5d1a4666796a91ad22ef41"
+      - name: Use stable Rust 1.99.1
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Download ORIGINAL native ARM64 source 15 graph + 69 boundary oracle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42406717286 --repo Persie0/Playground --name photosphere-checkpoint352-source --dir source352
+      - name: Independently compare 15 original source graph getter cases plus 69 native signed-index boundaries
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          f=json.loads(Path("tests/fixtures/native_original_provider_getter_352.json").read_text())
+          native=json.loads(Path("source352/checkpoint352-source.json").read_text())
+          bounds=json.loads(Path("source352/checkpoint352-boundary.json").read_text())
+          prior=json.loads(Path("tests/fixtures/native_original_finalizer_fov_gate_345.json").read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert f["checkpoint"]==native["checkpoint"]==bounds["checkpoint"]==352
+          assert f["source_run"]==42406717286
+          assert f["original_elf_sha256"]==native["original_elf_sha256"]==bounds["original_elf_sha256"]==prior["elf_sha256"]==sha
+          assert f["source_original_pipeline_opcode_pins"]==native["source_original_opcode_pins"]==104
+          assert f["source_original_getter_opcode_pins"]==bounds["source_original_getter_source_opcode_pins"]==13
+          assert f["source_original_native_provider_concrete_vptr"]==bounds["source_original_provider_vtable_va"]=="0x40dc10"
+          assert f["source_original_vtable_slot_va"]==bounds["source_original_provider_getter_slot_va"]=="0x40dc38"
+          assert f["source_original_getter_entry_pc"]==bounds["source_original_getter_entry_pc"]=="0x3448d0"
+          assert f["source_original_getter_return_pc"]=="0x344900"
+          assert f["source_original_negative_diagnostic_pc"]==bounds["source_original_negative_input_diagnostic_pc"]=="0x344904"
+          assert f["source_original_out_of_range_diagnostic_pc"]==bounds["source_original_nonnegative_out_of_range_diagnostic_pc"]=="0x34493c"
+          assert f["source_original_provider_pointer_vector_offset_bytes"]==40
+          assert f["source_original_provider_pointer_stride_bytes"]==8
+          assert f["source_original_pipeline_test_child_count"]==20
+          assert f["source_original_pipeline_child_test_stride_bytes"]==128
+          assert f["source_original_pipeline_original_getter_executed"] is True
+          assert f["source_original_remaining_two_child_callbacks_stubbed"] is True
+          assert f["source_original_full_solver_executed"] is False
+          assert f["source_original_pair_record_writes"]==0
+          assert native["source_original_complete_virtual_solver_source_executed"] is False
+          assert native["source_original_real_solver_model_vtable_targets_executed"] is False
+          assert native["source_original_device_pixels_verified"] is False
+          assert native["source_original_solver_empty_nested_residual_shortcircuit_executed"] is True
+          assert bounds["source_original_native_arm64_getter_executed"] is True
+          assert bounds["source_original_diagnostic_handlers_executed"] is False
+          assert bounds["source_original_child_data_test_supplied"] is True
+          assert bounds["source_original_model_real_child_vtables_proven"] is False
+          assert len(f["pipeline_cases"])==len(native["cases"])==len(prior["rows"])==15
+          actual_eligible=actual_skipped=0
+          for expected,src,p in zip(f["pipeline_cases"],native["cases"],prior["rows"]):
+              name=expected["name"]
+              assert name==src["name"]==p[0],name
+              assert expected["original_status_words"]==p[8]==src["source_original_estimator_statuses"],name
+              assert src["source_original_provider_getter_real_arm64_executed"] is True,name
+              assert src["source_original_provider_vtable_relocated_from_original_elf"] is True,name
+              assert src["source_original_provider_getter_returns_distinct_test_child_pointers"] is True,name
+              assert src["source_original_remaining_two_child_methods_test_stubbed"] is True,name
+              assert src["source_original_solver_callback_pair_record_writes"]==0,name
+              assert src["source_original_source_unchanged_by_fov_copy"] is True,name
+              rows=src["source_original_solver_eligible_callback_rows"]
+              assert len(rows)==expected["native_getter_source_call_count"]==len(expected["original_getter_pair_rows"]),name
+              actual_skipped+=sum(status==6 for status in p[8])
+              for row,erow in zip(rows,expected["original_getter_pair_rows"]):
+                  index,first,pointer,count=erow
+                  assert row["pair_index"]==index,name
+                  assert row["source_original_full_status"]==5,name
+                  assert row["source_original_input_endpoints"]==p[1][index][:2],name
+                  assert first==p[1][index][0],name
+                  assert row["source_original_pc_count_including_stop"]==count==38,name
+                  assert row["original_provider_getter_native_executed"] is True,name
+                  assert row["original_provider_getter_function_pc"]=="0x3448d0",name
+                  assert row["original_provider_vtable_original_va"]=="0x40dc10",name
+                  assert row["original_provider_vtable_getter_slot_va"]=="0x40dc38",name
+                  assert row["original_provider_getter_selected_child_index"]==first,name
+                  assert row["original_provider_getter_child_stride_synthetic"]==128,name
+                  assert row["original_provider_getter_returned_child"]==pointer,name
+                  assert row["original_child_two_virtual_implementations_test_stubbed"] is True,name
+                  events=row["source_original_three_callback_call_events"]
+                  assert len(events)==3,name
+                  assert events[0]["target_pc"]=="0x3448d0",name
+                  assert [e["source_original_function_body_executed"] for e in events]==[True,False,False],name
+                  assert [e["test_stubbed_callee"] for e in events]==[False,True,True],name
+                  assert events[0]["arg_w1"]==first,name
+                  assert events[1]["receiver_x0"]==events[2]["receiver_x0"]==pointer,name
+                  actual_eligible+=1
+              assert src["source_original_gate_selected_statuses"]==p[10],name
+              assert src["source_original_gate_accepts"] is p[12],name
+          assert (actual_eligible,actual_skipped)==(38,13)
+          assert f["source_original_boundary_case_count"]==bounds["case_count"]==len(f["boundary_cases"])==len(bounds["cases"])==69
+          assert f["source_original_boundary_valid_count"]==bounds["valid_count"]==17
+          assert f["source_original_boundary_invalid_count"]==bounds["invalid_count"]==52
+          nsuccess=0
+          for exp,obs in zip(f["boundary_cases"],bounds["cases"]):
+              assert exp["length"]==obs["count"]
+              assert exp["index"]==obs["signed_index"]
+              assert exp["source_original_success"] is obs["original_getter_success"]
+              assert exp["source_original_stop"]==obs["original_getter_pc_stop"]
+              assert exp["source_original_hook_count"]==obs["source_original_executed_pc_count_including_stop"]
+              assert exp["returned_child_test_pointer"]==obs["original_getter_native_returned_pointer"]
+              assert obs["original_child_pointer_vector_unchanged"] is True
+              assert obs["original_provider_vector_header_unchanged"] is True
+              assert obs["original_diagnostic_handler_executed"] is False
+              nsuccess+=int(obs["original_getter_success"])
+          assert nsuccess==17
+          print("CHECKPOINT352_INDEPENDENT_NATIVE_SOURCE_GETTER_PASS 15 104 38")
+          print("CHECKPOINT352_INDEPENDENT_SIGNED_INDEX_BOUNDARIES_PASS 69 17 52")
+          PY
+      - name: Focused source-backed getter Rust regression
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint352 -- --nocapture > checkpoint352-focused.log 2>&1 || { tail -n 220 checkpoint352-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint352-focused.log
+          tail -n 28 checkpoint352-focused.log
+      - name: Complete Rust library and integration regression
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint352-lib.log 2>&1 || { tail -n 230 checkpoint352-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint352-integration.log 2>&1 || { tail -n 230 checkpoint352-integration.log; exit 1; }
+          grep '^test result:' checkpoint352-lib.log | tail -1
+          grep '^test result:' checkpoint352-integration.log | tail -9
+      - name: Archive nonproprietary CI logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint352-rust
+          path: |
+            checkpoint352-focused.log
+            checkpoint352-lib.log
+            checkpoint352-integration.log
+          if-no-files-found: warn
+          retention-days: 7
