@@ -18,15 +18,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 27cd2ba32d78ccc0674db6101b65d4e59d81e430
+          ref: b46218b528456f6dc6d124126238b55704bca3f4
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Pin source and install Unicorn plus Capstone
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "27cd2ba32d78ccc0674db6101b65d4e59d81e430"
-          python3 -m pip install --quiet --break-system-packages unicorn capstone
-          python3 -m py_compile research/photosphere/checkpoint345/native_original_producer_graph_fov_gate.py
+          test "$(git rev-parse HEAD)" = "b46218b528456f6dc6d124126238b55704bca3f4"
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint345/native_original_producer_graph_fov_gate.py research/photosphere/checkpoint345/scan_original_graph_callers.py
       - name: Obtain checksum-pinned original GCam ARM64 liblightcycle.so
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -42,6 +42,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint345/native_original_producer_graph_fov_gate.py original.so --output checkpoint345-original.json | tee checkpoint345-original.log
           grep -q '^CHECKPOINT345_ORIGINAL_FOV_GATE_JOIN_PASS 15 18$' checkpoint345-original.log
+      - name: Survey original direct BL/B graph caller and FOV provenance
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint345/scan_original_graph_callers.py original.so --output checkpoint345-direct-callers.json | tee checkpoint345-direct-callers.log
+          grep -q '^CHECKPOINT345_DIRECT_CALL_SOURCE_SCAN_PASS 11 ' checkpoint345-direct-callers.log
       - name: Archive non-proprietary fixture and diagnostic text
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,5 +55,7 @@ jobs:
           path: |
             checkpoint345-original.json
             checkpoint345-original.log
+            checkpoint345-direct-callers.json
+            checkpoint345-direct-callers.log
           if-no-files-found: warn
           retention-days: 7
