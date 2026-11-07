@@ -1,0 +1,121 @@
+name: Photosphere checkpoint348 original solver pair gate differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint348-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint348-rust
+  cancel-in-progress: false
+jobs:
+  original-solver-eligibility-rust-differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Read-only SHA-locked private PhotosphereCleanroom
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: ee8345b816f33f5cccc1a97d19ce80df318c0eb2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Check exact SHA
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "ee8345b816f33f5cccc1a97d19ce80df318c0eb2"
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Download original ARM64 vtable and per-pair status oracle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42332045230 --repo Persie0/Playground --name photosphere-checkpoint348-vtable --dir original-source
+      - name: Independently verify original vtable relocation and all 34 native status cases
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          fixture=json.loads(Path("tests/fixtures/native_original_solver_pair_eligibility_348.json").read_text())
+          native=json.loads(Path("original-source/checkpoint348-eligibility-native.json").read_text())
+          vtable=json.loads(Path("original-source/checkpoint348-solver-target.json").read_text())
+          predicate=json.loads(Path("original-source/checkpoint348-pair-predicate.json").read_text())
+          previous=json.loads(Path("tests/fixtures/native_original_finalizer_fov_gate_345.json").read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert fixture["checkpoint"]==native["checkpoint"]==vtable["checkpoint"]==predicate["checkpoint"]==348
+          assert fixture["source_run"]==42332045230
+          assert fixture["original_elf_sha256"]==native["original_elf_sha256"]==vtable["original_elf_sha256"]==predicate["original_elf_sha256"]==previous["elf_sha256"]==sha
+          assert fixture["source_original_receiver_vtable_opcode_pins"]==vtable["source_exact_opcode_pins"]==17
+          assert fixture["source_original_pair_loop_opcode_pins"]==predicate["exact_original_opcode_pins"]==8
+          assert fixture["source_original_pair_predicate_opcode_pins"]==native["source_original_opcode_pins"]==7
+          assert fixture["source_original_virtual_target"]==vtable["original_solver_virtual_target_va"]==predicate["original_receiver_virtual_target"]=="0x1287c0"
+          assert fixture["source_original_virtual_slot_va"]==vtable["original_solver_virtual_slot_va"]=="0x3fdfa0"
+          assert fixture["source_original_pair_predicate_entry"]==predicate["source_original_solver_pair_predicate_pc"]==native["original_solver_pair_predicate_entry_pc"]=="0x31701c"
+          assert fixture["source_original_pair_status_mask"]==native["original_solver_pair_predicate_mask"]=="0x6a1"
+          assert fixture["source_original_128_byte_pair_record_unchanged"] is True
+          assert fixture["source_original_full_solver_executed"] is False
+          assert vtable["original_solver_virtual_receiver_vtable_provenance"] is True
+          assert vtable["original_solver_virtual_target_fde"]==["0x1287c0","0x129b50"]
+          assert vtable["original_solver_virtual_target_executed"] is False
+          assert vtable["original_pair_status_zero_write_proven"] is False
+          assert len(vtable["original_solver_virtual_target_instructions"])==1252
+          assert predicate["original_pair_predicate_fde"]==["0x31701c","0x317038"]
+          assert len(predicate["original_pair_predicate_instructions"])==7
+          assert predicate["source_original_pair_record_stride_bytes"]==128
+          assert predicate["source_original_pair_predicate_branch_on_w0_bit0"] is True
+          assert predicate["source_original_pair_predicate_executed"] is False
+          assert native["source_original_solver_pair_predicate_executed"] is True
+          assert native["source_original_128_byte_record_inputs_synthetic"] is True
+          assert native["source_original_complete_0x1287c0_solver_executed"] is False
+          assert native["source_original_pair_status_mutation_proven"] is False
+          assert len(native["cases"])==len(fixture["cases"])==34
+          passed=[]
+          for observed,expected in zip(native["cases"],fixture["cases"]):
+              status=expected["status"]
+              result=expected["original_native_return_w0"]
+              assert observed["input_full_u32_status"]==status
+              assert observed["source_original_return_w0"]==result
+              assert observed["source_original_predicate_eligible"] is (result==1)
+              assert observed["source_original_record_bytes_unchanged"] is True
+              assert observed["source_original_instruction_count"]==expected["original_source_instructions"]==8
+              assert observed["source_original_stop_pc"]=="0x230800"
+              if result:passed.append(status)
+          assert passed==[0,5,7,9,10]
+          prior_statuses=[s for row in previous["rows"] for s in row[8]]
+          assert 5 in prior_statuses and 6 in prior_statuses
+          assert all(s in (5,6) for s in prior_statuses)
+          assert next(c for c in native["cases"] if c["input_full_u32_status"]==5)["source_original_return_w0"]==1
+          assert next(c for c in native["cases"] if c["input_full_u32_status"]==6)["source_original_return_w0"]==0
+          print("CHECKPOINT348_INDEPENDENT_VTABLE_SOURCE_PASS 17 1252")
+          print("CHECKPOINT348_ORIGINAL_NATIVE_STATUS_ELIGIBILITY_PASS 34 7")
+          PY
+      - name: Focused source eligibility Rust regressions
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint348 -- --nocapture > checkpoint348-focused.log 2>&1 || { tail -n 250 checkpoint348-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint348-focused.log
+          tail -n 30 checkpoint348-focused.log
+      - name: Full Rust library and integration suite
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint348-lib.log 2>&1 || { tail -n 230 checkpoint348-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint348-integration.log 2>&1 || { tail -n 230 checkpoint348-integration.log; exit 1; }
+          grep '^test result:' checkpoint348-lib.log | tail -1
+          grep '^test result:' checkpoint348-integration.log | tail -9
+      - name: Archive nonproprietary logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint348-rust
+          path: |
+            checkpoint348-focused.log
+            checkpoint348-lib.log
+            checkpoint348-integration.log
+          if-no-files-found: warn
+          retention-days: 7
