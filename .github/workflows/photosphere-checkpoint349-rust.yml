@@ -1,0 +1,139 @@
+name: Photosphere checkpoint349 original solver pair loop Rust differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint349-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint349-rust
+  cancel-in-progress: false
+jobs:
+  original-solver-pair-loop-differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact private app SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: a32c08c5b908a2f1dc87f55035d6587fb14895e4
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact private app source SHA
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "a32c08c5b908a2f1dc87f55035d6587fb14895e4"
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Fetch original source ARM64 solver cursor report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42387587447 --repo Persie0/Playground --name photosphere-checkpoint349-source --dir original-349
+      - name: Independently compare 15 native original cases and all 66 solver cursor branches
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          fixture=json.loads(Path("tests/fixtures/native_original_solver_pair_loop_349.json").read_text())
+          source=json.loads(Path("original-349/checkpoint349-solver-loop.json").read_text())
+          prior=json.loads(Path("tests/fixtures/native_original_finalizer_fov_gate_345.json").read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert fixture["checkpoint"]==source["checkpoint"]==349
+          assert fixture["source_run"]==42387587447
+          assert fixture["original_elf_sha256"]==source["original_elf_sha256"]==prior["elf_sha256"]==sha
+          assert fixture["source_original_opcode_pins"]==source["source_original_opcode_pins"]==57
+          assert fixture["source_original_record_size_bytes"]==128
+          assert fixture["source_original_solver_loop_entry_pc"]=="0x128b10"
+          assert fixture["source_original_solver_ineligible_pc"]=="0x128b0c"
+          assert fixture["source_original_solver_eligible_pc"]=="0x128b3c"
+          assert fixture["source_original_solver_exhausted_pc"]=="0x128ee0"
+          assert fixture["native_original_full_solver_executed"] is False
+          assert fixture["original_source_record_writes"]==0
+          assert source["source_original_solver_pair_status5_6_loop_source_executed"] is True
+          assert source["source_original_complete_virtual_solver_source_executed"] is False
+          assert source["source_original_complete_addimage_function_executed"] is False
+          assert source["source_original_real_camera_features_executed"] is False
+          assert source["source_original_fov_optimizer_executed"] is False
+          assert source["source_original_postgraph_model_count_and_libm_stubbed"] is True
+          assert source["source_original_four_vector_finalizer_complete"] is True
+          assert source["source_original_fov_postregistration_gate_source_executed"] is True
+          assert source["source_original_device_pixels_verified"] is False
+          assert len(fixture["cases"])==len(source["cases"])==len(prior["rows"])==15
+          eligible=skipped=exhausted=0
+          for expected,original,old in zip(fixture["cases"],source["cases"],prior["rows"]):
+              name=expected["name"]
+              assert name==original["name"]==old[0],name
+              assert expected["source_pair_count"]==len(old[1])==original["source_original_pair_count"],name
+              assert expected["source_graph_statuses"]==old[8]==original["source_original_estimator_statuses"],name
+              assert expected["source_graph_statuses"]==original["source_original_fov_copied_statuses"],name
+              assert original["source_original_solver_per_pair_loop_native_executed"] is True,name
+              assert original["source_original_solver_full_0x1287c0_not_executed"] is True,name
+              assert original["source_original_solver_loop_reuses_estimator_plus_f8"] is True,name
+              assert original["source_original_solver_loop_record_writes"]==0,name
+              assert original["source_original_postgraph_pair_record_write_count"]==0,name
+              assert original["source_original_source_unchanged_by_fov_copy"] is True,name
+              assert len(expected["source_original_solver_loop"])==len(original["source_original_solver_loop_rows"])==len(old[1])+1,name
+              row_eligible=row_skipped=0
+              for row_e,row_n in zip(expected["source_original_solver_loop"],original["source_original_solver_loop_rows"]):
+                  i,status,stop,endpoints,insns=row_e
+                  assert row_n["index"]==i and row_n["source_original_status_u32"]==status,name
+                  assert row_n["source_original_entry_pc"]=="0x128b10",name
+                  assert row_n["source_original_stop_pc"]==stop,name
+                  assert row_n["source_original_executed_instruction_count"]==insns,name
+                  assert row_n["source_original_predicate_called"] is (status is not None),name
+                  assert row_n["source_original_predicate_w0"]==int(status==5),name
+                  assert row_n["source_original_endpoint_load_executed"] is (status==5),name
+                  assert row_n["source_original_image_endpoints"]==endpoints,name
+                  if status==5:
+                      eligible+=1
+                      row_eligible+=1
+                      assert endpoints==old[1][i][:2],name
+                      assert insns==19 and stop=="0x128b3c",name
+                  elif status==6:
+                      skipped+=1
+                      row_skipped+=1
+                      assert endpoints is None and insns==18 and stop=="0x128b0c",name
+                  else:
+                      assert status is None and i==len(old[1]),name
+                      exhausted+=1
+                      assert endpoints is None and insns==7 and stop=="0x128ee0",name
+              assert row_eligible==expected["eligible_count"]==original["source_original_solver_loop_status5_eligible_count"],name
+              assert row_skipped==expected["skipped_count"]==original["source_original_solver_loop_status6_excluded_count"],name
+              assert original["source_original_gate_selected_statuses"]==old[10],name
+              assert original["source_original_gate_accepts"] is old[12],name
+          assert (eligible,skipped,exhausted)==(38,13,15)
+          print("CHECKPOINT349_INDEPENDENT_ORIGINAL_SOLVER_LOOP_PASS 15 57 66")
+          print("CHECKPOINT349_SOURCE_ELIGIBLE_SKIPPED_EXHAUSTED_PASS 38 13 15")
+          PY
+      - name: Run focused checkpoint349 Rust native parity tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint349 -- --nocapture > checkpoint349-focused.log 2>&1 || { tail -n 230 checkpoint349-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint349-focused.log
+          tail -n 30 checkpoint349-focused.log
+      - name: Full Rust library and integration regression
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint349-lib.log 2>&1 || { tail -n 250 checkpoint349-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint349-integration.log 2>&1 || { tail -n 250 checkpoint349-integration.log; exit 1; }
+          grep '^test result:' checkpoint349-lib.log | tail -1
+          grep '^test result:' checkpoint349-integration.log | tail -9
+      - name: Archive nonproprietary diagnostic logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint349-rust
+          path: |
+            checkpoint349-focused.log
+            checkpoint349-lib.log
+            checkpoint349-integration.log
+          retention-days: 7
+          if-no-files-found: warn
