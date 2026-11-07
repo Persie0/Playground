@@ -1,0 +1,97 @@
+name: Photosphere checkpoint342 source original multi-candidate Rust parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint342-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint342-rust
+  cancel-in-progress: false
+jobs:
+  native-multi-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact pinned private app read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: c4be79a54b9648fb668a2d451b9ac13a2d99ade0
+          token: \${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned private checkout
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "c4be79a54b9648fb668a2d451b9ac13a2d99ade0"
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - name: Download original source ARM64 checkpoint342 oracle from public run
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42319509392 --repo Persie0/Playground --name photosphere-checkpoint342-original --dir original-native
+      - name: Independently compare all 22 original source outcomes to app fixtures
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          fx=json.loads(Path("tests/fixtures/native_original_multi_candidate_342.json").read_text())
+          src=json.loads(Path("original-native/checkpoint342-original-multicandidate.json").read_text())
+          assert fx["checkpoint"]==src["checkpoint"]==342
+          assert fx["elf_sha256"]==src["original_elf_sha256"]=="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert fx["opcode_pins"]==src["opcode_pins"]==14
+          assert fx["source_multi_candidate_loop_executed"] is True
+          assert src["original_complete_candidate_iteration_source_executed"] is True
+          assert fx["source_full_entry_executed"] is False
+          assert src["original_0x3172a4_entry_executed"] is False
+          assert src["original_triangle_builder_and_numeric_source_executed"] is False
+          assert len(fx["rows"])==len(src["cases"])==22
+          for row,case in zip(fx["rows"],src["cases"]):
+            (name,records,triples,indices,minima,threshold,statuses,scores,
+             marks,groups,writers,backedge)=row
+            assert name==case["name"],name
+            assert records==[[p["score_bits"],p["status_u32"],p["degree_i32"]] for p in case["synthetic_original_pair_records"]],name
+            assert triples==case["synthetic_triangle_pair_indices"],name
+            assert indices==case["synthetic_candidate_triangle_indices"]==case["source_loop_candidate_indices"],name
+            assert minima==case["synthetic_pair_minimum_f32_bits"],name
+            assert threshold==case["threshold_f32_bits"],name
+            assert statuses==case["original_final_statuses"],name
+            assert scores==case["original_final_score_bits"],name
+            assert marks==case["original_mark_count"],name
+            assert groups==[[g["triangle_index"],g["selected_pair_indices"],g["max_degree_cohort_indices"],g["winner"],g["status_marked"]] for g in case["original_group_reference"]],name
+            assert writers==case["source_native_status_writer_calls"],name
+            assert backedge==case["source_original_pc_counts"]["back_edge"],name
+            assert case["source_stop_pc"]=="0x317a44",name
+          print("CHECKPOINT342_SOURCE_ORIGINAL_ORACLE_PASS 22 14")
+          PY
+      - name: Run focused checkpoint342 Rust tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint342 -- --nocapture > checkpoint342-focused.log 2>&1 || { tail -n 250 checkpoint342-focused.log; exit 1; }
+          grep -q 'test result: ok. 2 passed; 0 failed' checkpoint342-focused.log
+          tail -n 25 checkpoint342-focused.log
+      - name: Run complete Rust library and integration regressions
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint342-lib.log 2>&1 || { tail -n 250 checkpoint342-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint342-integration.log 2>&1 || { tail -n 250 checkpoint342-integration.log; exit 1; }
+          grep '^test result:' checkpoint342-lib.log | tail -1
+          grep '^test result:' checkpoint342-integration.log | tail -9
+      - name: Archive logs without private source or original binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint342-rust
+          path: |
+            checkpoint342-focused.log
+            checkpoint342-lib.log
+            checkpoint342-integration.log
+          if-no-files-found: warn
+          retention-days: 7
