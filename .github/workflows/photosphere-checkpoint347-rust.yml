@@ -1,0 +1,128 @@
+name: Photosphere checkpoint347 original postgraph status0 parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint347-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint347-rust
+  cancel-in-progress: false
+jobs:
+  original-postgraph-status-filter-differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Read-only SHA-pinned private Rust app checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 03e1b12e88496321d8f44bd21a75602e82360aa4
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned private source and stable Rust toolchain
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "03e1b12e88496321d8f44bd21a75602e82360aa4"
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Download original checksum-pinned native postgraph oracle and solver survey
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42331280965 --repo Persie0/Playground --name photosphere-checkpoint347-source --dir original-source
+      - name: Independently compare all 15 native source status-filter cases and 17 solver ABI pins
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          fixture=json.loads(Path("tests/fixtures/native_original_postgraph_status0_filter_347.json").read_text())
+          prior=json.loads(Path("tests/fixtures/native_original_finalizer_fov_gate_345.json").read_text())
+          orig=json.loads(Path("original-source/checkpoint347-postgraph.json").read_text())
+          solver=json.loads(Path("original-source/checkpoint347-solver.json").read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert fixture["checkpoint"]==orig["checkpoint"]==solver["checkpoint"]==347
+          assert fixture["source_run"]==42331280965
+          assert fixture["original_elf_sha256"]==orig["original_elf_sha256"]==solver["original_elf_sha256"]==prior["elf_sha256"]==sha
+          assert fixture["source_original_opcode_pins"]==orig["source_original_opcode_pins"]==39
+          assert orig["source_original_postgraph_status_filter_live_join_executed"] is True
+          assert orig["source_original_postgraph_model_count_and_libm_stubbed"] is True
+          assert orig["source_original_real_camera_features_executed"] is False
+          assert orig["source_original_complete_addimage_function_executed"] is False
+          assert orig["source_original_fov_optimizer_executed"] is False
+          assert orig["source_original_device_pixels_verified"] is False
+          assert fixture["original_postgraph_finalizer_bl"]=="0x11e950"
+          assert fixture["original_postgraph_helper"]=="0x11ccfc"
+          assert fixture["original_status_read_pc"]=="0x11cf10"
+          assert fixture["original_nonzero_skip_pc"]=="0x11cf14"
+          assert fixture["original_nested_weight_update_pc"]=="0x11cfa8"
+          assert fixture["test_supplied_virtual_model_point_count"]==0
+          assert fixture["imported_f64_math_stubbed"] is True
+          assert fixture["real_registration_optimizer_executed"] is False
+          assert len(fixture["rows"])==len(orig["cases"])==len(prior["rows"])==15
+          seen_six=False
+          for row,o,p in zip(fixture["rows"],orig["cases"],prior["rows"]):
+              name=row["name"]
+              assert o["name"]==p[0]==name,name
+              assert row["source_original_pair_count"]==len(p[1])==o["source_original_pair_count"],name
+              assert row["source_original_pair_status_words"]==p[8]==o["source_original_estimator_statuses"],name
+              assert all(s in (5,6) for s in row["source_original_pair_status_words"]),name
+              seen_six=seen_six or (6 in row["source_original_pair_status_words"])
+              assert row["source_original_postgraph_status_reads"]==o["source_original_postgraph_status_field_reads"]==len(p[1]),name
+              assert row["source_original_nonzero_skip_count"]==o["source_original_postgraph_nonzero_status_filter_taken_count"]==len(p[1]),name
+              assert row["source_original_pair_record_write_count"]==o["source_original_postgraph_pair_record_write_count"]==0,name
+              assert row["source_original_nested_weight_write_reached"] is o["source_original_postgraph_nested_weight_write_executed"] is False,name
+              assert o["source_original_postgraph_native_function_executed"] is True,name
+              assert o["source_original_finalizer_postgraph_direct_bl_executed"] is True,name
+              assert o["source_original_postgraph_virtual_model_count_test_stubbed_zero"] is True,name
+              assert o["source_original_postgraph_no_status_5_6_to_zero_on_bounded_path"] is True,name
+              assert o["source_original_postgraph_real_camera_model_callbacks_executed"] is False,name
+              assert o["source_original_source_unchanged_by_fov_copy"] is True,name
+              assert o["source_original_all_four_finalizer_vector_copies_executed"] is True,name
+              assert o["source_original_fov_collector_and_gate_joined_on_source_copy"] is True,name
+              assert o["source_original_fov_copied_statuses"]==o["source_original_estimator_statuses"],name
+              assert o["source_original_gate_selected_statuses"]==p[10],name
+              assert o["source_original_gate_accepts"] is p[12],name
+          assert seen_six
+          assert solver["source_original_opcode_pins"]==17
+          assert solver["source_original_finalizer_calls_solver_0x122fcc"] is True
+          assert solver["source_original_solver_receives_estimator_as_x0"] is True
+          assert solver["source_original_solver_virtual_receiver_is_caller_x1"] is True
+          assert solver["source_original_solver_virtual_slot"]=="0x18"
+          assert solver["source_original_solver_virtual_x1_pair_pointer_source"]=="estimator+0xf8"
+          assert solver["source_original_solver_vtable_concrete_target_proven"] is False
+          assert solver["source_original_solver_pair_status_zero_writer_executed"] is False
+          assert sum(len(x) for x in solver["original_windows"].values())==35
+          print("CHECKPOINT347_INDEPENDENT_POSTGRAPH_SOURCE_PASS 15 39")
+          print("CHECKPOINT347_SOLVER_SOURCE_RECEIVER_PASS 17 35")
+          PY
+      - name: Focused native-compatible Rust postgraph status regression
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint347 -- --nocapture > checkpoint347-focused.log 2>&1 || { tail -n 250 checkpoint347-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint347-focused.log
+          tail -n 27 checkpoint347-focused.log
+      - name: Complete Rust library and integration regression
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint347-lib.log 2>&1 || { tail -n 250 checkpoint347-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint347-integration.log 2>&1 || { tail -n 250 checkpoint347-integration.log; exit 1; }
+          grep '^test result:' checkpoint347-lib.log | tail -1
+          grep '^test result:' checkpoint347-integration.log | tail -9
+      - name: Archive diagnostic logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint347-rust
+          path: |
+            checkpoint347-focused.log
+            checkpoint347-lib.log
+            checkpoint347-integration.log
+          if-no-files-found: warn
+          retention-days: 7
