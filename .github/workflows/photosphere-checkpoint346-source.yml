@@ -2,15 +2,15 @@ name: Photosphere checkpoint346 source original finalizer and registration after
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/photosphere-checkpoint346-original.yml']
+    paths: ['.github/workflows/photosphere-checkpoint346-source.yml']
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: photosphere-checkpoint346-original
+  group: photosphere-checkpoint346-source
   cancel-in-progress: false
 jobs:
-  source-original-three-stage:
+  source-original-static-inspection:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -21,7 +21,7 @@ jobs:
           ref: 221b4d7adfdb8b146433f313a5c6575fccd15d05
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
-      - name: Pin source and install Unicorn plus Capstone
+      - name: Pin source and install Capstone
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "221b4d7adfdb8b146433f313a5c6575fccd15d05"
@@ -46,7 +46,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: photosphere-checkpoint346-original
+          name: photosphere-checkpoint346-source
           path: |
             checkpoint346-static.json
             checkpoint346-static.log
