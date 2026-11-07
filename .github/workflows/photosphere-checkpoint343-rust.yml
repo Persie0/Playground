@@ -1,0 +1,110 @@
+name: Photosphere checkpoint343 joined original graph Rust differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint343-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint343-rust
+  cancel-in-progress: false
+jobs:
+  joined-graph-oracle-and-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact app SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: bab5c7c8639095547a895d4ba178adf13076e565
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify private app SHA and install stable Rust toolchain
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "bab5c7c8639095547a895d4ba178adf13076e565"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Fetch original source JSON from earlier public Playground runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42321745540 --repo Persie0/Playground --name photosphere-checkpoint343-original --dir original-joined
+          gh run download 42322086429 --repo Persie0/Playground --name photosphere-checkpoint343-original --dir original-return
+      - name: Compare complete 20 case input and outcome fixtures against original ARM64 and 13 native returns
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          f=json.loads(Path("tests/fixtures/native_original_joined_graph_343.json").read_text())
+          j=json.loads(Path("original-joined/checkpoint343-original-joined.json").read_text())
+          r=json.loads(Path("original-return/checkpoint343-original-return.json").read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert f["source_elf_sha256"]==j["original_elf_sha256"]==r["original_elf_sha256"]==sha
+          assert f["checkpoint"]==j["checkpoint"]==r["checkpoint"]==343
+          assert f["source_run"]==42321745540
+          assert f["source_opcode_pins"]==j["source_opcode_pins"]==r["source_opcode_pins"]==12
+          assert j["source_original_entry_builder_scorer_and_multi_candidate_loop_joined"]
+          assert len(f["rows"])==len(j["cases"])==len(r["cases"])==20
+          complete=0
+          for row,case,returned in zip(f["rows"],j["cases"],r["cases"]):
+              (name, pairs, threshold, pair_triangles, image_triangles, nodes,
+               scores, accepted, minimum, degrees, statuses, final_scores, marks)=row
+              assert name==case["name"]==returned["name"],name
+              assert pairs==[[p["status_u32"],p["image_a_i32"],p["image_b_i32"],p["pair_score_f32_bits"]] for p in case["synthetic_input_pairs"]],name
+              assert threshold==case["threshold_f32_bits"],name
+              assert pair_triangles==case["source_graph_pair_triangles"],name
+              assert image_triangles==case["source_graph_image_triangles"],name
+              assert nodes==case["source_graph_vertex_count"],name
+              assert scores==case["source_original_triangle_score_f32_bits"],name
+              assert accepted==case["source_original_candidate_triangle_indices"],name
+              assert minimum==case["source_per_pair_minimum_score_bits"],name
+              assert degrees==case["source_per_pair_signed_degree"],name
+              assert statuses==case["source_original_final_pair_statuses"],name
+              assert final_scores==case["source_original_final_pair_score_f32_bits"],name
+              assert marks==case["source_original_marked_pair_indices"],name
+              assert returned["source_original_final_pair_statuses"]==statuses,name
+              assert returned["source_original_final_pair_score_f32_bits"]==final_scores,name
+              assert returned["source_original_candidate_triangle_indices"]==accepted,name
+              if marks:
+                  complete+=1
+                  assert returned["source_original_cleanup_and_return_executed"],name
+                  assert returned["source_original_return_mark_count"]==len(marks),name
+                  assert returned["source_original_last_pc"]=="0x202f0000",name
+              else:
+                  assert not returned["source_original_cleanup_and_return_executed"],name
+                  assert returned["source_original_last_pc"]=="0x317a34",name
+          assert complete==13
+          print("CHECKPOINT343_INDEPENDENT_ORIGINAL_FIXTURE_PASS 20 12 13")
+          PY
+      - name: Run focused checkpoint343 Rust parity and guard tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint343 -- --nocapture > checkpoint343-focused.log 2>&1 || { tail -n 250 checkpoint343-focused.log; exit 1; }
+          grep -q 'test result: ok. 2 passed; 0 failed' checkpoint343-focused.log
+          tail -n 25 checkpoint343-focused.log
+      - name: Run full Rust library and integration regressions
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint343-lib.log 2>&1 || { tail -n 250 checkpoint343-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint343-integration.log 2>&1 || { tail -n 250 checkpoint343-integration.log; exit 1; }
+          grep '^test result:' checkpoint343-lib.log | tail -1
+          grep '^test result:' checkpoint343-integration.log | tail -9
+      - name: Archive diagnostics without private code or binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint343-rust
+          path: |
+            checkpoint343-focused.log
+            checkpoint343-lib.log
+            checkpoint343-integration.log
+          if-no-files-found: warn
+          retention-days: 7
