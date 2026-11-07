@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: feb2ef412ff1d3d6e3f5a5195d491ba5c3de5620
+          ref: de5324afd2f24ec2e76f3ffcc5ba593cdec57bdb
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Pin source and install ARM64 decoder/emulator
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "feb2ef412ff1d3d6e3f5a5195d491ba5c3de5620"
+          test "$(git rev-parse HEAD)" = "de5324afd2f24ec2e76f3ffcc5ba593cdec57bdb"
           python3 -m pip install --quiet --break-system-packages capstone unicorn
           python3 -m py_compile research/photosphere/checkpoint343/native_original_full_graph_join.py
       - name: Obtain checksum-verified original Google Camera source ELF
@@ -42,6 +42,34 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint343/native_original_full_graph_join.py original.so --output checkpoint343-original-joined.json | tee checkpoint343-original-joined.log
           grep -q '^CHECKPOINT343_JOINED_ORIGINAL_PASS 20 12$' checkpoint343-original-joined.log
+      - name: Execute source-original graph cleanup and marked return
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint343/native_original_full_graph_join.py original.so --continue-marked-return --output checkpoint343-original-return.json | tee checkpoint343-original-return.log
+          grep -q '^CHECKPOINT343_JOINED_ORIGINAL_PASS 20 12
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint343-original
+          path: |
+            checkpoint343-original-return.json
+            checkpoint343-original-return.log
+            checkpoint343-original-joined.json
+            checkpoint343-original-joined.log
+          if-no-files-found: warn
+          retention-days: 7
+ checkpoint343-original-return.log
+          grep -q '^CHECKPOINT343_MARKED_RETURN_PASS 13 20
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint343-original
+          path: |
+            checkpoint343-original-joined.json
+            checkpoint343-original-joined.log
+          if-no-files-found: warn
+          retention-days: 7
+ checkpoint343-original-return.log
       - name: Archive original outcome JSON and diagnostic text only
         if: always()
         uses: actions/upload-artifact@v4
