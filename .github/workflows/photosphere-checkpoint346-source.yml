@@ -18,15 +18,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 221b4d7adfdb8b146433f313a5c6575fccd15d05
+          ref: a5db2430f72d0c07afa1c5db5bcbde53be42e63b
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Pin source and install Capstone
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "221b4d7adfdb8b146433f313a5c6575fccd15d05"
+          test "$(git rev-parse HEAD)" = "a5db2430f72d0c07afa1c5db5bcbde53be42e63b"
           python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
-          python3 -m py_compile research/photosphere/checkpoint346/scan_original_finalizer_postgraph.py
+          python3 -m py_compile research/photosphere/checkpoint346/scan_original_finalizer_postgraph.py research/photosphere/checkpoint346/native_original_finalizer_four_vector_join.py
       - name: Obtain checksum-pinned original GCam ARM64 liblightcycle.so
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -42,6 +42,23 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint346/scan_original_finalizer_postgraph.py original.so --output checkpoint346-static.json | tee checkpoint346-static.log
           grep -q '^CHECKPOINT346_STATIC_SOURCE_PASS 5 ' checkpoint346-static.log
+      - name: Source-execute original natural graph and all FOUR finalizer FOV vectors
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint346/native_original_finalizer_four_vector_join.py original.so --output checkpoint346-four-vectors.json | tee checkpoint346-four-vectors.log
+          grep -q '^CHECKPOINT346_FOUR_VECTOR_ORIGINAL_PASS 15 31 and diagnostic text
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint346-source
+          path: |
+            checkpoint346-static.json
+            checkpoint346-static.log
+            checkpoint346-four-vectors.json
+            checkpoint346-four-vectors.log
+          if-no-files-found: warn
+          retention-days: 7
+ checkpoint346-four-vectors.log
       - name: Archive non-proprietary fixture and diagnostic text
         if: always()
         uses: actions/upload-artifact@v4
