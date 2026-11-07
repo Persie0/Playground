@@ -18,15 +18,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: a9322270e87dbfc100aa43b0e0ca5daba9d5621f
+          ref: 318c1a5e2e955ed051185d933d1399f17df82b61
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Pin exact source and install ARM64 emulation tools
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "a9322270e87dbfc100aa43b0e0ca5daba9d5621f"
+          test "$(git rev-parse HEAD)" = "318c1a5e2e955ed051185d933d1399f17df82b61"
           python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
-          python3 -m py_compile research/photosphere/checkpoint347/native_original_postgraph_status0_filter.py
+          python3 -m py_compile research/photosphere/checkpoint347/native_original_postgraph_status0_filter.py research/photosphere/checkpoint347/scan_original_solver_virtual_receiver.py
       - name: Verify exact original GCam ELF
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -42,6 +42,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint347/native_original_postgraph_status0_filter.py original.so --output checkpoint347-postgraph.json | tee checkpoint347-postgraph.log
           grep -q 'CHECKPOINT347_POSTGRAPH_STATUS_FILTER_ORIGINAL_PASS 15 39' checkpoint347-postgraph.log
+      - name: Verify source-original solver virtual pair-pointer receiver provenance
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint347/scan_original_solver_virtual_receiver.py original.so --output checkpoint347-solver.json | tee checkpoint347-solver.log
+          grep -q 'CHECKPOINT347_SOLVER_VIRTUAL_PROVENANCE_PASS 17 ' checkpoint347-solver.log
       - name: Archive only original test result JSON and logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,5 +55,7 @@ jobs:
           path: |
             checkpoint347-postgraph.json
             checkpoint347-postgraph.log
+            checkpoint347-solver.json
+            checkpoint347-solver.log
           if-no-files-found: warn
           retention-days: 7
