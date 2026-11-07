@@ -19,13 +19,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: b014fa25ced0a650a969de6c937b58ff00b29acd
+          ref: 7e37e69719e5072b837ce659476cb95c1a25e20e
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify private app SHA and install stable Rust toolchain
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "b014fa25ced0a650a969de6c937b58ff00b29acd"
+          test "$(git rev-parse HEAD)" = "7e37e69719e5072b837ce659476cb95c1a25e20e"
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -37,7 +37,8 @@ jobs:
           set -euo pipefail
           gh run download 42321745540 --repo Persie0/Playground --name photosphere-checkpoint343-original --dir original-joined
           gh run download 42322086429 --repo Persie0/Playground --name photosphere-checkpoint343-original --dir original-return
-      - name: Compare complete 20 case input and outcome fixtures against original ARM64 and 13 native returns
+          gh run download 42323112461 --repo Persie0/Playground --name photosphere-checkpoint343-original --dir original-all-return
+      - name: Compare 20 original joined graph cases and all 20 source-original return paths
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -46,15 +47,18 @@ jobs:
           f=json.loads(Path("tests/fixtures/native_original_joined_graph_343.json").read_text())
           j=json.loads(Path("original-joined/checkpoint343-original-joined.json").read_text())
           r=json.loads(Path("original-return/checkpoint343-original-return.json").read_text())
+          q=json.loads(Path("original-all-return/checkpoint343-original-all-return.json").read_text())
           sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
-          assert f["source_elf_sha256"]==j["original_elf_sha256"]==r["original_elf_sha256"]==sha
-          assert f["checkpoint"]==j["checkpoint"]==r["checkpoint"]==343
+          assert f["source_elf_sha256"]==j["original_elf_sha256"]==r["original_elf_sha256"]==q["original_elf_sha256"]==sha
+          assert f["checkpoint"]==j["checkpoint"]==r["checkpoint"]==q["checkpoint"]==343
           assert f["source_run"]==42321745540
           assert f["source_opcode_pins"]==j["source_opcode_pins"]==r["source_opcode_pins"]==12
           assert j["source_original_entry_builder_scorer_and_multi_candidate_loop_joined"]
-          assert len(f["rows"])==len(j["cases"])==len(r["cases"])==20
+          assert len(f["rows"])==len(j["cases"])==len(r["cases"])==len(q["cases"])==20
+          assert q["source_original_cleanup_and_return_executed_for_all_cases"] is True
+          assert q["source_original_zero_candidate_cleanup_and_return_executed"] is True
           complete=0
-          for row,case,returned in zip(f["rows"],j["cases"],r["cases"]):
+          for row,case,returned,finished in zip(f["rows"],j["cases"],r["cases"],q["cases"]):
               (name, pairs, threshold, pair_triangles, image_triangles, nodes,
                scores, accepted, minimum, degrees, statuses, final_scores, marks)=row
               assert name==case["name"]==returned["name"],name
@@ -69,7 +73,13 @@ jobs:
               assert degrees==case["source_per_pair_signed_degree"],name
               assert statuses==case["source_original_final_pair_statuses"],name
               assert final_scores==case["source_original_final_pair_score_f32_bits"],name
-              assert marks==case["source_original_marked_pair_indices"],name
+              assert marks==case["source_original_marked_pair_indices"]==finished["source_original_marked_pair_indices"],name
+              assert finished["name"]==name,name
+              assert finished["source_original_final_pair_statuses"]==statuses,name
+              assert finished["source_original_final_pair_score_f32_bits"]==final_scores,name
+              assert finished["source_original_cleanup_and_return_executed"],name
+              assert finished["source_original_return_mark_count"]==len(marks),name
+              assert finished["source_original_last_pc"]=="0x202f0000",name
               assert returned["source_original_final_pair_statuses"]==statuses,name
               assert returned["source_original_final_pair_score_f32_bits"]==final_scores,name
               assert returned["source_original_candidate_triangle_indices"]==accepted,name
@@ -82,7 +92,8 @@ jobs:
                   assert not returned["source_original_cleanup_and_return_executed"],name
                   assert returned["source_original_last_pc"]=="0x317a34",name
           assert complete==13
-          print("CHECKPOINT343_INDEPENDENT_ORIGINAL_FIXTURE_PASS 20 12 13")
+          assert sum(not row[12] for row in f["rows"])==7
+          print("CHECKPOINT343_INDEPENDENT_ORIGINAL_FIXTURE_PASS 20 12 13 7")
           PY
       - name: Run focused checkpoint343 Rust parity and guard tests
         run: |
