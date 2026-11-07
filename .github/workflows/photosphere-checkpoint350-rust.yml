@@ -1,0 +1,141 @@
+name: Photosphere checkpoint350 native solver model callback ABI differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint350-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint350-rust
+  cancel-in-progress: false
+jobs:
+  source-solver-model-caller-differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Read-only SHA-pinned app checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 4de57fba5280fce48d4724496cc9ae44fe4aa373
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact app source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "4de57fba5280fce48d4724496cc9ae44fe4aa373"
+      - name: Rust toolchain 1.99.1
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Fetch exact original ARM64 source-run artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42389780423 --repo Persie0/Playground --name photosphere-checkpoint350-source --dir original350
+      - name: Compare source-original three virtual BLR caller paths and 32byte samples
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          fixture=json.loads(Path("tests/fixtures/native_original_solver_model_callbacks_350.json").read_text())
+          source=json.loads(Path("original350/checkpoint350-source.json").read_text())
+          prior=json.loads(Path("tests/fixtures/native_original_finalizer_fov_gate_345.json").read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert fixture["checkpoint"]==source["checkpoint"]==350
+          assert fixture["source_run"]==42389780423
+          assert fixture["original_elf_sha256"]==source["original_elf_sha256"]==prior["elf_sha256"]==sha
+          assert fixture["source_original_opcode_pins"]==source["source_original_opcode_pins"]==79
+          assert fixture["source_original_synthetic_model_sample_stride_bytes"]==32
+          assert fixture["source_original_virtual_callback_callsites"]==["0x128b54","0x128b70","0x128b80"]
+          assert fixture["source_original_virtual_vtable_slots"]==["0x28","0x30","0x28"]
+          assert fixture["source_original_status9_branch_target_for_status5"]=="0x128d84"
+          assert fixture["source_original_caller_implementation_executed"] is True
+          assert fixture["source_original_callback_implementations_stubbed"] is True
+          assert fixture["source_original_full_solver_executed"] is False
+          assert fixture["source_original_pair_memory_write_count"]==0
+          assert fixture["total_status5_callbacks"]==38
+          assert fixture["total_stubbed_virtual_invocations"]==114
+          assert source["source_original_solver_callback_dispatch_original_ARM64_executed"] is True
+          assert source["source_original_real_solver_model_vtable_targets_executed"] is False
+          assert source["source_original_complete_virtual_solver_source_executed"] is False
+          assert source["source_original_complete_addimage_function_executed"] is False
+          assert source["source_original_real_camera_features_executed"] is False
+          assert source["source_original_fov_optimizer_executed"] is False
+          assert source["source_original_postgraph_model_count_and_libm_stubbed"] is True
+          assert source["source_original_four_vector_finalizer_complete"] is True
+          assert source["source_original_fov_postregistration_gate_source_executed"] is True
+          assert source["source_original_device_pixels_verified"] is False
+          assert len(fixture["cases"])==len(source["cases"])==len(prior["rows"])==15
+          count=virtual_calls=0
+          for exp,original,old in zip(fixture["cases"],source["cases"],prior["rows"]):
+              name=exp["name"]
+              assert name==original["name"]==old[0],name
+              assert exp["source_original_pair_statuses"]==original["source_original_estimator_statuses"]==old[8],name
+              assert original["source_original_solver_eligible_callback_caller_executed"] is True,name
+              assert original["source_original_solver_callback_virtual_implementations_test_stubbed"] is True,name
+              assert original["source_original_solver_three_virtual_dispatches_per_status5"] is True,name
+              assert original["source_original_solver_callback_pair_record_writes"]==0,name
+              assert original["source_original_solver_loop_record_writes"]==0,name
+              assert original["source_original_source_unchanged_by_fov_copy"] is True,name
+              assert original["source_original_solver_eligible_callback_count"]==exp["source_original_eligible_status5_callback_count"],name
+              assert exp["source_original_eligible_status5_callback_count"]==sum(s==5 for s in old[8]),name
+              rows=original["source_original_solver_eligible_callback_rows"]
+              assert len(exp["source_original_three_callback_rows"])==len(rows),name
+              for expected,row in zip(exp["source_original_three_callback_rows"],rows):
+                  idx,a,b,offset_a,offset_b,pc_count=expected
+                  assert row["pair_index"]==idx,name
+                  assert row["source_original_full_status"]==5,name
+                  assert [a,b]==row["source_original_input_endpoints"]==old[1][idx][:2],name
+                  assert row["source_original_first_sample_offset_bytes"]==offset_a==32*a,name
+                  assert row["source_original_second_sample_offset_bytes"]==offset_b==32*b,name
+                  assert row["source_original_provider_vtable_slot"]=="0x28",name
+                  assert row["source_original_child_vtable_slots"]==["0x30","0x28"],name
+                  assert row["original_callback_implementations_test_stubbed"] is True,name
+                  assert row["source_original_status_reloaded_after_callbacks"] is True,name
+                  assert row["source_original_status9_branch_taken"] is True,name
+                  assert row["source_original_stop_pc"]=="0x128d84",name
+                  assert row["source_original_pc_count_including_stop"]==pc_count==26,name
+                  ev=row["source_original_three_callback_call_events"]
+                  assert [e["callback"] for e in ev]==[
+                      "provider_get_plus_0x28","returned_object_plus_0x30","returned_object_plus_0x28"
+                  ],name
+                  assert ev[1]["receiver_x0"]==ev[2]["receiver_x0"],name
+                  assert ev[0]["receiver_x0"]!=ev[1]["receiver_x0"],name
+                  assert ev[0]["arg_w1"]==a,name
+                  count+=1
+                  virtual_calls+=3
+              assert original["source_original_gate_selected_statuses"]==old[10],name
+              assert original["source_original_gate_accepts"] is old[12],name
+          assert (count,virtual_calls)==(38,114)
+          print("CHECKPOINT350_INDEPENDENT_SOURCE_ORIGINAL_CALLBACK_DISPATCH_PASS 15 79")
+          print("CHECKPOINT350_NATIVE_STATUS5_CALLBACKS_TEST_STUBBED_PASS 38 114")
+          PY
+      - name: Run focused checkpoint350 Rust source-backend subset regression
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint350 -- --nocapture > checkpoint350-focused.log 2>&1 || { tail -n 250 checkpoint350-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint350-focused.log
+          tail -n 30 checkpoint350-focused.log
+      - name: Full Rust library and integration regressions
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint350-lib.log 2>&1 || { tail -n 250 checkpoint350-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint350-integration.log 2>&1 || { tail -n 250 checkpoint350-integration.log; exit 1; }
+          grep '^test result:' checkpoint350-lib.log | tail -1
+          grep '^test result:' checkpoint350-integration.log | tail -9
+      - name: Archive only nonproprietary test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint350-rust
+          path: |
+            checkpoint350-focused.log
+            checkpoint350-lib.log
+            checkpoint350-integration.log
+          if-no-files-found: warn
+          retention-days: 7
