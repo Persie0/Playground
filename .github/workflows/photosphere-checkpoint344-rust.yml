@@ -1,0 +1,106 @@
+name: Photosphere checkpoint344 AddImage original graph FOV Rust parity
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint344-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint344-rust
+  cancel-in-progress: false
+jobs:
+  original-handoff-differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact private app SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: c57392baf79f9171345dbecd8e7cb87f8d44d2b7
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned app SHA
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "c57392baf79f9171345dbecd8e7cb87f8d44d2b7"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Fetch source-original ARM64 oracle from public Playground
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42325179076 --repo Persie0/Playground --name photosphere-checkpoint344-original --dir native-original
+      - name: Independently compare all 15 source-original original-to-Rust fixture rows
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          fixture=json.loads(Path("tests/fixtures/native_original_producer_graph_fov_344.json").read_text())
+          original=json.loads(Path("native-original/checkpoint344-original.json").read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert fixture["checkpoint"]==original["checkpoint"]==344
+          assert fixture["original_elf_sha256"]==original["original_elf_sha256"]==sha
+          assert fixture["source_run"]==42325179076
+          assert fixture["opcode_pins"]==original["source_original_opcode_pins"]==14
+          assert original["source_original_addimage_graph_and_fov_one_memory_join"] is True
+          assert original["source_original_graph_source_input_pair_records_not_synthetically_written"] is True
+          assert original["source_original_real_camera_features_executed"] is False
+          assert original["source_original_complete_addimage_function_executed"] is False
+          assert original["source_original_imported_libc_and_libm_stubbed"] is True
+          assert original["source_original_device_pixels_verified"] is False
+          assert len(fixture["rows"])==len(original["cases"])==15
+          for row,native in zip(fixture["rows"],original["cases"]):
+              (name,inputs,threshold,pair_triangles,image_triangles,node_count,
+               scores,candidates,marks,statuses,score_bits)=row
+              assert name==native["name"],name
+              assert inputs==native["synthetic_image_pairs"],name
+              assert threshold==native["threshold_float32_bits"],name
+              assert pair_triangles==native["source_graph_pair_record_index_triangles"],name
+              assert image_triangles==native["source_graph_image_vertex_triangles"],name
+              assert node_count==native["source_graph_vertex_count"],name
+              assert scores==native["source_original_scorer_float32_bits"],name
+              assert candidates==native["source_original_candidate_triangles"],name
+              assert marks==native["source_original_status6_record_indices"],name
+              assert statuses==native["source_original_estimator_statuses"]==native["source_original_fov_copied_statuses"],name
+              assert score_bits==native["source_original_estimator_score_bits"]==native["source_original_fov_copied_score_bits"],name
+              assert native["source_original_graph_return_mark_count"]==len(marks),name
+              assert native["source_original_source_unchanged_by_fov_copy"] is True,name
+              assert native["source_original_graph_input_aliases_estimator_pair_storage"] is True,name
+              assert native["source_original_producer_calls"]==len(inputs),name
+              assert native["source_original_fov_copy_helper_executed"] is True,name
+              assert native["source_original_stop_pc"]=="0x11ec18",name
+              if inputs:
+                  assert native["source_original_estimator_and_fov_storage_separate"] is True,name
+          print("CHECKPOINT344_INDEPENDENT_ORIGINAL_FIXTURE_PASS 15 14")
+          PY
+      - name: Focused Rust producer graph FOV regression tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint344 -- --nocapture > checkpoint344-focused.log 2>&1 || { tail -n 250 checkpoint344-focused.log; exit 1; }
+          grep -q 'test result: ok. 2 passed; 0 failed' checkpoint344-focused.log
+          tail -n 24 checkpoint344-focused.log
+      - name: Full Rust library and integration regressions
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint344-lib.log 2>&1 || { tail -n 250 checkpoint344-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint344-integration.log 2>&1 || { tail -n 250 checkpoint344-integration.log; exit 1; }
+          grep '^test result:' checkpoint344-lib.log | tail -1
+          grep '^test result:' checkpoint344-integration.log | tail -9
+      - name: Archive diagnostics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint344-rust
+          path: |
+            checkpoint344-focused.log
+            checkpoint344-lib.log
+            checkpoint344-integration.log
+          if-no-files-found: warn
+          retention-days: 7
