@@ -1,0 +1,54 @@
+name: Photosphere checkpoint345 original pair producer graph FOV and postregistration gate in one VM
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint345-original.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint345-original
+  cancel-in-progress: false
+jobs:
+  source-original-three-stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact private research SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 27cd2ba32d78ccc0674db6101b65d4e59d81e430
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Pin source and install Unicorn plus Capstone
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "27cd2ba32d78ccc0674db6101b65d4e59d81e430"
+          python3 -m pip install --quiet --break-system-packages unicorn capstone
+          python3 -m py_compile research/photosphere/checkpoint345/native_original_producer_graph_fov_gate.py
+      - name: Obtain checksum-pinned original GCam ARM64 liblightcycle.so
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Execute source original AddImage constructor -> full graph -> FOV copy
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint345/native_original_producer_graph_fov_gate.py original.so --output checkpoint345-original.json | tee checkpoint345-original.log
+          grep -q '^CHECKPOINT345_ORIGINAL_FOV_GATE_JOIN_PASS 15 18$' checkpoint345-original.log
+      - name: Archive non-proprietary fixture and diagnostic text
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint345-original
+          path: |
+            checkpoint345-original.json
+            checkpoint345-original.log
+          if-no-files-found: warn
+          retention-days: 7
