@@ -18,15 +18,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: b9d843feb7b10fcf9b15bd2a2bac801ffc5b78b5
+          ref: ea1d0dae26775c804b4a7e2f7681daf6a04bb407
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify exact SHA and install ARM64 emulator
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "b9d843feb7b10fcf9b15bd2a2bac801ffc5b78b5"
+          test "$(git rev-parse HEAD)" = "ea1d0dae26775c804b4a7e2f7681daf6a04bb407"
           python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
-          python3 -m py_compile research/photosphere/checkpoint352/native_original_provider_getter_join.py research/photosphere/checkpoint352/native_original_provider_getter_boundary.py
+          python3 -m py_compile research/photosphere/checkpoint352/native_original_provider_getter_join.py research/photosphere/checkpoint352/native_original_provider_getter_boundary.py research/photosphere/checkpoint352/trace_original_child_pointer_origin.py
       - name: Get original Google Camera ELF checksum verified
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -47,6 +47,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint352/native_original_provider_getter_boundary.py original.so --output checkpoint352-boundary.json | tee checkpoint352-boundary.log
           grep -q '^CHECKPOINT352_BOUNDARY_GETTER_SOURCE_PASS ' checkpoint352-boundary.log
+      - name: Verify source-original provider constructor copies existing runtime child pointers
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint352/trace_original_child_pointer_origin.py original.so --output checkpoint352-child-provenance.json | tee checkpoint352-child-provenance.log
+          grep -q '^CHECKPOINT352_ORIGINAL_CHILD_POINTER_COPY_PROVENANCE_PASS 18 2$' checkpoint352-child-provenance.log
       - name: Upload only result JSON and diagnostic log
         if: always()
         uses: actions/upload-artifact@v4
@@ -57,5 +62,7 @@ jobs:
             checkpoint352-source.log
             checkpoint352-boundary.json
             checkpoint352-boundary.log
+            checkpoint352-child-provenance.json
+            checkpoint352-child-provenance.log
           if-no-files-found: warn
           retention-days: 7
