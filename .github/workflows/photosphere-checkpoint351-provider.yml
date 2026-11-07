@@ -18,15 +18,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: a87492298b1e0314fb95c58fb326824319e402f8
+          ref: 2f1ef023ef0372d6c2c1d17758fec5af3a619350
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify SHA and install source disassembly tooling
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "a87492298b1e0314fb95c58fb326824319e402f8"
+          test "$(git rev-parse HEAD)" = "2f1ef023ef0372d6c2c1d17758fec5af3a619350"
           python3 -m pip install --quiet --break-system-packages capstone pyelftools
-          python3 -m py_compile research/photosphere/checkpoint351/scan_original_model_provider_writers.py
+          python3 -m py_compile research/photosphere/checkpoint351/scan_original_model_provider_writers.py research/photosphere/checkpoint351/inspect_original_owner_candidate.py
       - name: Retrieve original GCam ARM64 ELF without archiving
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -43,6 +43,11 @@ jobs:
           python3 research/photosphere/checkpoint351/scan_original_model_provider_writers.py original.so --output checkpoint351-provider.json | tee checkpoint351-provider.log
           grep -q '^CHECKPOINT351_MODEL_PROVIDER_SOURCE_SURVEY_PASS .* 6$' checkpoint351-provider.log
           grep -q '^CHECKPOINT351_SOURCE_CONCRETE_VTABLE_NOT_PROVEN$' checkpoint351-provider.log
+      - name: Inspect original 0x11c86c owner field +0x70 store source context
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint351/inspect_original_owner_candidate.py original.so --output checkpoint351-owner.json | tee checkpoint351-owner.log
+          grep -q '^CHECKPOINT351_CANDIDATE_OWNER_FDE_PASS 290 2$' checkpoint351-owner.log
       - name: Archive only nonproprietary source-address survey
         if: always()
         uses: actions/upload-artifact@v4
@@ -51,5 +56,7 @@ jobs:
           path: |
             checkpoint351-provider.json
             checkpoint351-provider.log
+            checkpoint351-owner.json
+            checkpoint351-owner.log
           retention-days: 7
           if-no-files-found: warn
