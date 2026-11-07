@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 55e269fb51ee2769323aef844619c91d9c38a623
+          ref: 459050c0490ba7215fb767e4331135c6f674c530
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Pin source and install ARM64 decoder/emulator
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "55e269fb51ee2769323aef844619c91d9c38a623"
+          test "$(git rev-parse HEAD)" = "459050c0490ba7215fb767e4331135c6f674c530"
           python3 -m pip install --quiet --break-system-packages capstone unicorn
           python3 -m py_compile research/photosphere/checkpoint343/native_original_full_graph_join.py
       - name: Obtain checksum-verified original Google Camera source ELF
@@ -48,6 +48,14 @@ jobs:
           python3 research/photosphere/checkpoint343/native_original_full_graph_join.py original.so --continue-marked-return --output checkpoint343-original-return.json | tee checkpoint343-original-return.log
           grep -q '^CHECKPOINT343_JOINED_ORIGINAL_PASS 20 12$' checkpoint343-original-return.log
           grep -q '^CHECKPOINT343_MARKED_RETURN_PASS 13 20$' checkpoint343-original-return.log
+      - name: Execute both original successful-mark and no-candidate native return paths
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint343/native_original_full_graph_join.py original.so --continue-marked-return --continue-no-candidate-return --output checkpoint343-original-all-return.json | tee checkpoint343-original-all-return.log
+          grep -q '^CHECKPOINT343_JOINED_ORIGINAL_PASS 20 12$' checkpoint343-original-all-return.log
+          grep -q '^CHECKPOINT343_MARKED_RETURN_PASS 13 20$' checkpoint343-original-all-return.log
+          grep -q '^CHECKPOINT343_NO_CANDIDATE_RETURN_PASS 7 20$' checkpoint343-original-all-return.log
+          grep -q '^CHECKPOINT343_ALL_CASE_RETURN_PASS 20 20$' checkpoint343-original-all-return.log
       - name: Archive original outcome JSON and diagnostic text only
         if: always()
         uses: actions/upload-artifact@v4
@@ -58,5 +66,7 @@ jobs:
             checkpoint343-original-joined.log
             checkpoint343-original-return.json
             checkpoint343-original-return.log
+            checkpoint343-original-all-return.json
+            checkpoint343-original-all-return.log
           if-no-files-found: warn
           retention-days: 7
