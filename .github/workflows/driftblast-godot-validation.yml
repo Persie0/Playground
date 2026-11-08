@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/DriftBlast
-          ref: feature/drift-blast-godot
+          ref: 8be17508002d3922adb78706edc85acecd68eee5
           path: game
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
@@ -29,8 +29,14 @@ jobs:
           unzip -q godot.zip
           chmod +x Godot_v4.5.1-stable_linux.x86_64
       - name: Import and parse Godot project
-        run: ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --editor --quit
+        run: |
+          timeout 120s ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --editor --quit 2>&1 | tee import.log
+          ! grep -E "SCRIPT ERROR:|Parse Error:" import.log
       - name: Run rule regression tests
-        run: ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --script res://tests/test_board.gd
+        run: |
+          timeout 90s ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --script res://tests/test_board.gd 2>&1 | tee tests.log
+          ! grep -E "SCRIPT ERROR:|Parse Error:" tests.log
       - name: Smoke-test main scene
-        run: ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --quit-after 15
+        run: |
+          timeout 90s ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --quit-after 15 2>&1 | tee smoke.log
+          ! grep -E "SCRIPT ERROR:|Parse Error:|Invalid call" smoke.log
