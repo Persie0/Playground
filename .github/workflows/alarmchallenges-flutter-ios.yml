@@ -1,0 +1,72 @@
+name: AlarmChallenges Flutter iOS compile and tests
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/alarmchallenges-flutter-ios.yml'
+      - 'alarmchallenges-flutter-ios-trigger.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: Show Xcode toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+      - name: Checkout AlarmChallenges private source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          test -n "$REPO_TOKEN" || { echo "Private AlarmChallenges checkout token missing"; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            clone --depth=1 --branch=feature/flutter-morning-island \
+            https://github.com/Persie0/alarmchallenges.git source
+      - name: Generate Flutter runner and dependencies
+        working-directory: source/flutter_app
+        run: |
+          flutter create --project-name alarmchallenges --org com.persie --platforms android,ios .
+          flutter pub get
+      - name: Configure iOS 26 and required privacy strings
+        working-directory: source/flutter_app
+        run: |
+          set -e
+          PLIST=ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Add :NSCameraUsageDescription string Camera verifies QR tags and exercise repetitions on this device' "$PLIST" || true
+          /usr/libexec/PlistBuddy -c 'Add :NSAlarmKitUsageDescription string Schedule and ring user-configured wake-up alarms' "$PLIST" || true
+          /usr/libexec/PlistBuddy -c 'Add :NSSupportsLiveActivities bool YES' "$PLIST" || true
+          /usr/bin/sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*;/IPHONEOS_DEPLOYMENT_TARGET = 26.0;/g' ios/Runner.xcodeproj/project.pbxproj
+      - name: Prepare AlarmKit integration and report widget setup status
+        working-directory: source/flutter_app
+        run: |
+          set -o pipefail
+          dart run flutter_alarmkit:setup 2>&1 | tee alarmkit-setup.log
+          dart run flutter_alarmkit:setup --doctor 2>&1 | tee -a alarmkit-setup.log
+      - name: Compile Flutter iOS simulator and run Dart tests
+        working-directory: source/flutter_app
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee flutter-ios.log
+          flutter build ios --simulator --no-codesign 2>&1 | tee -a flutter-ios.log
+      - name: Upload validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alarmchallenges-flutter-ios-logs
+          path: |
+            source/flutter_app/flutter-ios.log
+            source/flutter_app/alarmkit-setup.log
+          if-no-files-found: warn
+          retention-days: 7
