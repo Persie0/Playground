@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/DriftBlast
-          ref: 8be17508002d3922adb78706edc85acecd68eee5
+          ref: 9bf02fd8e9c2ae3078ba7c45eb45a6f5c6ec0c3b
           path: game
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
@@ -36,6 +36,10 @@ jobs:
         run: |
           timeout 90s ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --script res://tests/test_board.gd 2>&1 | tee tests.log
           ! grep -E "SCRIPT ERROR:|Parse Error:" tests.log
+      - name: First-run gameplay integration tests
+        run: |
+          timeout 90s ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --script res://tests/test_game.gd 2>&1 | tee flow.log
+          ! grep -E "SCRIPT ERROR:|Parse Error:" flow.log
       - name: Smoke-test main scene
         run: |
           timeout 90s ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --quit-after 15 2>&1 | tee smoke.log
