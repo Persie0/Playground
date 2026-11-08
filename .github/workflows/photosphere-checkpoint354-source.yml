@@ -18,15 +18,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 48dd4bbbb4c5c19898a898cb2481e8f815975120
+          ref: 0e5640d37f8a74a3d38d0ea6b26c5192a63af69b
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify SHA and install original ELF disassembly dependencies
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "48dd4bbbb4c5c19898a898cb2481e8f815975120"
+          test "$(git rev-parse HEAD)" = "0e5640d37f8a74a3d38d0ea6b26c5192a63af69b"
           python3 -m pip install --quiet --break-system-packages capstone pyelftools
-          python3 -m py_compile research/photosphere/checkpoint354/scan_original_addimage_callers.py
+          python3 -m py_compile research/photosphere/checkpoint354/scan_original_addimage_callers.py research/photosphere/checkpoint354/scan_original_addimage_vtable_owner.py
       - name: Retrieve original GCam SHA-pinned APK and native ELF
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -42,6 +42,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint354/scan_original_addimage_callers.py original.so --output checkpoint354-original-callers.json | tee checkpoint354-original-callers.log
           grep -q '^CHECKPOINT354_ORIGINAL_ADDIMAGE_CALLER_SURVEY_PASS 12 ' checkpoint354-original-callers.log
+      - name: Inspect original AddImage vtable relocation 0x3fdcc8 and actual constructor address-point references
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint354/scan_original_addimage_vtable_owner.py original.so --output checkpoint354-original-vtable.json | tee checkpoint354-original-vtable.log
+          grep -q '^CHECKPOINT354_VTABLE_OWNER_SOURCE_PASS ' checkpoint354-original-vtable.log
       - name: Preserve only nonproprietary opcode/relocation report
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,5 +55,7 @@ jobs:
           path: |
             checkpoint354-original-callers.json
             checkpoint354-original-callers.log
+            checkpoint354-original-vtable.json
+            checkpoint354-original-vtable.log
           if-no-files-found: warn
           retention-days: 7
