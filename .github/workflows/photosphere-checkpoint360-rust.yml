@@ -1,0 +1,94 @@
+name: Photosphere checkpoint360 original AddImage to solver to FOV Rust differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint360-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint360-rust
+  cancel-in-progress: false
+jobs:
+  original-source-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact private app SHA read-only from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 3ec3db2fae3f847e02b063c625616ae41182677a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source version and install Rust toolchain
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "3ec3db2fae3f847e02b063c625616ae41182677a"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Download only numerical source report from original public Playground run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42515184520 --repo Persie0/Playground --name photosphere-checkpoint360-source --dir source360
+      - name: Verify source-generated finalizer FOV oracle against independent report
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          fixture=json.load(open('tests/fixtures/native_original_pair_to_fov_finalizer_360.json'))
+          source=json.load(open('source360/checkpoint360-native.json'))
+          assert source['checkpoint']==360
+          assert source['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          original={
+            'checkpoint':360,
+            'public_source_run':42515184520,
+            'original_elf_sha256':source['original_elf_sha256'],
+            'original_verified_opcode_pins':source['original_verified_opcode_pins'],
+            'original_verified_rel_vtable_slots':source['original_verified_rel_vtable_slots'],
+            'original_pair_to_fov_finalizer_native_executed':source['original_pair_to_fov_finalizer_native_executed'],
+            'original_fov_pair_copy_helper_native_executed':source['original_fov_pair_copy_helper_native_executed'],
+            'original_fov_pairs_independently_owned':source['original_fov_pairs_independently_owned'],
+            'original_fov_pairs_bitwise_identical_to_source':source['original_fov_pairs_bitwise_identical_to_source'],
+            'original_fov_pair_copy_pc_hooks_including_stop':source['original_fov_pair_copy_pc_hooks_including_stop'],
+            'original_fov_pair_copy_count':source['original_fov_pair_copy_count'],
+            'original_source_pair_records_test_injected':source['original_pair_records_test_injected'],
+            'original_pair_rotation_matrices_test_supplied':source['original_pair_rotation_matrices_test_supplied'],
+            'original_fov_pair_owner_header_test_supplied':True,
+            'original_full_solver_ceres_and_residuals_executed':source['original_full_solver_ceres_and_residuals_executed'],
+            'original_device_pixels_or_seam_parity_proven':source['original_device_pixels_or_seam_parity_proven'],
+            'source_original_native_fov_pair_copy_cases':source['source_original_native_fov_pair_copy_cases'],
+          }
+          assert fixture==original,"Rust fixture differs from original ARM64 source report"
+          assert len(original['source_original_native_fov_pair_copy_cases'])==5
+          assert original['original_fov_pairs_bitwise_identical_to_source']
+          print("CHECKPOINT360_INDEPENDENT_SOURCE_FOV_FIXTURE_PASS 44 5 5")
+          PY
+      - name: Checkpoint360 focused same-VM FOV finalizer Rust differential
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint360 -- --nocapture > checkpoint360-focused.log 2>&1 || { tail -n 160 checkpoint360-focused.log; exit 1; }
+          grep -q 'test result: ok. 1 passed; 0 failed' checkpoint360-focused.log
+          tail -n 20 checkpoint360-focused.log
+      - name: Full Rust library and integration regressions
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint360-lib.log 2>&1 || { tail -n 160 checkpoint360-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint360-tests.log 2>&1 || { tail -n 160 checkpoint360-tests.log; exit 1; }
+          grep '^test result:' checkpoint360-lib.log | tail -1
+          grep '^test result:' checkpoint360-tests.log | tail -9
+      - name: Archive only nonproprietary Rust regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint360-rust
+          path: |
+            checkpoint360-focused.log
+            checkpoint360-lib.log
+            checkpoint360-tests.log
+          retention-days: 7
+          if-no-files-found: warn
