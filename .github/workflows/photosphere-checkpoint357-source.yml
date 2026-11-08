@@ -1,0 +1,76 @@
+name: Photosphere checkpoint357 original solver LinearCamera real getter execution
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint357-source.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint357-source
+  cancel-in-progress: false
+jobs:
+  original-real-getters:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact private source SHA from public Playground only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: eb60d22ff53b1fd24b172305cb4ee46b3c58f7ea
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Validate pinned research version and install ARM64 emulation
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "eb60d22ff53b1fd24b172305cb4ee46b3c58f7ea"
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools unicorn
+          python3 -m py_compile research/photosphere/checkpoint357/native_original_solver_linear_child_getters.py
+      - name: Obtain original SHA-pinned APK and ELF (ephemeral only)
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Execute native 3-callback original ARM64 path (zero model stubs)
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint357/native_original_solver_linear_child_getters.py original.so --output checkpoint357-original-getters.json | tee checkpoint357-original-getters.log
+          grep -q '^CHECKPOINT357_REAL_NATIVE_PROVIDER_AND_CHILD_GETTERS_PASS 22 3 5$' checkpoint357-original-getters.log
+          python3 - <<'PY'
+          import json
+          p=json.load(open("checkpoint357-original-getters.json"))
+          assert p["checkpoint"] == 357
+          assert p["original_caller_opcode_pins"] == 22
+          assert p["original_elf_vtable_relocations"] == 3
+          assert len(p["cases"]) == 5
+          assert p["original_real_provider_and_two_child_getter_bodies_executed"]
+          assert not p["original_real_camera_constructors_or_clone_bodies_executed"]
+          assert not p["original_full_solver_or_ceres_executed"]
+          assert not p["original_pixel_parity_proven"]
+          for row in p["cases"]:
+              assert row["source_original_all_three_real_callback_bodies_executed"]
+              assert row["source_original_original_callback_call_sites_executed"]==3
+              assert not row["source_original_test_callback_stubs_executed"]
+              assert row["source_original_pair_and_child_bytes_unchanged"]
+          print("CHECKPOINT357_ALL_REAL_CALLBACKS_SCOPE_PASS")
+          PY
+      - name: Delete original proprietary APK and ELF before artifacts
+        if: always()
+        run: |
+          rm -f original.apk original.so com.google.android.GoogleCamera_*.apk
+      - name: Upload only nonproprietary trace and synthetic camera fixture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint357-source
+          path: |
+            checkpoint357-original-getters.json
+            checkpoint357-original-getters.log
+          retention-days: 7
+          if-no-files-found: warn
