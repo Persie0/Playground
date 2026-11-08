@@ -1,0 +1,54 @@
+name: Photosphere checkpoint355 original AddImage wrapper and model source
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint355-source.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint355-source
+  cancel-in-progress: false
+jobs:
+  original-addimage-wrapper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout original research SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 5e66fbaf058ed07524a35fa78933afc3e9bab0d2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify private source SHA and install ARM64 disassembler
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "5e66fbaf058ed07524a35fa78933afc3e9bab0d2"
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint355/inspect_original_addimage_wrapper.py
+      - name: Retrieve original Google Camera source APK and ELF by checksum
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Source survey original AddImage owner+0x48 estimator and X3 owner+0x58
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint355/inspect_original_addimage_wrapper.py original.so --output checkpoint355-original-wrapper.json | tee checkpoint355-original-wrapper.log
+          grep -q '^CHECKPOINT355_ORIGINAL_ADDIMAGE_WRAPPER_SOURCE_PASS 15 ' checkpoint355-original-wrapper.log
+      - name: Archive only nonproprietary source survey report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint355-source
+          path: |
+            checkpoint355-original-wrapper.json
+            checkpoint355-original-wrapper.log
+          retention-days: 7
+          if-no-files-found: warn
