@@ -1,5 +1,5 @@
 name: Photo Sphere current debug APK
-run-name: Build Photo Sphere cleanroom APK (5c3b6255f164)
+run-name: Build Photo Sphere cleanroom APK (770651e12e5f)
 on:
   workflow_dispatch:
   push:
@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 100
     env:
-      SOURCE_SHA: 5c3b6255f1645786206150ddddccc591cdaa17e7
+      SOURCE_SHA: 770651e12e5f5df552b37628d3f2ea4048c7303f
     steps:
       - name: Checkout Playground build helpers
         uses: actions/checkout@v4
@@ -109,6 +109,8 @@ jobs:
       - name: Verify and name APK
         run: |
           set -euo pipefail
+          test -s engine/android/app/src/main/jniLibs/arm64-v8a/libphotosphere.so
+          test -s engine/android/app/src/main/jniLibs/x86_64/libphotosphere.so
           test -s engine/android/app/build/outputs/apk/debug/app-debug.apk
           unzip -tq engine/android/app/build/outputs/apk/debug/app-debug.apk
           mkdir -p out
@@ -118,7 +120,7 @@ jobs:
       - name: Upload downloadable APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhotoSphere-360-debug-5c3b6255f164
+          name: PhotoSphere-360-debug-770651e12e5f
           path: out/PhotoSphere-debug.apk
           if-no-files-found: error
           retention-days: 14
@@ -126,8 +128,8 @@ jobs:
       - name: Link APK in run summary
         run: |
           echo '## Photo Sphere 360 APK' >> "$GITHUB_STEP_SUMMARY"
-          echo "Built from $SOURCE_SHA (including exposure and live-preview PR #146)." >> "$GITHUB_STEP_SUMMARY"
-          echo 'Download PhotoSphere-360-debug-5c3b6255f164 from this run’s Artifacts section.' >> "$GITHUB_STEP_SUMMARY"
+          echo "Built from $SOURCE_SHA (including live-preview exposure matching and finished-capture Re-render)." >> "$GITHUB_STEP_SUMMARY"
+          echo 'Download PhotoSphere-360-debug-770651e12e5f from this run’s Artifacts section.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish APK in private source repository
         env:
