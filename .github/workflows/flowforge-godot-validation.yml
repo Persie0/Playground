@@ -1,0 +1,65 @@
+name: Flow Forge - Godot 4.7.2 validation (public Playground runner)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/flowforge-godot-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch private Flow Forge feature branch
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN" || { echo "Missing token with access to Persie0/flowforge"; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            clone --depth=1 --branch=feat/godot-flow-forge https://github.com/Persie0/flowforge.git source
+          echo "FLOWFORGE_SHA=$(git -C source rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Download official stable Godot 4.7.2
+        run: |
+          set -euo pipefail
+          wget --quiet --show-progress --progress=dot:giga \
+            'https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip' \
+            -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --version
+
+      - name: Import project and compile GDScript
+        run: |
+          set -euo pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --editor --path source --quit 2>&1 | tee import.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' import.log; then exit 1; fi
+
+      - name: Validate generated levels
+        run: |
+          set -euo pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/level_tests.gd 2>&1 | tee levels.log
+          grep -q 'generated levels validated' levels.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' levels.log; then exit 1; fi
+
+      - name: Game scene smoke test
+        run: |
+          set -euo pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --quit-after 100 2>&1 | tee smoke.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' smoke.log; then exit 1; fi
+
+      - name: Validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowforge-godot-validation-logs
+          path: |
+            *.log
+          if-no-files-found: ignore
+          retention-days: 7
