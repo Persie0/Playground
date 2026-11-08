@@ -18,15 +18,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 0e5640d37f8a74a3d38d0ea6b26c5192a63af69b
+          ref: 5dd5b1a96c5c2c71a9b3459d1772b3fcff535c41
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify SHA and install original ELF disassembly dependencies
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "0e5640d37f8a74a3d38d0ea6b26c5192a63af69b"
+          test "$(git rev-parse HEAD)" = "5dd5b1a96c5c2c71a9b3459d1772b3fcff535c41"
           python3 -m pip install --quiet --break-system-packages capstone pyelftools
-          python3 -m py_compile research/photosphere/checkpoint354/scan_original_addimage_callers.py research/photosphere/checkpoint354/scan_original_addimage_vtable_owner.py
+          python3 -m py_compile research/photosphere/checkpoint354/scan_original_addimage_callers.py research/photosphere/checkpoint354/scan_original_addimage_vtable_owner.py research/photosphere/checkpoint354/scan_original_estimator_virtual_callers.py
       - name: Retrieve original GCam SHA-pinned APK and native ELF
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -47,6 +47,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint354/scan_original_addimage_vtable_owner.py original.so --output checkpoint354-original-vtable.json | tee checkpoint354-original-vtable.log
           grep -q '^CHECKPOINT354_VTABLE_OWNER_SOURCE_PASS ' checkpoint354-original-vtable.log
+      - name: Enumerate original concrete estimator vtable +0x28 indirect caller candidates and X3 argument writes
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint354/scan_original_estimator_virtual_callers.py original.so --output checkpoint354-indirect-candidates.json | tee checkpoint354-indirect-candidates.log
+          grep -q '^CHECKPOINT354_VIRTUAL_ADDIMAGE_CANDIDATES_PASS 14 ' checkpoint354-indirect-candidates.log
       - name: Preserve only nonproprietary opcode/relocation report
         if: always()
         uses: actions/upload-artifact@v4
@@ -57,5 +62,7 @@ jobs:
             checkpoint354-original-callers.log
             checkpoint354-original-vtable.json
             checkpoint354-original-vtable.log
+            checkpoint354-indirect-candidates.json
+            checkpoint354-indirect-candidates.log
           if-no-files-found: warn
           retention-days: 7
