@@ -1,0 +1,54 @@
+name: Photosphere checkpoint355 original AddImage virtual native ABI
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint355-native.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint355-native
+  cancel-in-progress: false
+jobs:
+  native-original-addimage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact original research SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 780d2f65d1f2b0f7c315370b37054ea98fcc4358
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source SHA and install ARM64 emulator
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "780d2f65d1f2b0f7c315370b37054ea98fcc4358"
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint355/native_original_wrapper_addimage_call.py
+      - name: Obtain checksum verified original Google Camera ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Execute real source virtual 0x11bef4 into AddImage with X0 X1 X2 X3 X4 ABI boundary
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint355/native_original_wrapper_addimage_call.py original.so --output checkpoint355-native-addimage.json | tee checkpoint355-native-addimage.log
+          grep -q '^CHECKPOINT355_ORIGINAL_WRAPPER_TO_ADDIMAGE_SOURCE_PASS 8 7 0x11d570$' checkpoint355-native-addimage.log
+      - name: Upload only source address and result evidence never binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint355-native
+          path: |
+            checkpoint355-native-addimage.json
+            checkpoint355-native-addimage.log
+          retention-days: 7
+          if-no-files-found: warn
