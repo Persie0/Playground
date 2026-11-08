@@ -1,4 +1,4 @@
-name: Drift Blast Godot validation (public runner)
+name: Drift Blast Godot 4.7.2 validation (public runner)
 
 on:
   push:
@@ -15,32 +15,37 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out private game source with permitted token
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
         with:
           repository: Persie0/DriftBlast
-          ref: 9bf02fd8e9c2ae3078ba7c45eb45a6f5c6ec0c3b
+          ref: 19e74c28397674e3362d7348687bcba9afbca211
           path: game
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Download verified official Godot executable
         run: |
-          curl -fsSL --retry 3 -o godot.zip "https://github.com/godotengine/godot/releases/download/4.5.1-stable/Godot_v4.5.1-stable_linux.x86_64.zip"
-          echo "02ec53d1cc7dbb9cc6355393c61b9ab43d1244751a124f10248a4802830788cd  godot.zip" | sha256sum -c -
+          set -euo pipefail
+          curl -fsSL --retry 3 -o godot.zip "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+          echo "cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4  godot.zip" | sha256sum -c -
           unzip -q godot.zip
-          chmod +x Godot_v4.5.1-stable_linux.x86_64
+          chmod +x Godot_v4.7.2-stable_linux.x86_64
       - name: Import and parse Godot project
         run: |
-          timeout 120s ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --editor --quit 2>&1 | tee import.log
+          set -euo pipefail
+          timeout 120s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game --editor --quit 2>&1 | tee import.log
           ! grep -E "SCRIPT ERROR:|Parse Error:" import.log
       - name: Run rule regression tests
         run: |
-          timeout 90s ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --script res://tests/test_board.gd 2>&1 | tee tests.log
+          set -euo pipefail
+          timeout 90s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game --script res://tests/test_board.gd 2>&1 | tee tests.log
           ! grep -E "SCRIPT ERROR:|Parse Error:" tests.log
       - name: First-run gameplay integration tests
         run: |
-          timeout 90s ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --script res://tests/test_game.gd 2>&1 | tee flow.log
+          set -euo pipefail
+          timeout 90s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game --script res://tests/test_game.gd 2>&1 | tee flow.log
           ! grep -E "SCRIPT ERROR:|Parse Error:" flow.log
       - name: Smoke-test main scene
         run: |
-          timeout 90s ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --quit-after 15 2>&1 | tee smoke.log
+          set -euo pipefail
+          timeout 90s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game --quit-after 15 2>&1 | tee smoke.log
           ! grep -E "SCRIPT ERROR:|Parse Error:|Invalid call" smoke.log
