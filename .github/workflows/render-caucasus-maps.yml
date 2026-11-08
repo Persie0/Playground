@@ -1,0 +1,55 @@
+name: Render Caucasus TravelRoutes SVG maps (public Playground)
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/render-caucasus-maps.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout public Playground
+        uses: actions/checkout@v4
+      - name: Checkout source TravelRoutes
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TravelRoutes
+          ref: main
+          path: TravelRoutes
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+      - name: Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install renderer dependencies
+        run: python -m pip install --disable-pip-version-check 'matplotlib>=3.8,<4' 'basemap>=2.0,<3'
+      - name: Render from canonical TravelRoutes GeoJSON and GSHHS
+        run: |
+          python TravelRoutes/tools/python/script.py TravelRoutes/itineraries/Caucasus-Azerbaijan-Georgia-Armenia
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('TravelRoutes/itineraries/Caucasus-Azerbaijan-Georgia-Armenia/maps')
+          for fn in ['map-full-route.svg', 'map-60-40-route.svg']:
+              content = (p/fn).read_text()
+              assert '<svg' in content and 'path' in content and len(content)>2000, fn
+              print(fn,len(content))
+          PY
+      - name: Stage finished SVG files in public Playground for GitHub connector
+        run: |
+          mkdir -p generated/caucasus-travelroutes
+          cp TravelRoutes/itineraries/Caucasus-Azerbaijan-Georgia-Armenia/maps/map-full-route.svg generated/caucasus-travelroutes/
+          cp TravelRoutes/itineraries/Caucasus-Azerbaijan-Georgia-Armenia/maps/map-60-40-route.svg generated/caucasus-travelroutes/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add generated/caucasus-travelroutes/map-full-route.svg generated/caucasus-travelroutes/map-60-40-route.svg
+          if ! git diff --cached --quiet; then
+            git commit -m 'Render Caucasus itinerary SVGs from real geography'
+            git push origin HEAD:main
+          fi
