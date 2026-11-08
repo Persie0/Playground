@@ -1,0 +1,115 @@
+name: Photosphere checkpoint356 original fresh LinearCamera child provenance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint356-source-and-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint356-source-and-rust
+  cancel-in-progress: false
+jobs:
+  original-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact research commit read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: ea52106c8f3d328a93c4f7be0af1a15b1a4d23d1
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Check exact revision and dependencies
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'ea52106c8f3d328a93c4f7be0af1a15b1a4d23d1'
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint356/verify_fresh_linear_child_chain.py
+      - name: Download checksum-pinned original source (never upload APK or ELF)
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Verify original fresh camera source chain and exact vtable relocations
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint356/verify_fresh_linear_child_chain.py original.so --output checkpoint356-source.json | tee checkpoint356-source.log
+          grep -q '^CHECKPOINT356_SOURCE_ORIGINAL_FRESH_LINEAR_PROVENANCE_PASS ' checkpoint356-source.log
+          python3 - <<'PY'
+          import json
+          p=json.load(open("checkpoint356-source.json"))
+          assert p["checkpoint"]==356
+          assert p["source_original_verified_relocation_count"]==4
+          assert p["source_original_camera_slots"]["+0x10"]["target"]=="0x3315f8"
+          assert p["source_original_camera_slots"]["+0x28"]["target"]=="0x330eb4"
+          assert p["source_original_camera_slots"]["+0x30"]["target"]=="0x330ebc"
+          assert p["source_original_camera_slots"]["+0x70"]["target"]=="0x3317bc"
+          assert not p["source_original_real_full_addimage_executed_in_this_probe"]
+          assert not p["source_original_real_child_callback_executed_in_this_probe"]
+          assert not p["source_original_pixel_parity_proven"]
+          print("CHECKPOINT356_RELOCATION_AND_SCOPE_PASS")
+          PY
+      - name: Remove proprietary binaries before any artifact handling
+        if: always()
+        run: |
+          rm -f original.apk original.so
+          rm -f com.google.android.GoogleCamera_*.apk
+      - name: Archive only original opcode and relocation metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint356-source
+          path: |
+            checkpoint356-source.json
+            checkpoint356-source.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact app commit read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 2cc720615eeef4d4d1e23ba2bd0ff816f6b68a2b
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Check exact app revision
+        run: |
+          test "$(git rev-parse HEAD)" = '2cc720615eeef4d4d1e23ba2bd0ff816f6b68a2b'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Three focused original child getter Rust safety tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint356 -- --nocapture > checkpoint356-focused.log 2>&1 || { tail -n 150 checkpoint356-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint356-focused.log
+          tail -n 20 checkpoint356-focused.log
+      - name: Full Rust library and integration regressions
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint356-lib.log 2>&1 || { tail -n 150 checkpoint356-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint356-tests.log 2>&1 || { tail -n 150 checkpoint356-tests.log; exit 1; }
+          grep '^test result:' checkpoint356-lib.log | tail -1
+          grep '^test result:' checkpoint356-tests.log | tail -9
+      - name: Archive only Rust CI logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint356-rust
+          path: |
+            checkpoint356-focused.log
+            checkpoint356-lib.log
+            checkpoint356-tests.log
+          retention-days: 7
+          if-no-files-found: warn
