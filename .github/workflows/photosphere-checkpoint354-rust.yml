@@ -1,0 +1,172 @@
+name: Photosphere checkpoint354 original estimator AddImage source chain Rust differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint354-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint354-rust
+  cancel-in-progress: false
+jobs:
+  original-estimator-addimage-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Read-only exact private Rust app commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 04c2f8a393b788d3442f6e9ef9c9309140e575b9
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify SHA-pinned app source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "04c2f8a393b788d3442f6e9ef9c9309140e575b9"
+      - name: Rust toolchain stable 1.99.1
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Get original source ARM64 two-stage join and original ELF relocation surveys
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42444206431 --repo Persie0/Playground --name photosphere-checkpoint354-join --dir source354join
+          gh run download 42444084840 --repo Persie0/Playground --name photosphere-checkpoint354-source --dir source354static
+      - name: Compare exact original estimator vtable plus native 11 source handoffs against Rust fixture
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          f=json.loads(Path("tests/fixtures/native_original_addimage_source_354.json").read_text())
+          src=json.loads(Path("source354join/checkpoint354-join.json").read_text())
+          direct=json.loads(Path("source354static/checkpoint354-original-callers.json").read_text())
+          vtable=json.loads(Path("source354static/checkpoint354-original-vtable.json").read_text())
+          indirect=json.loads(Path("source354static/checkpoint354-indirect-candidates.json").read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert all(x["checkpoint"]==354 for x in (f,src,direct,vtable,indirect))
+          assert all(x["original_elf_sha256"]==sha for x in (src,direct,vtable,indirect))
+          assert f["source_original_elf_sha256"]==sha
+          assert f["source_original_run"]==42444206431
+          assert f["source_original_opcode_pins"]==src["source_original_opcode_pins"]==45
+          assert f["source_original_estimator_vptr"]==src["source_original_estimator_vptr_va"]==indirect["source_original_estimator_vptr_va"]=="0x3fdca0"
+          assert f["source_original_addimage_vtable_slot"]=="0x28"
+          assert f["source_original_addimage_vtable_slot_va"]==src["source_original_estimator_addimage_vtable_slot_va"]==direct["original_addimage_vtable_relocations"][0]["relocation_va"]==vtable["source_original_addimage_vtable_slot_va"]=="0x3fdcc8"
+          assert f["source_original_addimage_function"]==src["source_original_estimator_addimage_slot_target_pc"]==direct["original_addimage_entry_pc"]==vtable["source_original_addimage_entry"]=="0x11d570"
+          assert f["source_original_finalizer_vtable_slot"]=="0x40"
+          assert f["source_original_finalizer_vtable_slot_va"]=="0x3fdce0"
+          assert f["source_original_finalizer_function"]=="0x11e87c"
+          matched={x["va"]:x["source_original_addend"] for x in vtable["source_original_relocation_neighbors"]}
+          assert matched["0x3fdca0"]=="0x11d2d0"
+          assert matched["0x3fdcc8"]=="0x11d570"
+          assert matched["0x3fdcd0"]=="0x11e3e4"
+          assert matched["0x3fdcd8"]=="0x11e86c"
+          assert matched["0x3fdce0"]=="0x11e87c"
+          constructor=[x for x in vtable["original_adrp_address_point_candidates"]
+                       if x["original_adrp_pc"]=="0x11c8d0"]
+          assert len(constructor)==1 and constructor[0]["reconstructed_address_point_va"]=="0x3fdca0"
+          assert constructor[0]["original_add_pc"]=="0x11c8d4"
+          assert any(x["pc"]=="0x11c8e0" for x in constructor[0]["nearby_register_stores"])
+          assert f["source_original_direct_addimage_callers"]==direct["original_addimage_direct_callsite_count"]==0
+          assert f["source_original_vtable_addimage_relocations"]==direct["original_addimage_vtable_relocation_count"]==1
+          assert direct["original_addimage_x3_origin_type_proven"] is False
+          assert direct["original_real_child_vptr_verified"] is False
+          assert f["source_original_generic_plus28_blr_candidates"]==indirect["source_original_all_vtable_plus28_blr_candidate_count"]==168
+          assert indirect["source_original_estimator_specific_callsite_identity_proven"] is False
+          assert indirect["source_original_x3_concrete_class_proven"] is False
+          assert indirect["source_original_x3_child_vptr_proven"] is False
+          assert src["source_original_real_model_source_concrete_vtable_proven"] is False
+          assert src["source_original_real_children_vtable_proven"] is False
+          assert src["source_original_full_addimage_body_executed"] is False
+          assert src["source_original_0x3450dc_entire_normal_return_path_executed"] is True
+          assert src["source_original_original_upstream_source_virtual_call_pc"]=="0x11d5c4"
+          assert src["source_original_original_addimage_x28_pc"]=="0x11d5cc"
+          assert src["source_original_original_provider_source_virtual_call_pc"]=="0x345108"
+          assert f["source_original_concrete_x3_class_unverified"] is True
+          assert f["source_original_real_child_vtable_unverified"] is True
+          assert f["source_original_first_x3_plus10_method_stubbed"] is True
+          assert f["source_original_second_x28_plus10_method_stubbed"] is True
+          assert f["source_original_full_addimage_body_executed"] is False
+          assert f["source_original_provider_append_native_executed"] is True
+          assert f["source_original_native_source_cases"]==src["source_original_case_count"]==len(f["cases"])==len(src["cases"])==5
+          total=0
+          for expected,observed in zip(f["cases"],src["cases"]):
+              n=expected["requested_count"]
+              assert observed["requested_count"]==n
+              assert observed["source_original_addimage_first_source_virtual_caller_original_ARM64_executed"] is True
+              assert observed["source_original_two_model_source_virtual_plus10_callees_test_stubbed"] is True
+              assert observed["source_original_addimage_real_estimator_plus70_blr_executed"] is True
+              assert observed["source_original_full_provider_append_0x3450dc_executed"] is True
+              assert observed["source_original_method_real_child_constructors_executed"] is False
+              assert observed["source_original_provider_child_pointer_array_grew"] is False
+              assert observed["source_original_provider_metadata_array_grew"] is False
+              assert expected["source_original_estimator_vptr"]=="0x3fdca0"
+              assert expected["source_original_addimage_x3_call_pc"]=="0x11d5c4"
+              assert expected["source_original_addimage_x28_move_pc"]=="0x11d5cc"
+              assert expected["source_original_addimage_x28_test_pointer"]=="0x21011000"
+              assert expected["source_original_first_stage_hook_count_including_stop"]==9
+              assert expected["source_original_provider_call_pc"]=="0x11d7a8"
+              assert expected["source_original_provider_method_pc"]=="0x3450dc"
+              assert expected["source_original_second_stage_hook_count_including_stop"]==66
+              assert len(expected["source_original_appends"])==len(observed["original_appends"])==n
+              for exp,row in zip(expected["source_original_appends"],observed["original_appends"]):
+                  i=exp["index"]
+                  assert row["append_index"]==i
+                  assert row["source_original_estimator_concrete_vptr"]==expected["source_original_estimator_vptr"]
+                  assert row["original_addimage_first_source_virtual_call_pc"]==expected["source_original_addimage_x3_call_pc"]
+                  assert row["original_addimage_first_source_returned_x28"]==expected["source_original_addimage_x28_test_pointer"]
+                  assert row["original_addimage_first_source_stage_pc_hooks_including_stop"]==9
+                  assert row["original_addimage_first_source_stage_real_caller_executed"] is True
+                  assert row["original_addimage_first_source_vtable_callee_test_stubbed"] is True
+                  assert row["source_original_child_virtual_plus_0x10_test_stub"] is True
+                  assert row["source_original_config_virtual_plus_0x20_test_stub"] is True
+                  assert row["source_original_addimage_original_blr_pc"]=="0x11d7a8"
+                  assert row["source_original_method_entry_pc"]=="0x3450dc"
+                  assert row["source_original_method_return_pc"]=="0x34532c"
+                  assert row["source_original_original_vm_instruction_hooks_including_synthetic_return"]==66
+                  assert row["source_original_pointer_and_metadata_bytes_exact"] is True
+                  assert exp["original_child_ptr"]==row["source_original_pointer_appended"]
+                  assert exp["original_metadata36_hex"]==row["source_original_metadata_36_bytes_hex"]
+                  assert exp["original_source_pointer_count"]==row["original_provider_pointer_vector_length"]==i+1
+                  assert exp["original_source_36_byte_row_count"]==row["original_provider_metadata_36_byte_vector_length"]==i+1
+                  assert exp["first_model_source_virtual_callee_stubbed"] is True
+                  assert exp["second_model_source_virtual_callee_stubbed"] is True
+                  assert len(bytes.fromhex(exp["original_metadata36_hex"]))==36
+                  total+=1
+              assert observed["source_original_final_child_pointer_values"]==[
+                  row["original_child_ptr"] for row in expected["source_original_appends"]]
+              assert observed["source_original_final_metadata_36_bytes_rows"]==[
+                  row["original_metadata36_hex"] for row in expected["source_original_appends"]]
+          assert f["source_original_native_source_appends"]==src["source_original_total_appends"]==total==11
+          print("CHECKPOINT354_INDEPENDENT_ORIGINAL_ADDIMAGE_TWOSTAGE_PASS 5 45 11")
+          print("CHECKPOINT354_CONCRETE_ESTIMATOR_VTABLE_AND_UNRESOLVED_CALLERS_PASS 0x3fdca0 168")
+          PY
+      - name: Focused checkpoint354 original AddImage source handoff tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint354 -- --nocapture > checkpoint354-focused.log 2>&1 || { tail -n 240 checkpoint354-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint354-focused.log
+          tail -n 28 checkpoint354-focused.log
+      - name: Full Rust library and integration tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint354-lib.log 2>&1 || { tail -n 250 checkpoint354-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint354-integration.log 2>&1 || { tail -n 250 checkpoint354-integration.log; exit 1; }
+          grep '^test result:' checkpoint354-lib.log | tail -1
+          grep '^test result:' checkpoint354-integration.log | tail -9
+      - name: Archive only nonproprietary Rust logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint354-rust
+          path: |
+            checkpoint354-focused.log
+            checkpoint354-lib.log
+            checkpoint354-integration.log
+          if-no-files-found: warn
+          retention-days: 7
