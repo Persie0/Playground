@@ -1,0 +1,94 @@
+name: Photosphere checkpoint359 original camera clone provider append solver one VM
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint359-one-vm.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-checkpoint359-one-vm
+  cancel-in-progress: false
+jobs:
+  original-one-vm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact research commit read-only from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 4b8a1e3e290485a5aecc70eb54b03fe1dbb29fbf
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Validate source SHA and install native ARM64 harness dependencies
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '4b8a1e3e290485a5aecc70eb54b03fe1dbb29fbf'
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint359/native_original_pair_creator_camera_solver_join.py
+      - name: Obtain checksum-pinned original ELF (ephemeral, never archived)
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original real camera, provider append and solver getters in one VM
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint359/native_original_pair_creator_camera_solver_join.py research/native/liblightcycle.so --output checkpoint359-native.json | tee checkpoint359.log
+          grep -q '^CHECKPOINT359_ORIGINAL_CAMERA_PAIR_CREATOR_PROVIDER_SOLVER_ONE_VM_PASS 44 5 4 5 5$' checkpoint359.log
+          python3 - <<'PY'
+          import json
+          data=json.load(open('checkpoint359-native.json'))
+          assert data['checkpoint']==459
+          assert data['original_verified_opcode_pins']==44
+          assert data['original_verified_rel_vtable_slots']==5
+          assert len(data['source_original_native_capture_cases'])==4
+          assert len(data['source_original_native_solver_pair_cases'])==5
+          assert len(data['source_original_native_pair_creator_cases'])==5
+          assert not data['original_model_children_test_injected']
+          assert not data['original_pair_records_test_injected']
+          assert data['original_addimage_pair_constructor_native_executed']
+          assert data['original_pair_status10_to5_source_patch_native_executed']
+          assert data['original_pair_append_source_native_executed']
+          assert data['original_solver_status_predicate_source_native_executed']
+          assert data['original_pair_vector_capacity_test_supplied']
+          assert data['original_pair_rotation_matrices_test_supplied']
+          assert data['original_configuration_count_test_stubbed']
+          assert data['original_provider_vectors_preallocated_test_supplied']
+          assert not data['original_entire_addimage_entry_to_return_executed']
+          assert not data['original_full_solver_ceres_and_residuals_executed']
+          assert not data['original_device_pixels_or_seam_parity_proven']
+          assert all(x['real_original_ctor_and_four_clone_bodies_executed'] for x in data['source_original_native_capture_cases'])
+          assert all(x['source_original_provider_child_is_from_native_clone_and_append'] for x in data['source_original_native_solver_pair_cases'])
+          assert all(x['source_original_pair_record_is_from_native_addimage_creator'] for x in data['source_original_native_solver_pair_cases'])
+          assert all(x['source_original_pair_status_u32']==5 for x in data['source_original_native_pair_creator_cases'])
+          print("CHECKPOINT358_NATIVE_SCOPE_AND_MODEL_CHILD_PROVENANCE_PASS")
+          PY
+      - name: Print synthetic-only native numeric fixture for independent Rust parity
+        run: |
+          python3 - <<'PY'
+          import json
+          report=json.load(open("checkpoint359-native.json"))
+          print("CHECKPOINT358_FIXTURE_JSON="+json.dumps(report,sort_keys=True,separators=(",",":")))
+          PY
+      - name: Delete original proprietary APK and ELF before artifact handling
+        if: always()
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive only synthetic numeric camera and ABI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint359-source
+          path: |
+            checkpoint359-native.json
+            checkpoint359.log
+          retention-days: 7
+          if-no-files-found: warn
