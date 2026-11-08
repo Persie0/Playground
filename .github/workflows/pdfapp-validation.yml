@@ -39,3 +39,23 @@ jobs:
           name: pdf-studio-android-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 7
+
+      - name: Commit generated Flutter runners to pdfapp feature branch
+        env:
+          PUSH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A android ios pubspec.lock
+          if git diff --cached --quiet; then
+            echo "Runner files already committed"
+            exit 0
+          fi
+          git config user.name "Persie0 Playground CI"
+          git config user.email "76871553+Persie0@users.noreply.github.com"
+          git commit -m "chore: commit generated Flutter Android and iOS runners"
+          git fetch origin feature/flutter-pdf-studio
+          git rebase origin/feature/flutter-pdf-studio
+          GIT_TERMINAL_PROMPT=0 git push \
+            "https://x-access-token:$PUSH_TOKEN@github.com/Persie0/pdfapp.git" \
+            HEAD:refs/heads/feature/flutter-pdf-studio
