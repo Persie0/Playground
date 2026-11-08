@@ -37,11 +37,19 @@ jobs:
           test -n "$REPO_TOKEN" || { echo "Configure a token with access to Persie0/alarmchallenges"; exit 1; }
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
-            clone --depth=1 --branch=feature/native-alarm-challenges \
+            clone --depth=1 --branch=main \
             https://github.com/Persie0/alarmchallenges.git source
       - name: Run unit tests and build debug APK
         working-directory: source/android
         run: gradle --no-daemon testDebugUnitTest assembleDebug --stacktrace
+      - name: Verify APK and write checksums
+        if: success()
+        working-directory: source/android
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          git -C .. rev-parse HEAD > app/build/outputs/apk/debug/SOURCE_COMMIT.txt
+          sha256sum "$APK" > app/build/outputs/apk/debug/SHA256SUMS.txt
       - name: Upload debug APK and test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -49,6 +57,8 @@ jobs:
           name: alarmchallenges-debug-and-test-reports
           path: |
             source/android/app/build/outputs/apk/debug/*.apk
+            source/android/app/build/outputs/apk/debug/SOURCE_COMMIT.txt
+            source/android/app/build/outputs/apk/debug/SHA256SUMS.txt
             source/android/app/build/reports/tests/
           if-no-files-found: warn
           retention-days: 7
