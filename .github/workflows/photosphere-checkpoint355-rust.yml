@@ -1,0 +1,134 @@
+name: Photosphere checkpoint355 real original AddImage wrapper Rust differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint355-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint355-rust
+  cancel-in-progress: false
+jobs:
+  native-source-addimage-wrapper-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Exact SHA private app checkout read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 8be4ba1a3221177495a1bf52ea8c917cbae8bedf
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact source revision and select Rust
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "8be4ba1a3221177495a1bf52ea8c917cbae8bedf"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Read original ARM64 constructor proof and seven native ABI cases from public Playground
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42445528725 --repo Persie0/Playground --name photosphere-checkpoint355-source --dir source355static
+          gh run download 42445661468 --repo Persie0/Playground --name photosphere-checkpoint355-native --dir source355native
+      - name: Independently verify original ELF 30 opcode provenance and 7 actual native AddImage ABI cases
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          f=json.loads(Path("tests/fixtures/native_original_addimage_wrapper_355.json").read_text())
+          source=json.loads(Path("source355static/checkpoint355-proven-addimage-owner.json").read_text())
+          ctor=json.loads(Path("source355static/checkpoint355-wrapper-constructor.json").read_text())
+          wrapper=json.loads(Path("source355static/checkpoint355-original-wrapper.json").read_text())
+          native=json.loads(Path("source355native/checkpoint355-native-addimage.json").read_text())
+          sha="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert all(x["checkpoint"]==355 for x in (f,source,ctor,wrapper,native))
+          assert all(x["original_elf_sha256"]==sha for x in (f,source,ctor,wrapper,native))
+          assert f["source_original_provenance_run"]==42445528725
+          assert f["source_original_native_abi_run"]==42445661468
+          assert f["source_original_owner_chain_exact_opcode_pins"]==source["source_original_exact_opcode_pins"]==30
+          assert len(source["original_opcode_pins"])==30
+          assert f["source_original_abi_call_exact_opcode_pins"]==native["source_original_exact_opcode_pins"]==8
+          assert wrapper["source_original_exact_opcode_pins"]==15
+          assert ctor["source_original_pinned_opcode_count"]==10
+          assert f["source_original_original_elf_relocation_type"]==source["original_estimator_addimage_vtable_relocation"]["type"]==1027
+          assert source["original_estimator_addimage_vtable_relocation"]["addend"]=="0x11d570"
+          assert source["original_estimator_addimage_vtable_relocation"]["va"]=="0x3fdcc8"
+          assert source["original_source_original_native_addimage_receiver_concrete_estimator_proven"] is True
+          assert f["source_original_estimator_vptr"]==source["original_native_estimator_constructor_concrete_vptr"]==native["source_original_estimator_concrete_vptr"]=="0x3fdca0"
+          assert f["source_original_addimage_slot_va"]==source["original_native_addimage_vtable_slot_va"]=="0x3fdcc8"
+          assert f["source_original_addimage_pc"]==source["original_native_addimage_concrete_target_pc"]==native["source_original_addimage_method_pc"]=="0x11d570"
+          assert f["source_original_estimator_factory_thunk_pc"]==source["original_native_estimator_factory_thunk_pc"]=="0x11ccf4"
+          assert f["source_original_wrapper_constructor_pc"]==source["original_native_wrapper_constructor_pc"]==ctor["source_original_wrapper_constructor_entry"]=="0x11a204"
+          assert f["source_original_wrapper_estimator_member_offset_bytes"]==source["original_wrapper_estimator_store_owner_offset_bytes"]==72
+          assert f["source_original_wrapper_model_source_member_offset_bytes"]==source["original_wrapper_model_source_store_owner_offset_bytes"]==88
+          assert source["original_wrapper_incoming_estimator_argument_register"]=="X4"
+          assert source["original_wrapper_incoming_model_source_argument_register"]=="X3"
+          assert source["original_native_wrapper_constructor_direct_caller"]=="0x10f3cc"
+          assert source["original_wrapper_estimator_field_store_pc"]=="0x11a268"
+          assert source["original_wrapper_model_source_field_store_pc"]=="0x11a298"
+          assert f["source_original_model_source_upstream_virtual_caller_pc"]==source["original_source_upstream_model_source_getter_call_pc"]=="0x10f3a4"
+          assert f["source_original_concrete_model_source_class_proven"] is False
+          assert f["source_original_real_child_vptr_proven"] is False
+          assert f["source_original_original_addimage_full_body_executed"] is False
+          assert source["original_source_upstream_model_source_concrete_class_proven"] is False
+          assert source["original_source_model_child_concrete_vtable_proven"] is False
+          assert source["original_constructor_full_body_executed"] is False
+          assert native["source_original_original_AddImage_body_executed"] is False
+          assert native["source_original_wrapper_constructor_body_executed"] is False
+          assert native["source_original_real_model_source_virtual_methods_executed"] is False
+          assert native["source_original_virtual_dispatch_target_verified_via_ELF_relocation"] is True
+          assert f["source_original_virtual_caller_native_executed"] is True
+          assert f["source_original_native_case_count"]==native["source_original_abi_case_count"]==7
+          assert native["source_original_source_executed_callsite_instruction_count"]==8
+          assert len(f["cases"])==len(native["source_original_cases"])==7
+          for exp,obs in zip(f["cases"],native["source_original_cases"]):
+              i=exp["index"]
+              assert obs["case"]==i
+              assert exp["source_original_owner"]==obs["original_wrapper_owner"]
+              assert exp["source_original_x0_estimator"]==obs["original_estimator_receiver_x0"]
+              assert exp["source_original_x1_native_stack"]==obs["original_source_stack_x1"]
+              assert exp["source_original_x2_record"]==obs["original_source_image_record_x2"]
+              assert exp["source_original_x3_model_source"]==obs["original_model_source_x3"]
+              assert exp["source_original_x4_metadata36"]==obs["original_36byte_metadata_x4"]
+              assert exp["source_original_metadata36_hex"]==obs["original_metadata_bytes_exact"]
+              assert len(bytes.fromhex(obs["original_metadata_bytes_exact"]))==36
+              assert exp["source_original_caller_pc_hooks_including_stop"]==obs["source_original_pc_count_including_stop"]==9
+              assert exp["source_original_caller_executed"]==obs["source_original_caller_8_instructions_executed"] is True
+              assert exp["source_original_addimage_entry_stop_hook_only"]==obs["source_original_addimage_entry_stop_hook_only"] is True
+              assert exp["source_original_memory_unchanged"]==obs["source_original_memory_unchanged"] is True
+              assert obs["source_original_real_model_source_vtable_unproven"] is True
+              assert obs["source_original_addimage_target_pc"]=="0x11d570"
+          print("CHECKPOINT355_INDEPENDENT_ORIGINAL_CONCRETE_ESTIMATOR_WRAPPER_OWNER_PASS 30 1")
+          print("CHECKPOINT355_INDEPENDENT_NATIVE_ADDIMAGE_ABI_PASS 8 7")
+          PY
+      - name: Run focused Rust checkpoint355 original source-backed ABI tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint355 -- --nocapture > checkpoint355-focused.log 2>&1 || { tail -n 220 checkpoint355-focused.log; exit 1; }
+          grep -q 'test result: ok. 3 passed; 0 failed' checkpoint355-focused.log
+          tail -n 25 checkpoint355-focused.log
+      - name: Run complete Rust library and integration tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint355-lib.log 2>&1 || { tail -n 220 checkpoint355-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint355-integration.log 2>&1 || { tail -n 220 checkpoint355-integration.log; exit 1; }
+          grep '^test result:' checkpoint355-lib.log | tail -1
+          grep '^test result:' checkpoint355-integration.log | tail -9
+      - name: Archive nonproprietary Rust CI logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint355-rust
+          path: |
+            checkpoint355-focused.log
+            checkpoint355-lib.log
+            checkpoint355-integration.log
+          retention-days: 7
+          if-no-files-found: warn
