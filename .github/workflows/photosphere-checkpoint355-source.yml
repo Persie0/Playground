@@ -18,15 +18,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 5e66fbaf058ed07524a35fa78933afc3e9bab0d2
+          ref: 69dc8f80936b3846ad9c97a9b990d5653e107f11
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify private source SHA and install ARM64 disassembler
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "5e66fbaf058ed07524a35fa78933afc3e9bab0d2"
+          test "$(git rev-parse HEAD)" = "69dc8f80936b3846ad9c97a9b990d5653e107f11"
           python3 -m pip install --quiet --break-system-packages capstone pyelftools
-          python3 -m py_compile research/photosphere/checkpoint355/inspect_original_addimage_wrapper.py
+          python3 -m py_compile research/photosphere/checkpoint355/inspect_original_addimage_wrapper.py research/photosphere/checkpoint355/inspect_original_wrapper_constructor.py
       - name: Retrieve original Google Camera source APK and ELF by checksum
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -42,6 +42,11 @@ jobs:
           set -euo pipefail
           python3 research/photosphere/checkpoint355/inspect_original_addimage_wrapper.py original.so --output checkpoint355-original-wrapper.json | tee checkpoint355-original-wrapper.log
           grep -q '^CHECKPOINT355_ORIGINAL_ADDIMAGE_WRAPPER_SOURCE_PASS 15 ' checkpoint355-original-wrapper.log
+      - name: Trace source-original wrapper constructor X20 and X24 into owner plus0x48 and plus0x58
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint355/inspect_original_wrapper_constructor.py original.so --output checkpoint355-wrapper-constructor.json | tee checkpoint355-wrapper-constructor.log
+          grep -q '^CHECKPOINT355_ORIGINAL_WRAPPER_CONSTRUCTOR_PASS 10 4 ' checkpoint355-wrapper-constructor.log
       - name: Archive only nonproprietary source survey report
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,5 +55,7 @@ jobs:
           path: |
             checkpoint355-original-wrapper.json
             checkpoint355-original-wrapper.log
+            checkpoint355-wrapper-constructor.json
+            checkpoint355-wrapper-constructor.log
           retention-days: 7
           if-no-files-found: warn
