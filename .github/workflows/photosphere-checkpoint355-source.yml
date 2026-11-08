@@ -26,7 +26,9 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "d199bd59dc189b8e5d344529865e163c350b11ab"
           python3 -m pip install --quiet --break-system-packages capstone pyelftools
-          python3 -m py_compile research/photosphere/checkpoint355/inspect_original_addimage_wrapper.py research/photosphere/checkpoint355/inspect_original_wrapper_constructor.py research/photosphere/checkpoint355/prove_original_addimage_owner_chain.py
+          python3 -m py_compile research/photosphere/checkpoint355/inspect_original_addimage_wrapper.py
+          python3 -m py_compile research/photosphere/checkpoint355/inspect_original_wrapper_constructor.py
+          python3 -m py_compile research/photosphere/checkpoint355/prove_original_addimage_owner_chain.py
       - name: Retrieve original Google Camera source APK and ELF by checksum
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -37,21 +39,22 @@ jobs:
           echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
           unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
           echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
-      - name: Source survey original AddImage owner+0x48 estimator and X3 owner+0x58
+      - name: Survey source original candidate AddImage wrapper
         run: |
           set -euo pipefail
           python3 research/photosphere/checkpoint355/inspect_original_addimage_wrapper.py original.so --output checkpoint355-original-wrapper.json | tee checkpoint355-original-wrapper.log
           grep -q '^CHECKPOINT355_ORIGINAL_ADDIMAGE_WRAPPER_SOURCE_PASS 15 ' checkpoint355-original-wrapper.log
-      - name: Trace source-original wrapper constructor X20 and X24 into owner plus0x48 and plus0x58
+      - name: Trace source original wrapper constructor X20 and X24 into owner plus48 plus58
         run: |
           set -euo pipefail
           python3 research/photosphere/checkpoint355/inspect_original_wrapper_constructor.py original.so --output checkpoint355-wrapper-constructor.json | tee checkpoint355-wrapper-constructor.log
           grep -q '^CHECKPOINT355_ORIGINAL_WRAPPER_CONSTRUCTOR_PASS 10 4 ' checkpoint355-wrapper-constructor.log
-      - name: Prove actual original estimator factory through wrapper X4->+0x48 to native AddImage virtual +0x28
+      - name: Prove original estimator factory output through wrapper owner to concrete AddImage call
         run: |
           set -euo pipefail
           python3 research/photosphere/checkpoint355/prove_original_addimage_owner_chain.py original.so --output checkpoint355-proven-addimage-owner.json | tee checkpoint355-proven-addimage-owner.log
-          grep -q '^CHECKPOINT355_ACTUAL_ADDIMAGE_OWNER_SOURCE_PASS 30 1 0x3fdca0 0x3fdcc8
+          grep -q '^CHECKPOINT355_ACTUAL_ADDIMAGE_OWNER_SOURCE_PASS 30 1 0x3fdca0 0x3fdcc8$' checkpoint355-proven-addimage-owner.log
+      - name: Archive only nonproprietary source survey reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -63,18 +66,5 @@ jobs:
             checkpoint355-wrapper-constructor.log
             checkpoint355-proven-addimage-owner.json
             checkpoint355-proven-addimage-owner.log
-          retention-days: 7
-          if-no-files-found: warn
- checkpoint355-proven-addimage-owner.log
-      - name: Archive only nonproprietary source survey report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: photosphere-checkpoint355-source
-          path: |
-            checkpoint355-original-wrapper.json
-            checkpoint355-original-wrapper.log
-            checkpoint355-wrapper-constructor.json
-            checkpoint355-wrapper-constructor.log
           retention-days: 7
           if-no-files-found: warn
