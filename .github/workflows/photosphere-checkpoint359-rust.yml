@@ -1,0 +1,89 @@
+name: Photosphere checkpoint359 real native camera/provider/solver Rust differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint359-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint359-rust
+  cancel-in-progress: false
+jobs:
+  original-source-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact private app SHA read-only from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 6e4424f6e4db5e5efe9439f24e90e312b0370c42
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source version and install Rust toolchain
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "6e4424f6e4db5e5efe9439f24e90e312b0370c42"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Download only numerical source report from original public Playground run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42501577474 --repo Persie0/Playground --name photosphere-checkpoint359-source --dir source358
+      - name: Verify committed original native fixture against independent source report
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          fixture=json.load(open('tests/fixtures/native_original_pair_creator_camera_solver_359.json'))
+          original=json.load(open('source358/checkpoint359-native.json'))
+          assert fixture.pop('public_source_run') == 42501577474
+          assert fixture==original, "Rust fixture differs from source-original native one-VM run"
+          assert original['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert original['original_verified_opcode_pins']==44
+          assert original['original_verified_rel_vtable_slots']==5
+          assert len(original['source_original_native_capture_cases'])==4
+          assert len(original['source_original_native_solver_pair_cases'])==5
+          assert len(original['source_original_native_pair_creator_cases'])==5
+          assert not original['original_pair_records_test_injected']
+          assert original['original_addimage_pair_constructor_native_executed']
+          assert original['original_pair_status10_to5_source_patch_native_executed']
+          assert original['original_pair_append_source_native_executed']
+          assert original['original_solver_status_predicate_source_native_executed']
+          assert not original['original_model_children_test_injected']
+          assert original['original_configuration_count_test_stubbed']
+          assert original['original_provider_vectors_preallocated_test_supplied']
+          assert original['original_tanf_host_math_tan_f32_shim']
+          assert not original['original_full_solver_ceres_and_residuals_executed']
+          assert not original['original_device_pixels_or_seam_parity_proven']
+          print("CHECKPOINT358_INDEPENDENT_NATIVE_RUST_FIXTURE_PASS 44 5 4 5 5")
+          PY
+      - name: Checkpoint359 focused same-VM camera/provider/solver Rust differential
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint359 -- --nocapture > checkpoint359-focused.log 2>&1 || { tail -n 160 checkpoint359-focused.log; exit 1; }
+          grep -q 'test result: ok. 1 passed; 0 failed' checkpoint359-focused.log
+          tail -n 20 checkpoint359-focused.log
+      - name: Full Rust library and integration regressions
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint359-lib.log 2>&1 || { tail -n 160 checkpoint359-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint359-tests.log 2>&1 || { tail -n 160 checkpoint359-tests.log; exit 1; }
+          grep '^test result:' checkpoint359-lib.log | tail -1
+          grep '^test result:' checkpoint359-tests.log | tail -9
+      - name: Archive only nonproprietary Rust regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint359-rust
+          path: |
+            checkpoint359-focused.log
+            checkpoint359-lib.log
+            checkpoint359-tests.log
+          retention-days: 7
+          if-no-files-found: warn
