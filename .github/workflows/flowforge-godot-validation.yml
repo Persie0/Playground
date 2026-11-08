@@ -1,5 +1,5 @@
 name: Flow Forge - Godot 4.7.2 validation (public Playground runner)
-# Final PR2 validation after removing test-only anchor size warning.
+# PR3 audit validation: entitlement contract, guarded wallet, modal and layout regression.
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
           test -n "$REPO_TOKEN" || { echo "Missing token with access to Persie0/flowforge"; exit 1; }
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
-            clone --depth=1 --branch=main https://github.com/Persie0/flowforge.git source
+            clone --depth=1 --branch=fix/revenuecat-wallet-and-gameplay-audit https://github.com/Persie0/flowforge.git source
           echo "FLOWFORGE_SHA=$(git -C source rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Download official stable Godot 4.7.2
@@ -63,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/economy_tests.gd 2>&1 | tee economy.log
-          grep -q 'purchase-idempotency tests validated' economy.log
+          grep -q 'fail-closed IAP tests validated' economy.log
           if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' economy.log; then exit 1; fi
 
       - name: Game scene smoke test
