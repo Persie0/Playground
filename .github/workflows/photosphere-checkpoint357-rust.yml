@@ -1,0 +1,90 @@
+name: Photosphere checkpoint357 source-native real child getters Rust differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint357-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint357-rust
+  cancel-in-progress: false
+jobs:
+  source-native-rust-getters:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact private app SHA from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 75257000b6cf4aec555a4559925d1a1dd94785c9
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify private code revision is exact
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '75257000b6cf4aec555a4559925d1a1dd94785c9'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Read checkpoint357 ORIGINAL native result from public source job
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42495074078 --repo Persie0/Playground --name photosphere-checkpoint357-source --dir source357
+      - name: Independent original-native versus Rust fixture differential comparison
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          native=json.load(open("source357/checkpoint357-original-getters.json"))
+          fixture=json.load(open("tests/fixtures/native_original_linear_child_getters_357.json"))
+          assert native["checkpoint"]==fixture["checkpoint"]==357
+          assert fixture["public_source_run"]==42495074078
+          assert native["original_caller_opcode_pins"]==fixture["original_caller_opcode_pins"]==22
+          assert native["original_elf_vtable_relocations"]==fixture["original_elf_vtable_relocations"]==3
+          assert native["original_elf_sha256"]==fixture["original_elf_sha256"]
+          for key in (
+            "original_provenance_scope",
+            "original_real_provider_and_two_child_getter_bodies_executed",
+            "original_real_camera_constructors_or_clone_bodies_executed",
+            "original_full_solver_or_ceres_executed",
+            "original_pixel_parity_proven",
+          ):
+              assert native[key]==fixture[key],key
+          assert len(native["cases"])==len(fixture["cases"])==5
+          for original,expected in zip(native["cases"],fixture["cases"]):
+              for key,value in expected.items():
+                  assert original[key]==value,(original["index"],key,original.get(key),value)
+              assert original["source_original_original_pc_hooks_including_stop"]>22
+              assert original["source_original_all_three_real_callback_bodies_executed"]
+              assert not original["source_original_test_callback_stubs_executed"]
+          print("CHECKPOINT357_NATIVE_ORIGINAL_THREE_GETTER_RUST_FIXTURE_PASS 5 22 3")
+          PY
+      - name: Run focused source-native differential Rust test
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib checkpoint357 -- --nocapture > checkpoint357-focused.log 2>&1 || { tail -n 170 checkpoint357-focused.log; exit 1; }
+          grep -q 'test result: ok. 1 passed; 0 failed' checkpoint357-focused.log
+          tail -n 20 checkpoint357-focused.log
+      - name: Complete app Rust regression suite
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > checkpoint357-lib.log 2>&1 || { tail -n 170 checkpoint357-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint357-tests.log 2>&1 || { tail -n 170 checkpoint357-tests.log; exit 1; }
+          grep '^test result:' checkpoint357-lib.log | tail -1
+          grep '^test result:' checkpoint357-tests.log | tail -9
+      - name: Archive only nonproprietary Rust regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint357-rust
+          path: |
+            checkpoint357-focused.log
+            checkpoint357-lib.log
+            checkpoint357-tests.log
+          retention-days: 7
+          if-no-files-found: warn
