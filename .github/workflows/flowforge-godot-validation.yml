@@ -48,6 +48,13 @@ jobs:
           grep -q 'generated levels validated' levels.log
           if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' levels.log; then exit 1; fi
 
+      - name: Gameplay interaction regression tests
+        run: |
+          set -euo pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/gameplay_tests.gd 2>&1 | tee gameplay.log
+          grep -q 'gameplay interactions and 60 level completions validated' gameplay.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' gameplay.log; then exit 1; fi
+
       - name: Game scene smoke test
         run: |
           set -euo pipefail
