@@ -1,0 +1,36 @@
+name: Drift Blast Godot validation (public runner)
+
+on:
+  push:
+    paths:
+      - ".github/workflows/driftblast-godot-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  godot-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out private game source with permitted token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/DriftBlast
+          ref: feature/drift-blast-godot
+          path: game
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Download verified official Godot executable
+        run: |
+          curl -fsSL --retry 3 -o godot.zip "https://github.com/godotengine/godot/releases/download/4.5.1-stable/Godot_v4.5.1-stable_linux.x86_64.zip"
+          echo "02ec53d1cc7dbb9cc6355393c61b9ab43d1244751a124f10248a4802830788cd  godot.zip" | sha256sum -c -
+          unzip -q godot.zip
+          chmod +x Godot_v4.5.1-stable_linux.x86_64
+      - name: Import and parse Godot project
+        run: ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --editor --quit
+      - name: Run rule regression tests
+        run: ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --script res://tests/test_board.gd
+      - name: Smoke-test main scene
+        run: ./Godot_v4.5.1-stable_linux.x86_64 --headless --path game --quit-after 15
