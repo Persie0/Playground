@@ -1,0 +1,144 @@
+name: Photosphere batch 376-378 original native matcher-owned 25 rows and third descriptor
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-batch-376-378.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-batch-376-378
+  cancel-in-progress: false
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout original source research read-only at pinned SHA
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: f739161377498d2d99367a7a058b09b420d296ae
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify research SHA and install native dependencies once
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = f739161377498d2d99367a7a058b09b420d296ae
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint376/native_matcher_owned_25_row_solver_third_descriptor.py
+      - name: Download original APK and verify transient ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Run original 2-image matcher, capture actual 25 row owners, bounded solver dispatch, third original descriptor matcher
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint376/native_matcher_owned_25_row_solver_third_descriptor.py > checkpoint376-full.log 2> checkpoint376-debug.log
+          grep -q '^CHECKPOINT376_NATIVE_MATCHER_OWNER_SOLVER_THIRD_DESCRIPTOR_REPORT=' checkpoint376-full.log
+          python3 - <<'PY'
+          import json
+          line=next(x for x in open('checkpoint376-full.log') if x.startswith('CHECKPOINT376_NATIVE_MATCHER_OWNER_SOLVER_THIRD_DESCRIPTOR_REPORT='))
+          d=json.loads(line.split('=',1)[1])
+          assert d['checkpoint']==376
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert d['original_550_trial_ransac_executed']
+          assert d['original_highlevel_matcher_return_w0']==1
+          assert d['original_bidirectional_links_executed']
+          rows=d['source_original_second_matcher_point_rows']
+          assert len(rows)==25
+          assert all(x['original_source_writer']=='0x122384' for x in rows)
+          snap=d['source_original_matcher_owned_25_row_snapshot']
+          assert snap['source_exactly_25_native_owned_rows']
+          assert snap['original_writer_return_pc']=='0x120ee0'
+          assert snap['original_original_25_rows_generated']
+          assert not snap['original_native_vector_was_host_injected']
+          assert snap['native_row_content_all_25_hex']==''.join(x['source_row_bytes_hex'] for x in rows)
+          assert len(d['source_original_matcher_owned_row_vector_progression'])==25
+          assert all(x==1062755336 for x in snap['original_f32_weight_bits_all_25'])
+          probe=d['source_original_25_row_solver_probe']
+          assert probe['original_matcher_native_point_rows_written_without_replay']
+          assert probe['original_point_row_owner_not_host_injected']
+          assert not probe['original_nonempty_residual_body_executed']
+          assert not probe['original_ceres_executed']
+          print('CHECKPOINT376_ORIGINAL_SOURCE_25_POINT_OWNER',
+                probe['original_matcher_receiver_is_first_estimator_pair'],
+                probe['original_estimator_pair_status_u32'],
+                probe['original_28_native_vector_row_count'],
+                probe['original_nonempty_28_solver_dispatch_executed'])
+          third=d['source_original_third_image_callsite']
+          assert third['original_third_wrapper_return_seen']
+          assert third['original_third_matcher_entry_reached']
+          assert third['original_third_highlevel_matcher_entry']['original_current_image_w21']==2
+          assert third['original_third_highlevel_matcher_entry']['original_candidate_image_w25']==0
+          assert not third['original_third_ransac_executed']
+          assert not third['reached_full_original_third_addimage']
+          if third.get('original_third_descriptor_matcher_executed'):
+            desc=third['original_third_descriptor_matcher_result']
+            assert desc['original_result_boundary_pc']=='0x1206e4'
+            assert len(desc['native_original_raw_20byte_rows_hex'])==40*desc['native_original_raw_row_count']
+            assert third['original_third_descriptor_matcher_threshold']['native_original_matcher_count']==desc['native_original_raw_row_count']
+            print('CHECKPOINT376_THIRD_SOURCE_DESCRIPTOR_MATCHES',desc['native_original_raw_row_count'])
+          else:
+            print('CHECKPOINT376_THIRD_SOURCE_DESCRIPTOR_NOT_REACHED',third.get('original_third_execution_error'))
+          open('checkpoint376-compact.json','w').write(json.dumps(d,sort_keys=True,indent=2)+'\n')
+          print('CHECKPOINT376_SAME_VM_SOURCE_NATIVE_PASS')
+          PY
+      - name: Delete proprietary source APK and ELF before archiving
+        if: always()
+        run: rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive only synthetic point rows and register/PC reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint376-original-25-rows
+          path: |
+            checkpoint376-compact.json
+            checkpoint376-debug.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  rust-app:
+    needs: original-arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Exact-SHA read-only checkout private Rust app
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 49f9eaebffb11da48730b0ae929f9b046dceb717
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: photosphere-checkpoint376-original-25-rows
+          path: source
+      - name: Verify app SHA and install pinned Rust
+        run: test "$(git rev-parse HEAD)" = 49f9eaebffb11da48730b0ae929f9b046dceb717
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: One grouped Rust native-owner differential and all tests
+        env:
+          PHOTOSPHERE_376_NATIVE_JSON: ${{ github.workspace }}/source/checkpoint376-compact.json
+        run: |
+          set -euo pipefail
+          test -s "$PHOTOSPHERE_376_NATIVE_JSON"
+          cargo test --locked --tests > checkpoint376-rust.log 2>&1 || { tail -n 180 checkpoint376-rust.log; exit 1; }
+          grep '^test result:' checkpoint376-rust.log | tail -12
+      - name: Retain grouped Rust results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint376-rust
+          path: checkpoint376-rust.log
+          retention-days: 7
+          if-no-files-found: warn
