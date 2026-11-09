@@ -1,0 +1,124 @@
+name: Photosphere batch 366 original pose getter and Rust residual fork
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-batch-366.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-batch-366
+  cancel-in-progress: false
+jobs:
+  native-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Read-only exact-SHA research checkout from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: c43fac337dfd2630b56c462957c6ebb84af91ddc
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install native harness and assert research commit
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'c43fac337dfd2630b56c462957c6ebb84af91ddc'
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint366/native_original_provider_pose_pair_solver_fov.py
+      - name: Ephemeral checksum-pinned original GCam ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Source original provider pose getters to pair creator, solver, FOV
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint366/native_original_provider_pose_pair_solver_fov.py research/native/liblightcycle.so --output checkpoint366-native.json | tee checkpoint366.log
+          grep -q '^CHECKPOINT366_ORIGINAL_POSE_GETTERS_PAIR_SOLVER_FOV_ONE_VM_PASS 48 5 4 5 5 5$' checkpoint366.log
+          python3 - <<'PY'
+          import json
+          d=json.load(open('checkpoint366-native.json'))
+          assert d['checkpoint']==366
+          assert d['original_verified_opcode_pins']==48
+          assert d['original_provider_pose_vtable_relocation_verified']
+          assert d['original_addimage_native_pose_getters_executed']
+          assert d['original_pose_metadata_test_supplied']
+          assert not d['original_pair_matrices_test_supplied']
+          assert not d['original_natural_matcher_to_pair_constructor_executed']
+          assert d['original_provider_pose_vtable_slot']=='0x40dc40'
+          assert len(d['source_original_native_capture_cases'])==4
+          assert len(d['source_original_native_pair_creator_cases'])==5
+          assert all(x['first_and_second_pose_getter_native_executed'] for x in d['source_original_native_pair_creator_cases'])
+          assert all(not x['test_pair_matrices_directly_injected'] for x in d['source_original_native_pair_creator_cases'])
+          assert d['source_original_empty_residual_for_native_created_pairs_executed']
+          assert d['original_fov_pairs_bitwise_identical_to_source']
+          assert not d['original_full_solver_ceres_and_residuals_executed']
+          assert not d['original_device_pixels_or_seam_parity_proven']
+          print('CHECKPOINT366_ORIGINAL_POSE_PAIR_FOV_VERIFIED')
+          PY
+      - name: Remove original proprietary binaries before artifacts
+        if: always()
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive synthetic source-native numerical oracle only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint366-native
+          path: |
+            checkpoint366-native.json
+            checkpoint366.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  rust-and-android-library:
+    needs: native-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Read-only exact-SHA app checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 3f4977a83157c582283eaad8dcc95450961f708b
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Download source original oracle from same public run
+        uses: actions/download-artifact@v4
+        with:
+          name: photosphere-checkpoint366-native
+          path: native-source
+      - name: Validate app revision and install Rust 1.99.1
+        run: |
+          test "$(git rev-parse HEAD)" = '3f4977a83157c582283eaad8dcc95450961f708b'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Combined Rust library and integration regressions with native source oracle
+        env:
+          PHOTOSPHERE_366_NATIVE_JSON: ${{ github.workspace }}/native-source/checkpoint366-native.json
+        run: |
+          set -euo pipefail
+          test -s "$PHOTOSPHERE_366_NATIVE_JSON"
+          cargo test --locked --lib > checkpoint366-library.log 2>&1 || { tail -n 180 checkpoint366-library.log; exit 1; }
+          cargo test --locked --tests > checkpoint366-integration.log 2>&1 || { tail -n 180 checkpoint366-integration.log; exit 1; }
+          grep '^test result:' checkpoint366-library.log | tail -1
+          grep '^test result:' checkpoint366-integration.log | tail -10
+      - name: Retain grouped regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint366-rust
+          path: |
+            checkpoint366-library.log
+            checkpoint366-integration.log
+          retention-days: 7
+          if-no-files-found: warn
