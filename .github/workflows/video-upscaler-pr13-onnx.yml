@@ -1,5 +1,5 @@
 name: Video Upscaler PR13 macOS ONNX validation
-# Rerun after correcting existing locale audit allowlist.
+# Review pass: guard UpscaleCore import in Xcode integrated target.
 on:
   push:
     paths:
@@ -30,6 +30,8 @@ jobs:
         run: python3 Scripts/audit_localizations.py
       - name: Build and test macOS app
         working-directory: app
+        env:
+          RUN_ONNX_SMOKE: '1'
         run: >-
           xcodebuild -project VideoUpscaler.xcodeproj
           -scheme VideoUpscaler -destination 'platform=macOS'
