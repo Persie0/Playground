@@ -1,0 +1,70 @@
+name: Photosphere 390 original third RANSAC Rust source differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-390-third-ransac-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-390-third-ransac-rust
+  cancel-in-progress: false
+jobs:
+  rust-refit-differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Read-only exact-SHA private app checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: bee25c9379a8673627fe0166e59d81161dbfb2ee
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Reuse verified original third-image native oracle (no APK rerun)
+        uses: actions/download-artifact@v4
+        with:
+          name: photosphere-388-390-source-numeric
+          run-id: 42715214050
+          github-token: ${{ github.token }}
+          path: source-oracle
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: All Rust library + integration regressions with actual third native 550/refit oracle
+        env:
+          PHOTOSPHERE_388_NATIVE_JSON: ${{ github.workspace }}/source-oracle/checkpoint388-native.json
+          PHOTOSPHERE_389_STATIC_JSON: ${{ github.workspace }}/source-oracle/checkpoint389-static.json
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'bee25c9379a8673627fe0166e59d81161dbfb2ee'
+          test -s "$PHOTOSPHERE_388_NATIVE_JSON"
+          test -s "$PHOTOSPHERE_389_STATIC_JSON"
+          cargo test --locked --lib > checkpoint390-lib.log 2>&1 || { tail -n 180 checkpoint390-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint390-integration.log 2>&1 || { tail -n 180 checkpoint390-integration.log; exit 1; }
+          grep '^test result:' checkpoint390-lib.log | tail -1
+          grep '^test result:' checkpoint390-integration.log | tail -10
+          python3 - <<'PY'
+          import json,os
+          d=json.load(open(os.environ['PHOTOSPHERE_388_NATIVE_JSON']))
+          src=d['checkpoint388_third_native_full']
+          assert src['native_third_550_trials_finished']
+          assert src['native_third_refit_executed']
+          assert src['native_original_robust_return']['native_return_w0']==1
+          assert src['native_best_support_w28']==25
+          assert src['native_rand_calls']==1100
+          assert src['original_native_sampler_pairs']==550
+          assert src['native_refit_svd']['source_svd_status_u32']==0
+          print('CHECKPOINT390_NATIVE_THIRD_550_REFIT_AND_RUST_DIFFERENTIAL_PASS')
+          PY
+      - name: Archive Rust source differential log only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-390-rust-refit-differential
+          path: |
+            checkpoint390-lib.log
+            checkpoint390-integration.log
+          retention-days: 7
+          if-no-files-found: warn
