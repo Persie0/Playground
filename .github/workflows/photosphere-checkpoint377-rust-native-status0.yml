@@ -1,0 +1,89 @@
+name: Photosphere checkpoint377 exact original status0 matcher rows Rust differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint377-rust-native-status0.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-377-rust-only-source-oracle
+  cancel-in-progress: false
+jobs:
+  rust-only-with-pinned-original-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Read-only checkout corrected exact source script for syntax
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: c6ebb8f8fa15da425271bbf5d53d415111bd4955
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: decompile
+      - name: Verify research SHA and Python compile (no original GCam binaries)
+        run: |
+          set -euo pipefail
+          test "$(git -C decompile rev-parse HEAD)" = c6ebb8f8fa15da425271bbf5d53d415111bd4955
+          python3 -m py_compile decompile/research/photosphere/checkpoint376/native_matcher_owned_25_row_solver_third_descriptor.py
+      - name: Read-only checkout exact app source commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: d965becfa123150b4dbd3538405a396c137179c8
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Verify app revision and reuse verified native source oracle without native rerun
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = d965becfa123150b4dbd3538405a396c137179c8
+          mkdir -p source-oracle
+          gh run download 42694767226 --repo Persie0/Playground --name photosphere-checkpoint376-original-25-rows --dir source-oracle
+          test -s source-oracle/checkpoint376-compact.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('source-oracle/checkpoint376-compact.json'))
+          assert d['checkpoint']==376
+          p=d['source_original_25_row_solver_probe']
+          assert p['original_estimator_pair_status_u32']==0
+          assert p['original_28_native_vector_row_count']==25
+          assert p['original_36_native_vector_row_count']==0
+          assert p['native_row_25_content_still_present']
+          assert p['original_native_status_eligibility_predicate_executed']
+          assert p['original_native_predicate_return_w0']==1
+          assert p['original_nonempty_28_solver_dispatch_executed']
+          expected=['0x128d84','0x128d88','0x128d8c','0x128d90',
+                    '0x128d94','0x128d98','0x128d9c','0x128da0',
+                    '0x128da4','0x128da8']
+          assert p['original_exact_source_solver_dispatch_pc_trace'][:10]==expected
+          assert not p['original_ceres_executed']
+          t=d['source_original_third_image_callsite']
+          assert t['original_third_descriptor_matcher_executed']
+          assert t['original_third_descriptor_matcher_result']['native_original_raw_row_count']==25
+          assert not t['original_third_ransac_executed']
+          print('CHECKPOINT377_ORIGINAL_STATUS0_25_MATCHER_ROWS_TO_SOLVER_PREDICATE_AND_BRANCH_VERIFIED')
+          PY
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Single combined app library and integration regression
+        working-directory: app
+        env:
+          PHOTOSPHERE_376_NATIVE_JSON: ${{ github.workspace }}/source-oracle/checkpoint376-compact.json
+        run: |
+          set -euo pipefail
+          cargo test --locked --tests > checkpoint377-rust.log 2>&1 || { tail -n 160 checkpoint377-rust.log; exit 1; }
+          grep '^test result:' checkpoint377-rust.log | tail -12
+      - name: Archive one Rust validation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint377-rust-status0
+          path: app/checkpoint377-rust.log
+          retention-days: 7
+          if-no-files-found: warn
