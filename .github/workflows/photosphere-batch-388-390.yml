@@ -1,0 +1,145 @@
+name: Photosphere batch 388-390 original third native full RANSAC + refit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-batch-388-390.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-batch-388-390
+  cancel-in-progress: false
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Original research read-only exact-SHA checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 9b6f82275ff4221993a2c233ca862e8a666f56d7
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify research SHA and install native tooling
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '9b6f82275ff4221993a2c233ca862e8a666f56d7'
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint388/native_third_original_full_550_ransac_refit.py research/photosphere/checkpoint389/scan_original_third_full_ransac_pcs.py
+      - name: Ephemeral original proprietary APK/ELF checksum-pin
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Independent original RANSAC, scoring, refit and return opcode audit
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint389/scan_original_third_full_ransac_pcs.py research/native/liblightcycle.so --output checkpoint389-static.json | tee checkpoint389-static.log
+          grep -q '^CHECKPOINT389_14_SOURCE_ORIGINAL_RANSAC_OPCODES_PASS 14$' checkpoint389-static.log
+      - name: Original third AddImage — 25 matches, 550 trials, full-inlier refit, native robust return
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint388/native_third_original_full_550_ransac_refit.py > checkpoint388-full.log 2> checkpoint388-diagnostic.log
+          python3 - <<'PY'
+          import json
+          line=next(x for x in open('checkpoint388-full.log') if x.startswith('CHECKPOINT388_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          d=json.loads(line.split('=',1)[1])
+          r=d['checkpoint388_third_native_full']
+          assert d['original_full_solver_ceres_executed']==False
+          assert d['bionic_rand_stream_test_controlled']==True
+          assert d['source_original_25_row_solver_probe']['original_28_native_vector_row_count']==25
+          assert r['native_third_550_trials_finished']
+          assert r['native_completed_trial_count_w21']==550
+          assert r['native_source_trial_trace_count']==550
+          assert r['native_rand_calls']==1100
+          assert r['original_native_sampler_pairs']==550
+          assert r['first_candidate_pc']=='0x3100c4'
+          assert r['first_sample_gate']['original_source_pc']=='0x3101c4'
+          assert r['first_support_score']['source_original_support_score_executed']
+          assert r['native_postloop_pc']=='0x310418'
+          assert r['native_third_refit_executed']
+          assert r['source_native_refit_entry']['pc']=='0x30f588'
+          assert r['native_refit_svd']['original_svd_pc']=='0x31082c'
+          assert r['native_refit_svd']['native_svd_executed']
+          assert r['native_refit_svd']['source_svd_status_u32']==0
+          assert r['source_native_refit_result']['native_return_w0']==1
+          assert len(r['source_native_refit_result']['rotation_9_f32_u32'])==9
+          assert r['native_original_robust_return']['original_return_pc']=='0x120918'
+          assert r['native_original_robust_return']['native_return_w0']==1
+          assert r['native_original_robust_return']['source_native_refit_executed']
+          assert d['checkpoint383_third_original_sampler']['original_native_ransac_full_loop_executed']
+          assert len(d['checkpoint383_third_original_sampler']['original_test_rand_draws'])==1100
+          t=d['source_original_third_image_callsite']['original_third_native_ray_preparation']
+          assert t['first_source_ray_vector']['original_ray_count']==25
+          assert t['second_source_ray_vector']['original_ray_count']==25
+          assert len(t['first_source_ray_vector']['original_native_source_ray_bytes_hex'])==600
+          assert len(t['second_source_ray_vector']['original_native_source_ray_bytes_hex'])==600
+          open('checkpoint388-native.json','w').write(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          print('CHECKPOINT388_ORIGINAL_THIRD_550_RANSAC_REFIT_RETURN_PASS',r['native_source_trial_trace_count'],r['native_original_robust_return']['native_return_w0'])
+          PY
+      - name: Delete original proprietary files before archiving
+        if: always()
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive only synthetic source original numeric results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-388-390-source-numeric
+          path: |
+            checkpoint388-native.json
+            checkpoint389-static.json
+            checkpoint389-static.log
+            checkpoint388-diagnostic.log
+          retention-days: 7
+          if-no-files-found: warn
+  rust-parity:
+    needs: original-arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Rust app read-only exact-SHA checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 48514be6683f62a8da64db1f256c0578edb42d18
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Download source-native numerical oracle from this one public run
+        uses: actions/download-artifact@v4
+        with:
+          name: photosphere-388-390-source-numeric
+          path: original-native
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Grouped Rust original 9-float refit differential and all regression suites
+        env:
+          PHOTOSPHERE_388_NATIVE_JSON: ${{ github.workspace }}/original-native/checkpoint388-native.json
+          PHOTOSPHERE_389_STATIC_JSON: ${{ github.workspace }}/original-native/checkpoint389-static.json
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '48514be6683f62a8da64db1f256c0578edb42d18'
+          test -s "$PHOTOSPHERE_388_NATIVE_JSON"
+          test -s "$PHOTOSPHERE_389_STATIC_JSON"
+          cargo test --locked --lib > checkpoint390-lib.log 2>&1 || { tail -n 180 checkpoint390-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint390-integration.log 2>&1 || { tail -n 180 checkpoint390-integration.log; exit 1; }
+          grep '^test result:' checkpoint390-lib.log | tail -1
+          grep '^test result:' checkpoint390-integration.log | tail -10
+      - name: Archive grouped Rust suite logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-388-390-rust
+          path: |
+            checkpoint390-lib.log
+            checkpoint390-integration.log
+          retention-days: 7
+          if-no-files-found: warn
