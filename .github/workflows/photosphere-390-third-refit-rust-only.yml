@@ -1,0 +1,57 @@
+name: Photosphere checkpoint390 original third refit Rust-only differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-390-third-refit-rust-only.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-390-third-refit-rust-only
+  cancel-in-progress: false
+jobs:
+  rust-source-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Exact private PhotosphereCleanroom SHA checkout, public Actions only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: a24f6d6763fb3ede38415f8166aaf4d014781250
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Reuse passed original ARM64 550-trial and refit oracle without downloading APK again
+        uses: actions/download-artifact@v4
+        with:
+          name: photosphere-388-390-source-numeric
+          run-id: 42715214050
+          github-token: ${{ github.token }}
+          path: original-native
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Grouped Rust original 550-trial refit differential and library/integration regressions
+        env:
+          PHOTOSPHERE_388_NATIVE_JSON: ${{ github.workspace }}/original-native/checkpoint388-native.json
+          PHOTOSPHERE_389_STATIC_JSON: ${{ github.workspace }}/original-native/checkpoint389-static.json
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'a24f6d6763fb3ede38415f8166aaf4d014781250'
+          test -s "$PHOTOSPHERE_388_NATIVE_JSON"
+          test -s "$PHOTOSPHERE_389_STATIC_JSON"
+          cargo test --locked --lib > checkpoint390-rust-lib.log 2>&1 || { tail -n 160 checkpoint390-rust-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint390-rust-integration.log 2>&1 || { tail -n 160 checkpoint390-rust-integration.log; exit 1; }
+          grep '^test result:' checkpoint390-rust-lib.log | tail -1
+          grep '^test result:' checkpoint390-rust-integration.log | tail -10
+      - name: Archive only Rust source differential and regression log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-390-third-refit-rust
+          path: |
+            checkpoint390-rust-lib.log
+            checkpoint390-rust-integration.log
+          retention-days: 7
+          if-no-files-found: warn
