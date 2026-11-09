@@ -1,0 +1,71 @@
+name: Photosphere checkpoint373 real matcher-row Rust differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-checkpoint373-rust-native-rows.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-checkpoint373-rust-source-rows
+  cancel-in-progress: false
+jobs:
+  rust-source-matcher-rows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact private app commit read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 4e48fa61b748adb34d20dac0f822a75391687228
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned Rust source revision
+        run: test "$(git rev-parse HEAD)" = 4e48fa61b748adb34d20dac0f822a75391687228
+      - name: Reuse already-verified original ARM64 native source report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source-oracle
+          gh run download 42643349863 --repo Persie0/Playground --name photosphere-373-375-source-oracles --dir source-oracle
+          test -s source-oracle/checkpoint373-compact.json
+          test -s source-oracle/checkpoint374-native.json
+          python3 - <<'PY'
+          import json
+          s=json.load(open("source-oracle/checkpoint373-compact.json"))
+          assert s["checkpoint"]==373
+          assert s["original_highlevel_matcher_return_w0"]==1
+          assert s["original_550_trial_ransac_executed"]
+          rows=s["source_original_second_matcher_point_rows"]
+          assert len(rows)==25
+          assert all(x["original_source_writer"]=="0x122384" and x["caller_lr_pc"]=="0x120ee0" for x in rows)
+          assert all(x["source_row_bytes_hex"] and len(x["source_row_bytes_hex"])==56 for x in rows)
+          assert s["source_original_third_image_callsite"]["original_third_matcher_entry_reached"]
+          print("CHECKPOINT373_GENUINE_MATCHER_SOURCE_ROW_INPUTS_VERIFIED",len(rows))
+          PY
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: One grouped library and integration regression with both real native oracles
+        env:
+          PHOTOSPHERE_373_NATIVE_JSON: ${{ github.workspace }}/source-oracle/checkpoint373-compact.json
+          PHOTOSPHERE_374_NATIVE_JSON: ${{ github.workspace }}/source-oracle/checkpoint374-native.json
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib > rust373-library.log 2>&1 || { tail -n 180 rust373-library.log; exit 1; }
+          cargo test --locked --tests > rust373-integration.log 2>&1 || { tail -n 180 rust373-integration.log; exit 1; }
+          grep '^test result:' rust373-library.log | tail -1
+          grep '^test result:' rust373-integration.log | tail -12
+      - name: Archive only grouped Rust log files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint373-real-point-rows-rust
+          path: |
+            rust373-library.log
+            rust373-integration.log
+          retention-days: 7
+          if-no-files-found: warn
