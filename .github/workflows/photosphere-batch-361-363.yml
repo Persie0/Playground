@@ -1,0 +1,139 @@
+name: Photosphere batched 361-363 native refit, solver residual, Rust ownership
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-batch-361-363.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-batch-361-363
+  cancel-in-progress: false
+jobs:
+  source-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact private research commit read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 000ea0766a5df807dd049a130d93b96130ca8adf
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - name: Install pinned-source harness dependencies
+        run: |
+          set -euo pipefail
+          cd source
+          test "$(git rev-parse HEAD)" = 000ea0766a5df807dd049a130d93b96130ca8adf
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint361/native_original_refit_pair_solver_fov_join.py research/photosphere/checkpoint362/scan_addimage_pair_matrix_provenance.py
+      - name: Obtain original hash-pinned ELF only in temporary job workspace
+        working-directory: source
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Source-original batch native refit-pair-residual-FOV plus matrix def-use survey
+        working-directory: source
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint361/native_original_refit_pair_solver_fov_join.py research/native/liblightcycle.so --output checkpoint361-native.json | tee checkpoint361-native.log
+          grep -q '^CHECKPOINT361_ORIGINAL_CAMERA_PAIR_CREATOR_SOLVER_RESIDUAL_FOV_ONE_VM_PASS 44 5 4 5 5 5$' checkpoint361-native.log
+          python3 research/photosphere/checkpoint362/scan_addimage_pair_matrix_provenance.py research/native/liblightcycle.so --output checkpoint362-static.json | tee checkpoint362-static.log
+          grep -q '^CHECKPOINT362_SOURCE_PAIR_MATRIX_PROVENANCE_SCAN_PASS ' checkpoint362-static.log
+          python3 - <<'PY'
+          import json
+          s=json.load(open("checkpoint361-native.json"))
+          p=json.load(open("checkpoint362-static.json"))
+          assert s["checkpoint"]==361 and p["checkpoint"]==362
+          assert s["original_270_refit_native_output_supplied_at_pair_abi"]
+          assert not s["original_270_full_matcher_to_pair_abi_executed_in_same_vm"]
+          assert s["source_original_empty_residual_for_native_created_pairs_executed"]
+          assert s["source_original_empty_residual_branch_cases"]==5
+          assert s["original_pair_to_fov_finalizer_native_executed"]
+          assert s["original_fov_pairs_bitwise_identical_to_source"]
+          assert s["source_original_native_pair_creator_cases"][0]["first_matrix_from_original_270_refit"]
+          assert s["source_original_native_pair_creator_cases"][1]["second_matrix_from_original_270_refit"]
+          assert all(x["source_original_empty_residual_pair_unchanged"] for x in s["source_original_native_solver_pair_cases"])
+          assert all(len(x["source_original_empty_residual_pc_sequence"])==13 for x in s["source_original_native_solver_pair_cases"])
+          assert not p["same_vm_natural_matcher_to_pair_creator_executed"]
+          assert not p["pair_matrices_proven_to_be_robust_refit_output"]
+          assert p["source_opcode_pins"]==8
+          print("CHECKPOINT361_362_GROUPED_NATIVE_SCOPE_PASS")
+          PY
+      - name: Delete original proprietary APK and ELF before artifact processing
+        if: always()
+        working-directory: source
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive only nonproprietary source numeric oracle and provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-batch-361-363-source
+          path: |
+            source/checkpoint361-native.json
+            source/checkpoint362-static.json
+            source/checkpoint361-native.log
+            source/checkpoint362-static.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  rust-batch:
+    needs: source-arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact private app commit read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: f0d15be982c5b3e4234960844a40ed96e7a2408c
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Get source-native oracle from first job in SAME public workflow run
+        uses: actions/download-artifact@v4
+        with:
+          name: photosphere-batch-361-363-source
+          path: source-oracle
+      - name: Install toolchain and verify app SHA
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = f0d15be982c5b3e4234960844a40ed96e7a2408c
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: One focused parity check and grouped library/integration regressions
+        working-directory: app
+        env:
+          PHOTOSPHERE_361_NATIVE_JSON: ${{ github.workspace }}/source-oracle/checkpoint361-native.json
+        run: |
+          set -euo pipefail
+          test -s "$PHOTOSPHERE_361_NATIVE_JSON"
+          cargo test --locked --lib checkpoint361 -- --nocapture > ../batch361-focused.log 2>&1 || { tail -n 180 ../batch361-focused.log; exit 1; }
+          cargo test --locked --lib > ../batch361-lib.log 2>&1 || { tail -n 180 ../batch361-lib.log; exit 1; }
+          cargo test --locked --tests > ../batch361-tests.log 2>&1 || { tail -n 180 ../batch361-tests.log; exit 1; }
+          grep '^test result:' ../batch361-focused.log | tail -1
+          grep '^test result:' ../batch361-lib.log | tail -1
+          grep '^test result:' ../batch361-tests.log | tail -9
+      - name: Archive grouped Rust validation only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-batch-361-363-rust
+          path: |
+            batch361-focused.log
+            batch361-lib.log
+            batch361-tests.log
+          retention-days: 7
+          if-no-files-found: warn
