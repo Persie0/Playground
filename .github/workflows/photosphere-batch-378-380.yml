@@ -1,0 +1,149 @@
+name: Photosphere batch 378-380 original native first-cost and third-ray differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-batch-378-380.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-batch-378-380
+  cancel-in-progress: false
+jobs:
+  original-arm64-batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Read-only source checkout pinned to candidate research branch SHA
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: c4312b7620f6d2210e8018c306c7f87cff776267
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install original-source ARM64 emulator/disassembler
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = c4312b7620f6d2210e8018c306c7f87cff776267
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint378/native_owned_rows_cost_boundary_third_ray_prep.py research/photosphere/checkpoint379/scan_original_cost_and_ray_caller.py
+      - name: Verify proprietary original APK and ELF only in ephemeral runner
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Static original ARM64 28-row first-cost and third-robust callsite pins
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint379/scan_original_cost_and_ray_caller.py research/native/liblightcycle.so --output checkpoint379-static.json | tee checkpoint379-static.log
+          grep -q '^CHECKPOINT379_SOURCE_PINNED_SCAN_PASS 7 52 32$' checkpoint379-static.log
+      - name: Same-VM actual matcher-owned 25 rows first cost and third preprocessed rays
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint378/native_owned_rows_cost_boundary_third_ray_prep.py > checkpoint378-full.log 2> checkpoint378-diagnostic.log
+          python3 - <<'PY'
+          import json
+          full=open('checkpoint378-full.log').read().splitlines()
+          line=next(x for x in full if x.startswith('CHECKPOINT378_NATIVE_MATCHER_OWNER_SOLVER_THIRD_DESCRIPTOR_REPORT='))
+          d=json.loads(line.split('=',1)[1])
+          owner=d['source_original_matcher_owned_25_row_snapshot']
+          assert owner['source_exactly_25_native_owned_rows']
+          assert len(owner['native_row_content_all_25_hex'])==25*28*2
+          probe=d['source_original_25_row_solver_probe']
+          assert probe['original_estimator_pair_status_u32']==0
+          assert probe['original_28_native_vector_row_count']==25
+          assert probe['original_native_status_eligibility_predicate_executed']
+          assert probe['original_native_predicate_return_w0']==1
+          cost=d['checkpoint379_original_first_cost_boundary']
+          assert cost['original_native_cost_constructor_callsite']=='0x128e40'
+          assert cost['original_native_cost_constructor_callee']=='0x129e80'
+          assert cost['original_matcher_owned_status_u32']==0
+          assert cost['original_matcher_owned_row_count']==25
+          assert cost['original_28row_iteration_preparation_executed']
+          assert not cost['original_cost_function_body_executed']
+          assert cost['original_loop_iteration_x24']==0
+          assert cost['original_loop_row_offset_x25']==0
+          rays=d['checkpoint378_third_ray_preprocessor']
+          assert rays['original_native_preprocessor']=='0x127bac'
+          assert rays['original_robust_callsite']=='0x120914'
+          assert rays['original_robust_target']=='0x30f860'
+          assert rays['descriptor_match_count']==25
+          assert rays['original_native_ray_preprocessor_executed']
+          assert not rays['ray_buffers_test_injected']
+          assert not rays['third_matcher_native_ransac_executed']
+          assert rays['first_native_ray_vector']['byte_length']>0
+          assert rays['second_native_ray_vector']['byte_length']>0
+          assert not d['original_full_solver_ceres_executed']
+          assert d['bionic_rand_stream_test_controlled']
+          open('checkpoint378-native.json','w').write(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          print('CHECKPOINT378_379_SOURCE_ORIGINAL_NATIVE_PASS',
+                len(owner['native_row_content_all_25_hex'])//56,
+                cost['original_native_cost_constructor_callsite'],
+                rays['original_robust_callsite'])
+          PY
+      - name: Remove proprietary APK and ELF before archiving source observations
+        if: always()
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive only synthetic numeric original-native reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-378-380-original-native
+          path: |
+            checkpoint378-native.json
+            checkpoint379-static.json
+            checkpoint379-static.log
+            checkpoint378-diagnostic.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  rust-parity-batch:
+    needs: original-arm64-batch
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Read-only Rust app SHA from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: c4c3508c28424e3d1902d8eb6503efb7cd5ca188
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Download same-run native-source oracle only
+        uses: actions/download-artifact@v4
+        with:
+          name: photosphere-378-380-original-native
+          path: native-evidence
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Single Rust library and integration suite run, with exact native oracle
+        env:
+          PHOTOSPHERE_378_NATIVE_JSON: ${{ github.workspace }}/native-evidence/checkpoint378-native.json
+          PHOTOSPHERE_379_STATIC_JSON: ${{ github.workspace }}/native-evidence/checkpoint379-static.json
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = c4c3508c28424e3d1902d8eb6503efb7cd5ca188
+          test -s "$PHOTOSPHERE_378_NATIVE_JSON"
+          test -s "$PHOTOSPHERE_379_STATIC_JSON"
+          cargo test --locked --lib > checkpoint380-lib.log 2>&1 || { tail -n 160 checkpoint380-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint380-integration.log 2>&1 || { tail -n 160 checkpoint380-integration.log; exit 1; }
+          grep '^test result:' checkpoint380-lib.log | tail -1
+          grep '^test result:' checkpoint380-integration.log | tail -10
+      - name: Archive one grouped Rust test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-378-380-rust
+          path: |
+            checkpoint380-lib.log
+            checkpoint380-integration.log
+          retention-days: 7
+          if-no-files-found: warn
