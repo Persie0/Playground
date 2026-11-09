@@ -1,0 +1,172 @@
+name: Photosphere batch 379-381 original first point setup and third ray-to-robust-entry
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-batch-379-381.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-batch-379-381
+  cancel-in-progress: false
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout original source research read-only at pinned SHA
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 2d969d06f174006d54ff70fc226c94f525644237
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify research SHA and install native dependencies once
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 2d969d06f174006d54ff70fc226c94f525644237
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint379/native_first_original_point_setup_third_robust_entry.py
+      - name: Download original APK and verify transient ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Source execute first real point-row residual setup and third native robust-entry boundary
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint379/native_first_original_point_setup_third_robust_entry.py > checkpoint379-full.log 2> checkpoint379-debug.log
+          grep -q '^CHECKPOINT379_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT=' checkpoint379-full.log
+          python3 - <<'PY'
+          import json
+          line=next(x for x in open('checkpoint379-full.log') if x.startswith('CHECKPOINT379_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          d=json.loads(line.split('=',1)[1])
+          assert d['checkpoint']==379
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert d['original_550_trial_ransac_executed']
+          assert d['original_highlevel_matcher_return_w0']==1
+          assert d['original_bidirectional_links_executed']
+          rows=d['source_original_second_matcher_point_rows']
+          assert len(rows)==25
+          assert all(x['original_source_writer']=='0x122384' for x in rows)
+          snap=d['source_original_matcher_owned_25_row_snapshot']
+          assert snap['source_exactly_25_native_owned_rows']
+          assert snap['original_writer_return_pc']=='0x120ee0'
+          assert snap['original_original_25_rows_generated']
+          assert not snap['original_native_vector_was_host_injected']
+          assert snap['native_row_content_all_25_hex']==''.join(x['source_row_bytes_hex'] for x in rows)
+          assert len(d['source_original_matcher_owned_row_vector_progression'])==25
+          assert all(x==1062755336 for x in snap['original_f32_weight_bits_all_25'])
+          probe=d['source_original_25_row_solver_probe']
+          assert probe['original_matcher_native_point_rows_written_without_replay']
+          assert probe['original_point_row_owner_not_host_injected']
+          assert not probe['original_nonempty_residual_body_executed']
+          assert not probe['original_ceres_executed']
+          if probe['original_nonempty_28_solver_dispatch_executed']:
+            assert probe['original_native_status_eligibility_predicate_executed']
+            assert probe['original_native_predicate_return_w0']==1
+            assert probe['original_estimator_pair_status_u32']==0
+            assert probe['original_28_native_vector_row_count']==25
+            assert probe['original_native_source_pair_eligible_by_original_predicate']
+            assert probe['original_solver_input_25_rows_created_by_real_matcher']
+            assert probe['original_solver_source_branch_target_pc']=='0x128da8'
+            print('CHECKPOINT379_NATIVE_STATUS0_25_REAL_ROWS_SOLVER_ENTRY_VERIFIED')
+          assert probe['original_first_point_residual_setup_executed']
+          assert probe['original_first_point_residual_source_pcs']==[
+              '0x128da8','0x128dac','0x128db0','0x128e38','0x128e3c','0x128e40']
+          assert probe['original_source_first_helper_call_pc']=='0x128e40'
+          assert probe['original_source_first_helper_target_pc']=='0x129e80'
+          assert probe['original_point_iteration_x24']==0
+          assert probe['original_point_offset_x25']==0
+          assert probe['original_no_nonempty_body_callback_executed']
+          assert not probe['original_complete_solver_numerical_residuals_executed']
+          assert probe['original_first_point_source_28_bytes_hex']==rows[0]['source_row_bytes_hex']
+          print('CHECKPOINT379_SOURCE_REAL_FIRST_POINT_SETUP_PASS')
+          print('CHECKPOINT379_ORIGINAL_SOURCE_25_POINT_OWNER',
+                probe['original_matcher_receiver_is_first_estimator_pair'],
+                probe['original_estimator_pair_status_u32'],
+                probe['original_28_native_vector_row_count'],
+                probe['original_nonempty_28_solver_dispatch_executed'])
+          third=d['source_original_third_image_callsite']
+          assert third['original_third_wrapper_return_seen']
+          assert third['original_third_matcher_entry_reached']
+          assert third['original_third_highlevel_matcher_entry']['original_current_image_w21']==2
+          assert third['original_third_highlevel_matcher_entry']['original_candidate_image_w25']==0
+          assert not third['original_third_ransac_executed']
+          assert not third['reached_full_original_third_addimage']
+          if third.get('original_third_descriptor_matcher_executed'):
+            desc=third['original_third_descriptor_matcher_result']
+            assert desc['original_result_boundary_pc']=='0x1206e4'
+            assert len(desc['native_original_raw_20byte_rows_hex'])==40*desc['native_original_raw_row_count']
+            assert third['original_third_descriptor_matcher_threshold']['native_original_matcher_count']==desc['native_original_raw_row_count']
+            print('CHECKPOINT379_THIRD_SOURCE_DESCRIPTOR_MATCHES',desc['native_original_raw_row_count'])
+          else:
+            print('CHECKPOINT379_THIRD_SOURCE_DESCRIPTOR_NOT_REACHED',third.get('original_third_execution_error'))
+          assert third['original_third_robust_entry_reached']
+          assert third['original_third_native_ray_preparation']['original_source_robust_estimator_bl_target']=='0x30f860'
+          assert third['original_third_robust_estimator_entry']['pc']=='0x30f860'
+          assert third['original_third_robust_estimator_entry']['original_return_pc']=='0x120918'
+          assert third['original_third_robust_estimator_entry']['original_native_ransac_trials_executed']==0
+          assert third['original_third_native_ray_preparation']['first_source_ray_vector']['original_native_ray_bytes']>0
+          assert third['original_third_native_ray_preparation']['second_source_ray_vector']['original_native_ray_bytes']>0
+          print('CHECKPOINT379_ORIGINAL_THIRD_RAY_TO_ROBUST_ENTRY_PASS')
+          open('checkpoint379-compact.json','w').write(json.dumps(d,sort_keys=True,indent=2)+'\n')
+          print('CHECKPOINT379_SAME_VM_SOURCE_NATIVE_PASS')
+          PY
+      - name: Delete proprietary source APK and ELF before archiving
+        if: always()
+        run: rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive only synthetic point rows and register/PC reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint379-original-25-rows
+          path: |
+            checkpoint379-compact.json
+            checkpoint379-debug.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  rust-app:
+    needs: original-arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Exact-SHA read-only checkout private Rust app
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 7bb1dd899a813b19a5c6c47885ae2546f36d1504
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: photosphere-checkpoint379-original-25-rows
+          path: source
+      - name: Verify app SHA and install pinned Rust
+        run: test "$(git rev-parse HEAD)" = 7bb1dd899a813b19a5c6c47885ae2546f36d1504
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: One grouped Rust original status0-or5 residual and third-entry regression
+        env:
+          PHOTOSPHERE_379_NATIVE_JSON: ${{ github.workspace }}/source/checkpoint379-compact.json
+        run: |
+          set -euo pipefail
+          test -s "$PHOTOSPHERE_379_NATIVE_JSON"
+          cargo test --locked --tests > checkpoint379-rust.log 2>&1 || { tail -n 180 checkpoint379-rust.log; exit 1; }
+          grep '^test result:' checkpoint379-rust.log | tail -12
+      - name: Retain grouped Rust results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint379-rust
+          path: checkpoint379-rust.log
+          retention-days: 7
+          if-no-files-found: warn
