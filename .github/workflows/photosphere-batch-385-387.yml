@@ -1,0 +1,148 @@
+name: Photosphere 385-387 original Ceres Huber Evaluate and third native 3x3 SVD
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-batch-385-387.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-batch-385-387
+  cancel-in-progress: false
+jobs:
+  original-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Read-only exact original research SHA
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 495aa4e2125cdc5d401df503c93c9e597c6cbae6
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source SHA and install native harness once
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '495aa4e2125cdc5d401df503c93c9e597c6cbae6'
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint385/native_original_huber_evaluate_third_first_svd.py research/photosphere/checkpoint386/scan_huber_evaluate_and_svd.py
+      - name: Load SHA-pinned original proprietary APK and ELF ephemerally
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Pin original Huber Evaluate vtable relocation and SVD opcode windows
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint386/scan_huber_evaluate_and_svd.py research/native/liblightcycle.so --output checkpoint386-static.json | tee checkpoint386-static.log
+          grep -q '^CHECKPOINT386_ORIGINAL_HUBER_EVALUATE_AND_SVD_SCAN_PASS ' checkpoint386-static.log
+      - name: Execute actual original Ceres loss evaluation and third first-pair SVD
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint385/native_original_huber_evaluate_third_first_svd.py > checkpoint385-full.log 2> checkpoint385-diagnostic.log
+          python3 - <<'PY'
+          import json,struct
+          line=next(x for x in open('checkpoint385-full.log') if x.startswith('CHECKPOINT385_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          d=json.loads(line.split('=',1)[1])
+          src=d['source_original_25_row_solver_probe']
+          assert src['original_estimator_pair_status_u32']==0
+          assert src['original_28_native_vector_row_count']==25
+          assert src['original_first_point_residual_setup_executed']
+          assert src['original_source_first_helper_target_pc']=='0x129e80'
+          factory=d['checkpoint382_huber_factory']
+          assert factory['original_arm64_loss_factory_function_executed']
+          assert factory['original_loss_double_parameter_bits']==struct.unpack('<Q',struct.pack('<d',35.))[0]
+          loss=d['checkpoint385_huber_evaluate']
+          assert loss['native_huber_evaluate_executed']
+          assert loss['original_huber_object_from_native_factory']
+          assert loss['original_native_huber_vtable_pc']=='0x3fe228'
+          assert loss['original_native_huber_evaluate_slot_offset']==16
+          assert [x['source_s'] for x in loss['original_evaluations']]==[0.0,1.0,1225.0,4900.0,122500.0]
+          assert all(len(x['original_rho3_f64_bits'])==3 for x in loss['original_evaluations'])
+          assert not loss['source_original_ceres_optimizer_executed']
+          scanner=json.load(open('checkpoint386-static.json'))
+          assert scanner['checkpoint']==386
+          assert scanner['original_huber_vtable']=='0x3fe228'
+          assert scanner['source_huber_evaluate_relocated_pc']==loss['original_native_huber_evaluate_entry_pc']
+          svd=d['checkpoint385_third_original_svd']
+          assert svd['original_native_first_candidate_svd_entry_pc']=='0x31082c'
+          assert svd['native_sampled_pair_indices']==[0,24]
+          assert svd['native_svd_original_binary_executed']
+          assert svd['original_svd_result_status_u32']==0
+          assert len(svd['original_svd_factors_21_u32'])==21
+          assert len(svd['native_svd_output_88_bytes_hex'])==176
+          assert not svd['original_third_full_ransac_550_trials_executed']
+          assert not svd['native_ransac_candidate_scoring_executed']
+          assert d['checkpoint383_third_original_sampler']['original_native_ransac_first_trial_svd_executed']
+          assert not d['checkpoint383_third_original_sampler']['original_native_ransac_full_loop_executed']
+          assert not d['original_full_solver_ceres_executed']
+          open('checkpoint385-native.json','w').write(json.dumps(d,sort_keys=True,indent=2)+'\n')
+          print('CHECKPOINT385_ORIGINAL_HUBER_EVALUATE_AND_THIRD_SVD_PASS',len(loss['original_evaluations']),svd['original_svd_result_status_u32'])
+          PY
+      - name: Remove proprietary APK and ELF before archiving source-derived data
+        if: always()
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive synthetic numerical evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-385-387-source-numeric
+          path: |
+            checkpoint385-native.json
+            checkpoint386-static.json
+            checkpoint386-static.log
+            checkpoint385-diagnostic.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  rust-parity:
+    needs: original-arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Read-only exact PhotosphereCleanroom candidate SHA
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 4c6853bba02b75b125709422fdb578183a91d7fa
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Bring source-native oracle into same public workflow
+        uses: actions/download-artifact@v4
+        with:
+          name: photosphere-385-387-source-numeric
+          path: original-native
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Grouped Rust library and integration tests with source-native evidence
+        env:
+          PHOTOSPHERE_385_NATIVE_JSON: ${{ github.workspace }}/original-native/checkpoint385-native.json
+          PHOTOSPHERE_386_STATIC_JSON: ${{ github.workspace }}/original-native/checkpoint386-static.json
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '4c6853bba02b75b125709422fdb578183a91d7fa'
+          test -s "$PHOTOSPHERE_385_NATIVE_JSON"
+          test -s "$PHOTOSPHERE_386_STATIC_JSON"
+          cargo test --locked --lib > checkpoint387-lib.log 2>&1 || { tail -n 180 checkpoint387-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint387-integration.log 2>&1 || { tail -n 180 checkpoint387-integration.log; exit 1; }
+          grep '^test result:' checkpoint387-lib.log | tail -1
+          grep '^test result:' checkpoint387-integration.log | tail -10
+      - name: Archive one grouped Rust log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-385-387-rust-tests
+          path: |
+            checkpoint387-lib.log
+            checkpoint387-integration.log
+          retention-days: 7
+          if-no-files-found: warn
