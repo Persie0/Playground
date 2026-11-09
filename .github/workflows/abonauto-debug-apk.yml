@@ -1,0 +1,81 @@
+name: AbonAuto debug APK build (private source)
+on:
+  push:
+    branches:
+      - build-abonauto-debug-20261109
+    paths:
+      - .github/workflows/abonauto-debug-apk.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check private repository access
+        env:
+          SOURCE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          test -n "$SOURCE_TOKEN" || { echo "::error::Private repository checkout token is not configured"; exit 1; }
+
+      - name: Checkout AbonAuto from private repository
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/mc_aircash_decompiled
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          sparse-checkout: |
+            AbonAuto
+          sparse-checkout-cone-mode: true
+          path: source
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Locate Android SDK and install platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdk_manager="$(find "$sdk_root/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -1)"
+          test -x "$sdk_manager"
+          "$sdk_manager" 'platforms;android-36' 'build-tools;36.0.0' >/dev/null
+          echo "ANDROID_HOME=$sdk_root" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
+
+      - name: Build debug APK
+        shell: bash
+        working-directory: source/AbonAuto
+        run: |
+          set -euo pipefail
+          # Repository contains a developer-local Android SDK path.
+          rm -f local.properties
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:assembleDebug --stacktrace
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          git -C .. rev-parse HEAD > app/build/outputs/apk/debug/SOURCE_COMMIT.txt
+          sha256sum app/build/outputs/apk/debug/app-debug.apk > app/build/outputs/apk/debug/SHA256SUMS.txt
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AbonAuto-debug-apk
+          path: |
+            source/AbonAuto/app/build/outputs/apk/debug/app-debug.apk
+            source/AbonAuto/app/build/outputs/apk/debug/SOURCE_COMMIT.txt
+            source/AbonAuto/app/build/outputs/apk/debug/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
