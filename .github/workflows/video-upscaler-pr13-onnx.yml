@@ -1,0 +1,46 @@
+name: Video Upscaler PR13 macOS ONNX validation
+on:
+  push:
+    paths:
+      - '.github/workflows/video-upscaler-pr13-onnx.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: video-upscaler-pr13-onnx
+  cancel-in-progress: true
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 55
+    steps:
+      - name: Checkout video_upscaler PR13 using Playground tokens
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/video_upscaler
+          ref: feature/image-enhancer-2x-onnx
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: app
+          persist-credentials: false
+      - name: Show Xcode version
+        run: xcodebuild -version
+      - name: Audit translations
+        working-directory: app
+        run: python3 Scripts/audit_localizations.py
+      - name: Build and test macOS app
+        working-directory: app
+        run: >-
+          xcodebuild -project VideoUpscaler.xcodeproj
+          -scheme VideoUpscaler -destination 'platform=macOS'
+          -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO
+          SWIFT_STRICT_CONCURRENCY=complete test
+      - name: Swift package tests
+        working-directory: app
+        run: swift test
+      - name: Test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-upscaler-pr13-xcresult
+          path: app/DerivedData/Logs/Test/*.xcresult
+          if-no-files-found: ignore
