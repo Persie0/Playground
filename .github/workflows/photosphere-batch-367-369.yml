@@ -1,0 +1,149 @@
+name: Photosphere batch 367-369 original AddImage gate and residual dispatch
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-batch-367-369.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-batch-367-369
+  cancel-in-progress: false
+jobs:
+  source-original-batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout source research exact SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: bfa8c8a72bf517125647862b30c1d4db682c5e94
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify research commit and install single-VM dependencies
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = bfa8c8a72bf517125647862b30c1d4db682c5e94
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint367/scan_original_addimage_postlink_gate.py research/photosphere/checkpoint367/native_postlink_guard_branch_trace.py research/photosphere/checkpoint368/native_nonempty_residual_branch_join.py
+      - name: Obtain only checksum-pinned ephemeral original Google Camera ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Native source disassembly — exact postlink pair-creation guards
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint367/scan_original_addimage_postlink_gate.py research/native/liblightcycle.so --output checkpoint367-static.json | tee checkpoint367-static.log
+          grep -q '^CHECKPOINT367_POSTLINK_BRANCH_SOURCE_PASS ' checkpoint367-static.log
+      - name: Native same-VM provider-to-solver with test-only 28/36-row dispatch
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint368/native_nonempty_residual_branch_join.py research/native/liblightcycle.so --output checkpoint368-native.json | tee checkpoint368.log
+          grep -q '^CHECKPOINT368_ORIGINAL_POSE_GETTERS_AND_NONEMPTY_RESIDUAL_BRANCHES_PASS 51 5 4 5 5 5$' checkpoint368.log
+          python3 - <<'PY'
+          import json
+          d=json.load(open('checkpoint368-native.json'))
+          assert d['checkpoint']==368
+          assert d['original_addimage_native_pose_getters_executed']
+          assert d['original_fov_pairs_bitwise_identical_to_source']
+          x=d['source_native_nonempty_residual_branch_probe']
+          assert x['original_pair_status5_from_native_constructor']
+          assert x['original_pair_record_restored_after_probe']
+          assert x['nonempty_28_source_pc_sequence_before_body']==['0x128d84','0x128d88','0x128d8c','0x128d90','0x128d94','0x128d98','0x128d9c','0x128da0','0x128da4','0x128da8']
+          assert x['nonempty_36_source_pc_sequence_before_body']==['0x128d84','0x128d88','0x128d8c','0x128d90','0x129a64']
+          assert x['nonempty_36_preempts_28_when_both_present']
+          assert not x['original_nonempty_body_executed']
+          assert not x['original_ceres_optimizer_executed']
+          print('CHECKPOINT368_SOURCE_BRANCH_PRIORITY_PASS')
+          PY
+      - name: Native 2-image AddImage postlink guard PC+register decisions
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint367/native_postlink_guard_branch_trace.py > checkpoint367-full.log 2> checkpoint367-debug.log
+          grep -q '^CHECKPOINT367_NATIVE_PAIR_MATRIX_PROVENANCE_REPORT=' checkpoint367-full.log
+          python3 - <<'PY'
+          import json
+          line=next(s for s in open('checkpoint367-full.log') if s.startswith('CHECKPOINT367_NATIVE_PAIR_MATRIX_PROVENANCE_REPORT='))
+          d=json.loads(line.split('=',1)[1])
+          assert d['checkpoint']==367 and d['original_550_trial_ransac_executed']
+          assert d['original_bidirectional_links_executed'] and d['original_postlink_tree_exit_executed']
+          p=d['natural_pair_matrix_provenance']
+          assert p['postlink_exit_pc']=='0x11dccc'
+          assert len(p['postlink_branch_pcs'])==len(p['postlink_guard_snapshots'])
+          if p['pair_matrix_abi_reached']:
+              assert p['pair_matrix_abi']['pc']=='0x11de1c'
+              print('CHECKPOINT367_NATURAL_MATRIX_ABI_REACHED')
+          else:
+              print('CHECKPOINT367_NATURAL_MATRIX_ABI_NOT_REACHED_ON_FIXTURE')
+          print('CHECKPOINT367_SOURCE_GUARD_PCS',p['postlink_branch_pcs'])
+          with open('checkpoint367-dynamic.json','w') as f:json.dump(d,f,indent=2,sort_keys=True)
+          PY
+      - name: Delete proprietary original binaries before artifact upload
+        if: always()
+        run: rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive only synthetic source-native PC and oracle reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint367-368-original
+          path: |
+            checkpoint367-static.json
+            checkpoint367-static.log
+            checkpoint367-dynamic.json
+            checkpoint367-debug.log
+            checkpoint368-native.json
+            checkpoint368.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  rust-grouped:
+    needs: source-original-batch
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private Rust app exact SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 8dec885a4365ec2e7cdbadb975d905d7a4a05156
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Download source-native oracle from same public run
+        uses: actions/download-artifact@v4
+        with:
+          name: photosphere-checkpoint367-368-original
+          path: original
+      - name: Verify app SHA and set up Rust
+        run: |
+          test "$(git rev-parse HEAD)" = 8dec885a4365ec2e7cdbadb975d905d7a4a05156
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Grouped source differential and all Rust regressions
+        env:
+          PHOTOSPHERE_368_NATIVE_JSON: ${{ github.workspace }}/original/checkpoint368-native.json
+        run: |
+          set -euo pipefail
+          test -s "$PHOTOSPHERE_368_NATIVE_JSON"
+          cargo test --locked --lib > checkpoint368-lib.log 2>&1 || { tail -n 180 checkpoint368-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint368-integration.log 2>&1 || { tail -n 180 checkpoint368-integration.log; exit 1; }
+          grep '^test result:' checkpoint368-lib.log | tail -1
+          grep '^test result:' checkpoint368-integration.log | tail -10
+      - name: Archive grouped Rust results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-checkpoint368-rust
+          path: |
+            checkpoint368-lib.log
+            checkpoint368-integration.log
+          retention-days: 7
+          if-no-files-found: warn
