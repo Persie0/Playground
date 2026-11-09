@@ -1,0 +1,87 @@
+name: Photosphere batched 364-365 original matrix flow and residual branch survey
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-batch-364-365.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-batch-364-365
+  cancel-in-progress: false
+jobs:
+  native-research-batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Read-only checkout exact research SHA
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 7763ca1daf8c95cb984e2f8f49f18f859969b166
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Prepare original ARM64 research tools
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 7763ca1daf8c95cb984e2f8f49f18f859969b166
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint364/native_natural_addimage_pair_matrix_provenance.py research/photosphere/checkpoint365/scan_original_nonempty_residual_branches.py
+      - name: Download and verify ephemeral original APK and ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Independently scan both nonempty original solver residual branches
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint365/scan_original_nonempty_residual_branches.py research/native/liblightcycle.so --output checkpoint365-static.json | tee checkpoint365-static.log
+          grep -q '^CHECKPOINT365_NONEMPTY_RESIDUAL_SOURCE_SCAN_PASS ' checkpoint365-static.log
+      - name: Continue original 2-image AddImage beyond native tree to natural matrix inputs
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint364/native_natural_addimage_pair_matrix_provenance.py > checkpoint364-full.log 2> checkpoint364-debug.log
+          grep -q '^CHECKPOINT364_NATIVE_PAIR_MATRIX_BOUNDARY_REACHED=' checkpoint364-full.log
+          python3 - <<'PY'
+          import json
+          line=next(x for x in open('checkpoint364-full.log') if x.startswith('CHECKPOINT364_NATIVE_PAIR_MATRIX_PROVENANCE_REPORT='))
+          d=json.loads(line.split('=',1)[1])
+          assert d['checkpoint']==364
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert d['original_550_trial_ransac_executed']
+          assert d['original_bidirectional_links_executed']
+          assert d['original_postlink_tree_exit_executed']
+          assert d['bionic_rand_stream_test_controlled']
+          if d['natural_pair_matrix_provenance']['pair_matrix_abi_reached']:
+              p=d['natural_pair_matrix_provenance']['pair_matrix_abi']
+              assert p['pc']=='0x11de1c'
+              assert len(p['first_matrix_f32_bits'])==len(p['second_matrix_f32_bits'])==9
+              assert p['source_created_via_original_addimage_flow']
+              assert p['original_refit_was_executed_in_same_vm']
+              print('CHECKPOINT364_TRUE_ORIGINAL_MATRIX_ABI_REACHED')
+          else:
+              print('CHECKPOINT364_MATRIX_ABI_NOT_REACHED_SCOPE_LIMIT')
+          open('checkpoint364-compact.json','w').write(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          PY
+      - name: Delete proprietary source binaries before archiving
+        if: always()
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive original-source synthetic observations, not binaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-364-365-evidence
+          path: |
+            checkpoint364-compact.json
+            checkpoint365-static.json
+            checkpoint365-static.log
+            checkpoint364-debug.log
+          retention-days: 7
+          if-no-files-found: warn
