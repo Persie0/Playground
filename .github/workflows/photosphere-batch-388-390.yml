@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 9b6f82275ff4221993a2c233ca862e8a666f56d7
+          ref: daa0084146bf54d09164651e681120930cd4e02a
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify research SHA and install native tooling
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = '9b6f82275ff4221993a2c233ca862e8a666f56d7'
+          test "$(git rev-parse HEAD)" = 'daa0084146bf54d09164651e681120930cd4e02a'
           python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
           python3 -m py_compile research/photosphere/checkpoint388/native_third_original_full_550_ransac_refit.py research/photosphere/checkpoint389/scan_original_third_full_ransac_pcs.py
       - name: Ephemeral original proprietary APK/ELF checksum-pin
@@ -80,6 +80,7 @@ jobs:
           assert r['native_original_robust_return']['original_third_completed_all_trials']
           assert (r['native_original_robust_return']['source_native_refit_executed']
                   ==r['native_third_refit_executed'])
+          assert r['native_third_refit_executed'], 'real source refit and SVD executed; return hook must capture native f32 output'
           if r['native_third_refit_executed']:
               assert r['source_native_refit_entry']['pc']=='0x30f588'
               assert r['native_refit_svd']['original_svd_pc']=='0x31082c'
@@ -127,7 +128,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: d0327e46cd85a80338398b34df8abd8198ca98aa
+          ref: f01102e0c42caee01c9e9911c855549cd1c8a6f5
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Download source-native numerical oracle from this one public run
@@ -144,7 +145,7 @@ jobs:
           PHOTOSPHERE_389_STATIC_JSON: ${{ github.workspace }}/original-native/checkpoint389-static.json
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 'd0327e46cd85a80338398b34df8abd8198ca98aa'
+          test "$(git rev-parse HEAD)" = 'f01102e0c42caee01c9e9911c855549cd1c8a6f5'
           test -s "$PHOTOSPHERE_388_NATIVE_JSON"
           test -s "$PHOTOSPHERE_389_STATIC_JSON"
           cargo test --locked --lib > checkpoint390-lib.log 2>&1 || { tail -n 180 checkpoint390-lib.log; exit 1; }
