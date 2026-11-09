@@ -1,0 +1,139 @@
+name: Photosphere batch 382-384 original Huber factory and third native RANSAC sampler
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-batch-382-384.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-batch-382-384
+  cancel-in-progress: false
+jobs:
+  original-native-batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Read-only exact SHA original-source experiment
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 46a19d301b6cadce126bcfb2f7e82ffcbf388543
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source SHA and install original-native tools
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '46a19d301b6cadce126bcfb2f7e82ffcbf388543'
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint382/native_original_huber_loss_and_third_sampler.py research/photosphere/checkpoint383/scan_original_factory_sampler.py
+      - name: Download ephemeral original APK and checksum-pinned ELF
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Original native Huber factory and sampler source scan (grouped)
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint383/scan_original_factory_sampler.py research/native/liblightcycle.so --output checkpoint383-static.json | tee checkpoint383-static.log
+          grep -q '^CHECKPOINT383_SOURCE_FACTORY_SAMPLER_SCAN_PASS 2 128 40$' checkpoint383-static.log
+      - name: Same VM matcher 25-row status0, original loss factory, third first sampler
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint382/native_original_huber_loss_and_third_sampler.py > checkpoint382-full.log 2> checkpoint382-diagnostic.log
+          python3 - <<'PY'
+          import json,struct
+          line=next(line for line in open('checkpoint382-full.log') if line.startswith('CHECKPOINT382_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          d=json.loads(line.split('=',1)[1])
+          source=d['source_original_25_row_solver_probe']
+          assert source['original_estimator_pair_status_u32']==0
+          assert source['original_28_native_vector_row_count']==25
+          assert source['original_first_point_residual_setup_executed']
+          assert source['original_source_first_helper_target_pc']=='0x129e80'
+          loss=d['checkpoint382_huber_factory']
+          assert loss['source_original_factory_pc']=='0x129e80'
+          assert loss['source_original_loss_selector_test_supplied']==1
+          assert loss['original_arm64_loss_factory_function_executed']
+          assert loss['original_loss_double_parameter_bits']==struct.unpack('<Q',struct.pack('<d',35.0))[0],loss
+          assert loss['original_loss_vtable_ptr']!='0x0'
+          assert not loss['original_cost_functor_and_full_ceres_executed']
+          sampler=d['checkpoint383_third_original_sampler']
+          assert sampler['original_estimator_entry_pc']=='0x30f860'
+          assert sampler['native_sampler_pair_selected_at_pc']=='0x30fde8'
+          assert sampler['original_test_rand_draws']==[0,24]
+          assert sampler['original_selected_index_a']==0
+          assert sampler['original_selected_index_b']==24
+          assert sampler['original_native_sampled_two_indices']
+          assert not sampler['original_native_ransac_first_trial_svd_executed']
+          assert not sampler['original_native_ransac_full_loop_executed']
+          assert not sampler['original_android_bionic_rand_used']
+          assert not d['original_full_solver_ceres_executed']
+          open('checkpoint382-native.json','w').write(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          print('CHECKPOINT382_383_ORIGINAL_NATIVE_PASS',hex(loss['original_loss_double_parameter_bits']),sampler['original_test_rand_draws'])
+          PY
+      - name: Remove original proprietary APK and ELF before archiving
+        if: always()
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive synthetic source-original oracle only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-382-384-original-numeric
+          path: |
+            checkpoint382-native.json
+            checkpoint383-static.json
+            checkpoint383-static.log
+            checkpoint382-diagnostic.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  rust-parity-batch:
+    needs: original-native-batch
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Read-only exact SHA Rust app
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 3eb64fe409dba503284244c84650065bf2fed325
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Download original-native result from this same public run
+        uses: actions/download-artifact@v4
+        with:
+          name: photosphere-382-384-original-numeric
+          path: original-native
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Grouped Rust library + integration regressions and original native differential
+        env:
+          PHOTOSPHERE_382_NATIVE_JSON: ${{ github.workspace }}/original-native/checkpoint382-native.json
+          PHOTOSPHERE_383_STATIC_JSON: ${{ github.workspace }}/original-native/checkpoint383-static.json
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '3eb64fe409dba503284244c84650065bf2fed325'
+          test -s "$PHOTOSPHERE_382_NATIVE_JSON"
+          test -s "$PHOTOSPHERE_383_STATIC_JSON"
+          cargo test --locked --lib > checkpoint384-lib.log 2>&1 || { tail -n 160 checkpoint384-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint384-integration.log 2>&1 || { tail -n 160 checkpoint384-integration.log; exit 1; }
+          grep '^test result:' checkpoint384-lib.log | tail -1
+          grep '^test result:' checkpoint384-integration.log | tail -10
+      - name: Archive one grouped regression log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-382-384-rust
+          path: |
+            checkpoint384-lib.log
+            checkpoint384-integration.log
+          retention-days: 7
+          if-no-files-found: warn
