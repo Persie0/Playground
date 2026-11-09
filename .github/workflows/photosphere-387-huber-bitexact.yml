@@ -1,0 +1,69 @@
+name: Photosphere 387 exact binary64 original Ceres Huber regression
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-387-huber-bitexact.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-387-huber-bitexact
+  cancel-in-progress: false
+jobs:
+  rust-source-bitexact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Exact SHA private Rust app checkout without private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 6961f2359cd0d25a4a461931721f64f2bd56cc93
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Reuse prior original source numerical oracle without rerunning original APK
+        uses: actions/download-artifact@v4
+        with:
+          name: photosphere-385-387-source-numeric
+          run-id: 42708303378
+          github-token: ${{ github.token }}
+          path: source-oracle
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Original Huber exact 15-binary64 differential and library regression
+        env:
+          PHOTOSPHERE_385_NATIVE_JSON: ${{ github.workspace }}/source-oracle/checkpoint385-native.json
+          PHOTOSPHERE_386_STATIC_JSON: ${{ github.workspace }}/source-oracle/checkpoint386-static.json
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '6961f2359cd0d25a4a461931721f64f2bd56cc93'
+          test -s "$PHOTOSPHERE_385_NATIVE_JSON"
+          test -s "$PHOTOSPHERE_386_STATIC_JSON"
+          cargo test --locked --lib > checkpoint387-rust-lib.log 2>&1 || { tail -n 160 checkpoint387-rust-lib.log; exit 1; }
+          grep '^test result:' checkpoint387-rust-lib.log | tail -1
+          python3 - <<'PY'
+          import json,struct,math,os
+          data=json.load(open(os.environ['PHOTOSPHERE_385_NATIVE_JSON']))
+          a=data['checkpoint385_huber_evaluate']['original_evaluations']
+          assert len(a)==5
+          for x in a:
+              s=x['source_s']
+              if s<=1225: v=[s,1.,0.]
+              else:
+                  sq=math.sqrt(s)
+                  first=35/sq
+                  v=[70*sq-1225,first,-first/(2*s)]
+              bits=[struct.unpack('<Q',struct.pack('<d',f))[0] for f in v]
+              assert bits==x['original_rho3_f64_bits'],(s,bits,x['original_rho3_f64_bits'])
+          print('CHECKPOINT387_15_OF_15_ORIGINAL_CERES_DOUBLE_BITS_EXACT')
+          PY
+      - name: Archive only Rust test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-387-bitexact-library
+          path: checkpoint387-rust-lib.log
+          retention-days: 7
+          if-no-files-found: warn
