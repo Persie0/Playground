@@ -1,0 +1,147 @@
+name: Photosphere batch 370-372 native point row + third AddImage
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-batch-370-372.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-batch-370-372
+  cancel-in-progress: false
+jobs:
+  source-original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout exact research commit read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: c4e592e2a96b5f775ddcc993ed5af76501394547
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install native dependencies once and verify research SHA
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = c4e592e2a96b5f775ddcc993ed5af76501394547
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint370/native_original_point_row_append_solver_join.py research/photosphere/checkpoint371/native_original_three_image_front_half.py
+      - name: Verify original APK+ELF SHA and retain only ephemeral local copies
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Source-original 28-byte vector append to nonempty solver residual
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint370/native_original_point_row_append_solver_join.py research/native/liblightcycle.so --output checkpoint370-native.json | tee checkpoint370-native.log
+          grep -q '^CHECKPOINT370_NATIVE_SOURCE_POINT_ROW_APPEND_SOLVER_BRANCH_PASS 51 5 4 5 5 5$' checkpoint370-native.log
+          python3 - <<'PY'
+          import json
+          d=json.load(open("checkpoint370-native.json"))
+          assert d["checkpoint"]==370
+          assert d["original_addimage_native_pose_getters_executed"]
+          assert d["original_fov_pairs_bitwise_identical_to_source"]
+          x=d["source_original_point_row_append_probe"]
+          assert x["original_28byte_row_append_helper_pc"]=="0x122384"
+          assert x["original_28byte_row_helper_executed"]
+          assert not x["original_source_row_vector_header_test_supplied"]
+          assert x["native_28byte_vector_stride"]==28
+          assert x["original_28byte_row_source_image_indices"]==[0,1]
+          assert x["original_28byte_row_weight_f32_bits"]==1048576000
+          assert x["original_source_to_solver_28_nonempty_pc_sequence"][-1]=="0x128da8"
+          assert x["native_original_fov_pair_source_restored_after_test"]
+          print("CHECKPOINT370_NATIVE_SOURCE_POINT_ROW_VECTOR_SOLVER_PASS")
+          PY
+      - name: Attempt genuine third source AddImage prefix on retained original estimator
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint371/native_original_three_image_front_half.py > checkpoint371-full.log 2> checkpoint371-debug.log
+          python3 - <<'PY'
+          import json
+          line=next(s for s in open("checkpoint371-full.log") if s.startswith("CHECKPOINT371_NATIVE_PAIR_MATRIX_PROVENANCE_REPORT="))
+          d=json.loads(line.split("=",1)[1])
+          assert d["checkpoint"]==371
+          assert d["original_550_trial_ransac_executed"] and d["original_postlink_tree_exit_executed"]
+          assert not d["natural_pair_matrix_provenance"]["pair_matrix_abi_reached"]
+          third=d["source_original_third_image_front_half"]
+          assert third["original_third_source_index2_input_no_host_branch_patches"]
+          assert third["input_image_index_expected"]==2
+          assert third["original_prior_two_image_provider_counts"]==[2,2]
+          assert not third["reached_full_original_third_addimage"]
+          if third["original_third_wrapper_return_seen"]:
+              assert third["original_provider_count_after_three"]==[3,3]
+              assert third["original_third_feature_owner_vector_count"]==3
+              assert third["original_native_third_rosette_pose_vector_counts"]==[3,3]
+              assert third["original_native_third_rosette_camera_vector_counts"]==[3,3]
+              print("CHECKPOINT371_NATIVE_THIRD_ADDIMAGE_WRAPPER_RETURN_SOURCE_PASS")
+          else:
+              assert "original_third_execution_error" in third
+              print("CHECKPOINT371_NATIVE_THIRD_ADDIMAGE_BOUNDARY_UNRESOLVED",
+                    third["original_third_execution_error"])
+          open("checkpoint371-compact.json","w").write(json.dumps(d,indent=2,sort_keys=True)+"\n")
+          PY
+      - name: Delete all proprietary source binaries before uploading evidence
+        if: always()
+        run: rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Upload synthetic-only source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-batch-370-371-native
+          path: |
+            checkpoint370-native.json
+            checkpoint370-native.log
+            checkpoint371-compact.json
+            checkpoint371-debug.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  rust-ownership:
+    needs: source-original
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact private app revision read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 77655755683f8f351af735bebee8b9ee1ee92678
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: photosphere-batch-370-371-native
+          path: native-source
+      - name: Verify app revision and install fixed Rust toolchain
+        run: test "$(git rev-parse HEAD)" = 77655755683f8f351af735bebee8b9ee1ee92678
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: One Rust lib + integration batch against new native source oracle
+        env:
+          PHOTOSPHERE_370_NATIVE_JSON: ${{ github.workspace }}/native-source/checkpoint370-native.json
+        run: |
+          set -euo pipefail
+          test -s "$PHOTOSPHERE_370_NATIVE_JSON"
+          cargo test --locked --lib > batch370-lib.log 2>&1 || { tail -n 170 batch370-lib.log; exit 1; }
+          cargo test --locked --tests > batch370-integration.log 2>&1 || { tail -n 170 batch370-integration.log; exit 1; }
+          grep '^test result:' batch370-lib.log | tail -1
+          grep '^test result:' batch370-integration.log | tail -10
+      - name: Archive grouped Rust results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-batch-370-372-rust
+          path: |
+            batch370-lib.log
+            batch370-integration.log
+          retention-days: 7
+          if-no-files-found: warn
