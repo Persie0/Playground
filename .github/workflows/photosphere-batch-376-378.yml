@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: f739161377498d2d99367a7a058b09b420d296ae
+          ref: e103f4bbc917e8095883096d53f93651382ae065
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Verify research SHA and install native dependencies once
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = f739161377498d2d99367a7a058b09b420d296ae
+          test "$(git rev-parse HEAD)" = e103f4bbc917e8095883096d53f93651382ae065
           python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
           python3 -m py_compile research/photosphere/checkpoint376/native_matcher_owned_25_row_solver_third_descriptor.py
       - name: Download original APK and verify transient ELF
@@ -68,7 +68,16 @@ jobs:
           assert probe['original_point_row_owner_not_host_injected']
           assert not probe['original_nonempty_residual_body_executed']
           assert not probe['original_ceres_executed']
-          print('CHECKPOINT376_ORIGINAL_SOURCE_25_POINT_OWNER',
+          if probe['original_nonempty_28_solver_dispatch_executed']:
+            assert probe['original_native_status_eligibility_predicate_executed']
+            assert probe['original_native_predicate_return_w0']==1
+            assert probe['original_estimator_pair_status_u32']==0
+            assert probe['original_28_native_vector_row_count']==25
+            assert probe['original_native_source_pair_eligible_by_original_predicate']
+            assert probe['original_solver_input_25_rows_created_by_real_matcher']
+            assert probe['original_solver_source_branch_target_pc']=='0x128da8'
+            print('CHECKPOINT376_NATIVE_STATUS0_25_REAL_ROWS_SOLVER_ENTRY_VERIFIED')
+                    print('CHECKPOINT376_ORIGINAL_SOURCE_25_POINT_OWNER',
                 probe['original_matcher_receiver_is_first_estimator_pair'],
                 probe['original_estimator_pair_status_u32'],
                 probe['original_28_native_vector_row_count'],
@@ -114,7 +123,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 49f9eaebffb11da48730b0ae929f9b046dceb717
+          ref: 5c2318df02e2abe72207317a8ca31b2a2c365b1a
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - uses: actions/download-artifact@v4
@@ -122,7 +131,7 @@ jobs:
           name: photosphere-checkpoint376-original-25-rows
           path: source
       - name: Verify app SHA and install pinned Rust
-        run: test "$(git rev-parse HEAD)" = 49f9eaebffb11da48730b0ae929f9b046dceb717
+        run: test "$(git rev-parse HEAD)" = 5c2318df02e2abe72207317a8ca31b2a2c365b1a
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.99.1'
