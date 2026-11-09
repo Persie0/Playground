@@ -52,6 +52,18 @@ jobs:
           line=next(x for x in open('checkpoint388-full.log') if x.startswith('CHECKPOINT388_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
           d=json.loads(line.split('=',1)[1])
           r=d['checkpoint388_third_native_full']
+          # Persist the original numeric report BEFORE testing the
+          # conditional source-native refit decision. Failure must
+          # leave actionable source evidence without archiving ELF/APK.
+          open('checkpoint388-native.json','w').write(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          print('CHECKPOINT388_SOURCE_REFIT_DECISION',json.dumps({
+              'third_full_550':r['native_third_550_trials_finished'],
+              'best_support':r.get('native_best_support_w28'),
+              'first_support':r.get('first_support_score'),
+              'native_refit_executed':r['native_third_refit_executed'],
+              'robust_return':r.get('native_original_robust_return'),
+              'third_execution_error':d['source_original_third_image_callsite'].get('original_third_execution_error'),
+          },sort_keys=True),flush=True)
           assert d['original_full_solver_ceres_executed']==False
           assert d['bionic_rand_stream_test_controlled']==True
           assert d['source_original_25_row_solver_probe']['original_28_native_vector_row_count']==25
@@ -64,16 +76,22 @@ jobs:
           assert r['first_sample_gate']['original_source_pc']=='0x3101c4'
           assert r['first_support_score']['source_original_support_score_executed']
           assert r['native_postloop_pc']=='0x310418'
-          assert r['native_third_refit_executed']
-          assert r['source_native_refit_entry']['pc']=='0x30f588'
-          assert r['native_refit_svd']['original_svd_pc']=='0x31082c'
-          assert r['native_refit_svd']['native_svd_executed']
-          assert r['native_refit_svd']['source_svd_status_u32']==0
-          assert r['source_native_refit_result']['native_return_w0']==1
-          assert len(r['source_native_refit_result']['rotation_9_f32_u32'])==9
           assert r['native_original_robust_return']['original_return_pc']=='0x120918'
-          assert r['native_original_robust_return']['native_return_w0']==1
-          assert r['native_original_robust_return']['source_native_refit_executed']
+          assert r['native_original_robust_return']['original_third_completed_all_trials']
+          assert (r['native_original_robust_return']['source_native_refit_executed']
+                  ==r['native_third_refit_executed'])
+          if r['native_third_refit_executed']:
+              assert r['source_native_refit_entry']['pc']=='0x30f588'
+              assert r['native_refit_svd']['original_svd_pc']=='0x31082c'
+              assert r['native_refit_svd']['native_svd_executed']
+              assert r['native_refit_svd']['source_svd_status_u32']==0
+              assert r['source_native_refit_result']['native_return_w0']==1
+              assert len(r['source_native_refit_result']['rotation_9_f32_u32'])==9
+              assert r['native_original_robust_return']['native_return_w0']==1
+          else:
+              assert 'source_native_refit_entry' not in r
+              assert 'native_refit_svd' not in r
+              assert r['native_original_robust_return']['native_return_w0']==0
           assert d['checkpoint383_third_original_sampler']['original_native_ransac_full_loop_executed']
           assert len(d['checkpoint383_third_original_sampler']['original_test_rand_draws'])==1100
           t=d['source_original_third_image_callsite']['original_third_native_ray_preparation']
@@ -82,7 +100,7 @@ jobs:
           assert len(t['first_source_ray_vector']['original_native_source_ray_bytes_hex'])==600
           assert len(t['second_source_ray_vector']['original_native_source_ray_bytes_hex'])==600
           open('checkpoint388-native.json','w').write(json.dumps(d,indent=2,sort_keys=True)+'\n')
-          print('CHECKPOINT388_ORIGINAL_THIRD_550_RANSAC_REFIT_RETURN_PASS',r['native_source_trial_trace_count'],r['native_original_robust_return']['native_return_w0'])
+          print('CHECKPOINT388_ORIGINAL_THIRD_550_RANSAC_SOURCE_DECISION_PASS',r['native_source_trial_trace_count'],r['native_third_refit_executed'],r['native_original_robust_return']['native_return_w0'])
           PY
       - name: Delete original proprietary files before archiving
         if: always()
@@ -109,7 +127,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 48514be6683f62a8da64db1f256c0578edb42d18
+          ref: d0327e46cd85a80338398b34df8abd8198ca98aa
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Download source-native numerical oracle from this one public run
@@ -126,7 +144,7 @@ jobs:
           PHOTOSPHERE_389_STATIC_JSON: ${{ github.workspace }}/original-native/checkpoint389-static.json
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = '48514be6683f62a8da64db1f256c0578edb42d18'
+          test "$(git rev-parse HEAD)" = 'd0327e46cd85a80338398b34df8abd8198ca98aa'
           test -s "$PHOTOSPHERE_388_NATIVE_JSON"
           test -s "$PHOTOSPHERE_389_STATIC_JSON"
           cargo test --locked --lib > checkpoint390-lib.log 2>&1 || { tail -n 180 checkpoint390-lib.log; exit 1; }
