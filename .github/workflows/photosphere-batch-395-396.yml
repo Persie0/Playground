@@ -1,0 +1,156 @@
+name: Photosphere 395-396 original third postlink candidate frontier
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-batch-395-396.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-batch-395-396
+  cancel-in-progress: false
+jobs:
+  original-arm64-postlink:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Original native research exact-SHA checkout read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: fa2c985fd5bbcf25fb1f41da70ee435f57970642
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source SHA and install original ARM64 research dependencies
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'fa2c985fd5bbcf25fb1f41da70ee435f57970642'
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py
+      - name: Verify original APK and ELF checksums (ephemeral proprietary runner files)
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Third genuine 550 RANSAC plus reciprocal links into original postlink tree/candidate frontier
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint395-full.log 2> checkpoint395-diagnostic.log
+          python3 - <<'PY'
+          import json
+          source=next(x for x in open('checkpoint395-full.log')
+              if x.startswith('CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          d=json.loads(source.split('=',1)[1])
+          r=d['checkpoint388_third_native_full']
+          m=d['checkpoint391_third_matcher_owned']
+          g=d['checkpoint393_third_source_graph']
+          p=d['checkpoint395_third_postlink']
+          # Preserve source observations before verifying any expected
+          # frontier. Source-original error is never called parity.
+          open('checkpoint395-native.json','w').write(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          print('CHECKPOINT395_ORIGINAL_POSTLINK_SOURCE_FRONTIER',json.dumps({
+              'source_endpoint':p.get('original_source_endpoint'),
+              'original_source_pc_count':len(p['native_original_postlink_instruction_trace']),
+              'native_dynamic_tree_dereference_reached':bool(p.get('original_dynamic_tree_head_dereference')),
+              'native_tree_candidate_stage_reached':bool(p.get('original_source_candidate_tree_stage_reached')),
+              'source_pair_guard_reached':bool(p.get('original_source_candidate_postlink_guard_reached')),
+              'native_selected_next_matcher':p.get('source_original_next_highlevel_matcher_call'),
+              'native_pair_constructor_entry':p.get('source_original_native_pair_constructor_call'),
+              'source_third_execution_error':d['source_original_third_image_callsite'].get('original_third_execution_error'),
+          },sort_keys=True),flush=True)
+          assert d['original_full_solver_ceres_executed'] is False
+          assert d['bionic_rand_stream_test_controlled'] is True
+          assert r['native_third_550_trials_finished']
+          assert r['native_third_refit_executed']
+          assert r['native_original_robust_return']['native_return_w0']==1
+          assert m['native_pair_first_second_i32']==[0,2]
+          assert m['source_original_highlevel_success_w0']==1
+          assert m['source_native_row_count']==25
+          assert g['original_third_native_first_link_executed']
+          assert g['original_third_native_second_link_executed']
+          assert g['original_source_graph_link_delta_verified']
+          assert p['original_native_both_reciprocal_links_earlier']
+          assert p['original_native_postlink_entry_pc']=='0x11dbb8'
+          assert p['native_original_neighbor_owner_degrees_after_links']==[1,2]
+          assert p['original_native_postlink_branch_reached']
+          assert len(p['native_original_postlink_instruction_trace'])>0
+          assert len(p['native_original_postlink_instruction_trace'])<=192
+          assert d['source_original_third_image_callsite'].get('original_third_execution_error') is None
+          assert p['original_source_endpoint'] in (
+              'next_matcher_callsite','pair_constructor_callsite','native_original_return')
+          assert p['original_native_next_matcher_not_executed']
+          assert p['original_native_pair_constructor_not_executed']
+          assert p['original_full_ceres_and_device_pixels_unexecuted']
+          if p['original_source_endpoint']=='next_matcher_callsite':
+              assert p['source_original_next_highlevel_matcher_call']['source_callee_pc']=='0x120600'
+              assert not p['source_original_next_highlevel_matcher_call']['source_next_matcher_body_executed']
+          elif p['original_source_endpoint']=='pair_constructor_callsite':
+              assert p['source_original_native_pair_constructor_call']['source_constructor_target_pc']=='0x316e24'
+              assert not p['source_original_native_pair_constructor_call']['source_original_pair_constructor_body_executed']
+          else:
+              assert d['source_original_third_image_callsite']['reached_full_original_third_addimage']
+          print('CHECKPOINT395_ORIGINAL_THIRD_POSTLINK_SOURCE_FRONTIER_PASS',p['original_source_endpoint'],
+              len(p['native_original_postlink_instruction_trace']))
+          PY
+      - name: Remove original proprietary APK and ELF before archiving source observations
+        if: always()
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive only synthetic original-native source numeric observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-395-396-original-postlink
+          path: |
+            checkpoint395-native.json
+            checkpoint395-diagnostic.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  rust-source-differential:
+    needs: original-arm64-postlink
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Exact-SHA read-only private Rust app checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 3291042ad34412ad4de1053c9aebf9aa3443df24
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Download only this run's native source oracle
+        uses: actions/download-artifact@v4
+        with:
+          name: photosphere-395-396-original-postlink
+          path: original-native
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Grouped Rust original postlink source differential plus all library and integration regressions
+        env:
+          PHOTOSPHERE_395_NATIVE_JSON: ${{ github.workspace }}/original-native/checkpoint395-native.json
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '3291042ad34412ad4de1053c9aebf9aa3443df24'
+          test -s "$PHOTOSPHERE_395_NATIVE_JSON"
+          cargo test --locked --lib > checkpoint396-lib.log 2>&1 || { tail -n 180 checkpoint396-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint396-integration.log 2>&1 || { tail -n 180 checkpoint396-integration.log; exit 1; }
+          grep '^test result:' checkpoint396-lib.log | tail -1
+          grep '^test result:' checkpoint396-integration.log | tail -10
+      - name: Archive grouped Rust regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-395-396-rust-tests
+          path: |
+            checkpoint396-lib.log
+            checkpoint396-integration.log
+          retention-days: 7
+          if-no-files-found: warn
