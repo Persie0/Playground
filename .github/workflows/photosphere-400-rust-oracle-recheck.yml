@@ -1,0 +1,66 @@
+name: Photosphere 400 archived-native Rust differential recheck
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-400-rust-oracle-recheck.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-400-rust-oracle-recheck
+  cancel-in-progress: false
+jobs:
+  archived-source-rust-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Read only previously source-verified Playground original native oracle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42870915283 --repo Persie0/Playground             --name photosphere-399-400-second-native-ransac-source --dir native-oracle
+          test -s native-oracle/research-src/checkpoint399-native.json
+          python3 - <<'PY'
+          import json
+          with open('native-oracle/research-src/checkpoint399-native.json') as f:
+              d=json.load(f)
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert d['checkpoint395_third_postlink']['original_source_endpoint']=='second_matcher_robust_return'
+          s=d['checkpoint399_second_robust']
+          assert s['source_native_full_550_trials_executed']
+          assert s['source_native_ransac_trial_count']==550
+          assert s['source_native_svd_call_count']==551
+          assert s['source_native_refit_executed']
+          assert s['source_native_robust_return_w0']==1
+          print('REUSED_ORIGINAL_ARM64_SOURCE_ORACLE',{'trials':550,'svd_calls':551,'refit':True,'w0':1})
+          PY
+      - name: Exact SHA read-only private Rust app checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 5a0b8b8176eddb6cea0821613c2d5c6313edb926
+          path: app-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: One grouped Rust all-targets run with real checkpoint399 source oracle
+        working-directory: app-src
+        env:
+          PHOTOSPHERE_399_NATIVE_JSON: ${{ github.workspace }}/native-oracle/research-src/checkpoint399-native.json
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '5a0b8b8176eddb6cea0821613c2d5c6313edb926'
+          cargo test --locked --all-targets > checkpoint400-rust-recheck.log 2>&1 || { tail -n 180 checkpoint400-rust-recheck.log; exit 1; }
+          grep '^test result:' checkpoint400-rust-recheck.log | tail -n 12
+      - name: Archive only grouped Rust test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-400-rust-native-oracle-recheck
+          path: app-src/checkpoint400-rust-recheck.log
+          retention-days: 7
+          if-no-files-found: warn
