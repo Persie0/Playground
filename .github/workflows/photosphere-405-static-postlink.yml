@@ -1,4 +1,4 @@
-name: Photosphere 405 original ARM64 postlink static branch audit
+name: Photosphere 405-406 original ARM64 bitset and Rust source differential
 on:
   push:
     branches: [main]
@@ -13,13 +13,13 @@ concurrency:
 jobs:
   source-static-branch:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Exact SHA research checkout, no private workflow execution
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: c34a30158dd0f5c0ef8b1956c0e1b128c361f2ac
+          ref: 0a45ec91646960659fa507d95eba42a119d5aa71
           path: research-src
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
@@ -27,9 +27,10 @@ jobs:
         working-directory: research-src
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 'c34a30158dd0f5c0ef8b1956c0e1b128c361f2ac'
+          test "$(git rev-parse HEAD)" = '0a45ec91646960659fa507d95eba42a119d5aa71'
           python3 -m pip install --quiet --break-system-packages capstone pyelftools
           python3 -m py_compile research/photosphere/checkpoint405/original_postlink_branch_static.py
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py
       - name: Read prior original ARM64 execution source receipt from archived public run
         env:
           GH_TOKEN: ${{ github.token }}
@@ -66,13 +67,38 @@ jobs:
         working-directory: research-src
         run: |
           rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Exact SHA private Rust app source checkout without private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 159f79c38e6a68e149f49dc1092660225413d19c
+          path: app-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: One grouped Rust all-targets source-opcode and executed VM differential
+        working-directory: app-src
+        env:
+          PHOTOSPHERE_405_STATIC_JSON: ${{ github.workspace }}/research-src/checkpoint405-source-native-static.json
+          PHOTOSPHERE_403_NATIVE_JSON: ${{ github.workspace }}/source-oracle/research-src/checkpoint403-native.json
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '159f79c38e6a68e149f49dc1092660225413d19c'
+          test -s "$PHOTOSPHERE_405_STATIC_JSON"
+          test -s "$PHOTOSPHERE_403_NATIVE_JSON"
+          cargo test --locked --all-targets > checkpoint406-rust.log 2>&1 || { tail -n 180 checkpoint406-rust.log; exit 1; }
+          grep '^test result:' checkpoint406-rust.log | tail -n 12
+          echo 'CHECKPOINT406_RUST_STATIC_NATIVE_SOURCE_PASS'
       - name: Archive source-only branch disassembly and minimal summary
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: photosphere-405-source-postlink-disassembly
+          name: photosphere-405-406-native-bitset-source-and-rust
           path: |
             research-src/checkpoint405-source-native-static.json
             research-src/checkpoint405-focus.txt
+            app-src/checkpoint406-rust.log
           retention-days: 7
           if-no-files-found: warn
