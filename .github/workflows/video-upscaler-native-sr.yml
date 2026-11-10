@@ -39,6 +39,18 @@ jobs:
       - name: Swift package tests
         working-directory: app
         run: swift test
+      - name: Real Core ML model inference smoke (must not skip)
+        working-directory: app
+        env:
+          RUN_COREML_SMOKE: '1'
+        run: |
+          set -o pipefail
+          swift test --filter testRealESRGANCoreMLProcessesRealNV12Frame 2>&1 | tee /tmp/native-sr-coreml-smoke.log
+          if grep -E 'testRealESRGANCoreMLProcessesRealNV12Frame.*skipped' /tmp/native-sr-coreml-smoke.log; then
+            echo 'ERROR: Core ML inference smoke test was skipped'
+            exit 1
+          fi
+          grep -E 'testRealESRGANCoreMLProcessesRealNV12Frame.*passed' /tmp/native-sr-coreml-smoke.log
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4
