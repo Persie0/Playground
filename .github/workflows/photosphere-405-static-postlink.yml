@@ -1,0 +1,78 @@
+name: Photosphere 405 original ARM64 postlink static branch audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-405-static-postlink.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-405-static-postlink
+  cancel-in-progress: false
+jobs:
+  source-static-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Exact SHA research checkout, no private workflow execution
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: c34a30158dd0f5c0ef8b1956c0e1b128c361f2ac
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify original static-analysis source SHA and Python syntax
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'c34a30158dd0f5c0ef8b1956c0e1b128c361f2ac'
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint405/original_postlink_branch_static.py
+      - name: Read prior original ARM64 execution source receipt from archived public run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42921008612 --repo Persie0/Playground \
+            --name photosphere-403-404-native-second-postlink-source --dir source-oracle
+          test -s source-oracle/research-src/checkpoint403-native.json
+      - name: Verify pinned original Google Camera APK and ELF hashes
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile \
+            --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Disassemble source original native branch and compare both AddImage paths
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint405/original_postlink_branch_static.py \
+            --elf research/native/liblightcycle.so \
+            --source-json ../source-oracle/research-src/checkpoint403-native.json \
+            --out checkpoint405-source-native-static.json > checkpoint405-focus.txt
+          test -s checkpoint405-source-native-static.json
+          cat checkpoint405-focus.txt
+      - name: Remove proprietary original APK and ELF before artifact archive
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive source-only branch disassembly and minimal summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-405-source-postlink-disassembly
+          path: |
+            research-src/checkpoint405-source-native-static.json
+            research-src/checkpoint405-focus.txt
+          retention-days: 7
+          if-no-files-found: warn
