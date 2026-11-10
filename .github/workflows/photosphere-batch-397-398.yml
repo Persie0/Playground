@@ -1,0 +1,138 @@
+name: Photosphere 397-398 second native descriptor original ARM64
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-batch-397-398.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-batch-397-398
+  cancel-in-progress: false
+jobs:
+  original-second-descriptor-and-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Exact SHA checkout original ARM64 research (read only)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: c9f0a38eabbb577afa41104e9a6e016646016337
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify checkout SHA and prepare native research dependencies
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'c9f0a38eabbb577afa41104e9a6e016646016337'
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py
+      - name: Fetch and verify pinned original APK and original ARM64 ELF
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute source original second candidate descriptor matching, then assert bounded receipt
+        working-directory: research-src
+        env:
+          PHOTOSPHERE_EXTEND_SECOND_MATCHER: '1'
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint397-full.log 2> checkpoint397-diagnostic.log
+          python3 - <<'PY'
+          import json
+          source=next(x for x in open('checkpoint397-full.log')
+              if x.startswith('CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          d=json.loads(source.split('=',1)[1])
+          r=d['checkpoint388_third_native_full']
+          m=d['checkpoint391_third_matcher_owned']
+          g=d['checkpoint393_third_source_graph']
+          p=d['checkpoint395_third_postlink']
+          x=d['checkpoint397_second_matcher_descriptor']
+          # Preserve the independent original-native report. Never fake
+          # an endpoint if the original VM errors or fails to reach it.
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert d['source_original_third_image_callsite'].get('original_third_execution_error') is None
+          assert d['original_full_solver_ceres_executed'] is False
+          assert d['bionic_rand_stream_test_controlled'] is True
+          assert r['native_third_550_trials_finished'] and r['native_third_refit_executed']
+          assert r['native_original_robust_return']['native_return_w0']==1
+          assert m['native_pair_first_second_i32']==[0,2]
+          assert m['native_pair_full_u32_status']==0
+          assert m['source_native_row_count']==25
+          assert m['source_original_highlevel_success_w0']==1
+          assert g['original_third_native_first_link_executed']
+          assert g['original_third_native_second_link_executed']
+          assert g['original_source_graph_link_delta_verified']
+          assert p['native_original_neighbor_owner_degrees_after_links']==[1,2]
+          assert p['original_native_both_reciprocal_links_earlier']
+          assert p['original_source_endpoint']=='second_matcher_descriptor_boundary'
+          assert p['source_original_next_highlevel_matcher_call']['source_next_matcher_body_executed']
+          assert p['original_native_next_matcher_not_executed'] is False
+          assert p['original_native_pair_constructor_not_executed']
+          assert x==p['source_original_second_matcher_descriptor']
+          assert x['native_original_candidate_image_index']==1
+          assert x['native_original_current_image_index']==2
+          assert x['source_second_native_descriptor_result_pc']=='0x1206e4'
+          assert x['original_native_low_level_matcher_pc']=='0x1263f0'
+          assert x['source_native_vector_bounds_valid']
+          assert x['native_second_highlevel_body_executed']
+          assert not x['native_second_ransac_or_refit_executed']
+          assert not x['native_second_graph_pair_or_link_executed']
+          assert x['source_native_descriptor_rows_not_host_injected']
+          assert len(x['source_native_raw_match_records_20_byte_hex'])==x['source_native_raw_match_count']*40
+          open('checkpoint397-native.json','w').write(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          print('CHECKPOINT397_NATIVE_SECOND_DESCRIPTOR_PASS',json.dumps({
+              'first_pair':[0,2],
+              'second_candidate':[1,2],
+              'native_source_raw_descriptor_count':x['source_native_raw_match_count'],
+              'next_ransac_executed':False,
+              'graph_triangle_parity_claimed':False,
+          },sort_keys=True))
+          PY
+      - name: Remove proprietary APK and ELF from runner before archiving any receipts
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Exact SHA read-only PhotosphereCleanroom Rust checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 5f465afda43f04de14a3e3257425e956398497c1
+          path: app-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Run one grouped Rust library and integration differential against native source
+        working-directory: app-src
+        env:
+          PHOTOSPHERE_397_NATIVE_JSON: ${{ github.workspace }}/research-src/checkpoint397-native.json
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '5f465afda43f04de14a3e3257425e956398497c1'
+          test -s "$PHOTOSPHERE_397_NATIVE_JSON"
+          cargo test --locked --all-targets > checkpoint398-tests.log 2>&1 || { tail -n 180 checkpoint398-tests.log; exit 1; }
+          grep '^test result:' checkpoint398-tests.log | tail -n 12
+      - name: Archive only synthetic source receipts and grouped Rust logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-397-398-native-original-differential
+          path: |
+            research-src/checkpoint397-native.json
+            research-src/checkpoint397-diagnostic.log
+            app-src/checkpoint398-tests.log
+          retention-days: 7
+          if-no-files-found: warn
