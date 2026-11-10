@@ -1,0 +1,109 @@
+name: Photosphere 407 independent third native image graph exploration
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-407-alternate-third.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-407-alternate-third
+  cancel-in-progress: false
+jobs:
+  original-third-independent-pixels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: Read-only pinned decompile original native research checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 64dc8eb4331dfcf6588e6ca840a26682433590ee
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Assert exact research SHA and compile original source probe
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 64dc8eb4331dfcf6588e6ca840a26682433590ee
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py
+      - name: Verify original pinned APK and ELF before running
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original x-plus-two independent third image in same VM
+        working-directory: research-src
+        env:
+          PHOTOSPHERE_THIRD_SHIFT407: '2'
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint407-source-full.log 2> checkpoint407-diagnostic.log || {
+            echo 'CHECKPOINT407_SOURCE_ORIGINAL_NATIVE_DID_NOT_COMPLETE'
+            tail -n 100 checkpoint407-diagnostic.log
+            tail -n 10 checkpoint407-source-full.log | cut -c1-250
+            exit 1
+          }
+          python3 - <<'PY'
+          import json
+          source=next(x for x in open('checkpoint407-source-full.log')
+              if x.startswith('CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          r=json.loads(source.split('=',1)[1])
+          alt=r["checkpoint407_alternate_original_pixels"]
+          assert r["original_elf_sha256"]=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert alt["mode"]=="third-x+2"
+          assert alt["native_first_second_third_x_offsets"]==[0,1,2]
+          assert len({alt["source_original_first_pixel_sha256"],
+                      alt["source_original_second_pixel_sha256"],
+                      alt["source_original_third_pixel_sha256"]})==3
+          assert not alt["native_graph_memory_and_branch_patched"]
+          assert alt["original_bionic_rand_reproduced"] is False
+          assert alt["source_original_third_native_execution_error"] is None
+          assert alt["native_original_0_to_2_raw_matches"]>=7
+          assert alt["native_original_1_to_2_raw_matches"]>=7
+          assert alt["source_native_graph_pair_0_to_2_executed"]
+          assert alt["source_native_graph_pair_1_to_2_executed"]
+          post=r["checkpoint403_second_postlink"]
+          assert post["source_original_second_postlink_active"]
+          assert post["native_source_postlink_trace"]
+          assert post["source_original_second_postlink_guard_reached"]
+          open("checkpoint407-original-native.json","w").write(
+              json.dumps(r,indent=2,sort_keys=True)+"\n")
+          print("CHECKPOINT407_REAL_INDEPENDENT_THIRD_GCAM_RESULT",json.dumps({
+              "x_offsets":alt["native_first_second_third_x_offsets"],
+              "first_matches":alt["native_original_0_to_2_raw_matches"],
+              "second_matches":alt["native_original_1_to_2_raw_matches"],
+              "first_point_rows":alt["source_native_0_to_2_inlier_rows"],
+              "second_point_rows":alt["source_native_1_to_2_inlier_rows"],
+              "graph_first":alt["source_native_graph_pair_0_to_2_executed"],
+              "graph_second":alt["source_native_graph_pair_1_to_2_executed"],
+              "original_guard_x8":alt["source_original_native_guard_x8"],
+              "original_guard_x9":alt["source_original_native_guard_x9"],
+              "original_exit_pc":alt["source_original_native_exit_pc"],
+              "postlink_endpoint":alt["source_original_third_postlink_endpoint"],
+          },sort_keys=True))
+          PY
+      - name: Delete proprietary Google Camera APK and ELF before archive
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive bounded original synthetic evidence, never original binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-407-original-alternate-third-source
+          path: |
+            research-src/checkpoint407-original-native.json
+            research-src/checkpoint407-diagnostic.log
+          retention-days: 7
+          if-no-files-found: warn
