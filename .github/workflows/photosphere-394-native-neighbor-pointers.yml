@@ -1,0 +1,72 @@
+name: Photosphere 394 source-backed reciprocal native neighbor pointer normalization
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-394-native-neighbor-pointers.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-394-native-neighbor-pointers
+  cancel-in-progress: false
+jobs:
+  rust-native-pointer-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Read-only exact-SHA private Rust branch; public Actions only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 9d9c5b11be14592a9a3519879a01d64a5f844309
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Reuse previous passed original third native graph source oracle (no APK rerun)
+        uses: actions/download-artifact@v4
+        with:
+          name: photosphere-393-394-original-third-graph
+          run-id: 42734360315
+          github-token: ${{ github.token }}
+          path: source-oracle
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Verify exact original 8-byte opposite-owner addresses and Rust suites
+        env:
+          PHOTOSPHERE_393_NATIVE_JSON: ${{ github.workspace }}/source-oracle/checkpoint393-native.json
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '9d9c5b11be14592a9a3519879a01d64a5f844309'
+          test -s "$PHOTOSPHERE_393_NATIVE_JSON"
+          python3 - <<'PY'
+          import json,os
+          d=json.load(open(os.environ['PHOTOSPHERE_393_NATIVE_JSON']))
+          g=d['checkpoint393_third_source_graph']
+          a=int(g['source_owner_a_ptr'],16)
+          b=int(g['source_owner_b_ptr'],16)
+          assert a and b and a!=b
+          assert int.from_bytes(bytes.fromhex(g['native_source_a_appended_element_8_hex']),'little')==b
+          assert int.from_bytes(bytes.fromhex(g['native_source_b_appended_element_8_hex']),'little')==a
+          assert g['original_source_owner_a_before']['source_native_element_count']==0
+          assert g['original_source_owner_b_before']['source_native_element_count']==1
+          assert g['source_owner_a_after_both']['source_native_element_count']==1
+          assert g['source_owner_b_after_both']['source_native_element_count']==2
+          assert g['original_third_native_first_link_executed']
+          assert g['original_third_native_second_link_executed']
+          print('CHECKPOINT394_SOURCE_TWO_EXACT_OPPOSITE_NATIVE_OWNER_POINTERS_PASS',0,1,1,2)
+          PY
+          cargo test --locked --lib > checkpoint394-pointers-lib.log 2>&1 || { tail -n 180 checkpoint394-pointers-lib.log; exit 1; }
+          cargo test --locked --tests > checkpoint394-pointers-integration.log 2>&1 || { tail -n 180 checkpoint394-pointers-integration.log; exit 1; }
+          grep '^test result:' checkpoint394-pointers-lib.log | tail -1
+          grep '^test result:' checkpoint394-pointers-integration.log | tail -10
+      - name: Archive Rust regression logs without original proprietary binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-394-native-pointer-rust
+          path: |
+            checkpoint394-pointers-lib.log
+            checkpoint394-pointers-integration.log
+          retention-days: 7
+          if-no-files-found: warn
