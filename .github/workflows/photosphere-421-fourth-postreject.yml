@@ -1,0 +1,136 @@
+name: Photosphere 421 fourth original postreject native graph decision
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-421-fourth-postreject.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-421-fourth-postreject
+  cancel-in-progress: false
+jobs:
+  original-fourth-postgraph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout pinned private research read-only without private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 8108e222f78638993082fe339518fda15cef5226
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Exact source SHA and Python compile
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 8108e222f78638993082fe339518fda15cef5226
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py
+      - name: Original pinned GCam APK and ELF source checksum
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original fourth postrejection tree and next decision
+        working-directory: research-src
+        env:
+          PHOTOSPHERE_THIRD_SHIFT407: '2'
+          PHOTOSPHERE_FOURTH_POSTREJECT421: '1'
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint421-source.log 2> checkpoint421-diagnostic.log || {
+            echo 'CHECKPOINT421_NATIVE_POSTREJECT_NOT_VERIFIED'
+            tail -n 130 checkpoint421-diagnostic.log
+            tail -n 6 checkpoint421-source.log | cut -c1-240
+            exit 1
+          }
+          python3 - <<'PY'
+          import json
+          row=next(x for x in open('checkpoint421-source.log')
+              if x.startswith('CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          d=json.loads(row.split('=',1)[1])
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          f=d['checkpoint409_fourth_source_descriptor']
+          graph=d['checkpoint414_fourth_native_graph']
+          first=d['checkpoint411_fourth_native_robust']
+          second=d['checkpoint419_fourth_second_robust']
+          descriptor=d['checkpoint418_fourth_second_descriptor']
+          p=d['checkpoint421_fourth_postreject']
+          assert f['original_distinct_pixel_offsets']==[0,1,2,3]
+          assert len(set(f['original_all_four_source_pixel_sha256']))==4
+          assert graph['source_original_reciprocal_graph_verified']
+          assert graph['original_native_fourth_pair_indices_i32']==[0,3]
+          assert graph['source_native_fourth_point_row_count']==11
+          assert first['native_original_trial_count']==550
+          assert first['source_native_robust_return_w0']==1
+          assert second['native_original_trial_count']==5000
+          assert second['native_original_svd_call_count']==5000
+          assert second['source_native_robust_return_w0']==0
+          assert not second['source_native_refit_executed']
+          assert descriptor['original_source_selected_second_candidate']==1
+          assert descriptor['original_native_raw_descriptor_match_count']==11
+          assert p['source_second_original_robust_rejected']
+          assert p['source_second_original_highlevel_return_seen']
+          assert p['source_second_highlevel_return_w0']==0
+          assert p['source_first_pair_graph_preserved']
+          assert p['source_postreject_pcs']
+          assert p['source_postreject_pcs'][0]['source_pc']=='0x11db8c'
+          assert p['source_original_endpoint'] in (
+            'postreject_next_matcher_callsite',
+            'postreject_constructor_callsite',
+            'postreject_native_return')
+          assert p['source_original_endpoint']==f['source_original_endpoint']
+          assert not p['source_following_matcher_entered']
+          assert not p['source_relative_constructor_executed']
+          assert not p['source_ceres_executed']
+          assert not p['source_graph_host_patched']
+          assert not descriptor['source_original_second_pair_graph_appended']
+          assert not d['original_full_solver_ceres_executed']
+          assert d['bionic_rand_stream_test_controlled']
+          if p['source_original_endpoint']=='postreject_next_matcher_callsite':
+              assert p['source_next_matcher_callsite_pc']=='0x11db88'
+              assert p['source_next_matcher_callee_pc']=='0x120600'
+              assert p['source_current_image_w21']==3
+              assert 0<=p['source_next_candidate_w25']<3
+              assert p['source_postreject_pcs'][-1]['source_pc']=='0x11db88'
+          if p['source_original_endpoint']=='postreject_constructor_callsite':
+              assert p['source_constructor_not_entered']
+              assert p['source_postreject_pcs'][-1]['source_pc']=='0x11de34'
+          if p['source_original_endpoint']=='postreject_native_return':
+              assert p['source_native_exit_pc']=='0x11e014'
+              assert p['source_original_natural_return_verified']
+          with open('checkpoint421-original-source.json','w') as fp:
+              json.dump(d,fp,indent=2,sort_keys=True);fp.write('\n')
+          print('CHECKPOINT421_ORIGINAL_NATIVE_POSTREJECT_PASS',json.dumps({
+              'endpoint':p['source_original_endpoint'],
+              'original_next_candidate':p.get('source_next_candidate_w25'),
+              'second_robust_5000_rejected':p['source_second_original_robust_rejected'],
+              'first_graph_unchanged':p['source_first_pair_graph_preserved'],
+              'selected_pcs':[x['source_pc'] for x in p['source_postreject_pcs']],
+          },sort_keys=True))
+          PY
+      - name: Delete original GCam APK and ELF before artifact upload
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive source-only fourth failed pair next candidate decision
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-421-original-fourth-postreject-source
+          path: |
+            research-src/checkpoint421-original-source.json
+            research-src/checkpoint421-diagnostic.log
+          retention-days: 7
+          if-no-files-found: warn
