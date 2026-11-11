@@ -1,4 +1,4 @@
-name: Jelly Squeeze - Android navigation settings and SFX validation (public runner)
+name: Jelly Squeeze - Daily rewards, Android fixes and SFX validation (public runner)
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/JellySqueeze
-          ref: 15a99647f1ee3198d92a309e3185d7dd0de4acd1
+          ref: 3754dcc36a57dc5ecf10b8097a757410e30e3d11
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: game
@@ -61,7 +61,9 @@ jobs:
             tests/ui/test_navigation.gd \
             tests/ui/test_pause_navigation.gd \
             tests/ui/test_completion_chapters.gd \
-            tests/ui/test_android_settings_scroll.gd; do
+            tests/ui/test_android_settings_scroll.gd \
+            tests/progression/test_daily_rewards.gd \
+            tests/ui/test_daily_ui.gd; do
             printf '\n=== %s ===\n' "$test"
             log="test-$(basename "$test" .gd).log"
             status=0
@@ -95,3 +97,61 @@ jobs:
           timeout 100s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game \
             --quit-after 20 2>&1 | tee smoke.log
           ! grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:|Invalid call" smoke.log
+
+      - name: Checkout public Playground to publish a safe results summary
+        if: always()
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Playground
+          ref: main
+          path: result-repo
+
+      - name: Publish private-source-safe validation status to public Playground
+        if: always()
+        shell: bash
+        env:
+          VALIDATION_OUTCOME: ${{ job.status }}
+          REPO_SHA: 3754dcc36a57dc5ecf10b8097a757410e30e3d11
+        run: |
+          set -euo pipefail
+          mkdir -p result-repo/reports
+          {
+            echo "# Jelly Squeeze public validation summary"
+            echo
+            echo "Private source commit: \`$REPO_SHA\`"
+            echo "Runner: https://github.com/Persie0/Playground/actions/runs/${GITHUB_RUN_ID}"
+            echo "Overall checks before report: **$VALIDATION_OUTCOME**"
+            echo
+            echo "## Test suites"
+            for log in test-*.log; do
+              [ -f "$log" ] || continue
+              name="${log#test-}"; name="${name%.log}"
+              if grep -Eq "SCRIPT ERROR:|Parse Error:|ERROR:|FAILED:" "$log"; then
+                echo "- $name: FAIL"
+                grep -E "SCRIPT ERROR:|Parse Error:|ERROR:|FAILED:" "$log" | head -n 5 | sed 's/^/  - /'
+              else
+                echo "- $name: PASS"
+              fi
+            done
+            echo
+            echo "## Import, solver verification and smoke tests"
+            for name in godot-import verify-levels smoke; do
+              if [ -f "${name}.log" ]; then
+                if grep -Eiq "SCRIPT ERROR:|Parse Error:|ERROR:|Invalid call" "${name}.log"; then
+                  echo "- $name: FAIL"
+                  grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:|Invalid call" "${name}.log" | head -n 5 | sed 's/^/  - /'
+                else
+                  echo "- $name: PASS (inspect runner exit status if job failed)"
+                fi
+              else
+                echo "- $name: NOT RUN"
+              fi
+            done
+          } > result-repo/reports/jelly-validation-latest.md
+          git -C result-repo config user.name "Jelly Validation"
+          git -C result-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C result-repo add reports/jelly-validation-latest.md
+          if ! git -C result-repo diff --cached --quiet; then
+            git -C result-repo commit -m "ci: record JellySqueeze public validation summary"
+            git -C result-repo push origin main
+          fi
