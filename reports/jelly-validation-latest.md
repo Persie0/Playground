@@ -1,7 +1,7 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `2470f667ace41082e40e470d232981f0a90d7293`
-Runner: https://github.com/Persie0/Playground/actions/runs/43064402098
+Private source commit: `0e95cc54e9ec60b26a939e2411cdd91a9f29a3cf`
+Runner: https://github.com/Persie0/Playground/actions/runs/43065827241
 Overall checks before report: **success**
 
 ## Test suites
@@ -17,6 +17,7 @@ Overall checks before report: **success**
 - test_difficulty: PASS
 - test_gel_layer: PASS
 - test_generator: PASS
+- test_hint_visibility: PASS
 - test_iap: PASS
 - test_navigation: PASS
 - test_pause_navigation: PASS
