@@ -1,0 +1,115 @@
+name: Photosphere 415 original fourth point and reciprocal graph Rust differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-415-native-fourth-graph-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-415-native-fourth-graph-rust
+  cancel-in-progress: false
+jobs:
+  native-fourth-source-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Reuse verified source-original fourth image artifact without native rerun
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42933328530 --repo Persie0/Playground \
+            --name photosphere-414-original-fourth-graph-source --dir source-oracle
+          test "$(find source-oracle -type f -name checkpoint414-native-original.json | wc -l)" -eq 1
+          python3 - <<'PY'
+          import json,pathlib
+          f=next(pathlib.Path('source-oracle').rglob('checkpoint414-native-original.json'))
+          d=json.loads(f.read_text())
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert d['checkpoint393_third_source_graph']['original_source_graph_link_delta_verified']
+          assert d['checkpoint401_second_source_graph']['source_second_reciprocal_delta_verified']
+          assert d['checkpoint403_second_postlink']['source_original_natural_return_verified']
+          q=d['checkpoint409_fourth_source_descriptor']
+          assert q['original_distinct_pixel_offsets']==[0,1,2,3]
+          assert len(set(q['original_all_four_source_pixel_sha256']))==4
+          assert q['source_original_pre_fourth_feature_owner_count']==3
+          assert q['source_original_pre_fourth_provider_counts']==[3,3]
+          assert q['source_original_fourth_feature_wrapper_returned']
+          assert q.get('source_original_fourth_execution_error') is None
+          assert q['source_original_endpoint']=='fourth_original_first_reciprocal_graph_boundary'
+          assert q['source_original_stop_pc']=='0x11dbb8'
+          assert len(q['original_native_descriptor_calls'])==1
+          assert q['original_native_descriptor_calls'][0]['native_candidate_index_w25']==0
+          assert q['original_native_descriptor_calls'][0]['native_current_image_index_w21']==3
+          assert q['original_native_descriptor_calls'][0]['native_original_source_match_count']==11
+          assert q['original_native_fourth_matcher_threshold_events'][0]['source_qualified_for_native_robust_estimator']
+          assert q['source_original_graph_pair_created_for_fourth']
+          assert not q['source_original_relative_pair_constructor_executed']
+          r=d['checkpoint411_fourth_native_robust']
+          assert r['source_original_robust_entry_pc']=='0x30f860'
+          assert r['source_native_robust_return_pc']=='0x120918'
+          assert r['native_original_robust_calls']==1
+          assert r['native_original_550_trials_verified']
+          assert r['native_original_trial_count']==550
+          assert r['native_original_svd_call_count']==551
+          assert r['source_native_robust_return_w0']==1
+          assert r['source_native_refit_executed']
+          assert r['native_original_first_sample_indices']==[0,10]
+          assert r['test_controlled_sampler_pair_indices']==[0,10]
+          assert len(r['test_controlled_imported_rand_values'])==1100
+          assert r['native_android_bionic_rand_reproduced'] is False
+          assert q['source_original_graph_pair_created_for_fourth']
+          g=d['checkpoint414_fourth_native_graph']
+          assert g['source_original_reciprocal_graph_verified']
+          assert g['source_original_first_directed_link_executed']
+          assert g['source_original_second_directed_link_executed']
+          assert g['original_native_fourth_pair_indices_i32']==[0,3]
+          assert g['original_native_fourth_highlevel_return_w0']==1
+          assert g['original_native_fourth_addimage_success_w28']==1
+          assert g['original_native_fourth_graph_boundary_pc']=='0x11dbb8'
+          assert g['source_native_graph_memory_not_modified_by_host']
+          assert g['source_native_fourth_point_row_count']==11
+          assert len(g['source_original_point_rows_28_hex'])==11
+          assert len(g['source_native_fourth_point_vector_28_hex'])==11*28*2
+          a0=g['source_original_fourth_owner_a_before']['source_native_element_count']
+          b0=g['source_original_fourth_owner_b_before']['source_native_element_count']
+          a2=g['source_original_fourth_owner_a_after_both']['source_native_element_count']
+          b2=g['source_original_fourth_owner_b_after_both']['source_native_element_count']
+          assert [a0,a2,b0,b2]==[0,1,2,3]
+          assert q['source_fourth_original_graph_mutated_here']
+          print('CHECKPOINT414_PUBLIC_SOURCE_ORIGINAL_FOURTH_GRAPH_VERIFIED')
+          PY
+      - name: Checkout pinned private Rust code read-only; no private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: a7bc38a2b670937c75f8c9bc6bfbdf498e700cf1
+          path: app-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: One grouped all-targets Rust source-native fourth-image differential
+        working-directory: app-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'a7bc38a2b670937c75f8c9bc6bfbdf498e700cf1'
+          export PHOTOSPHERE_414_NATIVE_JSON="$(find ../source-oracle -name checkpoint414-native-original.json -type f)"
+          test -s "$PHOTOSPHERE_414_NATIVE_JSON"
+          cargo test --locked --all-targets > checkpoint415-rust.log 2>&1 || {
+            tail -n 200 checkpoint415-rust.log
+            exit 1
+          }
+          grep '^test result:' checkpoint415-rust.log | tail -n 12
+          echo 'CHECKPOINT415_ORIGINAL_FOURTH_GRAPH_RUST_PASS'
+      - name: Archive test output (no original APK or ELF)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-415-fourth-original-reciprocal-graph-rust
+          path: app-src/checkpoint415-rust.log
+          retention-days: 7
+          if-no-files-found: warn
