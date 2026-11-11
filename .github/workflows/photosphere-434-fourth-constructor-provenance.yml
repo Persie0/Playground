@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 99347408b8b57b9650dba7a061a2ed8a279db4b4
+          ref: 06249315bb8c2513dbe287620aad7a029647565e
           path: research-src
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
@@ -26,7 +26,7 @@ jobs:
         working-directory: research-src
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 99347408b8b57b9650dba7a061a2ed8a279db4b4
+          test "$(git rev-parse HEAD)" = 06249315bb8c2513dbe287620aad7a029647565e
           python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
           python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py
           python3 -m py_compile research/photosphere/checkpoint434/scan_highlevel_source_pair_owner.py
@@ -81,12 +81,15 @@ jobs:
           assert set(accepted)=={0,2}
           for candidate,count in ((0,11),(2,19)):
               r=accepted[candidate]
-              assert r['source_native_temp_status_after_constructor_u32']==0
+              assert r['source_native_temp_status_after_constructor_u32']==10
               assert r['source_native_temp_endpoints_after_constructor_i32']==[candidate,3]
-              assert r['source_original_appended_pair_status_u32']==0
+              assert r['source_original_appended_pair_status_u32'] in (0,10)
+              assert r['source_original_status_before_first_point_append_u32']==0
+              assert r['source_original_status_at_first_0x120edc_u32']==0
               assert r['source_original_appended_pair_indices_i32']==[candidate,3]
               assert r['source_original_point_append_call_count']==count
-              assert r['source_original_temp_status_copied_exactly']
+              assert r['source_original_temp_status_copied_exactly']==(
+                  r['source_original_appended_pair_status_u32']==10)
               assert r['source_native_last_pair_end_minus_128_verified']
               assert r['source_original_point_append_owner_same_as_ctor']
           assert write_proof['source_original_owner_and_return_status_verified']
@@ -156,6 +159,8 @@ jobs:
               'native_status_field_writes':write_proof['source_original_status_field_writes'],
               'native_temp_constructor_status_write_events':
                   ctor['source_original_ctor_status_write_events'],
+              'native_appended_pair_status_write_events':
+                  ctor['source_original_appended_pair_status_write_events'],
               'native_temporary_pair_statuses':[
                   [r['source_candidate_index'],
                    r['source_original_robust_w24'],
