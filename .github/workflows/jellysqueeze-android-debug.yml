@@ -94,6 +94,10 @@ jobs:
             --headless --path game --editor --script res://ci_configure_android.gd \
             2>&1 | tee editor-setup.log
           grep -q "ANDROID_EDITOR_SETTINGS_CONFIGURED" editor-setup.log
+          echo "=== GENERATED PROJECT SETTINGS DIFF ==="
+          git -C game diff -- project.godot
+          echo "=== ETC2 PROJECT SETTING AFTER EDITOR SAVE ==="
+          grep -n -C 3 'import_etc2_astc' game/project.godot
           timeout 120s ./Godot_v4.7.2-stable_linux.x86_64 --headless \
             --path game --editor --quit 2>&1 | tee editor-import.log
           ! grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:" editor-import.log
