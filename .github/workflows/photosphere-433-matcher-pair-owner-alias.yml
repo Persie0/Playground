@@ -1,0 +1,79 @@
+name: Photosphere 433 matcher entry pair-owner alias receipts
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/photosphere-433-matcher-pair-owner-alias.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-source-abi-owner-alias:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Download previously verified source-only original fourth-image receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 43046378909 --repo Persie0/Playground \
+            --name photosphere-426-original-fourth-postthird-graph-source \
+            --dir source-only
+          test -s source-only/checkpoint426-original-source.json
+      - name: Compare original matcher call ABI register values to original point owner pointers
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          d=json.loads(pathlib.Path('source-only/checkpoint426-original-source.json').read_text())
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          calls=d['checkpoint409_fourth_source_descriptor']['original_native_descriptor_calls']
+          assert len(calls)==3
+          first=d['checkpoint414_fourth_native_graph']
+          third=d['checkpoint425_fourth_third_graph']
+          origins={0:('0-to-3',int(first['original_native_fourth_pair_owner'],16)),
+                   2:('2-to-3',int(third['source_original_third_pair_owner'],16))}
+          evidence=[]
+          for c in calls:
+              candidate=c['native_candidate_index_w25']
+              assert c['source_callsite_pc']=='0x11db88'
+              args=[int(x,16) for x in c['source_64bit_native_args_x0_x7']]
+              assert len(args)==8
+              row={'candidate_index':candidate,
+                   'source_native_x0_to_x7':[hex(v) for v in args],
+                   'source_matched_pair_owner':False}
+              if candidate in origins:
+                  name,owner=origins[candidate]
+                  row.update({'original_pair':name,
+                      'original_pair_owner_native_address':hex(owner),
+                      'equal_arg_indices':[i for i,x in enumerate(args) if x==owner],
+                      'pointer_difference_by_arg_hex':[
+                          hex(x-owner) if x>=owner else '-'+hex(owner-x) for x in args],
+                      'source_native_owner_only_known_later_at_0x122384':True})
+                  row['source_matched_pair_owner']=True
+              evidence.append(row)
+          assert [r['candidate_index'] for r in evidence]==[0,1,2]
+          assert [r['source_matched_pair_owner'] for r in evidence]==[True,False,True]
+          assert first['source_original_reciprocal_graph_verified']
+          assert third['source_original_third_reciprocal_graph_verified']
+          report={'checkpoint':433,'source_checkpoint426_run':43046378909,
+                  'source_original_elf_sha256':d['original_elf_sha256'],
+                  'original_highlevel_call_pc':'0x11db88',
+                  'source_original_entry_matcher_abi_to_pair_owner':evidence,
+                  'native_pair_owner_same_address_as_matcher_argument':
+                      {str(e['candidate_index']):e['equal_arg_indices']
+                       for e in evidence if e['source_matched_pair_owner']},
+                  'source_original_native_executed_in_this_check':False,
+                  'source_original_status_initialized_here':False,
+                  'source_original_ceres_executed':False}
+          pathlib.Path('checkpoint433-native-entry-owner-alias.json').write_text(
+              json.dumps(report,sort_keys=True,indent=2)+'\n')
+          print('CHECKPOINT433_ORIGINAL_MATCHER_PAIR_OWNER_ABI_PASS',
+                json.dumps(report['native_pair_owner_same_address_as_matcher_argument'],sort_keys=True))
+          PY
+      - name: Upload only original numeric register and pointer relations
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-433-original-matcher-owner-abi
+          path: checkpoint433-native-entry-owner-alias.json
+          retention-days: 7
