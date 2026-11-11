@@ -1,0 +1,86 @@
+name: Photosphere 427 original fourth graph bitmask receipt
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/photosphere-427-fourth-graph-bitmask.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source-only-graph-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Retrieve successful original 426 numerical source artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 43046378909 --repo Persie0/Playground \
+            --name photosphere-426-original-fourth-postthird-graph-source \
+            --dir source-only
+          test -s source-only/checkpoint426-original-source.json
+      - name: Verify original fourth graph guard against original return
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          d=json.loads(pathlib.Path('source-only/checkpoint426-original-source.json').read_text())
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          graph0=d['checkpoint414_fourth_native_graph']
+          graph3=d['checkpoint425_fourth_third_graph']
+          post416=d['checkpoint416_fourth_native_postgraph']
+          post426=d['checkpoint426_fourth_postthird_graph']
+          assert graph0['original_native_fourth_pair_indices_i32']==[0,3]
+          assert graph0['source_original_reciprocal_graph_verified']
+          assert graph3['source_original_third_pair_indices_i32']==[2,3]
+          assert graph3['source_original_third_reciprocal_graph_verified']
+          assert post426['source_original_endpoint']=='postthird_native_return'
+          assert post426['source_native_first_pair_0_to_3_retained']
+          assert post426['source_native_third_pair_2_to_3_retained']
+          assert [r['source_pc'] for r in post426['source_original_decision_pcs']]==[
+             '0x11dc18','0x11dd64','0x11e014']
+          guard=post416['source_original_postgraph_bitset_guard']
+          assert guard['pc']=='0x11dd64'
+          x8=int(guard['native_source_x8'],16)
+          x9=int(guard['native_source_x9'],16)
+          selected=int(guard['native_source_candidate_w26'])
+          assert 0<=selected<64
+          # Pinned original instruction sequence, verified by prior
+          # checkpoint405 disassembly: mov w9,1; lsl x9,x9,x26;
+          # and x8,x8,x9; cbnz x8,0x11e014.
+          assert x9==(1<<selected), (x9,selected)
+          assert x8!=0 and x8&x9==x8, (x8,x9)
+          assert not post426['source_original_relative_constructor_entered']
+          assert not post426['source_original_global_ceres_executed']
+          assert not post426['source_native_graph_host_patched']
+          report={
+            'source':'original ARM64 fourth AddImage 426 result',
+            'source_elf_sha256':d['original_elf_sha256'],
+            'source_previous_run':43046378909,
+            'original_guard_pc':guard['pc'],
+            'native_masked_x8':hex(x8),
+            'native_mask_x9':hex(x9),
+            'native_selected_w26':selected,
+            'source_bitset_nonzero':True,
+            'source_branch_target':'0x11e014',
+            'source_original_decision_pcs':[r['source_pc'] for r in post426['source_original_decision_pcs']],
+            'prior_accepted_graph_pairs':[[0,3],[2,3]],
+            'native_0_to_3_retained':True,
+            'native_2_to_3_retained':True,
+            'original_relative_constructor_executed':False,
+            'original_ceres_executed':False,
+            'android_bionic_random_stream_reproduced':False,
+          }
+          pathlib.Path('checkpoint427-guard-source-only.json').write_text(
+              json.dumps(report,sort_keys=True,indent=2)+'\n')
+          print('CHECKPOINT427_FOURTH_ORIGINAL_BITSET_GUARD_PASS',
+                json.dumps(report,sort_keys=True))
+          PY
+      - name: Upload only numeric graph guard receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-427-original-fourth-bitmask-source
+          path: checkpoint427-guard-source-only.json
+          retention-days: 7
