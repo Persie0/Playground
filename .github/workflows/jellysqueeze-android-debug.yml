@@ -28,8 +28,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Configure Android command line tools
-        uses: android-actions/setup-android@v3
+      - name: Use runner's Android SDK (avoid obsolete legacy tools package)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$ANDROID_HOME"
+          which sdkmanager
+          sdkmanager --version
       - name: Install export SDK packages
         shell: bash
         run: |
