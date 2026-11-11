@@ -1,0 +1,85 @@
+name: Photosphere 417 original fourth postgraph Rust source differential
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-417-fourth-postgraph-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-417-fourth-postgraph-rust
+  cancel-in-progress: false
+jobs:
+  original-postgraph-source-receipt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Retrieve verified public original fourth native graph postlink source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42952804229 --repo Persie0/Playground \
+            --name photosphere-416-original-fourth-postgraph-source --dir source-oracle
+          test "$(find source-oracle -name checkpoint416-original-source.json -type f | wc -l)" -eq 1
+          python3 - <<'PY'
+          import json,pathlib
+          f=next(pathlib.Path('source-oracle').rglob('checkpoint416-original-source.json'))
+          d=json.loads(f.read_text())
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          a=d['checkpoint409_fourth_source_descriptor']
+          g=d['checkpoint414_fourth_native_graph']
+          p=d['checkpoint416_fourth_native_postgraph']
+          assert a['original_distinct_pixel_offsets']==[0,1,2,3]
+          assert g['source_original_reciprocal_graph_verified']
+          assert g['original_native_fourth_pair_indices_i32']==[0,3]
+          assert g['source_native_fourth_point_row_count']==11
+          assert p['source_original_postgraph_start_pc']=='0x11dbb8'
+          assert p['source_original_first_0_to_3_reciprocal_graph_verified']
+          assert [x['source_pc'] for x in p['source_original_postgraph_observed_pcs']]==[
+            '0x11dbb8','0x11dc18','0x11db88']
+          assert p['source_original_endpoint']=='fourth_postgraph_next_matcher_callsite'
+          n=p['source_original_next_matcher_boundary']
+          assert n['native_current_image_w21']==3
+          assert n['native_next_candidate_w25']==1
+          assert n['source_first_0_to_3_graph_w28']==1
+          assert n['source_original_next_matcher_body_executed'] is False
+          assert p.get('source_original_postgraph_bitset_guard') is None
+          assert not p['source_original_relative_pair_constructor_executed']
+          assert not p['source_original_full_ceres_executed']
+          assert not p['native_graph_memory_host_patched']
+          print('CHECKPOINT416_ORIGINAL_SOURCE_POSTGRAPH_MATCHER1_VERIFIED')
+          PY
+      - name: Pinned private Rust read-only checkout without private GitHub Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 718560e580ab1ff0ae9c649a259c6e59ff50499e
+          path: app-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: One grouped all-targets Rust original fourth postgraph source differential
+        working-directory: app-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 718560e580ab1ff0ae9c649a259c6e59ff50499e
+          export PHOTOSPHERE_416_NATIVE_JSON="$(find ../source-oracle -name checkpoint416-original-source.json -type f)"
+          test -s "$PHOTOSPHERE_416_NATIVE_JSON"
+          cargo test --locked --all-targets > checkpoint417-rust.log 2>&1 || {
+            tail -n 200 checkpoint417-rust.log
+            exit 1
+          }
+          grep '^test result:' checkpoint417-rust.log | tail -n 12
+          echo 'CHECKPOINT417_ORIGINAL_NATIVE_POSTGRAPH_RUST_PASS'
+      - name: Archive only grouped Rust log; no proprietary binaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-417-fourth-postgraph-rust
+          path: app-src/checkpoint417-rust.log
+          retention-days: 7
+          if-no-files-found: warn
