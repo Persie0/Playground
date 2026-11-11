@@ -1,0 +1,135 @@
+name: Photosphere 425 fourth original 2-to-3 reciprocal C++ graph
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-425-fourth-third-graph.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-425-fourth-third-graph
+  cancel-in-progress: false
+jobs:
+  original-fourth-postgraph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout pinned private research read-only without private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 9d5fd646aba2e67253797b5aec761b81dd16b13c
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Exact source SHA and Python compile
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 9d5fd646aba2e67253797b5aec761b81dd16b13c
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py
+      - name: Original pinned GCam APK and ELF source checksum
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original fourth [2,3] point rows and reciprocal native C++ graph
+        working-directory: research-src
+        env:
+          PHOTOSPHERE_THIRD_SHIFT407: '2'
+          PHOTOSPHERE_FOURTH_THIRD_GRAPH425: '1'
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint425-source.log 2> checkpoint425-diagnostic.log || {
+            echo 'CHECKPOINT425_NATIVE_THIRD_GRAPH_NOT_VERIFIED'
+            tail -n 130 checkpoint425-diagnostic.log
+            tail -n 6 checkpoint425-source.log | cut -c1-240
+            exit 1
+          }
+          python3 - <<'PY'
+          import json
+          row=next(x for x in open('checkpoint425-source.log')
+              if x.startswith('CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          d=json.loads(row.split('=',1)[1])
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          f=d['checkpoint409_fourth_source_descriptor']
+          graph0=d['checkpoint414_fourth_native_graph']
+          second=d['checkpoint419_fourth_second_robust']
+          third=d['checkpoint423_fourth_third_descriptor']
+          robust=d['checkpoint424_fourth_third_robust']
+          graph=d['checkpoint425_fourth_third_graph']
+          post=d['checkpoint421_fourth_postreject']
+          assert f['original_distinct_pixel_offsets']==[0,1,2,3]
+          assert len(set(f['original_all_four_source_pixel_sha256']))==4
+          assert graph0['source_original_reciprocal_graph_verified']
+          assert graph0['original_native_fourth_pair_indices_i32']==[0,3]
+          assert graph0['source_native_fourth_point_row_count']==11
+          assert second['native_original_trial_count']==5000
+          assert second['source_native_robust_return_w0']==0
+          assert post['source_first_pair_graph_preserved']
+          assert third['source_original_native_raw_matches']==19
+          assert third['source_original_third_robust_executed']
+          assert third['source_original_third_graph_appended']
+          assert robust['native_original_trial_count']==550
+          assert robust['native_original_svd_call_count']==551
+          assert robust['source_native_refit_executed']
+          assert robust['source_native_robust_return_w0']==1
+          assert f['source_original_endpoint']=='third_original_reciprocal_graph_boundary'
+          assert third['source_original_endpoint']=='third_native_robust_return'
+          assert post['source_original_endpoint']=='third_original_reciprocal_graph_boundary'
+          assert graph['source_original_third_graph_boundary_pc']=='0x11dbb8'
+          assert graph['source_original_third_highlevel_return_pc']=='0x11db8c'
+          assert graph['source_original_third_highlevel_return_w0']==1
+          assert graph['source_original_third_pair_indices_i32']==[2,3]
+          assert graph['source_original_third_first_link_callsite_pc']=='0x11dba4'
+          assert graph['source_original_third_first_directed_link']
+          assert graph['source_original_third_second_directed_link']
+          assert graph['source_original_third_reciprocal_graph_verified']
+          assert graph['source_original_third_addimage_success_w28']==1
+          rows=graph['source_native_third_point_rows_28_hex']
+          count=graph['source_original_third_point_row_count']
+          assert 0<count<=35 and len(rows)==count
+          raw=b''.join(bytes.fromhex(x) for x in rows)
+          assert len(raw)==28*count
+          assert all(len(bytes.fromhex(x))==28 for x in rows)
+          assert raw.hex()==graph['source_original_third_point_vector_28_hex']
+          assert len(bytes.fromhex(graph['source_original_third_128byte_pair_hex']))==128
+          assert len(graph['source_original_third_point_vector_progression'])==count
+          assert not graph['source_native_original_graph_host_patched']
+          assert not graph['source_original_constructor_executed']
+          assert not graph['source_original_ceres_executed']
+          assert not d['original_full_solver_ceres_executed']
+          assert d['bionic_rand_stream_test_controlled']
+          with open('checkpoint425-original-source.json','w') as fp:
+              json.dump(d,fp,indent=2,sort_keys=True);fp.write('\n')
+          print('CHECKPOINT425_ORIGINAL_FOURTH_THIRD_GRAPH_PASS',json.dumps({
+              'pair':[2,3],
+              'source_native_point_rows':count,
+              'native_first_edge':graph['source_original_third_first_directed_link'],
+              'native_second_edge':graph['source_original_third_second_directed_link'],
+              'original_stop_pc':graph['source_original_third_graph_boundary_pc'],
+          },sort_keys=True))
+          PY
+      - name: Delete original GCam APK and ELF before artifact upload
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive source-only original fourth third reciprocal graph evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-425-original-fourth-third-graph-source
+          path: |
+            research-src/checkpoint425-original-source.json
+            research-src/checkpoint425-diagnostic.log
+          retention-days: 7
+          if-no-files-found: warn
