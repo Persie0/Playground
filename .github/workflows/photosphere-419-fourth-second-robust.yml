@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: c16ed16248407d7516d6c011ab935b4e94a8568e
+          ref: 07cc9a90ff4b6c6f2eef5d5fb917ef4eb1894731
           path: research-src
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
@@ -26,7 +26,7 @@ jobs:
         working-directory: research-src
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = c16ed16248407d7516d6c011ab935b4e94a8568e
+          test "$(git rev-parse HEAD)" = 07cc9a90ff4b6c6f2eef5d5fb917ef4eb1894731
           python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
           python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py
       - name: Original pinned GCam APK and ELF source checksum
@@ -82,11 +82,13 @@ jobs:
           assert second['source_native_raw_descriptor_matches']==11
           assert second['source_original_robust_entry_pc']=='0x30f860'
           assert second['native_original_robust_calls']==1
-          assert second['native_original_trial_count']==550
-          assert second['native_original_550_trials_verified']
-          assert len(second['test_controlled_imported_rand_values'])==1100
+          assert second['native_original_trial_count'] in [550,5000]
+          assert second['native_original_trial_budget_verified']
+          assert len(second['test_controlled_imported_rand_values'])==2*second['native_original_trial_count']
+          if second['native_original_trial_count']==5000:
+              assert second['source_native_entered_extended_trial_budget'] is True
           assert second['native_original_first_sample_indices']==[0,10]
-          assert second['native_original_svd_call_count']>=550
+          assert second['native_original_svd_call_count']>=second['native_original_trial_count']
           assert second['source_native_robust_return_pc']=='0x120918'
           assert descriptor['source_original_second_robust_return_w0']==second['source_native_robust_return_w0']
           assert second['source_native_robust_return_w0'] in [0,1]
