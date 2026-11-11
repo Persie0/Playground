@@ -1,0 +1,114 @@
+name: Jelly Squeeze Android debug APK (public runner)
+
+on:
+  push:
+    paths:
+      - ".github/workflows/jellysqueeze-android-debug.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout private game with approved token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/JellySqueeze
+          ref: bb7634ecd91c26b3f5d7e43be539a3294b49cb10
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: game
+
+      - name: Install Java 17 and Android SDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Configure Android command line tools
+        uses: android-actions/setup-android@v3
+      - name: Install export SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "platform-tools" "build-tools;35.0.1" "platforms;android-35"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          java -version
+
+      - name: Download official Godot engine and Android template
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+          echo "cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4  godot.zip" | sha256sum -c -
+          unzip -q godot.zip
+          chmod +x Godot_v4.7.2-stable_linux.x86_64
+          ./Godot_v4.7.2-stable_linux.x86_64 --headless --version
+
+          curl -fsSL --retry 3 -o export_templates.tpz \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz"
+          unzip -Z1 export_templates.tpz | grep -E '(android_debug\.apk|version\.txt)' | head -n 10
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.7.2.stable"
+          unzip -p export_templates.tpz templates/android_debug.apk \
+            > "$HOME/.local/share/godot/export_templates/4.7.2.stable/android_debug.apk"
+          printf '4.7.2.stable\n' > "$HOME/.local/share/godot/export_templates/4.7.2.stable/version.txt"
+          test -s "$HOME/.local/share/godot/export_templates/4.7.2.stable/android_debug.apk"
+
+      - name: Configure editor and create ephemeral debug keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -noprompt \
+            -keystore "$RUNNER_TEMP/jelly-debug.keystore" \
+            -storepass android -keypass android -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Jelly Squeeze,C=AT"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$RUNNER_TEMP/jelly-debug.keystore" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> "$GITHUB_ENV"
+
+          cat > game/ci_configure_android.gd <<'EOF'
+          extends SceneTree
+          func _initialize() -> void:
+              var settings: EditorSettings = EditorInterface.get_editor_settings()
+              settings.set_setting("export/android/java_sdk_path", OS.get_environment("JAVA_HOME"))
+              settings.set_setting("export/android/android_sdk_path", OS.get_environment("ANDROID_HOME"))
+              settings.save()
+              print("ANDROID_EDITOR_SETTINGS_CONFIGURED")
+              quit(0)
+          EOF
+          timeout 90s ./Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path game --editor --script res://ci_configure_android.gd \
+            2>&1 | tee editor-setup.log
+          grep -q "ANDROID_EDITOR_SETTINGS_CONFIGURED" editor-setup.log
+          timeout 120s ./Godot_v4.7.2-stable_linux.x86_64 --headless \
+            --path game --editor --quit 2>&1 | tee editor-import.log
+          ! grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:" editor-import.log
+
+      - name: Export Android arm64 debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p game/build/android
+          timeout 300s ./Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path game --export-debug Android \
+            build/android/JellySqueeze-debug.apk 2>&1 | tee android-export.log
+          test -s game/build/android/JellySqueeze-debug.apk
+          unzip -t game/build/android/JellySqueeze-debug.apk | tail -n 2
+          ls -lh game/build/android/JellySqueeze-debug.apk
+          if grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:" android-export.log; then exit 1; fi
+          "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify --verbose \
+            game/build/android/JellySqueeze-debug.apk
+
+      - name: Upload installable APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JellySqueeze-Godot-4.7.2-Android-Debug-arm64
+          path: game/build/android/JellySqueeze-debug.apk
+          compression-level: 0
+          retention-days: 7
