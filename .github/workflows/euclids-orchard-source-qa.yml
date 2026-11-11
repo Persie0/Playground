@@ -1,0 +1,136 @@
+name: "Euclid's Orchard — full source QA (public only)"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/euclids-orchard-source-qa.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: orchard-source-qa-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ORCHARD_SOURCE_SHA: 23090f79268a1f2bc26cf6cad33192fab5e74f7c
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  regression:
+    name: "Full regression tests — scenes ${{ matrix.first }}–${{ matrix.last }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - { first: 1, last: 6 }
+          - { first: 7, last: 13 }
+          - { first: 14, last: 20 }
+          - { first: 21, last: 26 }
+    steps:
+      - name: Checkout canonical merged private source, without running private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.ORCHARD_SOURCE_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+          persist-credentials: false
+      - name: Configure Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install headless rendering dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-lato fonts-noto-core
+          python -m pip install -r source/euclids-orchard/requirements.txt
+      - name: Verify exact integrated commit and scene sources
+        run: |
+          test "$(git -C source rev-parse HEAD)" = "$ORCHARD_SOURCE_SHA"
+          for i in $(seq 1 26); do
+            test -f "source/euclids-orchard/scene$i/render_scene$i.py"
+            test -f "source/euclids-orchard/tests/test_scene$i.py"
+          done
+      - name: Execute every historical scene regression test in this shard
+        shell: bash
+        env:
+          FIRST_SCENE: ${{ matrix.first }}
+          LAST_SCENE: ${{ matrix.last }}
+        run: |
+          set -euo pipefail
+          for n in $(seq "$FIRST_SCENE" "$LAST_SCENE"); do
+            echo "::group::Scene $n historical suite"
+            python -m unittest discover -s source/euclids-orchard/tests -p "test_scene$n.py" -v
+            echo "::endgroup::"
+          done
+
+  handoffs:
+    name: Check 25 authentic source-to-source handoffs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.ORCHARD_SOURCE_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install headless rendering dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-dejavu-core fonts-lato fonts-noto-core
+          python -m pip install -r source/euclids-orchard/requirements.txt
+      - name: Check exact source-frame equality for each adjacent scene
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from importlib import import_module
+          import inspect
+          import sys
+          import numpy as np
+
+          root = Path("source/euclids-orchard").resolve()
+          for n in range(1, 27):
+              sys.path.insert(0, str(root / f"scene{n}"))
+          renderers = []
+          for n in range(1, 27):
+              module = import_module(f"render_scene{n}")
+              choices = [
+                  cls for cls in vars(module).values()
+                  if inspect.isclass(cls)
+                  and cls.__module__ == module.__name__
+                  and cls.__name__.endswith("Renderer")
+                  and callable(getattr(cls, "frame", None))
+              ]
+              if len(choices) != 1:
+                  raise RuntimeError(f"Scene {n}: expected exactly one renderer, got {len(choices)}")
+              renderers.append((choices[0], float(module.DURATION)))
+          # Keep memory bounded by instantiating each pair independently.
+          for n in range(1, 26):
+              previous_class, duration = renderers[n - 1]
+              next_class, _ = renderers[n]
+              previous_frame = previous_class(width=320, height=180).frame(duration)
+              next_frame = next_class(width=320, height=180).frame(0)
+              if previous_frame.shape != (180, 320, 3) or next_frame.shape != previous_frame.shape:
+                  raise AssertionError(f"Scene {n}->{n+1} frame shape mismatch")
+              if not np.array_equal(previous_frame, next_frame):
+                  delta = np.abs(previous_frame.astype(np.int16)-next_frame.astype(np.int16))
+                  raise AssertionError(f"Scene {n}->{n+1} source seam mismatch: mean={delta.mean():.4f}, max={delta.max()}")
+              print(f"PASS source seam {n:02d}->{n+1:02d}: exact 320x180 BGR match", flush=True)
+          print("PASS: all 25 original source-to-source handoffs match exactly")
+          PY
