@@ -1,5 +1,5 @@
 name: PDF Studio Flutter validation
-# Recheck valid PNG signature stamping fixture and all native PDF operations.
+# Build merged PDF Studio main using public runner (no private Actions).
 on:
   push:
     paths:
@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/pdfapp
-          ref: feature/flutter-pdf-studio
+          ref: main
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Install Flutter
@@ -35,11 +35,9 @@ jobs:
           flutter pub get
           flutter analyze
           flutter test
-      - name: Android debug APK (manual workflow only)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Build Android debug APK
         run: flutter build apk --debug
-      - name: Upload APK (manual workflow only)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: pdf-studio-debug
