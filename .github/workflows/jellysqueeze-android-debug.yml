@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/JellySqueeze
-          ref: b175bf2b81c082f063c31df1a03cbaa3f3277591
+          ref: 6b05644e2e6df40abf9264f06b6b7df431ff7e2a
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: game
@@ -126,3 +126,47 @@ jobs:
           path: game/build/android/JellySqueeze-debug.apk
           compression-level: 0
           retention-days: 7
+
+      - name: Checkout public Playground for APK status
+        if: always()
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Playground
+          ref: main
+          path: status-repo
+
+      - name: Record public debug APK build result
+        if: always()
+        shell: bash
+        env:
+          BUILD_RESULT: ${{ job.status }}
+          GAME_SHA: 6b05644e2e6df40abf9264f06b6b7df431ff7e2a
+        run: |
+          set -euo pipefail
+          mkdir -p status-repo/reports
+          {
+            echo "# Jelly Squeeze debug APK"
+            echo
+            echo "Source commit: \`$GAME_SHA\`"
+            echo "Build run: https://github.com/Persie0/Playground/actions/runs/${GITHUB_RUN_ID}"
+            echo "Result before report: **$BUILD_RESULT**"
+            echo "Expected artifact name: \`JellySqueeze-Godot-4.7.2-Android-Debug-arm64\`"
+            echo
+            if [ -s game/build/android/JellySqueeze-debug.apk ]; then
+              echo "APK created: yes"
+              sha256sum game/build/android/JellySqueeze-debug.apk
+              echo "APK size: $(wc -c < game/build/android/JellySqueeze-debug.apk) bytes"
+            else
+              echo "APK created: no"
+            fi
+            if [ -f android-export.log ]; then
+              grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:" android-export.log | head -n 8 || true
+            fi
+          } > status-repo/reports/jelly-android-debug-latest.md
+          git -C status-repo config user.name "Jelly Android Build"
+          git -C status-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C status-repo add reports/jelly-android-debug-latest.md
+          if ! git -C status-repo diff --cached --quiet; then
+            git -C status-repo commit -m "ci: record latest JellySqueeze Android debug build"
+            git -C status-repo push origin main
+          fi
