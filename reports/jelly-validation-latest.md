@@ -1,14 +1,16 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `9fab405e6793f64e327ca3b83cd98e0c2801d2d4`
-Runner: https://github.com/Persie0/Playground/actions/runs/43056147322
-Overall checks before report: **success**
+Private source commit: `5ba4dbec33c10a25b64bbc6e8400da10ca6fd7c7`
+Runner: https://github.com/Persie0/Playground/actions/runs/43056808011
+Overall checks before report: **failure**
 
 ## Test suites
 - test_android_settings_scroll: PASS
 - test_audio: PASS
 - test_campaign_50: PASS
-- test_collection: PASS
+- test_collection: FAIL
+  - ERROR: FAILED: Two-column collection gallery
+  - ERROR: JELLY COLLECTION UI FAIL: 1/41
 - test_completion_chapters: PASS
 - test_cosmetics: PASS
 - test_daily_rewards: PASS
