@@ -1,0 +1,93 @@
+name: Jelly Squeeze - Step 13 Godot validation (public runner)
+
+on:
+  push:
+    paths:
+      - ".github/workflows/jellysqueeze-godot-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact private Jelly Squeeze revision
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/JellySqueeze
+          ref: 4519c9811c02c5e14f98f8ca835ade6e12dc2e34
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: game
+
+      - name: Download verified Godot 4.7.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+          echo "cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4  godot.zip" | sha256sum -c -
+          unzip -q godot.zip
+          chmod +x Godot_v4.7.2-stable_linux.x86_64
+          ./Godot_v4.7.2-stable_linux.x86_64 --headless --version
+
+      - name: Import project and compile all scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 120s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game --editor --quit 2>&1 | tee godot-import.log
+          if grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:" godot-import.log; then exit 1; fi
+
+      - name: Execute all headless test scripts
+        shell: bash
+        run: |
+          set -uo pipefail
+          fails=0
+          for test in \
+            tests/core/test_rules.gd \
+            tests/core/test_tutorial.gd \
+            tests/core/test_solver.gd \
+            tests/input/test_swipe.gd \
+            tests/rendering/test_gel_layer.gd \
+            tests/content/test_generator.gd \
+            tests/content/test_campaign_50.gd \
+            tests/content/test_difficulty.gd \
+            tests/progression/test_save.gd \
+            tests/audio/test_audio.gd \
+            tests/ui/test_navigation.gd; do
+            printf '\n=== %s ===\n' "$test"
+            log="test-$(basename "$test" .gd).log"
+            timeout 150s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game --script "res://$test" > "$log" 2>&1
+            status=$?
+            tail -n 65 "$log"
+            if [ "$status" -ne 0 ] || grep -Eiq "SCRIPT ERROR:|Parse Error:|ERROR:|FAILED:" "$log"; then
+              echo "::error title=Godot test failed::$test (exit $status)"
+              fails=$((fails + 1))
+            else
+              echo "::notice title=Godot test passed::$test"
+            fi
+          done
+          echo "FAILED_TESTS=$fails" >> "$GITHUB_ENV"
+          [ "$fails" -eq 0 ]
+
+      - name: Verify every campaign puzzle with exact solver
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 240s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game \
+            --script res://tools/verify_levels.gd 2>&1 | tee verify-levels.log
+          grep -q "ALL 50 MANIFEST LEVELS VERIFIED" verify-levels.log
+          ! grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:" verify-levels.log
+
+      - name: Run main scene smoke test
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 100s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game \
+            --quit-after 20 2>&1 | tee smoke.log
+          ! grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:|Invalid call" smoke.log
