@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/JellySqueeze
-          ref: 34a1d700651dba60e12b77aff7f398514f42e8fc
+          ref: 701a74e2bf4e2f7af4c1b261508d8c96c43e9885
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: game
@@ -84,9 +84,10 @@ jobs:
               print("ETC2_ASTC_CONFIGURED=", ProjectSettings.get_setting(key, "MISSING"))
               print("DOUBLE_PREFIX_CONFIGURED=", ProjectSettings.get_setting("rendering/rendering/textures/vram_compression/import_etc2_astc", "MISSING"))
               print("PROJECT_CONFIG_FILE=", FileAccess.get_file_as_string("res://project.godot").find("import_etc2_astc"))
-              ProjectSettings.set_setting(key, true)
-              print("ETC2_ASTC_FORCED=", ProjectSettings.get_setting(key))
-              print("PROJECT_SAVE_RESULT=", ProjectSettings.save())
+              if not bool(ProjectSettings.get_setting(key, false)):
+                  push_error("ETC2/ASTC MUST be enabled by project.godot, not by the export job")
+                  quit(1)
+                  return
               print("ANDROID_EDITOR_SETTINGS_CONFIGURED")
               quit(0)
           EOF
