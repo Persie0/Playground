@@ -1,46 +1,46 @@
 name: PDF Studio Flutter validation
-# Validate pdfapp from public Playground; manual runs also build an APK.
 on:
   push:
     paths:
       - .github/workflows/pdfapp-validation.yml
   workflow_dispatch:
 
-concurrency:
-  group: pdfapp-validation-runners
-  cancel-in-progress: true
-
 permissions:
   contents: read
+
+concurrency:
+  group: pdf-studio-checks
+  cancel-in-progress: true
 
 jobs:
   flutter:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout private PDF Studio source
+      - name: Checkout private PDF Studio
         uses: actions/checkout@v4
         with:
           repository: Persie0/pdfapp
           ref: feature/flutter-pdf-studio
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
-      - name: Install Flutter stable
+      - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-      - name: Flutter version
-        run: flutter --version
-      - name: Bootstrap and validate
-        run: bash tool/bootstrap.sh
-      - name: Build Android debug APK
+      - name: Analyze and test
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+      - name: Android debug APK (manual workflow only)
         if: github.event_name == 'workflow_dispatch'
         run: flutter build apk --debug
-      - name: Upload Android debug APK
-        if: github.event_name == 'workflow_dispatch' && success()
+      - name: Upload APK (manual workflow only)
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: pdf-studio-android-debug
+          name: pdf-studio-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 7
