@@ -1,0 +1,56 @@
+name: Photosphere 429 final-session receiver source context
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/photosphere-429-flush-receiver.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-flush-callsite-context:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Retrieve source-only validated checkpoint428 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 43048962417 --repo Persie0/Playground \
+            --name photosphere-428-original-final-session-source --dir source
+          test -s source/checkpoint428-final-session-map.json
+      - name: Inspect original 0x11b7bc receiver instruction window
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          d=json.loads(pathlib.Path('source/checkpoint428-final-session-map.json').read_text())
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert d['session_flush_entry']=='0x11b5f4'
+          assert d['original_estimator_final_method']=='0x11e87c'
+          assert d['original_concrete_adjuster_method']=='0x1287c0'
+          c=d['source_flush_vtable_0x40_candidates']
+          assert len(c)==1 and c[0]['source_callsite']=='0x11b7bc'
+          assert c[0]['source_context'][-1]['mnemonic']=='blr'
+          ctx=c[0]['source_context']
+          print('CHECKPOINT429_SOURCE_FINAL_SESSION_RECEIVER_CONTEXT',json.dumps(ctx,sort_keys=True))
+          # No claim yet about identity of the receiver pointer.
+          report={
+              'checkpoint':429,
+              'source_checkpoint428_run':43048962417,
+              'original_elf_sha256':d['original_elf_sha256'],
+              'native_callsite':'0x11b7bc',
+              'native_callsite_context':ctx,
+              'source_receiver_exact_class_not_yet_verified':True,
+              'global_ceres_executed':False,
+          }
+          pathlib.Path('checkpoint429-receiver-context.json').write_text(
+              json.dumps(report,sort_keys=True,indent=2)+'\n')
+          print('CHECKPOINT429_ORIGINAL_RECEIVER_CONTEXT_PASS')
+          PY
+      - name: Upload source-only receiver context
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-429-original-flush-receiver-context
+          path: checkpoint429-receiver-context.json
+          retention-days: 7
