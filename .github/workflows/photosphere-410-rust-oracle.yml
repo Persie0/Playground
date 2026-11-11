@@ -1,0 +1,83 @@
+name: Photosphere 410 original fourth descriptor Rust oracle
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-410-rust-oracle.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-410-rust-oracle
+  cancel-in-progress: false
+jobs:
+  native-fourth-source-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Reuse verified source-original fourth image artifact without native rerun
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 42928687895 --repo Persie0/Playground \
+            --name photosphere-409-original-fourth-source-descriptor --dir source-oracle
+          test "$(find source-oracle -type f -name checkpoint409-native-original.json | wc -l)" -eq 1
+          python3 - <<'PY'
+          import json,pathlib
+          f=next(pathlib.Path('source-oracle').rglob('checkpoint409-native-original.json'))
+          d=json.loads(f.read_text())
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          assert d['checkpoint393_third_source_graph']['original_source_graph_link_delta_verified']
+          assert d['checkpoint401_second_source_graph']['source_second_reciprocal_delta_verified']
+          assert d['checkpoint403_second_postlink']['source_original_natural_return_verified']
+          q=d['checkpoint409_fourth_source_descriptor']
+          assert q['original_distinct_pixel_offsets']==[0,1,2,3]
+          assert len(set(q['original_all_four_source_pixel_sha256']))==4
+          assert q['source_original_pre_fourth_feature_owner_count']==3
+          assert q['source_original_pre_fourth_provider_counts']==[3,3]
+          assert q['source_original_fourth_feature_wrapper_returned']
+          assert q.get('source_original_fourth_execution_error') is None
+          assert q['source_original_endpoint']=='fourth_matcher_qualified_pre_ransac'
+          assert q['source_original_stop_pc']=='0x1208a0'
+          assert len(q['original_native_descriptor_calls'])==1
+          assert q['original_native_descriptor_calls'][0]['native_candidate_index_w25']==0
+          assert q['original_native_descriptor_calls'][0]['native_current_image_index_w21']==3
+          assert q['original_native_descriptor_calls'][0]['native_original_source_match_count']==11
+          assert q['original_native_fourth_matcher_threshold_events'][0]['source_qualified_for_native_robust_estimator']
+          assert not q['source_original_graph_pair_created_for_fourth']
+          assert not q['source_original_relative_pair_constructor_executed']
+          print('CHECKPOINT409_PUBLIC_SOURCE_ORIGINAL_FOURTH_ORACLE_VERIFIED')
+          PY
+      - name: Checkout pinned private Rust code read-only; no private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: e3977a40290dd325a98c5fb91378d2dd2026f86c
+          path: app-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: One grouped all-targets Rust source-native fourth-image differential
+        working-directory: app-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'e3977a40290dd325a98c5fb91378d2dd2026f86c'
+          export PHOTOSPHERE_409_NATIVE_JSON="$(find ../source-oracle -name checkpoint409-native-original.json -type f)"
+          test -s "$PHOTOSPHERE_409_NATIVE_JSON"
+          cargo test --locked --all-targets > checkpoint410-rust.log 2>&1 || {
+            tail -n 200 checkpoint410-rust.log
+            exit 1
+          }
+          grep '^test result:' checkpoint410-rust.log | tail -n 12
+          echo 'CHECKPOINT410_ORIGINAL_FOURTH_DESCRIPTOR_RUST_PASS'
+      - name: Archive test output (no original APK or ELF)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-410-fourth-rust-source-differential
+          path: app-src/checkpoint410-rust.log
+          retention-days: 7
+          if-no-files-found: warn
