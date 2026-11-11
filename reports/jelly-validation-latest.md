@@ -1,7 +1,7 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `4604c895cef71c1eba91579f3dac07e17f2c96a2`
-Runner: https://github.com/Persie0/Playground/actions/runs/43062025824
+Private source commit: `2470f667ace41082e40e470d232981f0a90d7293`
+Runner: https://github.com/Persie0/Playground/actions/runs/43064402098
 Overall checks before report: **success**
 
 ## Test suites
@@ -24,6 +24,7 @@ Overall checks before report: **success**
 - test_save: PASS
 - test_solver: PASS
 - test_swipe: PASS
+- test_touch_scrolling: PASS
 - test_tutorial: PASS
 
 ## Import, solver verification and smoke tests
