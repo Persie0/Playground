@@ -1,0 +1,212 @@
+name: Photosphere 436 original live six-pair finalizer graph boundary
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-436-live-fourth-finalizer-graph.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-436-live-fourth-finalizer-graph
+  cancel-in-progress: false
+jobs:
+  original-fourth-postgraph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout pinned private research read-only without private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 7de913ef6630b525c20ea04e275b47862d6fceee
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Exact source SHA and Python compile
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 7de913ef6630b525c20ea04e275b47862d6fceee
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py
+          python3 -m py_compile research/photosphere/checkpoint434/scan_highlevel_source_pair_owner.py
+      - name: Original pinned GCam APK and ELF source checksum
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Pin original highlevel constructor, vector append and pair owner source
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint434/scan_highlevel_source_pair_owner.py \
+            research/native/liblightcycle.so \
+            --output checkpoint434-original-highlevel-pair-owner-source.json
+          test -s checkpoint434-original-highlevel-pair-owner-source.json
+      - name: Source-execute original fourth temporary-pair constructor and output vector append
+        working-directory: research-src
+        env:
+          PHOTOSPHERE_THIRD_SHIFT407: '2'
+          PHOTOSPHERE_FOURTH_NATIVE_GRAPH436: '1'
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint436-source.log 2> checkpoint436-diagnostic.log || {
+            echo 'CHECKPOINT436_NATIVE_FINALIZER_GRAPH_NOT_VERIFIED'
+            tail -n 130 checkpoint436-diagnostic.log
+            tail -n 6 checkpoint436-source.log | cut -c1-240
+            exit 1
+          }
+          python3 - <<'PY'
+          import json
+          row=next(x for x in open('checkpoint436-source.log')
+              if x.startswith('CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          d=json.loads(row.split('=',1)[1])
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          f=d['checkpoint409_fourth_source_descriptor']
+          write_proof=d['checkpoint432_fourth_pair_status_provenance']
+          ctor=d['checkpoint434_fourth_pair_constructor_provenance']
+          g=d['checkpoint436_fourth_original_finalizer_graph']
+          assert g['source_original_graph_entry_and_return_verified']
+          assert g['source_original_pair_vector_owner']
+          assert len(g['source_original_pair_records_before_graph'])==6
+          assert len(g['source_original_pair_records_after_graph'])==6
+          assert [r['source_original_pair_endpoints_i32'] for r in
+              g['source_original_pair_records_before_graph'][-3:]]==[
+                  [0,3],[1,3],[2,3]]
+          assert [r['source_original_pair_status_u32'] for r in
+              g['source_original_pair_records_before_graph'][-3:]]==[0,2,0]
+          assert '0x11e930' in g['source_original_graph_pc_trace']
+          assert '0x3172a4' in g['source_original_graph_pc_trace']
+          assert g['source_original_solver_not_entered_verified']
+          assert g['source_original_finalizer_full_function_not_executed']
+          assert g['source_original_ceres_not_executed']
+          assert g['source_graph_native_memory_not_host_patched']
+          assert ctor['source_original_real_native_pair_owner_verified']
+          assert ctor['source_original_native_constructor_and_append_execution_verified']
+          assert ctor['source_original_status_write_observer_did_not_modify_memory']
+          events=ctor['source_original_temporary_pair_construction_events']
+          accepted={r['source_candidate_index']:r for r in events
+              if r['source_candidate_index'] in (0,2)}
+          assert set(accepted)=={0,2}
+          for candidate,count in ((0,11),(2,19)):
+              r=accepted[candidate]
+              assert r['source_native_temp_status_after_constructor_u32']==10
+              assert r['source_native_temp_endpoints_after_constructor_i32']==[candidate,3]
+              assert r['source_original_appended_pair_status_u32'] in (0,10)
+              assert r['source_original_status_before_first_point_append_u32']==0
+              assert r['source_original_status_at_first_0x120edc_u32']==0
+              assert r['source_original_appended_pair_indices_i32']==[candidate,3]
+              assert r['source_original_point_append_call_count']==count
+              assert r['source_original_temp_status_copied_exactly']==(
+                  r['source_original_appended_pair_status_u32']==10)
+              assert r['source_native_last_pair_end_minus_128_verified']
+              assert r['source_original_point_append_owner_same_as_ctor']
+          assert write_proof['source_original_owner_and_return_status_verified']
+          assert [r['source_original_pair_indices_i32'] for r in write_proof[
+              'source_original_pair_status_owner_first_seen']]==[[0,3],[2,3]]
+          assert [r['source_status_at_first_point_row_u32'] for r in write_proof[
+              'source_original_pair_status_owner_first_seen']]==[0,0]
+          assert [r['source_original_pair_status_at_return_u32'] for r in write_proof[
+              'source_original_highlevel_return_status']]==[0,0]
+          assert write_proof['native_status_observer_did_not_write_source_memory']
+          first=d['checkpoint414_fourth_native_graph']
+          second=d['checkpoint419_fourth_second_robust']
+          third=d['checkpoint425_fourth_third_graph']
+          robust=d['checkpoint424_fourth_third_robust']
+          p=d['checkpoint426_fourth_postthird_graph']
+          assert f['original_distinct_pixel_offsets']==[0,1,2,3]
+          assert len(set(f['original_all_four_source_pixel_sha256']))==4
+          assert first['source_original_reciprocal_graph_verified']
+          assert first['original_native_fourth_pair_indices_i32']==[0,3]
+          assert first['source_native_fourth_point_row_count']==11
+          assert second['native_original_trial_count']==5000
+          assert second['source_native_robust_return_w0']==0
+          assert third['source_original_third_reciprocal_graph_verified']
+          assert third['source_original_third_pair_indices_i32']==[2,3]
+          assert third['source_original_third_point_row_count']==19
+          assert third['source_original_third_first_directed_link']
+          assert third['source_original_third_second_directed_link']
+          assert robust['native_original_trial_count']==550
+          assert robust['native_original_svd_call_count']==551
+          assert robust['source_native_refit_executed']
+          assert robust['source_native_robust_return_w0']==1
+          assert p['source_original_entered_postgraph']
+          assert p['source_original_decision_pcs']
+          assert p['source_native_first_and_third_pairs_verified']
+          assert p['source_native_first_pair_0_to_3_retained']
+          assert p['source_native_third_pair_2_to_3_retained']
+          assert p['source_original_endpoint'] in (
+              'postthird_constructor_callsite',
+              'postthird_next_matcher_callsite',
+              'postthird_native_return')
+          assert f['source_original_endpoint']==p['source_original_endpoint']
+          assert d['checkpoint421_fourth_postreject']['source_original_endpoint']==p['source_original_endpoint']
+          assert d['checkpoint416_fourth_native_postgraph']['source_original_endpoint']==p['source_original_endpoint']
+          assert not p['source_original_relative_constructor_entered']
+          assert not p['source_original_global_ceres_executed']
+          assert not p['source_native_graph_host_patched']
+          assert not d['original_full_solver_ceres_executed']
+          assert d['bionic_rand_stream_test_controlled']
+          if p['source_original_endpoint']=='postthird_constructor_callsite':
+              assert p['source_original_relative_constructor_callsite_pc']=='0x11de34'
+              assert p['source_original_relative_constructor_callee_pc']=='0x316e24'
+              assert len(p['source_original_constructor_x0_x7'])==8
+              assert p['source_original_decision_pcs'][-1]['source_pc']=='0x11de34'
+          elif p['source_original_endpoint']=='postthird_next_matcher_callsite':
+              assert p['source_original_matcher_not_entered']
+              assert p['source_original_decision_pcs'][-1]['source_pc']=='0x11db88'
+          else:
+              assert p['source_native_original_exit_pc']=='0x11e014'
+              assert p['source_original_natural_return_verified']
+          with open('checkpoint436-original-source.json','w') as fp:
+              json.dump(d,fp,indent=2,sort_keys=True);fp.write('\n')
+          print('CHECKPOINT436_ORIGINAL_LIVE_FINALIZER_GRAPH_PASS',json.dumps({
+              'source_original_graph_return':g['source_original_graph_return_pc'],
+              'source_original_graph_pcs':g['source_original_graph_pc_trace'][-15:],
+              'pair_statuses_before_graph':[r['source_original_pair_status_u32']
+                  for r in g['source_original_pair_records_before_graph']],
+              'pair_statuses_after_graph':[r['source_original_pair_status_u32']
+                  for r in g['source_original_pair_records_after_graph']],
+              'source_original_full_finalizer_not_executed':True,
+              'source_selected_endpoint':p['source_original_endpoint'],
+              'first_pair_retained':p['source_native_first_pair_0_to_3_retained'],
+              'third_pair_retained':p['source_native_third_pair_2_to_3_retained'],
+              'postgraph_pcs':[x['source_pc'] for x in p['source_original_decision_pcs']],
+              'native_status_field_writes':write_proof['source_original_status_field_writes'],
+              'native_temp_constructor_status_write_events':
+                  ctor['source_original_ctor_status_write_events'],
+              'native_appended_pair_status_write_events':
+                  ctor['source_original_appended_pair_status_write_events'],
+              'native_temporary_pair_statuses':[
+                  [r['source_candidate_index'],
+                   r['source_original_robust_w24'],
+                   r['source_native_temp_status_after_constructor_u32'],
+                   r['source_original_appended_pair_status_u32']]
+                  for r in events],
+              'original_owner_statuses_at_first_row':[r['source_status_at_first_point_row_u32']
+                  for r in write_proof['source_original_pair_status_owner_first_seen']],
+          },sort_keys=True))
+          PY
+      - name: Delete original GCam APK and ELF before artifact upload
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive source-only fourth post-third graph decision
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-436-original-fourth-finalizer-graph-source
+          path: |
+            research-src/checkpoint436-original-source.json
+            research-src/checkpoint436-diagnostic.log
+            research-src/checkpoint434-original-highlevel-pair-owner-source.json
+          retention-days: 7
+          if-no-files-found: warn
