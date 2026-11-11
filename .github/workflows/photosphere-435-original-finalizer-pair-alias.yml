@@ -1,0 +1,45 @@
+name: Photosphere 435 original fourth matcher to finalizer pair-vector alias
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/photosphere-435-original-finalizer-pair-alias.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-source-pair-vector-alias:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Read-only pinned research checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: bf93dc5f694c64e9bf5bf8f0e3e62cb8f1167b72
+          path: research-src
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - name: Retrieve previous passed original four-image source receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C research-src rev-parse HEAD)" = bf93dc5f694c64e9bf5bf8f0e3e62cb8f1167b72
+          gh run download 43064077192 --repo Persie0/Playground \
+            --name photosphere-434-original-fourth-postthird-graph-source --dir source-only
+          test -s source-only/checkpoint434-original-source.json
+      - name: Verify real original matcher vector directly aliases finalizer member
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research-src/research/photosphere/checkpoint435/verify_original_pair_finalizer_alias.py
+          python3 research-src/research/photosphere/checkpoint435/verify_original_pair_finalizer_alias.py \
+            source-only/checkpoint434-original-source.json \
+            --out checkpoint435-original-pair-finalizer-alias.json
+          test -s checkpoint435-original-pair-finalizer-alias.json
+      - name: Archive source-only numeric alias proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-435-original-fourth-pair-finalizer-alias
+          path: checkpoint435-original-pair-finalizer-alias.json
+          retention-days: 7
