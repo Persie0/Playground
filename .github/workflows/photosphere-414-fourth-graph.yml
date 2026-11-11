@@ -41,7 +41,7 @@ jobs:
           mkdir -p research/native
           unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
           echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
-      - name: Run fourth distinct input through original ARM64 matcher threshold
+      - name: Execute original fourth-point writer and both native graph link calls
         working-directory: research-src
         env:
           PHOTOSPHERE_THIRD_SHIFT407: '2'
@@ -54,6 +54,7 @@ jobs:
             tail -n 5 checkpoint414-source-full.log | cut -c1-220
             exit 1
           }
+          grep '^CHECKPOINT414_SOURCE_FOURTH_GRAPH=' checkpoint414-source-full.log | cut -c1-2500
           python3 - <<'PY'
           import json
           row=next(line for line in open("checkpoint414-source-full.log")
@@ -103,7 +104,7 @@ jobs:
               assert (row["original_source_native_match_count"]>=7)==row[
                   "source_qualified_for_native_robust_estimator"]
           assert r["source_fourth_original_graph_mutated_here"] is True
-          assert r["source_original_graph_pair_created_for_fourth"] is False
+          assert r["source_original_graph_pair_created_for_fourth"] is True
           assert r["source_original_relative_pair_constructor_executed"] is False
           graph=d["checkpoint414_fourth_native_graph"]
           assert graph["source_original_robust_accepted_before_native_point_writer"]
@@ -152,7 +153,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: photosphere-411-original-fourth-ransac-source
+          name: photosphere-414-original-fourth-graph-source
           path: |
             research-src/checkpoint414-native-original.json
             research-src/checkpoint414-diagnostic.log
