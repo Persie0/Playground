@@ -1,0 +1,46 @@
+name: PhotosphereRust wide-range residual exposure
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphererust-wide-range-exposure.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphererust-wide-range-exposure
+  cancel-in-progress: false
+jobs:
+  single-grouped-rust-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Read-only pinned private PhotosphereRust checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereRust
+          ref: 8e29fc5c71c0b6d795c2a42591c8143a259fa9a0
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: app-src
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: One grouped all-target residual exposure and integration test
+        working-directory: app-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 8e29fc5c71c0b6d795c2a42591c8143a259fa9a0
+          cargo test --all-targets > wide-range-exposure.log 2>&1 || {
+            tail -n 160 wide-range-exposure.log
+            exit 1
+          }
+          grep '^test result:' wide-range-exposure.log | tail -n 15
+          echo PHOTOSPHERERUST_WIDE_EXPOSURE_PASS
+      - name: Upload only Rust test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphererust-wide-range-exposure
+          path: app-src/wide-range-exposure.log
+          if-no-files-found: warn
+          retention-days: 7
