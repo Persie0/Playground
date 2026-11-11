@@ -1,0 +1,61 @@
+name: Photosphere 429 original final-flush receiver provenance
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/photosphere-429-final-receiver-provenance.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-429-final-receiver-provenance
+  cancel-in-progress: false
+jobs:
+  original-session-to-global-align-static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Pinned private source checkout read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: d95775cc954afbdc5d809fffa5bb640679801966
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned commit and install static ELF tools
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = d95775cc954afbdc5d809fffa5bb640679801966
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint429/scan_original_final_flush_receiver.py
+      - name: Verify original pinned Google Camera APK and ELF
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > original.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  original.so' | sha256sum -c -
+      - name: Inspect original source X0 receiver at SessionImpl flush +0x40 callsite
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint429/scan_original_final_flush_receiver.py original.so --out checkpoint429-original-flush-receiver.json
+          test -s checkpoint429-original-flush-receiver.json
+      - name: Delete proprietary original executable before artifact upload
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk original.so com.google.android.GoogleCamera_*.apk
+      - name: Upload source-only numeric dispatch map
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-429-original-flush-receiver-source
+          path: research-src/checkpoint429-original-flush-receiver.json
+          if-no-files-found: warn
+          retention-days: 7
