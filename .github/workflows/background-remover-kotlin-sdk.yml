@@ -1,0 +1,35 @@
+name: Background Remover Kotlin SDK verification
+on:
+  pull_request:
+    paths: [.github/workflows/background-remover-kotlin-sdk.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/BackgroundVideoRemover
+          ref: chore/native-kotlin-sdk-20261013
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Android API 37
+        run: |
+          set -euo pipefail
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install 'platforms;android-37.0' || "$SDKMANAGER" --install 'platforms;android-37'
+      - name: Resolve dependencies and compile
+        working-directory: app/android
+        run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest --stacktrace
