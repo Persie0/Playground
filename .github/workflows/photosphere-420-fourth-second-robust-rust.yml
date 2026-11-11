@@ -1,0 +1,85 @@
+name: Photosphere 420 original fourth second robust Rust differential
+on:
+  workflow_run:
+    workflows: ["Photosphere 419 fourth original 1-to-3 native robust"]
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: photosphere-420-fourth-second-robust
+  cancel-in-progress: false
+jobs:
+  original-second-robust-source-receipt:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_sha == '89ca3ebce0b6dedf3cb2625d30722bcfc3cc15f1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Read verified source-only original GCam second native robust receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGINAL_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          gh run download "$ORIGINAL_RUN_ID" --repo Persie0/Playground \
+            --name photosphere-419-original-fourth-second-robust-source --dir source-oracle
+          test "$(find source-oracle -name checkpoint419-original-source.json -type f | wc -l)" -eq 1
+          python3 - <<'PY'
+          import json,pathlib
+          f=next(pathlib.Path('source-oracle').rglob('checkpoint419-original-source.json'))
+          d=json.loads(f.read_text())
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          first=d['checkpoint411_fourth_native_robust']
+          second=d['checkpoint419_fourth_second_robust']
+          x=d['checkpoint418_fourth_second_descriptor']
+          assert first['native_original_550_trials_verified']
+          assert first['source_native_robust_return_w0']==1
+          assert x['original_source_selected_second_candidate']==1
+          assert x['original_native_raw_descriptor_match_count']==11
+          assert x['source_original_second_robust_return_w0']==second['source_native_robust_return_w0']
+          assert second['native_original_trial_budget_verified']
+          assert second['native_original_trial_count'] in (550,5000)
+          assert len(second['test_controlled_imported_rand_values'])==2*second['native_original_trial_count']
+          assert second['native_original_svd_call_count']>=second['native_original_trial_count']
+          assert second['source_native_robust_return_pc']=='0x120918'
+          assert not x['source_original_second_pair_graph_appended']
+          assert not d['original_full_solver_ceres_executed']
+          print('CHECKPOINT420_ORIGINAL_SOURCE_SECOND_ROBUST_CONFIRMED',{
+             'trials':second['native_original_trial_count'],
+             'svd_calls':second['native_original_svd_call_count'],
+             'return_w0':second['source_native_robust_return_w0'],
+             'native_refit':second['source_native_refit_executed'],
+          })
+          PY
+      - name: Pinned private Rust read-only checkout; no private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: f2448100ea9d59d69697be7739cf73de5c22d623
+          path: app-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: Single grouped full Rust source differential and all-target tests
+        working-directory: app-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = f2448100ea9d59d69697be7739cf73de5c22d623
+          export PHOTOSPHERE_419_NATIVE_JSON="$(find ../source-oracle -name checkpoint419-original-source.json -type f)"
+          test -s "$PHOTOSPHERE_419_NATIVE_JSON"
+          cargo test --locked --all-targets > checkpoint420-rust.log 2>&1 || {
+            tail -n 200 checkpoint420-rust.log
+            exit 1
+          }
+          grep '^test result:' checkpoint420-rust.log | tail -n 12
+          echo 'CHECKPOINT420_ORIGINAL_SECOND_NATIVE_RUST_DIFFERENTIAL_PASS'
+      - name: Archive only grouped Rust log; exclude native binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-420-fourth-second-robust-rust
+          path: app-src/checkpoint420-rust.log
+          retention-days: 7
+          if-no-files-found: warn
