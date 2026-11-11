@@ -1,0 +1,124 @@
+name: Photosphere 416 fourth native graph postlink source decision
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-416-fourth-postgraph.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-416-fourth-postgraph
+  cancel-in-progress: false
+jobs:
+  original-fourth-postgraph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout pinned private research read-only without private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 2f4a2cf2e43864e2f9a6db251a0b07e1ecd6bcd6
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Exact source SHA and Python compile
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 2f4a2cf2e43864e2f9a6db251a0b07e1ecd6bcd6
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py
+      - name: Original pinned GCam APK and ELF source checksum
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute fourth original postgraph control path without graph patches
+        working-directory: research-src
+        env:
+          PHOTOSPHERE_THIRD_SHIFT407: '2'
+          PHOTOSPHERE_FOURTH_POSTGRAPH416: '1'
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint416-source.log 2> checkpoint416-diagnostic.log || {
+            echo 'CHECKPOINT416_ORIGINAL_NATIVE_POSTGRAPH_NOT_VERIFIED'
+            tail -n 130 checkpoint416-diagnostic.log
+            tail -n 6 checkpoint416-source.log | cut -c1-240
+            exit 1
+          }
+          python3 - <<'PY'
+          import json
+          row=next(x for x in open('checkpoint416-source.log')
+              if x.startswith('CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          d=json.loads(row.split('=',1)[1])
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          f=d['checkpoint409_fourth_source_descriptor']
+          g=d['checkpoint414_fourth_native_graph']
+          p=d['checkpoint416_fourth_native_postgraph']
+          assert f['original_distinct_pixel_offsets']==[0,1,2,3]
+          assert len(set(f['original_all_four_source_pixel_sha256']))==4
+          assert f['source_original_graph_pair_created_for_fourth']
+          assert g['source_original_reciprocal_graph_verified']
+          assert g['original_native_fourth_pair_indices_i32']==[0,3]
+          assert g['source_native_fourth_point_row_count']==11
+          assert g['source_original_first_directed_link_executed']
+          assert g['source_original_second_directed_link_executed']
+          assert p['source_original_first_0_to_3_reciprocal_graph_verified']
+          assert p['source_original_postgraph_start_pc']=='0x11dbb8'
+          assert p['source_original_postgraph_observed_pcs']
+          assert p['source_original_postgraph_observed_pcs'][0]['source_pc']=='0x11dbb8'
+          assert len(p['source_original_postgraph_observed_pcs'])<=192
+          assert p['source_original_endpoint'] in (
+            'fourth_postgraph_next_matcher_callsite',
+            'fourth_postgraph_constructor_callsite',
+            'fourth_postgraph_native_return')
+          assert not p['source_original_next_candidate_matcher_executed']
+          assert not p['source_original_relative_pair_constructor_executed']
+          assert not p['source_original_full_ceres_executed']
+          assert not p['native_graph_memory_host_patched']
+          assert f['source_original_endpoint']==p['source_original_endpoint']
+          if p['source_original_endpoint']=='fourth_postgraph_next_matcher_callsite':
+              n=p['source_original_next_matcher_boundary']
+              assert n['native_current_image_w21']==3
+              assert 0<=n['native_next_candidate_w25']<3
+              assert n['original_native_matcher_callee_pc']=='0x120600'
+              assert n['source_original_next_matcher_body_executed'] is False
+          if p['source_original_endpoint']=='fourth_postgraph_constructor_callsite':
+              assert p['source_original_constructor_boundary']['original_bl_callsite_pc']=='0x11de34'
+          if p['source_original_endpoint']=='fourth_postgraph_native_return':
+              assert p['source_original_native_exit_pc']=='0x11e014'
+              assert p['source_native_original_return_verified']
+          with open('checkpoint416-original-source.json','w') as fp:
+              json.dump(d,fp,indent=2,sort_keys=True);fp.write('\n')
+          print('CHECKPOINT416_ORIGINAL_SOURCE_POSTGRAPH_PASS',json.dumps({
+            'endpoint':p['source_original_endpoint'],
+            'selected_pcs':[x['source_pc'] for x in p['source_original_postgraph_observed_pcs']],
+            'next_matcher':p.get('source_original_next_matcher_boundary'),
+            'bitset_guard':p.get('source_original_postgraph_bitset_guard'),
+            'constructor':p.get('source_original_constructor_boundary'),
+            'native_fourth_graph_rows':g['source_native_fourth_point_row_count'],
+          },sort_keys=True))
+          PY
+      - name: Delete original GCam APK and ELF before artifact upload
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive source-only numeric fourth postgraph evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-416-original-fourth-postgraph-source
+          path: |
+            research-src/checkpoint416-original-source.json
+            research-src/checkpoint416-diagnostic.log
+          retention-days: 7
+          if-no-files-found: warn
