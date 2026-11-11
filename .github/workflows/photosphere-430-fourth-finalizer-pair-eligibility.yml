@@ -1,0 +1,46 @@
+name: Photosphere 430 fourth source-owned pair status and finalizer eligibility
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/photosphere-430-fourth-finalizer-pair-eligibility.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-fourth-pair-source-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Read-only SHA-pinned private research source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 88df50c2a4412a98cd81f084e912a17e078029f9
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Retrieve prior verified original numeric source receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C research-src rev-parse HEAD)" = 88df50c2a4412a98cd81f084e912a17e078029f9
+          gh run download 43046378909 --repo Persie0/Playground \
+            --name photosphere-426-original-fourth-postthird-graph-source \
+            --dir source-only
+          test -s source-only/checkpoint426-original-source.json
+      - name: Check actual original pair struct bytes against native solver mask
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research-src/research/photosphere/checkpoint430/audit_original_fourth_finalizer_pair_inputs.py
+          python3 research-src/research/photosphere/checkpoint430/audit_original_fourth_finalizer_pair_inputs.py \
+            source-only/checkpoint426-original-source.json \
+            --out checkpoint430-source-pair-status-inputs.json
+          test -s checkpoint430-source-pair-status-inputs.json
+      - name: Archive only derived numeric source receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-430-original-pair-status-only
+          path: checkpoint430-source-pair-status-inputs.json
+          retention-days: 7
