@@ -1,4 +1,4 @@
-name: Jelly Squeeze - Touch-scroll fixes validation (public runner)
+name: Jelly Squeeze - Hint visibility and touch scroll validation (public runner)
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/JellySqueeze
-          ref: 2470f667ace41082e40e470d232981f0a90d7293
+          ref: 0e95cc54e9ec60b26a939e2411cdd91a9f29a3cf
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: game
@@ -68,7 +68,8 @@ jobs:
             tests/ui/test_collection.gd \
             tests/progression/test_chapter_cosmetics.gd \
             tests/purchases/test_iap.gd \
-            tests/ui/test_touch_scrolling.gd; do
+            tests/ui/test_touch_scrolling.gd \
+            tests/ui/test_hint_visibility.gd; do
             printf '\n=== %s ===\n' "$test"
             log="test-$(basename "$test" .gd).log"
             status=0
@@ -116,7 +117,7 @@ jobs:
         shell: bash
         env:
           VALIDATION_OUTCOME: ${{ job.status }}
-          REPO_SHA: 2470f667ace41082e40e470d232981f0a90d7293
+          REPO_SHA: 0e95cc54e9ec60b26a939e2411cdd91a9f29a3cf
         run: |
           set -euo pipefail
           mkdir -p result-repo/reports
