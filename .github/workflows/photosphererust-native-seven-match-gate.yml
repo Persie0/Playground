@@ -1,0 +1,46 @@
+name: PhotosphereRust 7 native raw descriptor match gate
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphererust-native-seven-match-gate.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphererust-native-seven-match-gate
+  cancel-in-progress: false
+jobs:
+  single-grouped-rust-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Read-only pinned private PhotosphereRust checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereRust
+          ref: a0cb442dcc7c6bd210e3faf80a5aff9bbab0a130
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: app-src
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+      - name: One grouped default-feature all-target Rust validation
+        working-directory: app-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = a0cb442dcc7c6bd210e3faf80a5aff9bbab0a130
+          cargo test --locked --all-targets > native-seven-match.log 2>&1 || {
+            tail -n 160 native-seven-match.log
+            exit 1
+          }
+          grep '^test result:' native-seven-match.log | tail -n 15
+          echo PHOTOSPHERERUST_SEVEN_RAW_MATCH_NATIVE_GATE_PASS
+      - name: Upload only Rust test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphererust-seven-native-match-gate
+          path: app-src/native-seven-match.log
+          if-no-files-found: warn
+          retention-days: 7
