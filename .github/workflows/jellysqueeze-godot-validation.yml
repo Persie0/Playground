@@ -61,8 +61,8 @@ jobs:
             tests/ui/test_navigation.gd; do
             printf '\n=== %s ===\n' "$test"
             log="test-$(basename "$test" .gd).log"
-            timeout 150s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game --script "res://$test" > "$log" 2>&1
-            status=$?
+            status=0
+            timeout 150s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game --script "res://$test" > "$log" 2>&1 || status=$?
             tail -n 65 "$log"
             if [ "$status" -ne 0 ] || grep -Eiq "SCRIPT ERROR:|Parse Error:|ERROR:|FAILED:" "$log"; then
               echo "::error title=Godot test failed::$test (exit $status)"
