@@ -1,0 +1,42 @@
+name: Double Tap King Kotlin SDK and stopwatch test
+on:
+  pull_request:
+    paths: [.github/workflows/doubletap-sdk-test.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/double_tap_king
+          ref: chore/flutter-kotlin-2421-20261013
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install Android SDK and NDK
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install 'platforms;android-37.0' || "$SDKMANAGER" --install 'platforms;android-37'
+          "$SDKMANAGER" --install 'ndk;29.0.13599879'
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Build debug APK
+        working-directory: app
+        run: flutter build apk --debug --no-pub
+      - name: Run stopwatch widget test
+        working-directory: app
+        run: flutter test --no-pub

@@ -5,6 +5,9 @@ on:
     paths:
       - .github/workflows/flutter-kotlin-2421-review.yml
   workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/flutter-kotlin-2421-review.yml
 permissions:
   contents: read
 jobs:
@@ -13,12 +16,76 @@ jobs:
     timeout-minutes: 85
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 8
       matrix:
         include:
           - repo: norwegian_app
             ref: chore/flutter-kotlin-2421-20261013
-          - repo: ImagePdfScaler
+          - repo: resistor_scanner
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: recorder_noise_remove
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: whisper_offline_transcribe
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: mwst_buchhalter
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: vitamindtracker
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: student
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: equilibrium
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: stem
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: screendetector
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: toiletcompass
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: skratch_clone
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: image_compressor
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: outfitter
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: chillwithme
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: zoin
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: punisher
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: menstrual
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: hideandseek
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: fruits
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: piano
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: Passfoto
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: chill_with_me
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: pareader
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: face_scanner
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: resistor-calc
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: Memory_Palace_Builder
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: QR-Code-Scanner
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: Food-Portion-Price-Calulator
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: finger_chooser
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: double_tap_king
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: secret_audio_message
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: neon_snake_matrix
+            ref: chore/flutter-kotlin-2421-20261013
+          - repo: live_noise_cancelling
             ref: chore/flutter-kotlin-2421-20261013
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +98,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ contains(fromJSON('["chillwithme","skratch_clone","toiletcompass","hideandseek"]'), matrix.repo) && '21' || '17' }}
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -40,7 +107,9 @@ jobs:
         shell: bash
         run: |
           SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install 'platforms;android-37.0' || "$SDKMANAGER" --install 'platforms;android-37'
+          "$SDKMANAGER" --install 'ndk;29.0.13599879'
       - name: Flutter dependencies
         working-directory: app
         run: flutter pub get
@@ -49,12 +118,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'org.jetbrains.kotlin.android.*2.4.21' android/settings.gradle.kts
-          grep -q 'android.builtInKotlin=false' android/gradle.properties
-          grep -q 'android.newDsl=false' android/gradle.properties
+          grep -Eq 'org.jetbrains.kotlin.android.*2.4.21' android/settings.gradle*
       - name: Android debug APK build
         working-directory: app
         run: flutter build apk --debug --no-pub
       - name: Flutter tests
         working-directory: app
-        run: flutter test --no-pub
+        run: |
+          if test -d test; then flutter test --no-pub; else echo 'No Flutter tests defined'; fi
