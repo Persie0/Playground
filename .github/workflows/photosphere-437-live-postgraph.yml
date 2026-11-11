@@ -1,0 +1,118 @@
+name: Photosphere 437 original six-pair postgraph frontier
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-437-live-postgraph.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-437-live-postgraph
+  cancel-in-progress: false
+jobs:
+  original-fourth-postgraph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout pinned private research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 0bf6eda8ac834507fff6abcc76ad1d15611ff9e8
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Source pin and Python syntax
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 0bf6eda8ac834507fff6abcc76ad1d15611ff9e8
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py research/photosphere/checkpoint437/live_fourth_original_postgraph.py
+      - name: Verify pinned original APK and ELF
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Source-execute six-pair graph and bounded original postgraph
+        working-directory: research-src
+        env:
+          PHOTOSPHERE_THIRD_SHIFT407: '2'
+          PHOTOSPHERE_FOURTH_POSTGRAPH437: '1'
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint437-source.log 2> checkpoint437-diagnostic.log || {
+            echo CHECKPOINT437_NATIVE_EXECUTION_FAILED
+            tail -n 90 checkpoint437-diagnostic.log
+            tail -n 5 checkpoint437-source.log | cut -c1-180
+            exit 1
+          }
+          python3 - <<'PY'
+          import json
+          row=next(x for x in open('checkpoint437-source.log') if x.startswith('CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          d=json.loads(row.split('=',1)[1])
+          assert d['original_elf_sha256']=='878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1'
+          g=d['checkpoint436_fourth_original_finalizer_graph']
+          p=d['checkpoint437_fourth_original_postgraph']
+          assert g['source_original_graph_entry_and_return_verified']
+          assert p['source_original_same_estimator_verified']
+          assert p['source_original_graph_completed']
+          assert p['source_original_call_boundary_join_not_natural_flush']
+          assert p['source_original_upstream_virtual_w0_still_test_supplied']
+          assert p['source_checkpoint437_installs_no_model_callback_override']
+          assert p['source_original_imported_postgraph_libm_not_host_supplied']
+          assert p['source_original_ceres_not_executed']
+          assert p['source_original_solver_boundary_not_crossed']
+          assert len(p['source_original_postgraph_pair_before']['pairs'])==6
+          assert [x['status_u32'] for x in p['source_original_postgraph_pair_before']['pairs']]==[0,0,0,0,2,0]
+          assert '0x11e934' in p['source_original_postgraph_pc_trace']
+          assert p['source_original_postgraph_entry_reached'],p.get('source_original_postgraph_execution_error')
+          out={
+            'original_elf_sha256':d['original_elf_sha256'],
+            'full_finalizer_not_executed':True,
+            'postgraph_entry_reached':p['source_original_postgraph_entry_reached'],
+            'postgraph_completed':p['source_original_postgraph_completed'],
+            'error':p.get('source_original_postgraph_execution_error'),
+            'pc_trace':p['source_original_postgraph_pc_trace'],
+            'status_loads':p['source_original_status_loads'],
+            'status_branches':p['source_original_status_branches'],
+            'weight_writes':p['source_original_weight_writes'],
+            'pair_buffer_writes':p['source_original_pair_buffer_writes'],
+            'status_field_writes':p['source_original_pair_status_field_writes'],
+            'pair_before':p['source_original_postgraph_pair_before'],
+            'pair_after':p['source_original_postgraph_pair_after'],
+            'model_count_callback':p.get('source_original_model_count_callback'),
+          }
+          with open('checkpoint437-source-receipt.json','w') as f:
+              json.dump(out,f,indent=2,sort_keys=True);f.write('\n')
+          print('CHECKPOINT437_NATIVE_POSTGRAPH_FRONTIER',json.dumps({
+              'entry':out['postgraph_entry_reached'],
+              'return':out['postgraph_completed'],
+              'error':out['error'],
+              'status_loads':len(out['status_loads']),
+              'status_writes':len(out['status_field_writes']),
+              'pair_statuses_after':[x['status_u32'] for x in out['pair_after']['pairs']],
+          }))
+          PY
+      - name: Delete proprietary APK and ELF before artifact upload
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Archive source-only postgraph diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-437-original-six-pair-postgraph-source
+          path: |
+            research-src/checkpoint437-source-receipt.json
+            research-src/checkpoint437-diagnostic.log
+          retention-days: 7
+          if-no-files-found: warn
