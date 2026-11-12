@@ -1,0 +1,166 @@
+name: Spotify Ad Muter 0.2.1 release (public runner)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/spotify-muter-release-v0.2.1.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spotify-muter-release-v0.2.1
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout reviewed Spotify main commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/spotify
+          ref: e11f0a381050d710c22fd01df16dd3908e659442
+          sparse-checkout: |
+            spotify-muter
+          persist-credentials: false
+
+      - name: Ensure no short-track fallback ships
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -R -n -E 'MUTE_SHORT_TRACKS|SHORT_TRACK_LIMIT|muteShortTracks|shortTrackFallback' \
+            spotify-muter/app/src/main/java/
+          grep -q 'versionName "0.2.1"' spotify-muter/app/build.gradle
+          grep -q 'versionCode 3' spotify-muter/app/build.gradle
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Install Android SDK API 37 and Build Tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'build-tools;36.0.0'
+          if ! "$SDKMANAGER" 'platforms;android-37.0'; then
+            "$SDKMANAGER" 'platforms;android-37'
+          fi
+          "$SDKMANAGER" --list_installed | grep -E 'platforms;android-37'
+
+      - name: Run detector tests and assemble minified release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p spotify-muter --no-daemon :app:testDebugUnitTest :app:assembleRelease --stacktrace
+
+      - name: Sign installable release APK and verify signature
+        id: sign
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_B64: ${{ secrets.SPOTIFY_MUTER_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.SPOTIFY_MUTER_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.SPOTIFY_MUTER_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.SPOTIFY_MUTER_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          UNSIGNED=spotify-muter/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$UNSIGNED"
+
+          KEYSTORE="$RUNNER_TEMP/spotify-muter-release.jks"
+          if [ -n "$RELEASE_KEYSTORE_B64" ]; then
+            if [ -z "$RELEASE_STORE_PASSWORD" ] || [ -z "$RELEASE_KEY_ALIAS" ]; then
+              echo '::error::Incomplete Spotify release signing secrets'
+              exit 1
+            fi
+            printf '%s' "$RELEASE_KEYSTORE_B64" | base64 -d > "$KEYSTORE"
+            SIGN_PASS="$RELEASE_STORE_PASSWORD"
+            SIGN_KEY_PASS="${RELEASE_KEY_PASSWORD:-$RELEASE_STORE_PASSWORD}"
+            SIGN_ALIAS="$RELEASE_KEY_ALIAS"
+            SIGNING_NOTE="Signed with the configured Spotify release keystore."
+          else
+            # Fallback only: an ephemeral signing certificate makes the APK
+            # installable, but cannot be used to update a previously signed APK.
+            SIGN_PASS="$(openssl rand -hex 24)"
+            SIGN_KEY_PASS="$SIGN_PASS"
+            SIGN_ALIAS=spotify-muter
+            keytool -genkeypair -noprompt -keystore "$KEYSTORE" \
+              -storepass "$SIGN_PASS" -keypass "$SIGN_KEY_PASS" \
+              -alias "$SIGN_ALIAS" -keyalg RSA -keysize 3072 \
+              -validity 3650 -dname 'CN=Spotify Ad Muter, O=Persie0'
+            SIGNING_NOTE="Signed with a temporary CI certificate. Updating an older installation may require uninstalling it first."
+            echo '::warning::No persistent Spotify keystore secret: generating temporary signing certificate'
+          fi
+
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          mkdir -p dist
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$UNSIGNED" "$RUNNER_TEMP/spotify-aligned.apk"
+
+          export SIGN_PASS SIGN_KEY_PASS
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "$KEYSTORE" --ks-key-alias "$SIGN_ALIAS" \
+            --ks-pass env:SIGN_PASS --key-pass env:SIGN_KEY_PASS \
+            --out dist/SpotifyAdMuter-v0.2.1-release.apk \
+            "$RUNNER_TEMP/spotify-aligned.apk"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs \
+            dist/SpotifyAdMuter-v0.2.1-release.apk
+          sha256sum dist/SpotifyAdMuter-v0.2.1-release.apk \
+            > dist/SpotifyAdMuter-v0.2.1-release.apk.sha256
+          printf '%s\n' "$SIGNING_NOTE" > "$RUNNER_TEMP/signing-note.txt"
+          ls -lh dist/
+
+      - name: Upload installable release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotify-ad-muter-v0.2.1-release
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish APK in Persie0/spotify GitHub Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo '::error::Cannot publish: none of PRIVATE_REPO_TOKEN, GH_TOKEN, GH_RELEASE_TOKEN is configured'
+            exit 1
+          fi
+
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          Spotify Ad Muter 0.2.1
+
+          - Mutes on Spotify advertisement marker or ad URI and STAYS muted through all ads in the pod (two, three or more).
+          - Restores audio only after a genuine Spotify track/episode remains actively playing for 750 ms.
+          - Ignores blank/unmarked transitional metadata and buffers through ad-to-ad session changes.
+          - Safely restores volume after 3.5 seconds of sustained Spotify inactivity.
+          - No under-one-minute duration heuristic on main; that optional approach remains on feature/spotify-under-60s-fallback.
+          - Still uses Android's shared STREAM_MUSIC volume; concurrent apps can be affected.
+          - Built from reviewed main commit e11f0a381050d710c22fd01df16dd3908e659442.
+          NOTES
+          cat "$RUNNER_TEMP/signing-note.txt" >> "$RUNNER_TEMP/release-notes.md"
+
+          if gh release view v0.2.1 --repo Persie0/spotify >/dev/null 2>&1; then
+            gh release upload v0.2.1 dist/* --repo Persie0/spotify --clobber
+            gh release edit v0.2.1 --repo Persie0/spotify \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          else
+            gh release create v0.2.1 dist/* --repo Persie0/spotify \
+              --target e11f0a381050d710c22fd01df16dd3908e659442 \
+              --title 'Spotify Ad Muter v0.2.1' \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
+          gh release view v0.2.1 --repo Persie0/spotify --json url,assets
