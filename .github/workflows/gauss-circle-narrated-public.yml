@@ -1,0 +1,210 @@
+name: Gauss Circle - Full 1080p30 English Neural Narration and Word-Timed SRT
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/gauss-circle-narrated-public.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gauss-circle-narrated-1080p30-20261112
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: bed5e9e998b4a504d62cd6f089e0d8e2056324e1
+  ORIGINAL_TAG: gauss-circle-complete-1080p30-20261112
+  NARRATED_TAG: gauss-circle-complete-1080p30-narrated-20261112
+  ORIGINAL_SHA256: e0396bd59ecebf10e8a2b319680b0497632bc8d1ca1a7ba60ec94005f6e0d33e
+  ORIGINAL_MP4: Gauss_Circle_Complete_1080p30_NoNarration.mp4
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+
+jobs:
+  synthesize-and-verify:
+    name: Real English neural speech, synchronized subtitles and original 20550 frames
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout public Playground (no private-repo Actions)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout exact private narration source, read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+          persist-credentials: false
+
+      - name: Verify pinned source revision and existing full film
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          test -f source/gauss-circle-problem/production/narrate.py
+          test -f source/gauss-circle-problem/planning/narration.md
+          test -f source/gauss-circle-problem/tests/test_narration.py
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install neural TTS, audio math and FFmpeg
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install 'numpy>=1.26,<3' 'scipy>=1.12,<2' 'edge-tts>=7,<9'
+
+      - name: Validate source script, timed-cue logic and exact film contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m unittest discover -s tests -p test_narration.py -v
+          python -m production.narrate --video /dev/null \
+            --narration-md planning/narration.md \
+            --output-dir ../../preflight --validate-script-only
+
+      - name: Confirm live TTS word boundaries match released API
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import asyncio
+          import importlib.util
+          import sys
+          from pathlib import Path
+          p=Path('source/gauss-circle-problem/production/narrate.py')
+          spec=importlib.util.spec_from_file_location('gauss_narration',p)
+          mod=importlib.util.module_from_spec(spec)
+          sys.modules[spec.name]=mod
+          spec.loader.exec_module(mod)
+          async def main():
+              text='The circle is smooth. Every dot lies on a grid.'
+              dest=Path('preflight/tts-smoke.mp3')
+              events=await mod.synthesize(text,mod.VOICE_DEFAULT,'-5%',dest)
+              samples=mod.decode_mp3(dest)
+              words=mod.validate_boundaries(events,text,len(samples)/mod.SAMPLE_RATE)
+              assert len(words)>=9,len(words)
+              print('Verified genuine voice audio and',len(words),'word-aligned metadata events')
+          asyncio.run(main())
+          PY
+
+      - name: Download the previously verified 11m25s original 1080p film
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p input
+          gh release download "$ORIGINAL_TAG" \
+            --repo Persie0/Playground \
+            --pattern "$ORIGINAL_MP4" \
+            --dir input
+          test -s "input/$ORIGINAL_MP4"
+          printf '%s  %s\n' "$ORIGINAL_SHA256" "input/$ORIGINAL_MP4" | sha256sum -c -
+          ffprobe -v error -show_entries stream=codec_type,codec_name,width,height,nb_frames \
+            -show_entries format=duration -of json "input/$ORIGINAL_MP4"
+
+      - name: Synthesize all 15 scenes, build real-word-timed SRT, mux and fully decode
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m production.narrate \
+            --video "../../input/$ORIGINAL_MP4" \
+            --narration-md planning/narration.md \
+            --output-dir ../../output \
+            --voice en-GB-RyanNeural
+
+      - name: Verify master, exact subtitle and voice deliverables
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s output/Gauss_Circle_Complete_1080p30_Narrated.mp4
+          test -s output/Gauss_Circle_English_Neural_Voice.wav
+          test -s output/Gauss_Circle_English_Subtitles.srt
+          test -s output/Gauss_Circle_Narration_Cues.json
+          test -s output/narration_manifest.json
+          (cd output && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('output/Gauss_Circle_Narration_Cues.json').read_text())
+          assert data['scene_count']==15,data
+          assert len(data['scenes'])==15,data
+          assert data['subtitle_cues']>100,data
+          assert sum(s['duration_seconds'] for s in data['scenes'])==685,data
+          for scene in data['scenes']:
+              assert scene['scene_start_seconds'] <= scene['speech_start_seconds']
+              assert scene['speech_end_seconds'] <= scene['scene_start_seconds']+scene['duration_seconds']
+          print('Verified',data['subtitle_cues'],'speech-synchronized subtitle blocks across 15 scenes')
+          PY
+          ffprobe -v error -show_entries format=duration,size \
+            -show_entries stream=codec_name,codec_type,width,height,r_frame_rate,nb_frames,sample_rate,channels \
+            -of json output/Gauss_Circle_Complete_1080p30_Narrated.mp4
+
+      - name: Retain narrated film and exact editable stems even if release publishing fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gauss-Circle-Full-11m25s-1080p30-Real-Neural-Narration-and-SRT
+          path: |
+            output/Gauss_Circle_Complete_1080p30_Narrated.mp4
+            output/Gauss_Circle_English_Neural_Voice.wav
+            output/Gauss_Circle_English_Subtitles.srt
+            output/Gauss_Circle_Narration_Cues.json
+            output/narration_manifest.json
+            output/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Publish verified narrated edition to public Playground Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          ## Gauss's Circle Problem — verified 11:25 English narrated edition
+
+          - **Entire original fifteen-scene film** at 1920×1080, 30fps, exactly 20,550 genuine video frames, 15 embedded chapters.
+          - Spoken **English neural TTS** (en-GB-RyanNeural). Voice is synthesized, not claimed to be a human recording.
+          - Each subtitle phrase has real speech word-boundary timestamps; the **external selectable SRT** is never burned into the video.
+          - Original instrumental soundtrack reduced under the voice; original full-HD H.264 video stream preserved without rerendering.
+          - Includes independently editable 48kHz voice WAV, source cue/timing JSON, SHA-256 sums and a build manifest.
+          - Complete AAC/video decoding and full frame/duration validation passed before publishing.
+          - Pinned private source commit: bed5e9e998b4a504d62cd6f089e0d8e2056324e1; no private-repository GitHub Actions.
+          - Original instrumental edition: https://github.com/Persie0/Playground/releases/tag/gauss-circle-complete-1080p30-20261112
+          EOF
+          if gh release view "$NARRATED_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$NARRATED_TAG" \
+              output/Gauss_Circle_Complete_1080p30_Narrated.mp4 \
+              output/Gauss_Circle_English_Neural_Voice.wav \
+              output/Gauss_Circle_English_Subtitles.srt \
+              output/Gauss_Circle_Narration_Cues.json \
+              output/narration_manifest.json output/SHA256SUMS.txt \
+              --repo Persie0/Playground --clobber
+            gh release edit "$NARRATED_TAG" --repo Persie0/Playground \
+              --notes-file release-notes.md --latest=false
+          else
+            gh release create "$NARRATED_TAG" \
+              output/Gauss_Circle_Complete_1080p30_Narrated.mp4 \
+              output/Gauss_Circle_English_Neural_Voice.wav \
+              output/Gauss_Circle_English_Subtitles.srt \
+              output/Gauss_Circle_Narration_Cues.json \
+              output/narration_manifest.json output/SHA256SUMS.txt \
+              --repo Persie0/Playground --target "$GITHUB_SHA" \
+              --title 'Gauss Circle — Complete 11:25 1080p30 English Neural Narration' \
+              --notes-file release-notes.md --latest=false
+          fi
