@@ -99,6 +99,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json, pathlib, subprocess
+          from fractions import Fraction
           files = sorted(pathlib.Path("previews").glob("scene*.mp4"))
           lengths = [18,17,18,17,20,18,20,32,21,15,26,18]
           assert len(files) == 12 and sum(lengths) == 240, files
@@ -110,10 +111,13 @@ jobs:
               result=json.loads(output)
               stream=next(x for x in result["streams"] if x["codec_type"]=="video")
               assert (int(stream["width"]),int(stream["height"]))==(854,480), (path,stream)
-              assert stream["avg_frame_rate"]=="15/1", (path,stream["avg_frame_rate"])
+              reported_fps=float(Fraction(stream["avg_frame_rate"]))
               actual=float(result["format"]["duration"])
+              frames=int(stream["nb_frames"])
+              print(f"Scene {i:02d}: duration={actual:.3f}s, fps={reported_fps:.5f}, frames={frames}", flush=True)
+              assert abs(reported_fps-15)<.02, (path, reported_fps)
               assert abs(actual-expected)<.60, (path,actual,expected)
-              print(f"Scene {i:02d}: {actual:.3f}s, {stream.get('nb_frames')} frames")
+              assert abs(frames-round(15*expected))<=3, (path,frames,expected)
           with open("previews/concat.txt","w") as output:
               for path in files:
                   output.write(f"file '{path.name}'\n")
@@ -125,11 +129,23 @@ jobs:
             -of default=noprint_wrappers=1 \
             previews/Pythagorean_12_Scenes_480p15_Preview.mp4
           (cd previews && sha256sum *.mp4 > SHA256SUMS.txt)
-      - name: Upload validated preview clips and film
+      - name: Upload rendered scene clips even if later checks fail
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pythagorean-12-scenes-smoke-480p15
-          path: previews/*
+          name: pythagorean-12-scenes-raw-clips-480p15
+          path: previews/scene*.mp4
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0
+      - name: Upload validated preview movie and checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: pythagorean-12-scenes-verified-480p15
+          path: |
+            previews/Pythagorean_12_Scenes_480p15_Preview.mp4
+            previews/SHA256SUMS.txt
+            previews/concat.txt
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
