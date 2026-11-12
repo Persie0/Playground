@@ -10,7 +10,7 @@ concurrency:
   group: pythagorean-smoke-qa
   cancel-in-progress: false
 env:
-  SOURCE_SHA: 447884938200bb24031e4324df695d7d2216c574
+  SOURCE_SHA: 18c3b6ded5afb3d0f79e3f1409788728d756494c
   PYTHONUNBUFFERED: "1"
   OPENBLAS_NUM_THREADS: "1"
   OMP_NUM_THREADS: "1"
@@ -50,11 +50,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          failures=0
           for n in $(seq 1 12); do
             echo "::group::Tests scene $n"
-            python -m unittest discover -s "source/pythagorean-theorem/scene$n" -p 'test_*.py' -v
+            if python -m unittest discover -s "source/pythagorean-theorem/scene$n" -p 'test_*.py' -v; then
+              echo "PASS scene $n"
+            else
+              echo "::error::Scene $n regression suite failed"
+              failures=$((failures + 1))
+            fi
             echo "::endgroup::"
           done
+          if [ "$failures" -ne 0 ]; then
+            echo "::error::$failures scene suites failed; renderer stage safely skipped"
+            exit 1
+          fi
       - name: Install Manim FFmpeg LaTeX SVG requirements
         shell: bash
         run: |
