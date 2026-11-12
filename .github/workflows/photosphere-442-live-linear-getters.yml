@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 46f72209c25769d5f85b656d10983203c99b3daa
+          ref: 3dbaf8c67d0c371b888ec9ef61aaf896bc3f3bf2
           path: research-src
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
@@ -26,7 +26,7 @@ jobs:
         working-directory: research-src
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 46f72209c25769d5f85b656d10983203c99b3daa
+          test "$(git rev-parse HEAD)" = 3dbaf8c67d0c371b888ec9ef61aaf896bc3f3bf2
           python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
           python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py research/photosphere/checkpoint437/live_fourth_original_postgraph.py research/photosphere/checkpoint438/scan_postgraph_import_abi.py research/photosphere/checkpoint439/host_math_import_join.py research/photosphere/checkpoint440/live_four_pair_fov_copy.py research/photosphere/checkpoint441/live_six_pair_solver_gate.py research/photosphere/checkpoint442/live_six_pair_native_camera_getters.py
       - name: Verify source-original pinned APK and ELF hashes
@@ -117,19 +117,22 @@ jobs:
             [0,1],[0,2],[1,2],[0,3],None,[2,3],None]
           getters=d['checkpoint442_fourth_original_native_getters']
           assert getters['source_original_same_live_six_matcher_pair_records_verified']
-          assert getters['source_original_provider_child_vector_test_supplied']
+          assert not getters['source_original_provider_child_vector_test_supplied']
+          assert getters['source_original_provider_child_vector_already_populated']
+          assert getters['source_original_provider_native_child_count']==4
           assert getters['source_original_sample_table_base_test_supplied']
           assert getters['source_original_provider_getter_target']=='0x3448d0'
           assert getters['source_original_center_getter_target']=='0x330ebc'
           assert getters['source_original_focal_getter_target']=='0x330eb4'
-          assert getters['source_original_child_cameras_native_cloned']
+          assert getters['source_original_child_cameras_original_provider_owned']
+          assert getters['source_original_child_camera_cloning_not_reexecuted_at_this_join']
           assert getters['source_original_three_getter_bodies_native_executed'],getters.get('source_original_callback_execution_error')
           assert not getters['source_original_full_solver_or_ceres_executed']
           assert not getters['source_original_residual_construction_executed']
           assert getters['source_original_pair_buffer_unchanged']
           assert getters['source_original_source_camera_unchanged']
-          assert getters['source_original_native_clone_cameras_unchanged']
-          assert getters['source_original_provider_owner_header_restored']
+          assert getters['source_original_provider_owned_children_unchanged']
+          assert getters['source_original_provider_owner_header_unchanged']
           assert getters['source_original_source_pairs_sha256_before']==getters['source_original_source_pairs_sha256_after']
           assert not getters['source_original_pair_buffer_write_events']
           cb_rows=getters['source_original_callback_rows']
@@ -137,8 +140,8 @@ jobs:
           assert [r['status_u32'] for r in cb_rows]==[0,0,0,0,2,0]
           assert [r['source_original_callback_calls'] for r in cb_rows]==[3,3,3,3,0,3]
           assert [r['native_solver_gate_skipped'] for r in cb_rows]==[False,False,False,False,True,False]
-          assert all(r.get('source_original_center_matches_cloned_camera_bytes')
-                     and r.get('source_original_focal_matches_cloned_camera_bytes')
+          assert all(r.get('source_original_center_matches_source_child_bytes')
+                     and r.get('source_original_focal_matches_source_child_bytes')
                      for r in cb_rows if not r['native_solver_gate_skipped'])
           fov=d['checkpoint440_fourth_original_fov_copy']
           assert fov['source_original_same_six_matcher_pairs_verified']
@@ -188,7 +191,7 @@ jobs:
             'solver_status_rows':len(native_rows),
             'solver_branches':[r['source_original_branch'] for r in native_rows],
             'solver_source_buffer_unchanged':solver['source_original_source_pair_records_unchanged'],
-            'native_clones':len(getters['source_original_child_clone_addresses']),
+            'source_owned_children':len(getters['source_original_provider_owned_child_addresses']),
             'native_getter_calls':sum(x['source_original_callback_calls'] for x in cb_rows),
             'native_provider_getter_target':getters['source_original_provider_getter_target'],
             'native_center_getter_target':getters['source_original_center_getter_target'],
