@@ -1,0 +1,202 @@
+name: Integrals - Verified Complete 34 Scene 1080p30 Film (Public Runner)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/integrals-34-full-film-public.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integrals-all-34-scenes-20261112
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: fd14840196cd6756b8e78f038adc975815c013ec
+  ROOT: source/integrals-explained
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+  OPENCV_IO_ENABLE_OPENEXR: '0'
+
+jobs:
+  prepare-source-handoffs:
+    name: Source audit - 33 exact joins and production contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout public Playground runner definitions
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout exact private manimVideos source, without private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - name: Check pinned source and install native dependencies
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-lato
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python dependencies
+        run: python -m pip install --disable-pip-version-check -r "$ROOT/scene28/requirements.txt"
+      - name: Test production orchestration (no private runners)
+        run: python -m unittest discover -s "$ROOT/production" -p 'test_*.py' -v
+      - name: Generate real full-resolution source final frames and verify 33 uncompressed joins
+        run: |
+          set -euo pipefail
+          python "$ROOT/production/build_master.py" prepare \
+            --source-root "$ROOT" --out work/handoffs \
+            --width 1920 --height 1080 --fps 30
+          test -s work/handoffs/last_28.png
+          test -s work/handoffs/last_34.png
+          test -s work/handoffs/handoff-report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Integrals-34-Exact-Source-Handoffs-1080p30
+          path: work/handoffs/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  render-groups:
+    name: Render original native 1080p30 scenes ${{ matrix.first }}-${{ matrix.last }}
+    needs: [prepare-source-handoffs]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - first: 1
+            last: 9
+          - first: 10
+            last: 18
+          - first: 19
+            last: 27
+          - first: 28
+            last: 34
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout pinned private scene sources
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install video/render dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-lato
+          python -m pip install --disable-pip-version-check -r "$ROOT/scene28/requirements.txt"
+      - uses: actions/download-artifact@v4
+        with:
+          name: Integrals-34-Exact-Source-Handoffs-1080p30
+          path: work/handoffs
+      - name: Render exactly source-matched original scenes and verify real compressed seams
+        run: |
+          set -euo pipefail
+          python "$ROOT/production/build_master.py" render-group \
+            --source-root "$ROOT" \
+            --handoffs work/handoffs \
+            --out work/scenes \
+            --first '${{ matrix.first }}' --last '${{ matrix.last }}' \
+            --width 1920 --height 1080 --fps 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Integrals-Scene-Group-${{ matrix.first }}-${{ matrix.last }}-Native-1080p30
+          path: |
+            work/scenes/scene*.mp4
+            work/scenes/group_*.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  assemble-and-verify:
+    name: Verify and package 34m40s 1080p30 film and editorial caption track
+    needs: [prepare-source-handoffs,render-groups]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout exact pinned original project source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install assembly validation dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --disable-pip-version-check -r "$ROOT/scene28/requirements.txt"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Integrals-Scene-Group-*-Native-1080p30
+          merge-multiple: true
+          path: work/scenes
+      - uses: actions/download-artifact@v4
+        with:
+          name: Integrals-34-Exact-Source-Handoffs-1080p30
+          path: work/handoffs
+      - name: Verify all 34 clips, 33 encoded joins, 62,400 frames and full decoding
+        run: |
+          set -euo pipefail
+          test "$(find work/scenes -maxdepth 1 -name 'scene[0-9][0-9].mp4' | wc -l)" -eq 34
+          mkdir -p release
+          python "$ROOT/production/build_master.py" assemble \
+            --source-root "$ROOT" --scenes work/scenes \
+            --output release/Integrals_Complete_1080p30_NoNarration.mp4 \
+            --width 1920 --height 1080 --fps 30 --full-decode
+          (cd release && sha256sum -c Integrals_Complete_1080p30_NoNarration.SHA256SUMS.txt)
+          ffprobe -v error -show_entries stream=codec_name,codec_type,nb_frames,width,height \
+            -show_entries format=duration,size -of json release/Integrals_Complete_1080p30_NoNarration.mp4
+      - name: Generate separate provisional editorial text SRT (not synced to voice)
+        run: |
+          set -euo pipefail
+          python "$ROOT/production/build_master.py" captions \
+            --source-root "$ROOT" \
+            --out release/Integrals_Editorial_Captions_Provisional.srt
+          cp work/handoffs/handoff-report.json release/handoff-report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Integrals-Complete-34m40s-34Scenes-1080p30-NoNarration-Verified
+          path: |
+            release/Integrals_Complete_1080p30_NoNarration.mp4
+            release/Integrals_Complete_1080p30_NoNarration.manifest.json
+            release/Integrals_Complete_1080p30_NoNarration.SHA256SUMS.txt
+            release/Integrals_Editorial_Captions_Provisional.srt
+            release/Integrals_Editorial_Captions_Provisional.editorial.json
+            release/handoff-report.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
