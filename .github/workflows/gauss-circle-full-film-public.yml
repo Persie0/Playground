@@ -1,0 +1,217 @@
+name: Gauss Circle - Verified 15 Scene 1080p30 Master (Public Runner)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/gauss-circle-full-film-public.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gauss-circle-complete-20261112
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: a47ff4f6970743adb38426a132a9e61fc5e56209
+  RELEASE_TAG: gauss-circle-complete-1080p30-20261112
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+
+jobs:
+  source-and-seam-audit:
+    name: Test production pipeline and all 14 genuine source seams
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout public Playground infrastructure
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout pinned private source (NO private Actions)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - name: Verify source is exactly the reviewed and merged commit
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(find source/gauss-circle-problem -mindepth 1 -maxdepth 1 -type d -name 'scene[0-9][0-9]' | wc -l)" -eq 15
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned-source math and video dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install --disable-pip-version-check -r source/gauss-circle-problem/requirements.txt
+      - name: Run strict production contract regression tests
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m unittest discover -s tests -p 'test_production_pipeline.py' -v
+          python planning/verify_plan.py
+      - name: Verify fourteen REAL predecessor-successor frames, no preview JPEGs
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m production.seam_check --width 480 --height 270 --fps 30 \
+            --source-root . --output ../../audit/real_source_seams.json
+          test -s ../../audit/real_source_seams.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gauss-Circle-Source-Seams-Verified
+          path: audit/real_source_seams.json
+          if-no-files-found: error
+          retention-days: 30
+
+  render-scenes:
+    name: Native 1080p30 Scene ${{ matrix.scene }}
+    needs: [source-and-seam-audit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        scene: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout pinned private manimVideos scene sources
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install render environment
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install --disable-pip-version-check -r source/gauss-circle-problem/requirements.txt
+      - name: Render authentic 1920x1080 30fps frames and per-scene original audio
+        run: |
+          set -euo pipefail
+          mkdir -p output/scenes
+          SCENE=$(printf '%02d' '${{ matrix.scene }}')
+          python "source/gauss-circle-problem/scene${SCENE}/render_scene${SCENE}.py" \
+            --width 1920 --height 1080 --fps 30 \
+            --output "output/scenes/scene${SCENE}.mp4"
+          python source/gauss-circle-problem/production/assemble.py validate \
+            --input-dir output/scenes --start '${{ matrix.scene }}' --end '${{ matrix.scene }}' \
+            --width 1920 --height 1080 --fps 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gauss-Circle-Scene-${{ matrix.scene }}-Native-1080p30
+          path: output/scenes/scene*.mp4
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  assemble-verify-publish:
+    name: Chaptered complete 11m25s film - full decode and SHA256
+    needs: [source-and-seam-audit,render-scenes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout exact private scene production tooling
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Gauss-Circle-Scene-*-Native-1080p30
+          path: output/scenes
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: Gauss-Circle-Source-Seams-Verified
+          path: audit
+      - name: Verify 15 individual 1080p30 files and exact joins
+        run: |
+          set -euo pipefail
+          test "$(find output/scenes -maxdepth 1 -name 'scene[0-9][0-9].mp4' | wc -l)" -eq 15
+          test -s audit/real_source_seams.json
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python source/gauss-circle-problem/production/assemble.py validate \
+            --input-dir output/scenes --width 1920 --height 1080 --fps 30
+      - name: Stream-copy 15 chapters, verify 20550 frames and full H264/AAC decode
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          python source/gauss-circle-problem/production/assemble.py assemble \
+            --input-dir output/scenes --width 1920 --height 1080 --fps 30 \
+            --seam-report audit/real_source_seams.json \
+            --source-sha "$SOURCE_SHA" \
+            --output release/Gauss_Circle_Complete_1080p30_NoNarration.mp4
+          cp audit/real_source_seams.json release/real_source_seams.json
+          ( cd release && sha256sum -c Gauss_Circle_Complete_1080p30_NoNarration.SHA256SUMS.txt )
+          ffprobe -hide_banner -v error -show_entries format=duration,size \
+            -show_entries stream=codec_name,codec_type,nb_frames,width,height \
+            -of json release/Gauss_Circle_Complete_1080p30_NoNarration.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gauss-Circle-Complete-11m25s-1080p30-NoNarration-Verified
+          path: |
+            release/Gauss_Circle_Complete_1080p30_NoNarration.mp4
+            release/Gauss_Circle_Complete_1080p30_NoNarration.manifest.json
+            release/Gauss_Circle_Complete_1080p30_NoNarration.SHA256SUMS.txt
+            release/real_source_seams.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Publish verified video in public Playground Releases (best effort)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'NOTES'
+          ## Gauss's Circle Problem — complete 15-scene mathematics animation
+          - Source: private Persie0/manimVideos, exact pinned git revision
+          - 11:25, 1920×1080 30fps, 20,550 original scene frames, H.264/AAC
+          - Fifteen mathematically accurate source-rendered chapters
+          - Fourteen real-source frame joins verified pixel for pixel at reference resolution
+          - Complete video/audio decode checked; SHA256 manifest provided
+          - Original instrumental/audio accents only. **No spoken narration**; subtitles not yet timed or produced.
+          - Rendered using public Persie0/Playground only; no private-repository Actions.
+          NOTES
+          if gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release/Gauss_Circle_Complete_1080p30_NoNarration.mp4 \
+              release/Gauss_Circle_Complete_1080p30_NoNarration.manifest.json \
+              release/Gauss_Circle_Complete_1080p30_NoNarration.SHA256SUMS.txt \
+              release/real_source_seams.json --repo Persie0/Playground --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              release/Gauss_Circle_Complete_1080p30_NoNarration.mp4 \
+              release/Gauss_Circle_Complete_1080p30_NoNarration.manifest.json \
+              release/Gauss_Circle_Complete_1080p30_NoNarration.SHA256SUMS.txt \
+              release/real_source_seams.json \
+              --repo Persie0/Playground --target "$GITHUB_SHA" \
+              --title 'Gauss Circle Problem — 11m25s 1080p30 Original Instrumental Film' \
+              --notes-file release-notes.md --latest=false
+          fi
