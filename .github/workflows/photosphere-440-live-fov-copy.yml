@@ -1,0 +1,160 @@
+name: Photosphere 440 original six-pair status gate and four-vector FOV handoff
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-440-live-fov-copy.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-440-live-postgraph
+  cancel-in-progress: false
+jobs:
+  source-postgraph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout SHA-pinned private research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 00f9b2971f9b6326f2eaa03f0e63524f15e584e2
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Exact research SHA and Python syntax
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 00f9b2971f9b6326f2eaa03f0e63524f15e584e2
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py research/photosphere/checkpoint437/live_fourth_original_postgraph.py research/photosphere/checkpoint438/scan_postgraph_import_abi.py research/photosphere/checkpoint439/host_math_import_join.py research/photosphere/checkpoint440/live_four_pair_fov_copy.py
+      - name: Verify source-original pinned APK and ELF hashes
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Pin original postgraph import symbol and ABI
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint438/scan_postgraph_import_abi.py research/native/liblightcycle.so --output checkpoint440-source-import.json
+      - name: Source-execute native six-pair postgraph branch and FOV copy
+        working-directory: research-src
+        env:
+          PHOTOSPHERE_THIRD_SHIFT407: '2'
+          PHOTOSPHERE_FOURTH_FOV440: '1'
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint440-source.log 2> checkpoint440-diagnostic.log || {
+            echo CHECKPOINT440_ORIGINAL_SOURCE_RUN_FAILED
+            tail -n 100 checkpoint440-diagnostic.log
+            tail -n 6 checkpoint440-source.log | cut -c1-180
+            exit 1
+          }
+          python3 - <<'PY'
+          import json
+          row=next(x for x in open('checkpoint440-source.log') if x.startswith('CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          d=json.loads(row.split('=',1)[1])
+          g=d['checkpoint436_fourth_original_finalizer_graph']
+          p=d['checkpoint437_fourth_original_postgraph']
+          original=json.load(open('checkpoint440-source-import.json'))
+          assert d['original_elf_sha256']==original['original_elf_sha256']
+          assert g['source_original_graph_entry_and_return_verified']
+          assert p['source_original_same_estimator_verified']
+          assert p['source_original_graph_completed']
+          assert p['source_original_postgraph_entry_reached']
+          assert p['source_original_upstream_virtual_w0_still_test_supplied']
+          assert p['source_original_postgraph_test_controlled_host_math']
+          assert not p['source_original_bionic_libm_parity_proven']
+          assert not p['source_original_imported_postgraph_libm_not_host_supplied']
+          assert p['source_original_import_symbol_verified_from_pinned_elf']==original['original_import_symbol']
+          assert p['source_original_import_calls']
+          assert p['source_original_solver_boundary_not_crossed']
+          assert p['source_original_ceres_not_executed']
+          before=p['source_original_postgraph_pair_before']['pairs']
+          after=p['source_original_postgraph_pair_after']['pairs']
+          assert len(before)==len(after)==6
+          assert [r['status_u32'] for r in before]==[0,0,0,0,2,0]
+          assert [r['endpoints'] for r in after]==[r['endpoints'] for r in before]
+          assert p['source_original_postgraph_completed']
+          assert len(p['source_original_status_loads'])==6
+          assert p['source_original_440_status_gate_all_completed']
+          gate=p['source_original_status_gate_440']
+          assert [x['pair_index'] for x in gate]==list(range(6)),gate
+          assert [x['status_u32'] for x in gate]==[0,0,0,0,2,0],gate
+          assert [x['next_pc'] for x in gate]==[
+            '0x11cf18','0x11cf18','0x11cf18','0x11cf18','0x11cefc','0x11cf18'],gate
+          assert len(p['source_original_pair_status_field_writes'])==0
+          assert all(a['status_u32']==b['status_u32'] for a,b in zip(before,after))
+          assert original['original_import_symbol']=='sin'
+          fov=d['checkpoint440_fourth_original_fov_copy']
+          assert fov['source_original_same_six_matcher_pairs_verified']
+          assert fov['source_original_graph_and_postgraph_returned']
+          assert fov['source_original_fov_owner_pointer_test_supplied']
+          receipt={
+            'elf_sha256':d['original_elf_sha256'],
+            'source_import':original,
+            'host_libm_approximation':True,
+            'bionic_parity_proven':False,
+            'full_session_flush_executed':False,
+            'full_ceres_executed':False,
+            'source_original_postgraph_completed':p['source_original_postgraph_completed'],
+            'native_postgraph_error':p.get('source_original_postgraph_execution_error'),
+            'source_original_postgraph_pc_trace':p['source_original_postgraph_pc_trace'],
+            'source_original_import_calls':p['source_original_import_calls'],
+            'source_original_status_loads':p['source_original_status_loads'],
+            'source_original_status_branches':p['source_original_status_branches'],
+            'source_original_weight_writes':p['source_original_weight_writes'],
+            'source_original_pair_buffer_writes':p['source_original_pair_buffer_writes'],
+            'source_original_pair_status_field_writes':p['source_original_pair_status_field_writes'],
+            'source_original_pairs_before':before,
+            'source_original_pairs_after':after,
+            'source_original_model_count_callback':p.get('source_original_model_count_callback'),
+            'source_original_status_gate_440':gate,
+            'source_original_fov_copy_440':fov
+          }
+          with open('checkpoint440-source-receipt.json','w') as f:
+            json.dump(receipt,f,indent=2,sort_keys=True);f.write('\n')
+          print('CHECKPOINT440_NATIVE_POSTGRAPH_SOURCE',json.dumps({
+            'symbol':original['original_import_symbol'],
+            'host_calls':len(p['source_original_import_calls']),
+            'postgraph_return':p['source_original_postgraph_completed'],
+            'last_boundary':p.get('source_original_postgraph_execution_error'),
+            'status_loads':len(p['source_original_status_loads']),
+            'status_writes':len(p['source_original_pair_status_field_writes']),
+            'statuses_after':[r['status_u32'] for r in after],
+            'status_gate_next_pcs':[r['next_pc'] for r in gate],
+            'fov_copies_completed':fov['source_original_four_vector_copy_completed'],
+            'fov_copies_verified':fov['source_original_four_vector_copy_verified'],
+            'native_fov_copy_error':fov.get('source_original_copy_execution_error'),
+            'native_fov_validation_error':fov.get('source_original_copy_validation_error'),
+            'fov_helper_visits':fov['source_original_original_helper_visits'],
+          }))
+          assert fov['source_original_four_vector_copy_completed'],fov.get('source_original_copy_execution_error')
+          assert fov['source_original_four_vector_copy_verified'],fov.get('source_original_copy_validation_error')
+          assert fov['source_original_copy_sources_unchanged']
+          PY
+      - name: Delete proprietary original APK and ELF
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Upload source-only diagnostic receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-440-source-postgraph-abi
+          path: |
+            research-src/checkpoint440-source-import.json
+            research-src/checkpoint440-source-receipt.json
+            research-src/checkpoint440-diagnostic.log
+          retention-days: 7
+          if-no-files-found: warn
