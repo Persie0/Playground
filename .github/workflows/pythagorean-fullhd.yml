@@ -10,7 +10,7 @@ concurrency:
   group: pythagorean-fullhd-render
   cancel-in-progress: false
 env:
-  SOURCE_SHA: 67cad5e6170fed2a56791295fde4509cbf7ded0b
+  SOURCE_SHA: 30a562a0c9648186f4dca39d63e5c6b027597804
   RELEASE_TAG: pythagorean-theorem-4min-1080p30-silent-20261112
   PYTHONUNBUFFERED: "1"
   OPENBLAS_NUM_THREADS: "1"
@@ -67,12 +67,21 @@ jobs:
             fonts-dejavu-core fonts-lato
           python -m pip install -r source/pythagorean-theorem/requirements.txt
           python -c 'import manim; print("Manim",manim.__version__)'
-      - name: Render all 12 original scenes sequentially at 1920x1080 30fps
+      - name: Reuse earlier verified raw renders for unchanged Scenes 1–10
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 43158009551
+          name: pythagorean-12-original-Manim-1080p30
+          path: raw
+          github-token: ${{ github.token }}
+      - name: Rerender corrected Scenes 11 and 12 at 1920x1080 30fps
         run: |
           set -euo pipefail
-          mkdir -p raw
+          test "$(find raw -maxdepth 1 -type f -name 'scene*.mp4' | wc -l)" -eq 12
+          # Only Scenes 11/12 are affected by private PR #163.
+          rm -f raw/scene11.mp4 raw/scene12.mp4
           cd source/pythagorean-theorem
-          for n in $(seq 1 12); do
+          for n in 11 12; do
             printf -v scene '%02d' "$n"
             echo "::group::Full HD scene $scene"
             manim --renderer=cairo -r 1920,1080 --fps 30 \
