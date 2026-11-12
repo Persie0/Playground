@@ -1,0 +1,168 @@
+name: Pythagorean - verified narrated 4-minute 1080p film
+on:
+  push:
+    branches: [pythagorean-narrated-build]
+    paths:
+      - .github/workflows/pythagorean-narrated.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pythagorean-neural-narrated-film
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: 10ee718285f36e4a4aece1a6247b48b1d55c6e81
+  SILENT_RELEASE: pythagorean-theorem-4min-1080p30-silent-20261112
+  NARRATED_RELEASE: pythagorean-theorem-4min-1080p30-narrated-20261112
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  narrate-and-verify:
+    name: Generate true neural speech and synchronize 42 English subtitles
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out public Playground
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check out exact private source, do not run private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+          persist-credentials: false
+
+      - name: Pin verified private source commit and cue manifest
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          test -f source/pythagorean-theorem/production/narration_cues.json
+          test -f source/pythagorean-theorem/production/narrate.py
+          test -f source/pythagorean-theorem/production/test_narration.py
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Test actual 42-cue narration plan before synthesizing
+        run: |
+          python -m unittest discover \
+            -s source/pythagorean-theorem/production \
+            -p test_narration.py -v
+
+      - name: Install Edge Neural TTS, NumPy and FFmpeg
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install 'edge-tts>=7,<9' 'numpy>=1.26,<3'
+          python - <<'PY'
+          import edge_tts, numpy
+          print("Edge-TTS and NumPy ready:", numpy.__version__)
+          PY
+
+      - name: Download previously verified SILENT full-HD 7200-frame master
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p input
+          gh release download "$SILENT_RELEASE" --repo Persie0/Playground \
+            --pattern 'Pythagorean_Theorem_Complete_1080p30_Silent.mp4' \
+            --dir input
+          test -s input/Pythagorean_Theorem_Complete_1080p30_Silent.mp4
+          ffprobe -hide_banner -v error -show_entries \
+            stream=codec_name,codec_type,width,height,nb_frames \
+            -show_entries format=duration -of json \
+            input/Pythagorean_Theorem_Complete_1080p30_Silent.mp4
+
+      - name: Generate and fit neural speech, build exact SRT, mux 1080p film
+        run: |
+          set -euo pipefail
+          python source/pythagorean-theorem/production/narrate.py \
+            --video input/Pythagorean_Theorem_Complete_1080p30_Silent.mp4 \
+            --output-dir output
+
+      - name: Verify encoded movie, speech, timing manifest and hashes
+        run: |
+          set -euo pipefail
+          test -s output/Pythagorean_Theorem_Complete_1080p30_Narrated.mp4
+          test -s output/Pythagorean_Theorem_English_Subtitles.srt
+          test -s output/Pythagorean_Theorem_English_Voice.m4a
+          test -s output/narration_timing.json
+          ( cd output && sha256sum -c SHA256SUMS.txt )
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          timings = json.loads(Path("output/narration_timing.json").read_text())
+          assert timings["video_duration_seconds"] == 240
+          assert timings["speech_cue_count"] == 42
+          assert len(timings["cues"]) == 42
+          assert max(c["end_seconds"] for c in timings["cues"]) <= 240
+          print("Verified 42 real TTS cue start/end timestamps.")
+          PY
+          ffprobe -v error -show_entries stream=codec_name,codec_type,sample_rate,channels,nb_frames \
+            -show_entries format=duration,size -of json \
+            output/Pythagorean_Theorem_Complete_1080p30_Narrated.mp4
+
+      - name: Retain voice and video deliverables even if release API fails
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pythagorean-Theorem-4min-1080p30-Neural-Narrated
+          path: |
+            output/Pythagorean_Theorem_Complete_1080p30_Narrated.mp4
+            output/Pythagorean_Theorem_English_Subtitles.srt
+            output/Pythagorean_Theorem_English_Voice.m4a
+            output/narration_timing.json
+            output/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Publish verified narrated film to public Playground Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/pythagorean-narrated-notes.md <<'NOTES'
+          ## Why the Pythagorean Theorem Must Be True — narrated edit
+
+          Full 4:00 math film, retaining the original verified 1080p30 Manim source frames.
+          - Genuine en-GB-RyanNeural English spoken narration (42 separately timed cues)
+          - 1920x1080 H.264 video, 30fps, exactly 7200 frames, stereo-compatible AAC voice track
+          - External English SRT synchronized to measured cue speech durations (not burned in)
+          - Optional audio-only English speech M4A, machine-readable timing manifest, SHA256 sums
+          - The correct units: square metres for area and metres for length
+          - Silence between spoken explanations; no music claimed
+          - Built in public Persie0/Playground Actions from a pinned Persie0/manimVideos source commit
+          - No private repository Actions were used
+          NOTES
+          if gh release view "$NARRATED_RELEASE" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$NARRATED_RELEASE" --repo Persie0/Playground \
+              output/Pythagorean_Theorem_Complete_1080p30_Narrated.mp4 \
+              output/Pythagorean_Theorem_English_Subtitles.srt \
+              output/Pythagorean_Theorem_English_Voice.m4a \
+              output/narration_timing.json output/SHA256SUMS.txt --clobber
+            gh release edit "$NARRATED_RELEASE" --repo Persie0/Playground \
+              --notes-file /tmp/pythagorean-narrated-notes.md --latest=false
+          else
+            gh release create "$NARRATED_RELEASE" --repo Persie0/Playground \
+              --target "$GITHUB_SHA" \
+              --title 'Pythagorean Theorem — Complete Narrated 1080p30 Film' \
+              --notes-file /tmp/pythagorean-narrated-notes.md \
+              --latest=false \
+              output/Pythagorean_Theorem_Complete_1080p30_Narrated.mp4 \
+              output/Pythagorean_Theorem_English_Subtitles.srt \
+              output/Pythagorean_Theorem_English_Voice.m4a \
+              output/narration_timing.json output/SHA256SUMS.txt
+          fi
+          gh release view "$NARRATED_RELEASE" --repo Persie0/Playground --json url,assets
