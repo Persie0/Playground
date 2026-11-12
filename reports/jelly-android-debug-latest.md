@@ -1,10 +1,10 @@
 # Jelly Squeeze debug APK
 
-Source commit: `ba2f53b3a0f1db48cfc7dde895b5ee39f25c57ac`
-Build run: https://github.com/Persie0/Playground/actions/runs/43062404745
+Source commit: `f65a274c8b5d33a931f64600371c4704458fa616`
+Build run: https://github.com/Persie0/Playground/actions/runs/43157069323
 Result before report: **success**
 Expected artifact name: `JellySqueeze-Godot-4.7.2-Android-Debug-arm64`
 
 APK created: yes
-f93c51c27da880f76c0b0e479fb142d2fa7ab9038cdf4990994a2302aba06bd8  game/build/android/JellySqueeze-debug.apk
-APK size: 28801010 bytes
+38e6b62bb8186969ab7492d9a6dbdef58affce979e44a953436b852d3650b37a  game/build/android/JellySqueeze-debug.apk
+APK size: 28851958 bytes
