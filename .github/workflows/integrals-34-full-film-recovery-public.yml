@@ -1,0 +1,152 @@
+name: Integrals - Recover Complete 34 Scene Film (Public Runner)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/integrals-34-full-film-recovery-public.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: integrals-34-recovery-20261112
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: e11c48c57be2f22f9fdf42f5042b948f22377324
+  BASE_RUN_ID: '43323391751'
+  ROOT: source/integrals-explained
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+
+jobs:
+  render-remaining:
+    name: Rerender original Scenes 28-34 with fixed encoder CLI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout reviewed private source at fixed revision
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install OpenCV, Pillow, NumPy, FFmpeg and fonts
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-lato
+          python -m pip install --disable-pip-version-check -r "$ROOT/scene28/requirements.txt"
+      - name: Reuse the 33 verified real 1080p handoff frames from the earlier public run
+        uses: actions/download-artifact@v4
+        with:
+          name: Integrals-34-Exact-Source-Handoffs-1080p30
+          run-id: 43323391751
+          repository: Persie0/Playground
+          github-token: ${{ github.token }}
+          path: work/handoffs
+      - name: Render Scene 28 then render Scene 29 from its actual previous MP4
+        run: |
+          set -euo pipefail
+          python "$ROOT/production/build_master.py" render-group \
+            --source-root "$ROOT" --handoffs work/handoffs \
+            --out work/scenes --first 28 --last 34 \
+            --width 1920 --height 1080 --fps 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Integrals-Recovered-Scenes-28-34-Native-1080p30
+          path: |
+            work/scenes/scene*.mp4
+            work/scenes/group_*.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  assemble-complete-film:
+    name: All 34 original scenes, full decode, timing report, hash and captions
+    runs-on: ubuntu-24.04
+    needs: [render-remaining]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install verification dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --disable-pip-version-check -r "$ROOT/scene28/requirements.txt"
+      - name: Reuse successful Scenes 1-27 from earlier public run, avoiding rerenders
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Integrals-Scene-Group-*-Native-1080p30
+          run-id: 43323391751
+          repository: Persie0/Playground
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: work/scenes
+      - name: Get newly rendered authentic Scenes 28-34
+        uses: actions/download-artifact@v4
+        with:
+          name: Integrals-Recovered-Scenes-28-34-Native-1080p30
+          path: work/scenes
+      - name: Get independently verified source seam report
+        uses: actions/download-artifact@v4
+        with:
+          name: Integrals-34-Exact-Source-Handoffs-1080p30
+          run-id: 43323391751
+          repository: Persie0/Playground
+          github-token: ${{ github.token }}
+          path: work/handoffs
+      - name: Verify 34 exact-scene video streams and assemble full original film
+        run: |
+          set -euo pipefail
+          test "$(find work/scenes -maxdepth 1 -name 'scene[0-9][0-9].mp4' | wc -l)" -eq 34
+          mkdir -p release
+          python "$ROOT/production/build_master.py" assemble \
+            --source-root "$ROOT" --scenes work/scenes \
+            --output release/Integrals_Complete_1080p30_NoNarration.mp4 \
+            --width 1920 --height 1080 --fps 30 --full-decode
+          (cd release && sha256sum -c Integrals_Complete_1080p30_NoNarration.SHA256SUMS.txt)
+          python "$ROOT/production/build_master.py" captions \
+            --source-root "$ROOT" \
+            --out release/Integrals_Editorial_Captions_Provisional.srt
+          cp work/handoffs/handoff-report.json release/handoff-report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Integrals-Complete-34m40-Original-34-Scenes-1080p30-Verified
+          path: |
+            release/Integrals_Complete_1080p30_NoNarration.mp4
+            release/Integrals_Complete_1080p30_NoNarration.manifest.json
+            release/Integrals_Complete_1080p30_NoNarration.SHA256SUMS.txt
+            release/Integrals_Editorial_Captions_Provisional.srt
+            release/Integrals_Editorial_Captions_Provisional.editorial.json
+            release/handoff-report.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
