@@ -1,0 +1,74 @@
+name: Photosphere 447 original point cost builder opcode scan
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-447-point-cost-opcodes.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-447-cost-scan
+  cancel-in-progress: false
+jobs:
+  source-postgraph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout SHA-pinned private research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 4cea2688f9f5aeeb77b3343bef0479b93638fb86
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Exact research SHA and Python syntax
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 4cea2688f9f5aeeb77b3343bef0479b93638fb86
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint447/scan_original_point_cost_builder.py research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py research/photosphere/checkpoint437/live_fourth_original_postgraph.py research/photosphere/checkpoint438/scan_postgraph_import_abi.py research/photosphere/checkpoint439/host_math_import_join.py research/photosphere/checkpoint440/live_four_pair_fov_copy.py research/photosphere/checkpoint441/live_six_pair_solver_gate.py research/photosphere/checkpoint442/live_six_pair_native_camera_getters.py
+      - name: Verify source-original pinned APK and ELF hashes
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Pin original postgraph import symbol and ABI
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint438/scan_postgraph_import_abi.py research/native/liblightcycle.so --output checkpoint447-source-import.json
+      - name: Original ARM64 first point cost builder source pins
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint447/scan_original_point_cost_builder.py research/native/liblightcycle.so --output checkpoint447-source-receipt.json > checkpoint447-cost-opcodes.log 2> checkpoint447-diagnostic.log || {
+            cat checkpoint447-diagnostic.log
+            exit 1
+          }
+          cat checkpoint447-options-source.log
+      - name: Delete proprietary original APK and ELF
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Upload source-only diagnostic receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-447-source-postgraph-abi
+          path: |
+            research-src/checkpoint447-source-import.json
+            research-src/checkpoint447-source-receipt.json
+            research-src/checkpoint447-options-source.log
+            research-src/checkpoint447-diagnostic.log
+          retention-days: 7
+          if-no-files-found: warn
