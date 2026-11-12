@@ -1,0 +1,200 @@
+name: Pythagorean - complete 1080p30 verified film (public Playground)
+on:
+  push:
+    branches: [pythagorean-render-qa]
+    paths: [.github/workflows/pythagorean-fullhd.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: pythagorean-fullhd-render
+  cancel-in-progress: false
+env:
+  SOURCE_SHA: 67cad5e6170fed2a56791295fde4509cbf7ded0b
+  RELEASE_TAG: pythagorean-theorem-4min-1080p30-silent-20261112
+  PYTHONUNBUFFERED: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  OMP_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+jobs:
+  render-verify-release:
+    name: Render 12 real Manim scenes, normalize to 7200 frames, verify and publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout public workflow
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout pinned private source WITHOUT private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+          persist-credentials: false
+      - name: Set Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify pinned source and all scene modules
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          for n in $(seq 1 12); do
+            test -f "source/pythagorean-theorem/scene$n/render_scene$n.py"
+            test -f "source/pythagorean-theorem/scene$n/test_scene$n.py"
+          done
+          test -f source/pythagorean-theorem/production/assemble.py
+      - name: Run 12 mathematical suites plus film assembly tests
+        run: |
+          set -euo pipefail
+          for n in $(seq 1 12); do
+            echo "::group::Source tests Scene $n"
+            python -m unittest discover -s "source/pythagorean-theorem/scene$n" -p "test_*.py" -v
+            echo "::endgroup::"
+          done
+          python -m unittest discover \
+            -s source/pythagorean-theorem/production -p 'test_*.py' -v
+      - name: Install Manim and real rendering dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            ffmpeg pkg-config libcairo2-dev libpango1.0-dev \
+            texlive-latex-extra texlive-fonts-recommended dvisvgm \
+            fonts-dejavu-core fonts-lato
+          python -m pip install -r source/pythagorean-theorem/requirements.txt
+          python -c 'import manim; print("Manim",manim.__version__)'
+      - name: Render all 12 original scenes sequentially at 1920x1080 30fps
+        run: |
+          set -euo pipefail
+          mkdir -p raw
+          cd source/pythagorean-theorem
+          for n in $(seq 1 12); do
+            printf -v scene '%02d' "$n"
+            echo "::group::Full HD scene $scene"
+            manim --renderer=cairo -r 1920,1080 --fps 30 \
+              "scene$n/render_scene$n.py" "PythagoreanScene$n" \
+              -o "pythagorean_scene$scene.mp4" --disable_caching
+            video=$(find media/videos -type f -name "pythagorean_scene$scene.mp4" -print -quit)
+            test -n "$video"
+            cp "$video" "../../raw/scene$scene.mp4"
+            echo "Rendered raw/scene$scene.mp4"
+            echo "::endgroup::"
+          done
+      - name: Preserve original encoded scenes independently of later QA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pythagorean-12-original-Manim-1080p30
+          path: raw/scene*.mp4
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0
+      - name: Normalize animation-beat rounding to 7200 exact frames
+        run: |
+          set -euo pipefail
+          python source/pythagorean-theorem/production/assemble.py \
+            normalize --clips raw --normalized normalized \
+            --width 1920 --height 1080 --fps 30 --crf 18
+      - name: Verify 11 decoded seams, all clips, master and 12 chapters
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          python source/pythagorean-theorem/production/assemble.py \
+            assemble --clips normalized \
+            --output release/Pythagorean_Theorem_Complete_1080p30_Silent.mp4 \
+            --width 1920 --height 1080 --fps 30 \
+            --check-seams --full-decode
+          python - <<'PY'
+          import json,subprocess
+          path='release/Pythagorean_Theorem_Complete_1080p30_Silent.mp4'
+          p=json.loads(subprocess.check_output([
+              'ffprobe','-v','error','-show_chapters',
+              '-show_streams','-show_format','-of','json',path]))
+          videos=[x for x in p['streams'] if x.get('codec_type')=='video']
+          assert len(videos)==1,videos
+          v=videos[0]
+          assert (int(v['width']),int(v['height']),int(v['nb_frames']))==(1920,1080,7200),v
+          assert abs(float(p['format']['duration'])-240)<0.05,p['format']
+          assert len(p['chapters'])==12,len(p['chapters'])
+          print('VERIFIED 1080p30 silent master, 7200 frames, 240.0 seconds, 12 chapters')
+          PY
+      - name: Create true-frame contact sheet for visual inspection
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess
+          from pathlib import Path
+          from PIL import Image,ImageDraw,ImageFont
+          out=Path('release')
+          font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',21)
+          lengths=[18,17,18,17,20,18,20,32,21,15,26,18]
+          contact=Image.new('RGB',(1920,1460),'#0b1622')
+          draw=ImageDraw.Draw(contact)
+          for n,duration in enumerate(lengths,1):
+              image=out/f'scene{n:02d}_mid.png'
+              subprocess.run([
+                  'ffmpeg','-nostdin','-v','error',
+                  '-ss',str(duration/2),
+                  '-i',f'normalized/scene{n:02d}.mp4',
+                  '-frames:v','1','-vf','scale=624:350',
+                  '-y',str(image)],check=True)
+              source=Image.open(image).convert('RGB')
+              x=((n-1)%3)*640+8
+              y=((n-1)//3)*365+7
+              contact.paste(source,(x,y+26))
+              draw.text((x+8,y),f'Scene {n:02d}',font=font,fill='white')
+              image.unlink()
+          contact.save(out/'Pythagorean_12_Scene_Contact_Sheet.jpg',quality=91)
+          PY
+          (cd release && sha256sum Pythagorean_12_Scene_Contact_Sheet.jpg >> SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+      - name: Upload verified master, chapters, contact sheet and hashes
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pythagorean-Complete-4min-1080p30-Verified
+          path: |
+            release/Pythagorean_Theorem_Complete_1080p30_Silent.mp4
+            release/Pythagorean_12_Scene_Contact_Sheet.jpg
+            release/SHA256SUMS.txt
+            release/chapters.ffmeta
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+      - name: Publish verified SILENT film to public Playground Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          ## Why the Pythagorean Theorem Must Be True — full 4-minute film
+          - All 12 real Manim Community scenes, rendered from one pinned commit of Persie0/manimVideos.
+          - Native 1920x1080 resolution, 30fps, H.264; 7200 exact frames and 240.000-second timeline.
+          - Four-triangle rigid sliding proof, actual unit-square models and final 7 m vs 5 m park shortcut.
+          - All 12 independent mathematical test suites and the production validator passed.
+          - All 11 decoded scene boundary comparisons passed, with frame-by-frame stream decode.
+          - Includes a 12-scene contact sheet, 12 embedded chapters and SHA256SUMS.
+          - SILENT EDIT: voiceover/audio and synchronized subtitles are not included. Narration remains a separate production step.
+          - Private source Actions were not used; only public Persie0/Playground Actions.
+          EOF
+          if gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              release/Pythagorean_Theorem_Complete_1080p30_Silent.mp4 \
+              release/Pythagorean_12_Scene_Contact_Sheet.jpg \
+              release/SHA256SUMS.txt \
+              --repo Persie0/Playground --clobber
+            gh release edit "$RELEASE_TAG" --repo Persie0/Playground \
+              --notes-file release-notes.md --latest=false
+          else
+            gh release create "$RELEASE_TAG" \
+              release/Pythagorean_Theorem_Complete_1080p30_Silent.mp4 \
+              release/Pythagorean_12_Scene_Contact_Sheet.jpg \
+              release/SHA256SUMS.txt \
+              --repo Persie0/Playground \
+              --target "$GITHUB_SHA" \
+              --title "Pythagorean Theorem — Complete 4:00 Manim Film (1080p30, Silent)" \
+              --notes-file release-notes.md --latest=false
+          fi
+          gh release view "$RELEASE_TAG" --repo Persie0/Playground --json url,assets
