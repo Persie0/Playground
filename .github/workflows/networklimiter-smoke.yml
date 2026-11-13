@@ -1,0 +1,44 @@
+name: NetworkLimiter Linux smoke validation
+on:
+  push:
+    branches:
+      - validation/networklimiter
+    paths:
+      - .github/workflows/networklimiter-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  python-and-qt-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Clone public source branch
+        run: git clone --depth 1 --branch feat/cachyos-per-process-limiter https://github.com/Persie0/networklimiter.git source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install Python test dependencies
+        run: python -m pip install psutil PySide6
+      - name: Compile Python source
+        run: python -m compileall -q source/networklimiter source/tests
+      - name: Run all unit tests
+        run: cd source && python -m unittest discover -s tests -v
+      - name: Verify shell installer syntax
+        run: bash -n source/install.sh source/uninstall.sh
+      - name: Headless Qt window and tray startup
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          cd source
+          python - <<'PY'
+          from PySide6.QtWidgets import QApplication
+          from networklimiter.gui import Window
+          app = QApplication([])
+          window = Window(tray_start=False)
+          assert window.windowTitle() == "NetworkLimiter"
+          assert window.global_rates.download.value() == 100
+          assert window.process_table.columnCount() == 6
+          window.exit_app()
+          print("Qt startup OK")
+          PY
