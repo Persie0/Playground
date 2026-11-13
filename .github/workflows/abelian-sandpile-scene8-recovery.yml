@@ -1,0 +1,157 @@
+name: Abelian Sandpile - Recover Exact Scene 8 Master (Public Playground Runner)
+
+on:
+  push:
+    branches:
+      - sandpile-scene8-recovery-20261113
+    paths:
+      - .github/workflows/abelian-sandpile-scene8-recovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: abelian-sandpile-scene8-recovery-20261113
+  cancel-in-progress: false
+
+env:
+  PRIVATE_SOURCE_SHA: 0b6db3048cb94f25622b325f5028b20ec43180dd
+  RELEASE_TAG: abelian-sandpile-scene8-1080p30-restored-20261113
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+
+jobs:
+  restore-scene8:
+    name: Recompute 1M grains, render true 40s master, verify, release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout public Playground workflow
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout pinned private source READ-ONLY; no private Actions
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.PRIVATE_SOURCE_SHA }}
+          path: private-source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - name: Check exact source commit and required files
+        run: |
+          set -euo pipefail
+          test "$(git -C private-source rev-parse HEAD)" = "$PRIVATE_SOURCE_SHA"
+          for name in model.py stabilizer.cpp render_scene8.py test_scene8.py; do
+            test -s "private-source/abelian-sandpile/scene8/$name"
+          done
+          test -s private-source/abelian-sandpile/scene8/data/height_1000000.xz.b64
+      - name: Install deterministic rendering dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg g++ fonts-lato fonts-dejavu-core
+          python -m pip install --disable-pip-version-check numpy scipy pillow opencv-python-headless
+      - name: Compute full exact legal 1,000,000-grain dataset
+        run: |
+          set -euo pipefail
+          cd private-source/abelian-sandpile
+          g++ -O3 -std=c++17 -o scene8/stabilizer scene8/stabilizer.cpp
+          ./scene8/stabilizer scene8/snapshots 1000000
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          from scene8.model import read_checkpoints, validate_odometer, FINAL_SHA256, load_final_fixture
+          path = Path("scene8/snapshots")
+          cps = read_checkpoints(path)
+          final = cps[-1]
+          assert final.grains == 1_000_000 and final.escaped == 0
+          assert final.sha256 == FINAL_SHA256, (final.sha256, FINAL_SHA256)
+          assert final.topples == 17_448_261_875, final.topples
+          assert final.heights.shape == (901, 901)
+          assert (final.heights == load_final_fixture()).all()
+          meta = validate_odometer(final, path / "odometer_1000000.bin")
+          print("EXACT_SOLVER_VALIDATION", meta, flush=True)
+          PY
+      - name: Generate exact prior Scene 7 END frame from pinned original renderer
+        run: |
+          set -euo pipefail
+          cd private-source/abelian-sandpile
+          python - <<'PY'
+          from pathlib import Path
+          import cv2
+          from scene7.render_scene7 import WhereSandGoes
+          frame = WhereSandGoes(1920,1080).frame((1050-1)/30)
+          target = Path("scene8/scene7_last.png")
+          assert frame.shape == (1080,1920,3)
+          assert cv2.imwrite(str(target),frame)
+          print("REFERENCE_SOURCE_FRAME",target, flush=True)
+          PY
+      - name: Run genuine Scene 8 mathematical and video regression tests
+        run: |
+          set -euo pipefail
+          cd private-source/abelian-sandpile
+          python -m unittest discover -s scene8 -p test_scene8.py -v
+      - name: Render actual original Full HD Scene 8 including original stereo soundtrack
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cd private-source/abelian-sandpile
+          python scene8/render_scene8.py \
+            --reference scene8/scene7_last.png \
+            --snapshots scene8/snapshots \
+            --output "$GITHUB_WORKSPACE/release/Abelian_Sandpile_Scene08_1080p30_Original_Instrumental.mp4"
+      - name: Verify all 1200 video frames and full audio/video decode
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          p=Path('release/Abelian_Sandpile_Scene08_1080p30_Original_Instrumental.mp4')
+          out=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(p)]))
+          v=next(s for s in out['streams'] if s['codec_type']=='video')
+          a=next(s for s in out['streams'] if s['codec_type']=='audio')
+          assert (v['codec_name'],v['width'],v['height'],v['avg_frame_rate'],int(v['nb_frames']))==('h264',1920,1080,'30/1',1200),v
+          assert a['codec_name']=='aac' and a['channels']==2,a
+          assert abs(float(out['format']['duration'])-40)<0.025,out['format']
+          print('RECOVERED_SCENE8_VERIFIED',p.stat().st_size,out['format']['duration'], flush=True)
+          PY
+          ffmpeg -nostdin -hide_banner -loglevel error -xerror \
+            -i release/Abelian_Sandpile_Scene08_1080p30_Original_Instrumental.mp4 -f null -
+          sha256sum release/Abelian_Sandpile_Scene08_1080p30_Original_Instrumental.mp4 \
+            > release/Scene08_SHA256SUMS.txt
+          (cd release && sha256sum -c Scene08_SHA256SUMS.txt)
+          cp private-source/abelian-sandpile/subtitles/scene8.srt release/Scene08_external_subtitles.srt
+      - name: Upload verified scene artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Abelian-Sandpile-Scene08-Restored-1080p30
+          path: release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Publish recovered Scene 8 in public Playground Releases
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'NOTES'
+          ## Abelian Sandpile — Scene 8: One Million Grains (Restored)
+          - Original exact Scene 8 code from pinned private source SHA 0b6db3048cb94f25622b325f5028b20ec43180dd; source never republished.
+          - Genuine 901x901 finite-sink integer sandpile with 1,000,000 centered grains, 17,448,261,875 legal topplings and no sink losses.
+          - Genuine stable snapshots, source-rendered Scene 7 ending, no invented interpolation of grain heights.
+          - 40.000s, 1920x1080 at 30fps, exactly 1,200 H.264 video frames and original stereo AAC music; external SRT.
+          - Full FFmpeg video/audio decode, SHA-256 checksum, and unit tests verified.
+          - Built entirely with public Playground Actions; NO Actions on private manimVideos.
+          NOTES
+          if gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release/* --repo Persie0/Playground --clobber
+          else
+            gh release create "$RELEASE_TAG" release/* --repo Persie0/Playground \
+              --target "$GITHUB_SHA" \
+              --title "Abelian Sandpile Scene 8 — 1 Million Exact Grains (1080p30)" \
+              --notes-file release-notes.md --latest=false
+          fi
