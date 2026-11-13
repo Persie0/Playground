@@ -1,0 +1,578 @@
+name: Photosphere 453 original native 192-byte Ceres PImpl prefix
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-453-native-pimpl-prefix.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-453-pimpl-prefix
+  cancel-in-progress: false
+jobs:
+  source-postgraph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout SHA-pinned private research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 24f577caf1e8f55b63ba8598c2fffa706901c37b
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Exact research SHA and Python syntax
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 24f577caf1e8f55b63ba8598c2fffa706901c37b
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py research/photosphere/checkpoint437/live_fourth_original_postgraph.py research/photosphere/checkpoint438/scan_postgraph_import_abi.py research/photosphere/checkpoint439/host_math_import_join.py research/photosphere/checkpoint440/live_four_pair_fov_copy.py research/photosphere/checkpoint441/live_six_pair_solver_gate.py research/photosphere/checkpoint442/live_six_pair_native_camera_getters.py
+      - name: Verify source-original pinned APK and ELF hashes
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Pin original postgraph import symbol and ABI
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint438/scan_postgraph_import_abi.py research/native/liblightcycle.so --output checkpoint453-source-import.json
+      - name: Source-run native 192-byte Ceres PImpl constructor through three original allocations
+        working-directory: research-src
+        env:
+          PHOTOSPHERE_THIRD_SHIFT407: '2'
+          PHOTOSPHERE_FOURTH_CERES453: '1'
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint453-source.log 2> checkpoint453-diagnostic.log || {
+            echo CHECKPOINT453_ORIGINAL_SOURCE_RUN_FAILED
+            tail -n 100 checkpoint453-diagnostic.log
+            tail -n 6 checkpoint453-source.log | cut -c1-180
+            exit 1
+          }
+          python3 - <<'PY'
+          import json
+          row=next(x for x in open('checkpoint453-source.log') if x.startswith('CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT='))
+          d=json.loads(row.split('=',1)[1])
+          g=d['checkpoint436_fourth_original_finalizer_graph']
+          p=d['checkpoint437_fourth_original_postgraph']
+          original=json.load(open('checkpoint453-source-import.json'))
+          assert d['original_elf_sha256']==original['original_elf_sha256']
+          assert g['source_original_graph_entry_and_return_verified']
+          assert p['source_original_same_estimator_verified']
+          assert p['source_original_graph_completed']
+          assert p['source_original_postgraph_entry_reached']
+          assert p['source_original_upstream_virtual_w0_still_test_supplied']
+          assert p['source_original_postgraph_test_controlled_host_math']
+          assert not p['source_original_bionic_libm_parity_proven']
+          assert not p['source_original_imported_postgraph_libm_not_host_supplied']
+          assert p['source_original_import_symbol_verified_from_pinned_elf']==original['original_import_symbol']
+          assert p['source_original_import_calls']
+          assert p['source_original_solver_boundary_not_crossed']
+          assert p['source_original_ceres_not_executed']
+          before=p['source_original_postgraph_pair_before']['pairs']
+          after=p['source_original_postgraph_pair_after']['pairs']
+          assert len(before)==len(after)==6
+          assert [r['status_u32'] for r in before]==[0,0,0,0,2,0]
+          assert [r['endpoints'] for r in after]==[r['endpoints'] for r in before]
+          assert p['source_original_postgraph_completed']
+          assert len(p['source_original_status_loads'])==6
+          assert p['source_original_440_status_gate_all_completed']
+          gate=p['source_original_status_gate_440']
+          assert [x['pair_index'] for x in gate]==list(range(6)),gate
+          assert [x['status_u32'] for x in gate]==[0,0,0,0,2,0],gate
+          assert [x['next_pc'] for x in gate]==[
+            '0x11cf18','0x11cf18','0x11cf18','0x11cf18','0x11cefc','0x11cf18'],gate
+          assert len(p['source_original_pair_status_field_writes'])==0
+          assert all(a['status_u32']==b['status_u32'] for a,b in zip(before,after))
+          assert original['original_import_symbol']=='sin'
+          solver=d['checkpoint441_fourth_original_solver_gate']
+          assert solver['source_original_same_six_matcher_pair_records_verified']
+          assert solver['source_original_solver_vtable_target']=='0x1287c0'
+          assert solver['source_original_solver_vcall_at_0x123020_not_executed']
+          assert solver['source_original_bounded_inner_loop_abi_join']
+          assert solver['source_original_full_ceres_not_executed']
+          assert solver['source_original_solver_pair_loop_completed'], solver.get('source_original_solver_pair_loop_error')
+          assert solver['source_original_source_pair_records_unchanged']
+          assert solver['source_original_pair_sha256_before']==solver['source_original_pair_sha256_after']
+          assert not solver['source_original_pair_buffer_writes']
+          native_rows=solver['source_original_solver_pair_rows']
+          assert len(native_rows)==7
+          assert [r['source_original_status_u32'] for r in native_rows]==[0,0,0,0,2,0,None]
+          assert [r['source_original_branch'] for r in native_rows]==[
+            'eligible','eligible','eligible','eligible','skipped','eligible','exhausted']
+          assert [r['source_original_predicate_w0'] for r in native_rows]==[1,1,1,1,0,1,None]
+          assert [r['source_original_endpoint_load_reached'] for r in native_rows]==[
+            True,True,True,True,False,True,False]
+          assert [r['source_original_pair_endpoints'] for r in native_rows]==[
+            [0,1],[0,2],[1,2],[0,3],None,[2,3],None]
+          getters=d['checkpoint442_fourth_original_native_getters']
+          assert getters['source_original_same_live_six_matcher_pair_records_verified']
+          assert not getters['source_original_provider_child_vector_test_supplied']
+          assert getters['source_original_provider_child_vector_already_populated']
+          assert getters['source_original_provider_native_child_count']==4
+          assert getters['source_original_sample_table_base_test_supplied']
+          assert getters['source_original_provider_getter_target']=='0x3448d0'
+          assert getters['source_original_center_getter_target']=='0x330ebc'
+          assert getters['source_original_focal_getter_target']=='0x330eb4'
+          assert getters['source_original_child_cameras_original_provider_owned']
+          assert getters['source_original_child_camera_cloning_not_reexecuted_at_this_join']
+          assert getters['source_original_three_getter_bodies_native_executed'],getters.get('source_original_callback_execution_error')
+          assert not getters['source_original_full_solver_or_ceres_executed']
+          assert not getters['source_original_residual_construction_executed']
+          assert getters['source_original_pair_buffer_unchanged']
+          assert getters['source_original_source_camera_unchanged']
+          assert getters['source_original_provider_owned_children_unchanged']
+          assert getters['source_original_provider_owner_header_unchanged']
+          assert getters['source_original_source_pairs_sha256_before']==getters['source_original_source_pairs_sha256_after']
+          assert not getters['source_original_pair_buffer_write_events']
+          cb_rows=getters['source_original_callback_rows']
+          assert len(cb_rows)==6
+          assert [r['status_u32'] for r in cb_rows]==[0,0,0,0,2,0]
+          assert [r['source_original_callback_calls'] for r in cb_rows]==[3,3,3,3,0,3]
+          assert [r['native_solver_gate_skipped'] for r in cb_rows]==[False,False,False,False,True,False]
+          assert all(r.get('source_original_center_matches_source_child_bytes')
+                     and r.get('source_original_focal_matches_source_child_bytes')
+                     for r in cb_rows if not r['native_solver_gate_skipped'])
+          assert getters['source_original_residual_dispatch_443_requested']
+          assert getters['source_original_residual_dispatch_443_completed'],getters.get('source_original_callback_execution_error')
+          assert not getters['source_original_residual_numeric_bodies_executed_443']
+          assert getters['source_original_nested_vector_payloads_unchanged_443']
+          rows443=d['checkpoint443_fourth_original_residual_dispatch']
+          raw_vectors=getters['source_original_matcher_owned_nested_vectors_443']
+          assert len(rows443)==len(raw_vectors)==6
+          assert [r['pair_index'] for r in rows443]==list(range(6))
+          assert [r['status_u32'] for r in rows443]==[0,0,0,0,2,0]
+          assert all(v['point28']['stride']==28 and v['line36']['stride']==36
+                     for v in raw_vectors)
+          assert [r['point28_count'] for r in rows443]==[
+            v['point28']['count'] for v in raw_vectors]
+          assert [r['line36_count'] for r in rows443]==[
+            v['line36']['count'] for v in raw_vectors]
+          assert [r['native_solver_gate_skipped'] for r in rows443]==[
+            False,False,False,False,True,False]
+          assert all(not r['native_residual_dispatch_executed'] if r['native_solver_gate_skipped']
+                     else r['native_residual_dispatch_executed']
+                     for r in rows443)
+          def expected_native_branch(r):
+            if r['native_solver_gate_skipped']: return None
+            return ('0x129a64' if r['line36_count'] else
+                    '0x128da8' if r['point28_count'] else '0x128b10')
+          assert all(r.get('source_original_native_branch_stop')==expected_native_branch(r)
+                     for r in rows443)
+          assert all(r.get('source_original_native_branch_pcs',[None])[0]=='0x128d84'
+                     for r in rows443 if not r['native_solver_gate_skipped'])
+          setup=getters['source_original_first_point_setup_rows_444']
+          assert getters['source_original_first_point_setup_444_requested']
+          assert getters['source_original_first_point_setup_444_completed'],getters.get('source_original_callback_execution_error')
+          assert getters['source_original_point_setup_loss_factory_executed_444']
+          assert not getters['source_original_first_point_numeric_residual_executed_444']
+          assert len(setup)==6
+          assert setup==d['checkpoint444_fourth_original_first_point_setup']
+          assert [r['pair_index'] for r in setup]==list(range(6))
+          assert [r['status_u32'] for r in setup]==[0,0,0,0,2,0]
+          assert [r['source_native_point_row_count'] for r in setup]==[25,15,16,11,0,19]
+          assert [r['source_original_first_point_setup_executed'] for r in setup]==[
+            True,True,True,True,False,True]
+          expected_point_pcs=['0x128da8','0x128dac','0x128db0',
+                              '0x128e38','0x128e3c','0x128e40']
+          for row in setup:
+            if row['native_solver_gate_skipped']:
+              assert row['pair_index']==4 and not row['source_original_first_point_setup_executed']
+              continue
+            assert row['source_original_point_setup_pcs']==expected_point_pcs
+            assert row['source_original_point_iteration_x24']==0
+            assert row['source_original_point_offset_x25']==0
+            assert row['source_original_first_helper_call_pc']=='0x128e40'
+            assert row['source_original_first_helper_target_pc']=='0x129e80'
+            assert row['source_original_first_helper_not_executed']
+            assert row['source_original_source_points_unchanged']
+            assert len(bytes.fromhex(row['source_original_first_point_source_28_bytes_hex']))==28
+            assert row['source_original_first_point_begin_x28']==raw_vectors[row['pair_index']]['point28']['begin']
+          assert sum(r['source_native_point_row_count'] for r in setup)==86
+          loss=getters['source_original_loss_call_445_rows']
+          assert getters['source_original_loss_call_445_requested']
+          assert getters['source_original_loss_call_445_completed'],getters.get('source_original_callback_execution_error')
+          assert not getters['source_original_loss_factory_direct_vm_call_used_445']
+          assert not getters['source_original_ceres_cost_functor_executed_445']
+          assert not getters['source_original_full_solver_Ceres_executed_445']
+          original_options=getters['source_original_elf_options_selector_rodata_445']
+          assert original_options['word_pc']=='0x619f0'
+          assert original_options['original_word_u32']==1
+          options_source=d['checkpoint446_fourth_source_original_options']
+          assert getters['source_original_options_init_446_requested']
+          assert getters['source_original_options_init_446_completed']
+          assert getters['source_original_options_prologue_handoff_446_completed']
+          assert getters['source_original_options_loss_selector_no_w0_substitution_446']
+          assert getters['source_original_loss_call_446_completed'],getters.get('source_original_callback_execution_error')
+          assert options_source==getters['source_original_options_native_owner_446']
+          assert options_source['source_original_mov_w20_one_pc']=='0x11ed50'
+          assert options_source['source_original_solver_store_x2_pc']=='0x1287e4'
+          assert options_source['source_original_initialization_pcs']==[
+            hex(pc) for pc in range(0x11ed64,0x11ed90,4)]
+          assert options_source['source_original_native_option_words']=={
+            'match_loss_selector':1,'max_iterations':50,
+            'sensor_prior_choice':1,'allow_no_convergence':1}
+          assert options_source['source_original_options_bytes_written_only_by_original_arm64']
+          assert options_source['source_original_source_options_pointer_x2_test_supplied']
+          assert options_source['source_original_original_full_prologue_not_executed']
+          assert options_source['source_original_original_finalizer_full_call_not_executed']
+          assert not options_source['source_original_original_w0_register_override_used']
+          assert original_options['source_original_factory_caller_pc']=='0x128e40'
+          assert original_options['source_original_factory_entry_pc']=='0x129e80'
+          assert original_options['source_original_factory_return_pc']=='0x128e44'
+          assert not original_options['option_stack_frame_naturally_executed']
+          assert loss==d['checkpoint445_fourth_original_loss_caller']
+          assert len(loss)==6
+          assert [r['pair_index'] for r in loss]==list(range(6))
+          assert [r['status_u32'] for r in loss]==[0,0,0,0,2,0]
+          assert [r['source_original_loss_factory_caller_executed'] for r in loss]==[
+            True,True,True,True,False,True]
+          import struct
+          huber_bits=struct.unpack('<Q',struct.pack('<d',35.0))[0]
+          for row in loss:
+            if row['native_solver_gate_skipped']:
+              assert row['pair_index']==4 and not row['source_original_loss_factory_caller_executed']
+              continue
+            assert not row['source_original_source_options_stack_not_executed']
+            assert row['source_original_native_option_initializer_executed_446']
+            assert row['source_original_native_prologue_pointer_store_executed_446']
+            assert row['source_original_native_w0_no_register_patch_446']
+            assert row['source_original_selector_from_elf_rodata']==1
+            assert isinstance(row['original_native_caller_w0_before_abi_join'],int)
+            assert row['original_native_caller_w0_before_abi_join']==1
+            assert not row['source_original_selector_abi_join_test_controlled']
+            assert row['source_original_real_native_bl_entry_pc']=='0x128e40'
+            assert row['source_original_native_factory_method_pc']=='0x129e80'
+            assert row['source_original_native_factory_return_pc']=='0x128e44'
+            assert row['source_original_loss_factory_entry_count']==1
+            assert row['source_original_loss_vtable_ptr']=='0x3fe228'
+            assert row['source_original_huber_delta_f64_bits']==huber_bits
+            assert row['source_original_loss_object_matches_huber_delta35']
+            assert row['source_original_first_28_matcher_row_unchanged']
+            assert len(bytes.fromhex(row['original_returned_loss_object_16_bytes_hex']))==16
+            assert row['source_original_loss_code_trace_pcs'][-1]=='0x128e44'
+          costs=getters['source_original_point_cost_447_rows']
+          assert costs==d['checkpoint447_fourth_original_point_cost_payload']
+          assert getters['source_original_point_cost_447_requested']
+          assert getters['source_original_point_cost_447_completed'],getters.get('source_original_callback_execution_error')
+          assert getters['source_original_point_cost_447_allocator_source_called']
+          assert getters['source_original_point_cost_447_functor_allocation_not_executed']
+          assert getters['source_original_point_cost_447_Ceres_problem_not_executed']
+          assert len(costs)==6
+          assert [r['pair_index'] for r in costs]==list(range(6))
+          assert [r['status_u32'] for r in costs]==[0,0,0,0,2,0]
+          assert [r['source_original_point_cost_payload_written'] for r in costs]==[
+            True,True,True,True,False,True]
+          expected_cost_pcs=['0x128e44','0x128e48','0x128e4c',
+            '0x128e50','0x128e54','0x128e58','0x128e5c','0x128e60',
+            '0x128e64','0x128e68','0x128e6c','0x128e70',
+            '0x128e74','0x128e78','0x128e7c','0x128e80']
+          for row in costs:
+            if row['native_solver_gate_skipped']:
+              assert row['pair_index']==4
+              continue
+            assert row['source_original_native_cost_payload_allocation_bytes']==40
+            assert row['source_original_native_cost_allocator_pc']=='0x3f19f4'
+            assert row['source_original_native_cost_allocator_entry_count']==1
+            assert row['source_original_native_4f32_to_4f64_verified']
+            assert row['source_original_native_weight_scale_f32_preserved']
+            assert row['source_original_original_source_rows_unchanged']
+            assert row['source_original_native_cost_payload_source_pcs']==expected_cost_pcs
+            assert row['source_original_native_cost_payload_stop_pc']=='0x128e80'
+            assert row['source_original_next_cost_functor_allocation_not_executed']
+            assert row['source_original_native_cost_payload_prefix_36_hex']==row['source_original_expected_source_28_row_widening_hex']
+            native_payload=bytes.fromhex(row['source_original_native_cost_payload_prefix_36_hex'])
+            native_match=bytes.fromhex(row['source_original_matcher_row_28_hex'])
+            assert len(native_payload)==36 and len(native_match)==28
+            f32=struct.unpack('<4f',native_match[:16])
+            assert native_payload==struct.pack('<4d',*f32)+native_match[24:28]
+            assert row['source_original_loss_ptr_owner_x26']==loss[row['pair_index']]['original_returned_loss_object_ptr']
+          assert sum(r['source_original_point_cost_payload_written'] for r in costs)==5
+          owners=getters['source_original_cost_owner_448_rows']
+          assert owners==d['checkpoint448_fourth_original_cost_owner']
+          assert getters['source_original_cost_owner_448_requested']
+          assert getters['source_original_cost_owner_448_completed'],getters.get('source_original_callback_execution_error')
+          assert getters['source_original_cost_owner_448_next_ceres_registration_not_executed']
+          assert getters['source_original_cost_owner_448_numeric_residual_not_evaluated']
+          assert len(owners)==6
+          assert [r['pair_index'] for r in owners]==list(range(6))
+          assert [r['status_u32'] for r in owners]==[0,0,0,0,2,0]
+          assert [r['source_original_cost_owner_constructed'] for r in owners]==[
+            True,True,True,True,False,True]
+          ctor_pcs=[hex(p) for p in range(0x12e2fc,0x12e318,4)]
+          for row in owners:
+            if row['native_solver_gate_skipped']:
+              assert row['pair_index']==4
+              continue
+            assert row['source_original_native_owner_allocation_bytes']==56
+            assert row['source_original_native_owner_allocator_pc']=='0x3f19f4'
+            assert row['source_original_native_owner_constructor_pc']=='0x12e2fc'
+            assert row['source_original_native_owner_allocator_entries']==1
+            assert row['source_original_native_owner_constructor_entries']==1
+            assert row['source_original_native_owner_vtable']=='0x3fe1e0'
+            assert row['source_original_native_owner_initial_36_hex']==(
+              (struct.pack('<Q',0x3fe1e0)+bytes(28)).hex())
+            assert row['source_original_native_owner_initial_bytes_verified']
+            assert row['source_original_native_owner_constructor_source_pcs']==ctor_pcs
+            assert row['source_original_native_owner_stop_pc']=='0x128e90'
+            assert row['source_original_previous_cost_data_x27']==costs[row['pair_index']]['source_original_cost_payload_owner_x27']
+            assert row['source_original_previous_loss_x26']==loss[row['pair_index']]['original_returned_loss_object_ptr']
+            assert row['source_original_cost_data_and_matcher_unchanged']
+            assert row['source_original_cost_registration_not_executed']
+          assert sum(r['source_original_cost_owner_constructed'] for r in owners)==5
+          wire=getters['source_original_point_wiring_450_rows']
+          wire_stack=getters['source_original_point_wiring_450_stack_owner']
+          assert getters['source_original_point_wiring_450_requested']
+          assert getters['source_original_point_wiring_450_completed'],getters.get('source_original_callback_execution_error')
+          assert getters['source_original_point_wiring_450_stack_source_executed']
+          assert getters['source_original_point_wiring_450_ceres_problem_not_executed']
+          assert getters['source_original_point_wiring_450_residual_evaluate_not_executed']
+          assert wire==d['checkpoint450_fourth_original_point_wiring']
+          assert wire_stack==d['checkpoint450_fourth_original_vtable_and_parameter_stack']
+          assert wire_stack['source_original_pre_loop_entry_test_supplied']
+          assert not wire_stack['source_original_pre_loop_branch_unexecuted']
+          assert wire_stack['source_original_empty_pair_branch_executed_not_taken']
+          assert wire_stack['source_original_empty_pair_branch_pc']=='0x128ac4'
+          assert wire_stack['source_original_pre_loop_source_vector_owner_x25_test_supplied']
+          assert wire_stack['source_original_pre_loop_provider_x24_test_supplied']==getters['source_original_callback_provider_from_estimator_plus70']
+          assert int(wire_stack['source_original_source_pair_begin_retrieved_by_native_ldp'],16)>0
+          assert wire_stack['source_original_stack_writes_only_original_arm64']
+          assert wire_stack['source_original_native_source_pcs']==[
+            hex(pc) for pc in range(0x128ab8,0x128b04,4)]
+          assert wire_stack['source_original_got_a_address']=='0x412178'
+          assert wire_stack['source_original_got_b_address']=='0x412180'
+          assert wire_stack['source_original_template_rodata_address']=='0x620f0'
+          assert int(wire_stack['source_original_vtable_a_pointer'],16)==(
+            int(wire_stack['source_original_got_a_value'],16)+0x10)
+          assert int(wire_stack['source_original_vtable_b_pointer'],16)==(
+            int(wire_stack['source_original_got_b_value'],16)+0x10)
+          template=bytes.fromhex(wire_stack['source_original_template_16_bytes_hex'])
+          assert len(template)==16
+          assert len(wire)==6
+          assert [r['pair_index'] for r in wire]==list(range(6))
+          assert [r['status_u32'] for r in wire]==[0,0,0,0,2,0]
+          assert [r['source_original_point_wiring_executed'] for r in wire]==[
+            True,True,True,True,False,True]
+          expected_wire_pcs=[hex(pc) for pc in range(0x128e90,0x128ebc,4)]
+          for row in wire:
+            if row['native_solver_gate_skipped']:
+              assert row['pair_index']==4
+              continue
+            assert row['source_original_native_residual_dimension']==2
+            assert row['source_original_parameter_owner_malloc_bytes']==16
+            assert row['source_original_parameter_owner_allocator_entries']==1
+            assert row['source_original_native_wired_vtable_address']==wire_stack['source_original_vtable_b_pointer']
+            assert bytes.fromhex(row['source_original_point_parameter_block_16_hex'])==template
+            assert row['source_original_point_wiring_source_pcs']==expected_wire_pcs
+            assert row['source_original_point_wiring_stop_pc']=='0x128eb8'
+            assert row['source_original_point_wiring_stack_source_native']
+            assert row['source_original_data_loss_matcher_unchanged']
+            assert row['source_original_ceres_problem_registration_unexecuted']
+            assert row['source_original_cost_owner_address']==owners[row['pair_index']]['source_original_native_owner_address']
+            expected_owner=(struct.pack('<Q',int(wire_stack['source_original_vtable_b_pointer'],16))+
+                            bytes(24)+struct.pack('<I',2))
+            assert bytes.fromhex(row['source_original_native_wired_cost_owner_36_hex'])==expected_owner
+          assert sum(int(r['source_original_point_wiring_executed']) for r in wire)==5
+          handoff=getters['source_original_point_row_451_rows']
+          assert handoff==d['checkpoint451_fourth_original_point_row_handoff']
+          assert getters['source_original_point_row_451_requested']
+          assert getters['source_original_point_row_451_completed'],getters.get('source_original_callback_execution_error')
+          assert getters['source_original_point_row_451_ceres_add_not_called']
+          assert getters['source_original_point_row_451_all_numeric_residuals_unexecuted']
+          assert len(handoff)==6
+          assert [r['pair_index'] for r in handoff]==list(range(6))
+          assert [r['status_u32'] for r in handoff]==[0,0,0,0,2,0]
+          assert [r['source_original_first_point_row_handoff_executed'] for r in handoff]==[
+            True,True,True,True,False,True]
+          expected_cbz_pcs=['0x128eb8']+[hex(pc) for pc in range(0x128db4,0x128e08,4)]
+          for row in handoff:
+            if row['native_solver_gate_skipped']:
+              assert row['pair_index']==4
+              continue
+            assert row['source_original_native_cbz_null_owner_taken']
+            assert row['source_original_native_cbz_source_pc']=='0x128eb8'
+            assert row['source_original_native_branch_destination']=='0x128db4'
+            assert row['source_original_native_row_source_pcs']==expected_cbz_pcs
+            assert row['source_original_native_handoff_stop_pc']=='0x128e04'
+            assert row['source_original_native_cost_wrapper_vtable']=='0x3fe060'
+            assert row['source_original_native_4_parameter_block_sizes']==[4,4,2,1]
+            assert len(row['source_original_native_4_parameter_pointer_args'])==4
+            assert row['source_original_cost_owner_ptr']==owners[row['pair_index']]['source_original_native_owner_address']
+            assert row['source_original_huber_loss_ptr']==loss[row['pair_index']]['original_returned_loss_object_ptr']
+            assert row['source_original_native_point_cost_data_ptr']==costs[row['pair_index']]['source_original_cost_payload_owner_x27']
+            assert row['source_original_native_param_sizes_ptr']==wire[row['pair_index']]['source_original_point_parameter_block_address']
+            assert row['source_original_native_residual_dimension']==2
+            assert row['source_original_native_wrapper_residual_metadata_one']
+            assert row['source_original_native_add_residual_arg_count']==4
+            assert row['source_original_native_first_point_observation_unchanged']
+            assert row['source_original_native_add_residual_BL_not_executed']
+          assert sum(int(r['source_original_first_point_row_handoff_executed']) for r in handoff)==5
+          ctor=getters['source_original_problem_ctor_453_probe']
+          assert ctor==d['checkpoint453_fourth_native_ceres_pimpl_initializer']
+          assert getters['source_original_problem_ctor_453_requested']
+          assert getters['source_original_problem_ctor_453_completed']
+          assert getters['source_original_problem_ctor_453_auxiliary_initializer_unexecuted']
+          assert getters['source_original_problem_ctor_453_original_wrapper_pointer_store_unexecuted']
+          assert getters['source_original_problem_ctor_453_ceres_add_residual_unexecuted']
+          assert ctor['source_original_problem_wrapper_pointer_test_supplied']
+          assert ctor['source_original_original_setup_x0_test_supplied']
+          assert ctor['source_original_source_constructor_entry']=='0x133b48'
+          assert ctor['source_original_source_internal_ctor_entry']=='0x1342ec'
+          assert ctor['source_original_source_auxiliary_ctor_stop']=='0x1399c0'
+          assert ctor['source_original_native_three_allocations']==[192,56,216]
+          assert ctor['source_original_native_internal_constructor_fields_verified']
+          assert ctor['source_original_native_aux56_all_zero']
+          assert not ctor['source_original_native_216byte_auxiliary_initializer_executed']
+          assert not ctor['source_original_native_pimpl_216byte_pointer_attachment_executed']
+          assert not ctor['source_original_native_stack_wrapper_pointer_store_executed']
+          assert not ctor['source_original_native_ceres_registration_executed']
+          assert len({ctor['source_original_native_pimpl_address'],
+                      ctor['source_original_native_56byte_address'],
+                      ctor['source_original_native_216byte_address']})==3
+          assert len(ctor['source_original_native_pimpl_first_192_sha256'])==64
+          fov=d['checkpoint440_fourth_original_fov_copy']
+          assert fov['source_original_same_six_matcher_pairs_verified']
+          assert fov['source_original_graph_and_postgraph_returned']
+          assert fov['source_original_fov_owner_pointer_test_supplied']
+          receipt={
+            'elf_sha256':d['original_elf_sha256'],
+            'source_import':original,
+            'host_libm_approximation':True,
+            'bionic_parity_proven':False,
+            'full_session_flush_executed':False,
+            'full_ceres_executed':False,
+            'source_original_postgraph_completed':p['source_original_postgraph_completed'],
+            'native_postgraph_error':p.get('source_original_postgraph_execution_error'),
+            'source_original_postgraph_pc_trace':p['source_original_postgraph_pc_trace'],
+            'source_original_import_calls':p['source_original_import_calls'],
+            'source_original_status_loads':p['source_original_status_loads'],
+            'source_original_status_branches':p['source_original_status_branches'],
+            'source_original_weight_writes':p['source_original_weight_writes'],
+            'source_original_pair_buffer_writes':p['source_original_pair_buffer_writes'],
+            'source_original_pair_status_field_writes':p['source_original_pair_status_field_writes'],
+            'source_original_pairs_before':before,
+            'source_original_pairs_after':after,
+            'source_original_model_count_callback':p.get('source_original_model_count_callback'),
+            'source_original_status_gate_440':gate,
+            'source_original_fov_copy_440':fov,
+            'source_original_solver_gate_441':solver,
+            'source_original_native_getters_442':getters,
+            'source_original_residual_branch_rows_443':rows443,
+            'source_original_matcher_owned_nested_vectors_443':raw_vectors,
+            'source_original_first_point_setup_rows_444':setup,
+            'source_original_loss_caller_rows_445':loss,
+            'source_original_options_selector_rodata_445':original_options,
+            'source_original_native_written_options_446':options_source,
+            'source_original_point_cost_payload_447':costs,
+            'source_original_point_cost_owner_448':owners,
+            'source_original_point_wiring_450':wire,
+            'source_original_point_stack_source_450':wire_stack,
+            'source_original_point_row_handoff_451':handoff,
+            'source_original_native_ceres_pimpl_453':ctor
+          }
+          with open('checkpoint453-source-receipt.json','w') as f:
+            json.dump(receipt,f,indent=2,sort_keys=True);f.write('\n')
+          print('CHECKPOINT453_NATIVE_POSTGRAPH_SOURCE',json.dumps({
+            'symbol':original['original_import_symbol'],
+            'host_calls':len(p['source_original_import_calls']),
+            'postgraph_return':p['source_original_postgraph_completed'],
+            'last_boundary':p.get('source_original_postgraph_execution_error'),
+            'status_loads':len(p['source_original_status_loads']),
+            'status_writes':len(p['source_original_pair_status_field_writes']),
+            'statuses_after':[r['status_u32'] for r in after],
+            'status_gate_next_pcs':[r['next_pc'] for r in gate],
+            'fov_copies_completed':fov['source_original_four_vector_copy_completed'],
+            'fov_copies_verified':fov['source_original_four_vector_copy_verified'],
+            'native_fov_copy_error':fov.get('source_original_copy_execution_error'),
+            'native_fov_validation_error':fov.get('source_original_copy_validation_error'),
+            'fov_helper_visits':fov['source_original_original_helper_visits'],
+            'solver_vtable_target':solver['source_original_solver_vtable_target'],
+            'solver_status_rows':len(native_rows),
+            'solver_branches':[r['source_original_branch'] for r in native_rows],
+            'solver_source_buffer_unchanged':solver['source_original_source_pair_records_unchanged'],
+            'source_owned_children':len(getters['source_original_provider_owned_child_addresses']),
+            'native_getter_calls':sum(x['source_original_callback_calls'] for x in cb_rows),
+            'native_provider_getter_target':getters['source_original_provider_getter_target'],
+            'native_center_getter_target':getters['source_original_center_getter_target'],
+            'native_focal_getter_target':getters['source_original_focal_getter_target'],
+            'source_pair_buffer_unchanged':getters['source_original_pair_buffer_unchanged'],
+            'native_getter_error':getters.get('source_original_callback_execution_error'),
+            'residual_point_row_counts':[r['point28_count'] for r in rows443],
+            'residual_line_row_counts':[r['line36_count'] for r in rows443],
+            'residual_original_branch_pcs':[r.get('source_original_native_branch_stop') for r in rows443],
+            'residual_original_dispatch_verified':getters['source_original_residual_dispatch_443_completed'],
+            'residual_original_payloads_unchanged':getters['source_original_nested_vector_payloads_unchanged_443'],
+            'first_point_setup_original_source_pcs':expected_point_pcs,
+            'first_point_setup_accepted_count':sum(int(r['source_original_first_point_setup_executed']) for r in setup),
+            'first_point_setup_original_loss_factory_called':getters['source_original_point_setup_loss_factory_executed_444'],
+            'first_point_setup_verified':getters['source_original_first_point_setup_444_completed'],
+            'source_native_factory_bl_calls':sum(int(r['source_original_loss_factory_caller_executed']) for r in loss),
+            'source_native_caller_original_w0':[r.get('original_native_caller_w0_before_abi_join') for r in loss],
+            'source_native_selector_test_abi_joins':[r.get('source_original_selector_abi_join_test_controlled') for r in loss],
+            'source_native_huber_vptrs':[r.get('source_original_loss_vtable_ptr') for r in loss],
+            'source_native_loss_caller_verified':getters['source_original_loss_call_445_completed'],
+            'native_original_options_initializer_pcs':options_source['source_original_initialization_pcs'],
+            'native_original_options_fields':options_source['source_original_native_option_words'],
+            'native_original_options_x2_input_test_supplied':options_source['source_original_source_options_pointer_x2_test_supplied'],
+            'native_original_options_no_direct_W0_substitution':getters['source_original_options_loss_selector_no_w0_substitution_446'],
+            'native_original_options_and_loss_caller_446_verified':getters['source_original_loss_call_446_completed'],
+            'source_native_point_cost_447_verified':getters['source_original_point_cost_447_completed'],
+            'source_native_point_cost_447_count':sum(int(r['source_original_point_cost_payload_written']) for r in costs),
+            'source_native_point_cost_447_sizes':[r.get('source_original_native_cost_payload_allocation_bytes') for r in costs],
+            'source_native_point_cost_447_stop_pc':'0x128e80',
+            'source_native_point_cost_447_next_ceres_unexecuted':getters['source_original_point_cost_447_functor_allocation_not_executed'],
+            'source_native_cost_owner_448_verified':getters['source_original_cost_owner_448_completed'],
+            'source_native_cost_owner_448_count':sum(int(r['source_original_cost_owner_constructed']) for r in owners),
+            'source_native_cost_owner_448_size_bytes':56,
+            'source_native_cost_owner_448_vtable':'0x3fe1e0',
+            'source_native_cost_owner_448_original_constructor':'0x12e2fc',
+            'source_native_cost_owner_448_native_stop':'0x128e90',
+            'source_native_cost_owner_448_ceres_registration_not_executed':getters['source_original_cost_owner_448_next_ceres_registration_not_executed'],
+            'source_native_point_wiring_450_verified':getters['source_original_point_wiring_450_completed'],
+            'source_native_point_wiring_450_count':sum(int(r['source_original_point_wiring_executed']) for r in wire),
+            'source_native_point_wiring_450_vtable':wire_stack['source_original_vtable_b_pointer'],
+            'source_native_point_wiring_450_parameter_template_16_hex':template.hex(),
+            'source_native_point_wiring_450_stop_pc':'0x128eb8',
+            'source_native_point_wiring_450_full_ceres_unexecuted':getters['source_original_point_wiring_450_ceres_problem_not_executed'],
+            'source_native_point_row_451_verified':getters['source_original_point_row_451_completed'],
+            'source_native_point_row_451_count':sum(int(r['source_original_first_point_row_handoff_executed']) for r in handoff),
+            'source_native_point_row_451_cost_vtable':'0x3fe060',
+            'source_native_point_row_451_params':[4,4,2,1],
+            'source_native_point_row_451_stop_pc':'0x128e04',
+            'source_native_point_row_451_ceres_not_executed':getters['source_original_point_row_451_ceres_add_not_called'],
+            'source_native_ceres_pimpl_453_verified':getters['source_original_problem_ctor_453_completed'],
+            'source_native_ceres_pimpl_453_three_allocations':ctor['source_original_native_three_allocations'],
+            'source_native_ceres_pimpl_453_stop_pc':ctor['source_original_source_auxiliary_ctor_stop'],
+            'source_native_ceres_pimpl_453_auxiliary_unexecuted':not ctor['source_original_native_216byte_auxiliary_initializer_executed'],
+            'source_native_ceres_pimpl_453_registration_unexecuted':not ctor['source_original_native_ceres_registration_executed'],
+          }))
+          assert fov['source_original_four_vector_copy_completed'],fov.get('source_original_copy_execution_error')
+          assert fov['source_original_four_vector_copy_verified'],fov.get('source_original_copy_validation_error')
+          assert fov['source_original_copy_sources_unchanged']
+          PY
+      - name: Delete proprietary original APK and ELF
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so com.google.android.GoogleCamera_*.apk
+      - name: Upload source-only diagnostic receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-453-source-postgraph-abi
+          path: |
+            research-src/checkpoint453-source-import.json
+            research-src/checkpoint453-source-receipt.json
+            research-src/checkpoint453-diagnostic.log
+          retention-days: 7
+          if-no-files-found: warn
