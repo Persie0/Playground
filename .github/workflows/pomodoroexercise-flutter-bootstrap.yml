@@ -96,3 +96,14 @@ jobs:
             git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/feat/03-timer-engine
           fi
           echo 'Generated files and diagnostics updated in private feature branch.'
+      - name: Require validation success
+        working-directory: source
+        run: |
+          set -euo pipefail
+          grep -q '^Flutter analyze exit: 0
+ .ci/validation-report.md
+          grep -q '^Flutter tests exit: 0
+ .ci/validation-report.md
+          grep -q '^Android debug build exit: 0
+ .ci/validation-report.md
+          echo 'Flutter analysis, tests and Android build passed.'
