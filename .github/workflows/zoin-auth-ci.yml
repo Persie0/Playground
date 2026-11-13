@@ -1,0 +1,56 @@
+name: Zoin authentication integration validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/zoin-auth-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Test Zoin via public Playground runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out private Zoin feature branch (no credential persistence)
+        uses: actions/checkout@v4
+        with:
+          repository: perzis/zoin
+          ref: feature/firebase-auth-release-readiness
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install backend test dependencies
+        run: python -m pip install -r backend/requirements-dev.txt
+
+      - name: Run Zoin FastAPI test suite
+        env:
+          ENVIRONMENT: testing
+          PYTHONPATH: ${{ github.workspace }}/backend
+        run: python -m pytest -q backend/tests
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Analyze Flutter
+        run: flutter analyze
+
+      - name: Run Flutter tests
+        run: flutter test
+
+      - name: Compile Android debug app (no Firebase project is bundled)
+        run: flutter build apk --debug --dart-define=USE_DEMO=true
