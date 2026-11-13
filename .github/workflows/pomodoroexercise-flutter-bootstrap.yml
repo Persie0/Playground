@@ -98,12 +98,10 @@ jobs:
           echo 'Generated files and diagnostics updated in private feature branch.'
       - name: Require validation success
         working-directory: source
+        shell: bash
         run: |
           set -euo pipefail
-          grep -q '^Flutter analyze exit: 0
- .ci/validation-report.md
-          grep -q '^Flutter tests exit: 0
- .ci/validation-report.md
-          grep -q '^Android debug build exit: 0
- .ci/validation-report.md
+          grep -Fq 'Flutter analyze exit: 0' .ci/validation-report.md
+          grep -Fq 'Flutter tests exit: 0' .ci/validation-report.md
+          grep -Fq 'Android debug build exit: 0' .ci/validation-report.md
           echo 'Flutter analysis, tests and Android build passed.'
