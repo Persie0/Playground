@@ -37,7 +37,7 @@ jobs:
           set -euo pipefail
           test -n "$REPO_TOKEN" || { echo 'A private repository token must be configured'; exit 1; }
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --depth=1 --branch=feat/03-timer-engine https://github.com/Persie0/pomodoroexercise.git source
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --depth=1 --branch=feat/04-durable-timer-checkpoint https://github.com/Persie0/pomodoroexercise.git source
           test -f source/lib/main.dart
       - name: Generate platform runners without overwriting authored app
         working-directory: source
@@ -94,7 +94,7 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m 'build: generate Flutter runners and save private validation results'
             AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
-            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/feat/03-timer-engine
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/feat/04-durable-timer-checkpoint
           fi
           echo 'Generated files and diagnostics updated in private feature branch.'
       - name: Require validation success
