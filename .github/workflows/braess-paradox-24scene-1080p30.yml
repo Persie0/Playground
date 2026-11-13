@@ -1,0 +1,254 @@
+name: Braess Paradox - Complete 24 Scene 1080p30 Film (Public)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/braess-paradox-24scene-1080p30.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: braess-paradox-24-scenes-complete-1080p30-20261113
+  cancel-in-progress: false
+
+env:
+  PRIVATE_SOURCE_SHA: 9dc2688255a3a4230852155c6419972d38596475
+  ROOT: source/braess-paradox
+  RELEASE_TAG: braess-paradox-24scenes-1080p30-20261113
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+
+jobs:
+  audit-source:
+    name: Verify all source and 24 scene math/test contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout public Playground orchestration only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout pinned private source read-only (NO private Actions)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.PRIVATE_SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - name: Confirm reviewed source commit and full 24-scene inventory
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$PRIVATE_SOURCE_SHA"
+          test -f "$ROOT/production/build_master.py"
+          for n in $(seq 1 24); do
+            test -f "$ROOT/scene$n/render_scene$n.py"
+            test -f "$ROOT/scene$n/test_scene$n.py"
+          done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install rendering dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install --disable-pip-version-check -r "$ROOT/requirements.txt"
+      - name: Run full film production tests and verify exact 17m10s / 30900 frames
+        run: |
+          set -euo pipefail
+          cd "$ROOT"
+          python -m unittest discover -s production -v
+          python -m production.build_master audit-source
+      - name: Run every existing scene's mathematical and animation tests
+        run: |
+          set -euo pipefail
+          cd "$ROOT"
+          for n in $(seq 1 24); do
+            echo "::group::Scene $n source tests"
+            python -m unittest discover -s "scene$n" -p 'test_scene*.py' -v
+            echo "::endgroup::"
+          done
+
+  render-native-scenes:
+    name: Native 1080p30 - Scene ${{ matrix.scene }}
+    needs: [audit-source]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        scene: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read pinned real scene sources from private repo
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.PRIVATE_SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install original scene dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install --disable-pip-version-check -r "$ROOT/requirements.txt"
+      - name: Render original source in native 1920x1080 30fps with stereo sound
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$PRIVATE_SOURCE_SHA"
+          mkdir -p output/scenes
+          n='${{ matrix.scene }}'
+          printf -v nn '%02d' "$n"
+          python "$ROOT/scene$n/render_scene$n.py" \
+            --width 1920 --height 1080 --fps 30 --sound \
+            --output "output/scenes/scene$nn.mp4"
+          python "$ROOT/production/build_master.py" validate-scene \
+            --scene "$n" --file "output/scenes/scene$nn.mp4" \
+            --width 1920 --height 1080 --fps 30
+      - name: Save original source-rendered Full HD scene
+        uses: actions/upload-artifact@v4
+        with:
+          name: Braess-Scene-${{ matrix.scene }}-1080p30
+          path: output/scenes/scene*.mp4
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  assemble-verify-publish:
+    name: Assemble, fully decode, release verified 17m10s film
+    needs: [audit-source,render-native-scenes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout exact reviewed source for production validation
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.PRIVATE_SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install FFmpeg and seam-inspection libraries
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --disable-pip-version-check -r "$ROOT/requirements.txt"
+      - name: Download all 24 validated native scene artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Braess-Scene-*-1080p30
+          path: work/scenes
+          merge-multiple: true
+      - name: Verify individual files and assemble without video re-encoding
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$PRIVATE_SOURCE_SHA"
+          test "$(find work/scenes -maxdepth 1 -name 'scene[0-9][0-9].mp4' | wc -l)" -eq 24
+          mkdir -p release
+          python "$ROOT/production/build_master.py" assemble \
+            --input-dir work/scenes \
+            --width 1920 --height 1080 --fps 30 \
+            --source-sha "$PRIVATE_SOURCE_SHA" --full-decode \
+            --output release/Braess_Paradox_Complete_1080p30_Instrumental.mp4
+          (cd release && sha256sum -c Braess_Paradox_Complete_1080p30_Instrumental.SHA256SUMS.txt)
+      - name: Make a review contact sheet from the actual full film
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from PIL import Image,ImageDraw
+          import cv2
+          video='release/Braess_Paradox_Complete_1080p30_Instrumental.mp4'
+          manifest=json.loads(Path('release/Braess_Paradox_Complete_1080p30_Instrumental.manifest.json').read_text())
+          cap=cv2.VideoCapture(video)
+          assert cap.isOpened()
+          sheet=Image.new('RGB',(1920,1800),(13,22,39));draw=ImageDraw.Draw(sheet)
+          for c in manifest['chapters']:
+              frame_no=round((c['start_seconds']+.55*c['duration_seconds'])*30)
+              cap.set(cv2.CAP_PROP_POS_FRAMES,frame_no)
+              ok,frame=cap.read()
+              assert ok,(c,frame_no)
+              frame=cv2.cvtColor(cv2.resize(frame,(480,270)),cv2.COLOR_BGR2RGB)
+              i=c['scene']-1;x=(i%4)*480;y=(i//4)*300
+              sheet.paste(Image.fromarray(frame),(x,y+30))
+              draw.text((x+10,y+8),f"CHAPTER {i+1:02d}",fill=(225,233,244))
+          cap.release()
+          sheet.save('release/Braess_Paradox_24_Scene_Contact_Sheet.png')
+          PY
+      - name: Double-check complete master metadata and checksum
+        run: |
+          set -euo pipefail
+          ffprobe -hide_banner -v error -show_entries format=duration,size \
+            -show_entries stream=codec_name,codec_type,nb_frames,width,height,r_frame_rate,channels \
+            -of json release/Braess_Paradox_Complete_1080p30_Instrumental.mp4
+          test -s release/Braess_Paradox_Complete_1080p30_Instrumental.seams.json
+          test -s release/Braess_Paradox_Complete_1080p30_Instrumental.chapters.txt
+          (cd release && sha256sum -c Braess_Paradox_Complete_1080p30_Instrumental.SHA256SUMS.txt)
+      - name: Retain verified complete film and all diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: Braess-Paradox-Complete-24-Scenes-17m10s-1080p30-Verified
+          path: |
+            release/Braess_Paradox_Complete_1080p30_Instrumental.mp4
+            release/Braess_Paradox_Complete_1080p30_Instrumental.manifest.json
+            release/Braess_Paradox_Complete_1080p30_Instrumental.SHA256SUMS.txt
+            release/Braess_Paradox_Complete_1080p30_Instrumental.seams.json
+            release/Braess_Paradox_Complete_1080p30_Instrumental.chapters.txt
+            release/Braess_Paradox_24_Scene_Contact_Sheet.png
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Publish verified instrumental edition on public Playground Releases
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'NOTES'
+          # Braess's Paradox — complete 24-scene mathematical animation
+
+          - **17 minutes 10 seconds**, 1920×1080 Full HD at 30fps: exactly **30,900 native source-rendered frames**.
+          - Original synthesized stereo soundscapes with 24 chapters.
+          - Source: reviewed private `Persie0/manimVideos` commit `9dc2688255a3a4230852155c6419972d38596475` (read-only checkout).
+          - All 24 individual clips, 23 decoded chapter joins, full 1080p H.264/video decode and stereo AAC decode verified.
+          - Includes SHA-256 checksum, immutable source-pinned manifest, YouTube chapter timestamps, decoded seam report, and 24-scene contact sheet.
+          - **No spoken narration** in this edition. The speech script is editorial; a timed neural narration and selectable SRT require separate production.
+          - Rendered only using the **public** `Persie0/Playground` Actions environment. No private-repository Actions used.
+          NOTES
+          shopt -s nullglob
+          files=(release/Braess_Paradox_Complete_1080p30_Instrumental.mp4 \
+                 release/Braess_Paradox_Complete_1080p30_Instrumental.manifest.json \
+                 release/Braess_Paradox_Complete_1080p30_Instrumental.SHA256SUMS.txt \
+                 release/Braess_Paradox_Complete_1080p30_Instrumental.seams.json \
+                 release/Braess_Paradox_Complete_1080p30_Instrumental.chapters.txt \
+                 release/Braess_Paradox_24_Scene_Contact_Sheet.png)
+          if gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${files[@]}" --repo Persie0/Playground --clobber
+            gh release edit "$RELEASE_TAG" --repo Persie0/Playground --notes-file release-notes.md --latest=false
+          else
+            gh release create "$RELEASE_TAG" "${files[@]}" \
+              --repo Persie0/Playground --target "$GITHUB_SHA" \
+              --title "Braess's Paradox — 24 Scenes, 17:10, Full HD 30fps Original Soundscape" \
+              --notes-file release-notes.md --latest=false
+          fi
