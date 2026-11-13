@@ -1,0 +1,216 @@
+name: Langton Ant - Complete 20 Scene 1080p30 Master (Public)
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/langtons-ant-complete-public.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: langtons-ant-full-film-20261113
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: aafe15e77a137a8a09fc849f933c77e93c90eff6
+  RELEASE_TAG: langtons-ant-complete-1080p30-20261113
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+
+jobs:
+  complete-film:
+    name: Verify and render all 20 authentic scene sources
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install render requirements
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install --disable-pip-version-check -r source/langtons-ant/requirements.txt
+      - name: Verify pinned source and mathematical tests
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          for n in $(seq 1 20); do test -f "source/langtons-ant/scene$n/render_scene$n.py"; done
+          cd source/langtons-ant
+          python -m unittest tests.test_ant tests.test_scene18 tests.test_scene19 tests.test_scene20 -v
+      - name: Render 20 full HD sources sequentially
+        run: |
+          set -euo pipefail
+          mkdir -p output/scenes
+          cd source/langtons-ant
+          for n in $(seq 1 20); do
+            printf -v nn '%02d' "$n"
+            echo "::group::Langton Scene $n"
+            if test "$n" = 1; then
+              python "scene$n/render_scene$n.py" --width 1920 --height 1080 --fps 30 \
+                --output "../../output/scenes/scene$nn.mp4"
+            else
+              python "scene$n/render_scene$n.py" --width 1920 --height 1080 --fps 30 \
+                --previous-fps 30 --output "../../output/scenes/scene$nn.mp4"
+            fi
+            test -s "../../output/scenes/scene$nn.mp4"
+            echo "::endgroup::"
+          done
+      - name: Verify per-scene media and 19 real decoded seams
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import cv2,json,numpy as np,subprocess
+          durations=[18,34,40,34,36,32,38,38,35,42,36,45,38,40,40,45,45,42,38,34]
+          assert sum(durations)==750
+          files=[Path(f'output/scenes/scene{i:02d}.mp4') for i in range(1,21)]
+          for i,(f,d) in enumerate(zip(files,durations),1):
+              info=json.loads(subprocess.check_output(['ffprobe','-v','error','-count_frames','-show_entries',
+                'stream=codec_name,width,height,r_frame_rate,nb_read_frames,channels','-of','json',str(f)]))
+              v=next(x for x in info['streams'] if x.get('codec_name')=='h264')
+              a=next(x for x in info['streams'] if x.get('codec_name')=='aac')
+              assert (v['width'],v['height'],v['r_frame_rate'],int(v['nb_read_frames']))==(1920,1080,'30/1',d*30),(i,v)
+              assert a['channels']==2,(i,a)
+              print(f'Validated scene {i:02d}: {d*30} frames; stereo AAC',flush=True)
+          report=[]
+          for i in range(19):
+              c=cv2.VideoCapture(str(files[i]))
+              c.set(cv2.CAP_PROP_POS_FRAMES,durations[i]*30-1)
+              ok,last=c.read();c.release()
+              c=cv2.VideoCapture(str(files[i+1]))
+              ok2,first=c.read();c.release()
+              assert ok and ok2 and last.shape==first.shape
+              diff=np.abs(last.astype(np.int16)-first.astype(np.int16))
+              avg=float(diff.mean());p99=float(np.percentile(diff,99))
+              print(f'Seam {i+1:02d}->{i+2:02d}: MAE {avg:.3f}/255, p99 {p99:.1f}',flush=True)
+              assert avg<8,(i,avg)
+              report.append({'from':i+1,'to':i+2,'mean_abs_pixel_channel':avg,'p99':p99})
+          Path('output/decoded_source_seams.json').write_text(json.dumps(report,indent=2))
+          PY
+      - name: Make 12m30 chapter list and concatenate master
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          durations=[18,34,40,34,36,32,38,38,35,42,36,45,38,40,40,45,45,42,38,34]
+          names=['A Road Nobody Planned','One Ant, Infinite Tiles','White, Black, Turn, Flip, Move',
+            'The Fifth Step','The Floor Remembers','Not Random at All','Unexpected Symmetry',
+            'When the Pattern Breaks','Ten Thousand Decisions','The First Straight Escape',
+            'The Highway Reveal','Count to 104','Two Squares, Two Squares',
+            'The Road Grows, Not the Board Rewinds','Can We Break It?','One More Dimension: Time',
+            'The Question Nobody Has Settled','Rewrite the Turn Instructions',
+            'A Gallery of Ant Worlds','The Road From Two Instructions']
+          at=0
+          with Path('output/concat.txt').open('w') as c,Path('output/chapters.txt').open('w') as ch:
+              for i,(d,name) in enumerate(zip(durations,names),1):
+                  c.write(f"file 'scenes/scene{i:02d}.mp4'\nduration {d}.000000\n")
+                  ch.write(f'{at//60:02d}:{at%60:02d}  {i:02d}  {name}\n')
+                  at+=d
+              ch.write('12:30  END\n')
+          PY
+          ffmpeg -hide_banner -loglevel error -y -f concat -safe 0 -i output/concat.txt \
+            -map 0:v:0 -map 0:a:0 -c:v copy -c:a aac -ar 48000 -b:a 160k \
+            -af aresample=async=1:first_pts=0 -movflags +faststart \
+            output/Langtons_Ant_Complete_1080p30_Instrumental.mp4
+      - name: Verify master frame count, duration and decode
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,subprocess
+          video='output/Langtons_Ant_Complete_1080p30_Instrumental.mp4'
+          data=json.loads(subprocess.check_output(['ffprobe','-v','error','-count_frames',
+           '-show_entries','format=duration,size:stream=codec_name,width,height,r_frame_rate,nb_read_frames,channels',
+           '-of','json',video]))
+          v=next(s for s in data['streams'] if s.get('codec_name')=='h264')
+          a=next(s for s in data['streams'] if s.get('codec_name')=='aac')
+          assert (v['width'],v['height'],v['r_frame_rate'],int(v['nb_read_frames']))==(1920,1080,'30/1',22500),v
+          assert a['channels']==2,a
+          duration=float(data['format']['duration'])
+          assert 749.9<=duration<=750.6,duration
+          print('VERIFIED MASTER 20 chapters, 22500 frames, stereo AAC, 12:30 duration:',duration)
+          PY
+          ffmpeg -hide_banner -loglevel error -xerror \
+            -i output/Langtons_Ant_Complete_1080p30_Instrumental.mp4 -map 0:v:0 -f null -
+          sha256sum output/Langtons_Ant_Complete_1080p30_Instrumental.mp4 \
+            > output/Langtons_Ant_Complete_1080p30_Instrumental.sha256
+      - name: Contact sheet from the actual complete master
+        run: |
+          set -euo pipefail
+          mkdir -p output/stills
+          python - <<'PY'
+          import subprocess
+          from pathlib import Path
+          from PIL import Image,ImageDraw
+          lengths=[18,34,40,34,36,32,38,38,35,42,36,45,38,40,40,45,45,42,38,34]
+          cursor=0
+          for i,d in enumerate(lengths,1):
+              subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-y',
+                '-ss',str(cursor+d*.55),
+                '-i','output/Langtons_Ant_Complete_1080p30_Instrumental.mp4',
+                '-frames:v','1','-vf','scale=480:270',f'output/stills/scene{i:02d}.png'],check=True)
+              cursor+=d
+          sheet=Image.new('RGB',(1920,1500),(18,24,30))
+          for i,p in enumerate(sorted(Path('output/stills').glob('scene*.png'))):
+              x=(i%4)*480;y=(i//4)*300
+              sheet.paste(Image.open(p).convert('RGB'),(x,y+30))
+              ImageDraw.Draw(sheet).text((x+13,y+6),f'CHAPTER {i+1:02d}',fill=(230,238,230))
+          sheet.save('output/Langtons_Ant_Complete_Contact_Sheet.png')
+          PY
+      - name: Publish verified instrumental master on public Playground
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > output/RELEASE_NOTES.md <<'EOF'
+          Complete 20-scene Langton's Ant mathematical film, **without voiceover**.
+          Original synthesized instrumental sound, 1920x1080, 30fps, H.264/AAC.
+          12 minutes 30 seconds; exactly 22,500 video frames.
+          Source: pinned, reviewed Persie0/manimVideos aafe15e77a137a8a09fc849f933c77e93c90eff6.
+          All 20 chapters, 19 decoded chapter seams, and full decode were verified.
+          Finite highway observations do not settle the general highway conjecture.
+          EOF
+          export GH_REPO=Persie0/Playground
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              output/Langtons_Ant_Complete_1080p30_Instrumental.mp4 \
+              output/Langtons_Ant_Complete_1080p30_Instrumental.sha256 \
+              output/Langtons_Ant_Complete_Contact_Sheet.png \
+              output/decoded_source_seams.json output/chapters.txt --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "Langton's Ant — Full 20-Scene 1080p30 Instrumental Film" \
+              --notes-file output/RELEASE_NOTES.md --target main \
+              output/Langtons_Ant_Complete_1080p30_Instrumental.mp4 \
+              output/Langtons_Ant_Complete_1080p30_Instrumental.sha256 \
+              output/Langtons_Ant_Complete_Contact_Sheet.png \
+              output/decoded_source_seams.json output/chapters.txt
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Langtons-Ant-Complete-20-Scene-1080p30
+          path: |
+            output/Langtons_Ant_Complete_1080p30_Instrumental.mp4
+            output/Langtons_Ant_Complete_1080p30_Instrumental.sha256
+            output/Langtons_Ant_Complete_Contact_Sheet.png
+            output/decoded_source_seams.json
+            output/chapters.txt
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 30
