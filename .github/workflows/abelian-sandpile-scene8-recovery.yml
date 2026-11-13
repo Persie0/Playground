@@ -121,11 +121,11 @@ jobs:
           PY
           ffmpeg -nostdin -hide_banner -loglevel error -xerror \
             -i release/Abelian_Sandpile_Scene08_1080p30_Original_Instrumental.mp4 -f null -
-          sha256sum release/Abelian_Sandpile_Scene08_1080p30_Original_Instrumental.mp4 \
-            > release/Scene08_SHA256SUMS.txt
-          (cd release && sha256sum -c Scene08_SHA256SUMS.txt)
+          (cd release && sha256sum Abelian_Sandpile_Scene08_1080p30_Original_Instrumental.mp4 \
+            > Scene08_SHA256SUMS.txt && sha256sum -c Scene08_SHA256SUMS.txt)
           cp private-source/abelian-sandpile/subtitles/scene8.srt release/Scene08_external_subtitles.srt
-      - name: Upload verified scene artifact
+      - name: Upload recovered scene artifact even if final verification later fails
+        if: always() && hashFiles('release/*.mp4') != ''
         uses: actions/upload-artifact@v4
         with:
           name: Abelian-Sandpile-Scene08-Restored-1080p30
@@ -135,7 +135,7 @@ jobs:
           retention-days: 30
       - name: Publish recovered Scene 8 in public Playground Releases
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           cat > release-notes.md <<'NOTES'
