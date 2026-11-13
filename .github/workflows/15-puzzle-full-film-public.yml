@@ -1,0 +1,149 @@
+name: 15-Puzzle - Complete 18-Scene 1080p30 Film (Public Runner)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/15-puzzle-full-film-public.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: 15-puzzle-complete-18-scene-film-20261113
+  cancel-in-progress: false
+
+env:
+  PRIVATE_SOURCE_SHA: 1aed55a1dfecba47e10fbb7718035e346b123320
+  RELEASE_TAG: 15-puzzle-complete-1080p30-20261113
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+
+jobs:
+  render-validate-publish:
+    name: Render all 18, verify 10m40s, publish master
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - name: Checkout public Playground orchestration
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout exact pinned PRIVATE 15-Puzzle source (NO private Actions)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.PRIVATE_SOURCE_SHA }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+
+      - name: Verify exact private-source SHA and 18 scene entry points
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$PRIVATE_SOURCE_SHA"
+          for i in $(seq 1 18); do
+            test -f "source/15-puzzle-paradox/scene${i}/render_scene${i}.py"
+          done
+          echo 'Pinned source SHA and 18 scene renderers verified.'
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install film rendering and reference voice dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core libflite1
+          python -m pip install --disable-pip-version-check -r source/15-puzzle-paradox/requirements.txt soundfile
+          ffmpeg -hide_banner -encoders 2>/dev/null | grep -q 'libx264'
+
+      - name: Run full-film production contract tests
+        run: |
+          set -euo pipefail
+          cd source/15-puzzle-paradox
+          python -m unittest -q production.test_ci_full_film
+
+      - name: Render 18 authentic 1080p30 scenes and audit full 10m40s film
+        run: |
+          set -euo pipefail
+          cd source/15-puzzle-paradox
+          python -m production.ci_full_film render \
+            --output-dir "$GITHUB_WORKSPACE/dist" \
+            --source-sha "$PRIVATE_SOURCE_SHA"
+          test -s "$GITHUB_WORKSPACE/dist/release/Fifteen_Puzzle_Complete_1080p30_Original_Music.mp4"
+          test -s "$GITHUB_WORKSPACE/dist/release/15_Puzzle_Complete.manifest.json"
+
+      - name: Generate optional English synthetic reference narration and aligned SRT
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cd source/15-puzzle-paradox
+          mkdir -p "$GITHUB_WORKSPACE/dist/narration" "$GITHUB_WORKSPACE/dist/private-logs"
+          if ! ffmpeg -hide_banner -filters 2>/dev/null | grep -E '^ ... flite ' >/dev/null; then
+            echo 'FFmpeg Flite not available: clean film still complete.'
+            exit 0
+          fi
+          if python -m production.narrate \
+              --script planning/narration_script.md \
+              --film "$GITHUB_WORKSPACE/dist/release/Fifteen_Puzzle_Complete_1080p30_Original_Music.mp4" \
+              --out "$GITHUB_WORKSPACE/dist/narration" \
+              > "$GITHUB_WORKSPACE/dist/private-logs/narration.log" 2>&1; then
+            cp "$GITHUB_WORKSPACE/dist/narration/15_Puzzle_Complete_1080p_Narrated_Workprint.mp4" \
+              "$GITHUB_WORKSPACE/dist/release/15_Puzzle_Complete_1080p30_Synthetic_Reference_Narration.mp4"
+            cp "$GITHUB_WORKSPACE/dist/narration/narration_aligned_workprint.srt" \
+              "$GITHUB_WORKSPACE/dist/release/15_Puzzle_Synthetic_Reference_Captions.srt"
+            echo 'Caption-aligned reference narration added (not a studio narrator).'
+          else
+            echo 'Reference voice render unavailable; clean validated film remains available.'
+          fi
+
+      - name: Publish SHA-256 hashes for every release media file
+        run: |
+          set -euo pipefail
+          cd dist/release
+          sha256sum *.mp4 > 15_Puzzle_Media_SHA256SUMS.txt
+          sha256sum -c 15_Puzzle_Media_SHA256SUMS.txt
+          test -s 15_Puzzle_Complete.manifest.json
+
+      - name: Upload complete film artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: 15-Puzzle-Complete-18-Scenes-10m40s-1080p30
+          path: dist/release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Publish completed film in public Playground Releases (best effort)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'NOTES'
+          ## 15-Puzzle Paradox — complete 18-scene mathematical film
+          - 10:40 runtime, Full HD 1920x1080 at 30fps, exactly 19,200 video frames
+          - Original frame-accurate scene footage and procedural soundtrack
+          - All 18 scenes rendered from a pinned private `Persie0/manimVideos` source commit, in **public Playground Actions**
+          - Per-scene and full-video H.264/AAC specs, durations, frame counts and full final decode verified
+          - Manifest, original music-only master and checksums published
+          - Optional English synthetic reference narration and actually voice-synchronized SRT may be included; **not studio narration**
+          - **No GitHub Actions ran on the private source repository**
+          NOTES
+          shopt -s nullglob
+          files=(dist/release/*)
+          if gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${files[@]}" --repo Persie0/Playground --clobber
+          else
+            gh release create "$RELEASE_TAG" "${files[@]}" \
+              --repo Persie0/Playground --target "$GITHUB_SHA" \
+              --title '15-Puzzle Paradox - Complete 10m40s 1080p30 Mathematical Film' \
+              --notes-file release-notes.md --latest=false
+          fi
