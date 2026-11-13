@@ -1,0 +1,248 @@
+name: Gauss Circle - Visual-First Director's Cut 1080p30, English Narration
+
+on:
+  push:
+    branches:
+      - main
+      - feat/gauss-circle-directors-cut-public-20261113
+    paths:
+      - .github/workflows/gauss-circle-directors-cut-public.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gauss-directors-cut-20261113-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: 20913352491abe7d4bc63b6fb7692774a6349061
+  ORIGINAL_TAG: gauss-circle-complete-1080p30-20261112
+  ORIGINAL_SHA256: e0396bd59ecebf10e8a2b319680b0497632bc8d1ca1a7ba60ec94005f6e0d33e
+  ORIGINAL_MP4: Gauss_Circle_Complete_1080p30_NoNarration.mp4
+  NEW_TAG: gauss-circle-directors-cut-1080p30-20261113
+  NEW_MP4: Gauss_Circle_Directors_Cut_1080p30_English.mp4
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+
+jobs:
+  preflight:
+    name: Validate real math, fifteen new visual sequences and natural speech timing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout public Playground without persistent credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout pinned private source read-only (no private Actions)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - name: Verify pinned source revision and new editor source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          test -f source/gauss-circle-problem/production/directors_cut_visual.py
+          test -f source/gauss-circle-problem/production/narrate_directors_cut.py
+          test -f source/gauss-circle-problem/planning/narration-directors-cut.md
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install full scientific and speech dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          python -m pip install 'numpy>=1.26,<3' 'scipy>=1.12,<2' 'Pillow>=10,<13' \
+            'opencv-python-headless>=4.9,<5' 'edge-tts>=7,<9'
+      - name: Test all 15 computed interludes and speech gaps
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m unittest discover -s tests -p test_directors_cut.py -v
+          python -m unittest discover -s tests -p test_narration.py -v
+          python -m production.directors_cut_visual --check-only
+          python -m production.narrate_directors_cut \
+            --video /dev/null --narration-md planning/narration-directors-cut.md \
+            --output-dir ../../preflight --validate-script-only
+      - name: Probe live neural voice word boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys,asyncio
+          sys.path.insert(0,'source/gauss-circle-problem')
+          from production import narrate as n
+          from pathlib import Path
+          async def main():
+              text="The circle is smooth. Yet the count jumps."
+              path=Path('preflight/neural-smoke.mp3')
+              events=await n.synthesize(text,n.VOICE_DEFAULT,'-5%',path)
+              words=n.validate_boundaries(events,text,len(n.decode_mp3(path))/n.SAMPLE_RATE)
+              assert len(words)>=7
+              print("Real audio and",len(words),"real TTS word boundaries verified")
+          asyncio.run(main())
+          PY
+
+  build:
+    name: Recut 20550 picture frames, natural voice, ducked mix, word-timed subtitles
+    if: github.ref == 'refs/heads/main'
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout exact reviewed private source read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install native math, TTS and media packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          python -m pip install 'numpy>=1.26,<3' 'scipy>=1.12,<2' 'Pillow>=10,<13' \
+            'opencv-python-headless>=4.9,<5' 'edge-tts>=7,<9'
+      - name: Download and verify immutable original master (not an invented video)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p input
+          gh release download "$ORIGINAL_TAG" --repo Persie0/Playground \
+            --pattern "$ORIGINAL_MP4" --dir input
+          printf '%s  %s\n' "$ORIGINAL_SHA256" "input/$ORIGINAL_MP4" | sha256sum -c -
+          ffprobe -v error -show_entries stream=codec_type,codec_name,width,height,r_frame_rate,nb_frames \
+            -show_entries format=duration -of json "input/$ORIGINAL_MP4"
+      - name: Re-edit every scene with original mathematical visual derivations
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p intermediate
+          cd source/gauss-circle-problem
+          python -m production.directors_cut_visual \
+            --video "../../input/$ORIGINAL_MP4" \
+            --output ../../intermediate/Gauss_Circle_Directors_Cut_NoNarration.mp4
+      - name: Synthesize paced narration with semantic gaps, dynamic music ducking and actual SRT
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m production.narrate_directors_cut \
+            --video ../../intermediate/Gauss_Circle_Directors_Cut_NoNarration.mp4 \
+            --narration-md planning/narration-directors-cut.md \
+            --output-dir ../../output --voice en-GB-RyanNeural
+      - name: Independently verify film, voice, subtitles, timing and math
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "output/$NEW_MP4"
+          test -s output/Gauss_Circle_English_Neural_Voice.wav
+          test -s output/Gauss_Circle_English_Subtitles.srt
+          test -s output/Gauss_Circle_Audio_QA.json
+          test -s output/Gauss_Circle_Narration_Cues.json
+          (cd output && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json,os,subprocess
+          f=os.environ['NEW_MP4']
+          p='output/'+f
+          x=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams',
+               '-show_chapters','-show_format','-of','json',p]))
+          v=next(x for x in x['streams'] if x['codec_type']=='video')
+          assert (v['codec_name'],int(v['width']),int(v['height']),int(v['nb_frames']),v['r_frame_rate'])==(
+              'h264',1920,1080,20550,'30/1'),v
+          assert len(x['chapters'])==15,len(x['chapters'])
+          assert any(s['codec_type']=='audio' and s['codec_name']=='aac' for s in x['streams'])
+          assert abs(float(x['format']['duration'])-685)<.2,x['format']
+          timing=json.load(open('output/Gauss_Circle_Narration_Cues.json'))
+          assert timing['scene_count']==15 and timing['subtitle_cues']>=100
+          assert all('word_events' in p for p in timing['paragraphs'])
+          quality=json.load(open('output/Gauss_Circle_Audio_QA.json'))
+          assert quality['scene_count']==15 and quality['total_spoken_words']>=900
+          assert quality['paragraph_gap_seconds']['min']>=.50
+          assert len(quality['scenes'])==15
+          print('Verified',v['nb_frames'],'re-edited frames, 15 chapters,',
+                timing['subtitle_cues'],'speech-aligned captions and',quality['total_spoken_words'],'spoken words')
+          PY
+          ffmpeg -hide_banner -nostdin -v error -xerror -i "output/$NEW_MP4" \
+            -map 0:v:0 -map 0:a:0 -f null -
+          ffmpeg -hide_banner -nostdin -i "output/$NEW_MP4" -vn \
+            -af "ebur128=peak=true" -f null - > output/audio_loudness.log 2>&1
+          tail -50 output/audio_loudness.log
+      - name: Keep complete master and independent editable audio deliverables
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gauss-Circle-Directors-Cut-FullHD-15-Scenes-Voice-SRT-AudioQA
+          path: |
+            output/Gauss_Circle_Directors_Cut_1080p30_English.mp4
+            output/Gauss_Circle_English_Neural_Voice.wav
+            output/Gauss_Circle_English_Subtitles.srt
+            output/Gauss_Circle_Audio_QA.json
+            output/Gauss_Circle_Narration_Cues.json
+            output/narration_manifest.json
+            output/SHA256SUMS.txt
+            output/audio_loudness.log
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Publish separate new edition to public Playground Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          ## Gauss Circle — documentary / geometric director's cut
+          
+          A separate revised edition of the 11:25 mathematical film:
+          - 15 new computed geometry interludes across all 15 chapters; genuine exact integer lattice, area, floor-sum, true signed-error, boundary and growth illustrations.
+          - All 20,550 picture frames encoded at 1920×1080/30 FPS; original 15 chapter positions preserved.
+          - Rewritten English narrated storyline with a visual-first mathematical explanation, paced semantic paragraph breaks and independently measured original neural speech timing.
+          - Centered speech with dynamic background-music ducking, reviewed audio loudness, and genuine word-timed optional external SRT.
+          - Editable standalone 48 kHz WAV voice, word-cue JSON, audio timing QA, full-output SHA256SUMS.
+          - Movie and audio streams completely decoded before publishing.
+          - Original 2026-11-12 film and first narrated edition are **unchanged**.
+          - Auditory and visual quality judgments beyond automated QA still benefit from a human viewing/listening review.
+          EOF
+          assets=(
+            "output/$NEW_MP4"
+            output/Gauss_Circle_English_Neural_Voice.wav
+            output/Gauss_Circle_English_Subtitles.srt
+            output/Gauss_Circle_Audio_QA.json
+            output/Gauss_Circle_Narration_Cues.json
+            output/narration_manifest.json
+            output/SHA256SUMS.txt
+            output/audio_loudness.log
+          )
+          if gh release view "$NEW_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$NEW_TAG" "${assets[@]}" --repo Persie0/Playground --clobber
+            gh release edit "$NEW_TAG" --repo Persie0/Playground \
+              --notes-file release-notes.md --latest=false
+          else
+            gh release create "$NEW_TAG" "${assets[@]}" --repo Persie0/Playground \
+              --target "$GITHUB_SHA" \
+              --title "Gauss Circle — Director's Cut (1080p30, English)" \
+              --notes-file release-notes.md --latest=false
+          fi
