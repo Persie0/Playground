@@ -1,0 +1,106 @@
+name: Langton Ant Scene 20 - Public Runner
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/langtons-ant-scene20-public.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: langtons-ant-scene20-20261113
+  cancel-in-progress: false
+
+env:
+  SOURCE_REF: feature/langtons-ant-scene20-finale
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+
+jobs:
+  validate-and-render:
+    name: Verify genuine 1020-frame RL ending
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_REF }}
+          path: source
+          persist-credentials: false
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install render/test dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install --disable-pip-version-check \
+            -r source/langtons-ant/requirements.txt
+      - name: Verify mathematical trace, event timings and actual prior renderer seam
+        run: |
+          set -euo pipefail
+          git -C source rev-parse HEAD
+          cd source/langtons-ant
+          python -m unittest tests.test_scene20 -v
+      - name: Render original 34-second Full HD finale and synthesized stereo
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          python source/langtons-ant/scene20/render_scene20.py \
+            --width 1920 --height 1080 --fps 30 --previous-fps 30 \
+            --output output/langtons-ant-scene20-1080p30.mp4
+      - name: Decode representative shots from encoded output
+        run: |
+          set -euo pipefail
+          mkdir -p output/stills
+          for second in 2 6 11 13 16 20 26 33; do
+            ffmpeg -hide_banner -loglevel error -y -ss "$second" \
+              -i output/langtons-ant-scene20-1080p30.mp4 \
+              -frames:v 1 -vf scale=960:540 output/stills/$second.png
+          done
+      - name: Verify exact frames, stereo media and build review contact sheet
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          from PIL import Image,ImageDraw
+          video="output/langtons-ant-scene20-1080p30.mp4"
+          info=json.loads(subprocess.check_output(["ffprobe","-v","error","-count_frames",
+             "-show_entries","stream=codec_name,width,height,r_frame_rate,nb_read_frames,channels",
+             "-of","json",video]))
+          v=next(s for s in info["streams"] if s.get("codec_name")=="h264")
+          a=next(s for s in info["streams"] if s.get("codec_name")=="aac")
+          assert (v["width"],v["height"],v["r_frame_rate"],int(v["nb_read_frames"]))==(1920,1080,"30/1",1020),v
+          assert a["channels"]==2,a
+          paths=sorted(Path("output/stills").glob("*.png"),key=lambda p:int(p.stem))
+          assert len(paths)==8
+          sheet=Image.new("RGB",(1920,2320),(18,24,31))
+          for i,path in enumerate(paths):
+              x=(i%2)*960;y=(i//2)*580
+              sheet.paste(Image.open(path).convert("RGB"),(x,y+32))
+              ImageDraw.Draw(sheet).text((x+22,y+8),f'SCENE 20 / T+{path.stem}s',fill=(232,240,232))
+          sheet.save("output/langtons-ant-scene20-contact-sheet.png")
+          print("Verified 1020 Full HD H264 frames, AAC stereo and eight encoded frames.")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Langtons-Ant-Scene20-1080p30-and-QA
+          path: |
+            output/langtons-ant-scene20-1080p30.mp4
+            output/langtons-ant-scene20-contact-sheet.png
+            output/stills/*.png
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 14
