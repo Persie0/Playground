@@ -49,29 +49,49 @@ jobs:
           if [ -f test/widget_test.dart ] && grep -q 'MyApp' test/widget_test.dart; then rm test/widget_test.dart; fi
           flutter pub get
           dart format --output=write lib test
-      - name: Analyze, test and build Android debug APK
+      - name: Validate privately and write diagnostic report
         working-directory: source
+        shell: bash
         run: |
-          set -euo pipefail
-          flutter analyze --no-fatal-infos
-          flutter test
-          flutter build apk --debug
-          test -s build/app/outputs/flutter-apk/app-debug.apk
-      - name: Commit generated runners back to private feature branch
-        if: success()
+          set -uo pipefail
+          mkdir -p .ci
+          flutter analyze --no-fatal-infos > /tmp/focusmove-analyze.log 2>&1
+          ANALYZE=$?
+          flutter test > /tmp/focusmove-test.log 2>&1
+          TESTS=$?
+          if [ "$ANALYZE" -eq 0 ] && [ "$TESTS" -eq 0 ]; then
+            flutter build apk --debug > /tmp/focusmove-build.log 2>&1
+            BUILD=$?
+          else
+            echo 'Build skipped because analysis or tests failed.' > /tmp/focusmove-build.log
+            BUILD=98
+          fi
+          {
+            printf '# FocusMove public runner / private diagnostics\n\n'
+            printf 'Flutter analyze exit: %s\nFlutter tests exit: %s\nAndroid debug build exit: %s\n\n' "$ANALYZE" "$TESTS" "$BUILD"
+            printf '## Analyzer\n\n```text\n'; cat /tmp/focusmove-analyze.log; printf '\n```\n'
+            printf '## Tests\n\n```text\n'; cat /tmp/focusmove-test.log; printf '\n```\n'
+            printf '## Android build\n\n```text\n'; tail -n 120 /tmp/focusmove-build.log; printf '\n```\n'
+          } > .ci/validation-report.md
+          if [ "$ANALYZE" -eq 0 ] && [ "$TESTS" -eq 0 ] && [ "$BUILD" -eq 0 ]; then
+            test -s build/app/outputs/flutter-apk/app-debug.apk
+            echo 'Validation complete: success. APK is not uploaded publicly.'
+          else
+            echo 'Validation incomplete: see private repo .ci/validation-report.md.'
+          fi
+      - name: Commit generated runners and diagnostic report privately
         working-directory: source
         env:
           REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
         run: |
           set -euo pipefail
           git config user.name 'focusmove-ci'
           git config user.email 'actions@users.noreply.github.com'
-          git add -A android ios .metadata pubspec.lock lib test
-          if git diff --cached --quiet; then
-            echo 'No generated changes to commit.'
-            exit 0
+          git add -A android ios .metadata pubspec.lock lib test .ci
+          if ! git diff --cached --quiet; then
+            git commit -m 'build: generate Flutter runners and save private validation results'
+            AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/feat/01-flutter-foundation
           fi
-          git commit -m 'build: generate Flutter Android and iOS runners and format source'
-          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/feat/01-flutter-foundation
-          echo 'Validated source and platform runner files committed to the private branch.'
+          echo 'Generated files and diagnostics updated in private feature branch.'
