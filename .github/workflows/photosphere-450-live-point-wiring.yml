@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: 1be4a738cd6730ba7c937243b6cd288ad23d2dce
+          ref: 8b225fd49d6f412555a61b452d08eb6a838d4f59
           path: research-src
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
@@ -26,7 +26,7 @@ jobs:
         working-directory: research-src
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 1be4a738cd6730ba7c937243b6cd288ad23d2dce
+          test "$(git rev-parse HEAD)" = 8b225fd49d6f412555a61b452d08eb6a838d4f59
           python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
           python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py research/photosphere/checkpoint437/live_fourth_original_postgraph.py research/photosphere/checkpoint438/scan_postgraph_import_abi.py research/photosphere/checkpoint439/host_math_import_join.py research/photosphere/checkpoint440/live_four_pair_fov_copy.py research/photosphere/checkpoint441/live_six_pair_solver_gate.py research/photosphere/checkpoint442/live_six_pair_native_camera_getters.py
       - name: Verify source-original pinned APK and ELF hashes
@@ -340,10 +340,15 @@ jobs:
           assert wire==d['checkpoint450_fourth_original_point_wiring']
           assert wire_stack==d['checkpoint450_fourth_original_vtable_and_parameter_stack']
           assert wire_stack['source_original_pre_loop_entry_test_supplied']
-          assert wire_stack['source_original_pre_loop_branch_unexecuted']
+          assert not wire_stack['source_original_pre_loop_branch_unexecuted']
+          assert wire_stack['source_original_empty_pair_branch_executed_not_taken']
+          assert wire_stack['source_original_empty_pair_branch_pc']=='0x128ac4'
+          assert wire_stack['source_original_pre_loop_source_vector_owner_x25_test_supplied']
+          assert wire_stack['source_original_pre_loop_provider_x24_test_supplied']==getters['source_original_callback_provider_from_estimator_plus70']
+          assert int(wire_stack['source_original_source_pair_begin_retrieved_by_native_ldp'],16)>0
           assert wire_stack['source_original_stack_writes_only_original_arm64']
           assert wire_stack['source_original_native_source_pcs']==[
-            hex(pc) for pc in range(0x128ac8,0x128b04,4)]
+            hex(pc) for pc in range(0x128ab8,0x128b04,4)]
           assert wire_stack['source_original_got_a_address']=='0x412178'
           assert wire_stack['source_original_got_b_address']=='0x412180'
           assert wire_stack['source_original_template_rodata_address']=='0x620f0'
