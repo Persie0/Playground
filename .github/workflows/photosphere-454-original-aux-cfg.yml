@@ -1,0 +1,77 @@
+name: Photosphere 454 original Ceres auxiliary CFG scan
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-454-original-aux-cfg.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-454-original-aux-cfg
+  cancel-in-progress: false
+jobs:
+  original-source-aux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout checksum-pinned private research read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 7c1fa8dd1f88253e78079f2def56b664c7b394da
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source SHA and scanner syntax
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 7c1fa8dd1f88253e78079f2def56b664c7b394da
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint454/scan_original_auxiliary_continuation.py
+      - name: Download and verify exact original GCam ELF
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Trace original aux helper and tail dependency frontier
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint454/scan_original_auxiliary_continuation.py research/native/liblightcycle.so --output checkpoint454-source-only.json | tee checkpoint454-summary.log
+          python3 - <<'PY'
+          import json
+          with open("checkpoint454-source-only.json", encoding="utf-8") as f:
+              d=json.load(f)
+          assert d["checkpoint"]==454 and d["original_source_binary_verified"]
+          assert d["auxiliary_helper_references"] and d["auxiliary_tail_references"]
+          assert d["auxiliary_cfg"]["reachable_instruction_count"]>0
+          assert d["tail_cfg"]["reachable_instruction_count"]>0
+          assert not d["source_original_auxiliary_initializer_executed"]
+          assert not d["source_original_problem_owner_attachments_executed"]
+          assert not d["source_original_ceres_registration_executed"]
+          print("CHECKPOINT454_ORIGINAL_STATIC_SCAN_VERIFIED")
+          PY
+      - name: Remove original proprietary binaries before any artifacts
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so
+      - name: Upload source-only research receipt
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-454-original-auxiliary-source-only
+          path: |
+            research-src/checkpoint454-source-only.json
+            research-src/checkpoint454-summary.log
+          if-no-files-found: error
+          retention-days: 7
