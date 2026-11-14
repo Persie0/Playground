@@ -59,7 +59,7 @@ jobs:
           mkdir -p .ci
           flutter analyze --no-fatal-infos > /tmp/focusmove-analyze.log 2>&1
           ANALYZE=$?
-          flutter test > /tmp/focusmove-test.log 2>&1
+          timeout 240 flutter test --timeout 45s --reporter expanded > /tmp/focusmove-test.log 2>&1
           TESTS=$?
           if [ "$ANALYZE" -eq 0 ] && [ "$TESTS" -eq 0 ]; then
             flutter build apk --debug > /tmp/focusmove-build.log 2>&1
