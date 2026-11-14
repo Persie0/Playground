@@ -64,7 +64,19 @@ jobs:
           c=d["checkpoint456_fourth_original_first_scratch_copy"]
           p=d["checkpoint455_fourth_native_first_registration_entry"]
           getters=d["checkpoint442_fourth_original_native_getters"]
-          assert h and h["checkpoint"]==458
+          if not h:
+              print("CHECKPOINT458_MISSING_RECEIPT_DEBUG="+json.dumps({
+                  "callback_error":getters.get("source_original_callback_execution_error"),
+                  "requested":getters.get("source_original_postsort_458_requested"),
+                  "completed":getters.get("source_original_postsort_458_completed"),
+                  "sort_457_completed":getters.get("source_original_four_pointer_sort_457_completed"),
+                  "scratch_456_completed":getters.get("source_original_first_scratch_456_completed"),
+                  "registration_455_completed":getters.get("source_original_first_registration_455_completed"),
+                  "first_source_rows":getters.get("source_original_callback_rows",[])[:1],
+                  "output_available":d.get("checkpoint458_fourth_original_postsort_to_parameter_lookup"),
+              },default=str,sort_keys=True))
+              raise AssertionError("source native 458 receipt missing; see debug above")
+          assert h["checkpoint"]==458
           assert h["original_source_3_adjacent_sorted_unique_pointer_checks"]==3
           assert h["original_source_native_duplicate_rejection_not_taken"]
           assert h["original_source_postsort_free_BL_executed"]
