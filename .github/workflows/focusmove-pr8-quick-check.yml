@@ -28,22 +28,26 @@ jobs:
           test -n "$REPO_TOKEN"
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --depth=1 --branch=feat/08-guided-break-player https://github.com/Persie0/pomodoroexercise.git source
-      - name: Validate analyzer and tests only
+      - name: Validate analyzer and tests with hard failure checks
         working-directory: source
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
           flutter pub get >/tmp/focusmove-pr8-pub.log 2>&1
-          PUB=$?
-          if [ "$PUB" -eq 0 ]; then
-            flutter analyze --no-fatal-infos >/tmp/focusmove-pr8-analyze.log 2>&1
-            ANALYZE=$?
-            timeout 360 flutter test --reporter compact >/tmp/focusmove-pr8-tests.log 2>&1
-            TESTS=$?
+          flutter analyze --no-fatal-infos >/tmp/focusmove-pr8-analyze.log 2>&1
+          echo 'Analyzer clean.'
+          if timeout 150 flutter test test/guided_break_widget_test.dart --timeout 45s --reporter expanded >/tmp/focusmove-pr8-targeted.log 2>&1; then
+            echo 'Guided widget tests passed.'
           else
-            ANALYZE=98
-            TESTS=98
+            echo 'Guided widget tests FAILED or TIMED OUT. Merge blocked.'
+            grep -E 'Test failed|[0-9]+ tests passed|TimeoutException|Test timed out|Some tests failed' /tmp/focusmove-pr8-targeted.log | tail -n 12 || true
+            exit 1
           fi
-          printf 'FocusMove dependency resolution: %s\nAnalyzer: %s\nTests: %s\n' "$PUB" "$ANALYZE" "$TESTS"
-          [ "$PUB" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$TESTS" -eq 0 ]
-          echo 'FocusMove PR8 analysis and unit/widget tests passed; no private logs or artifacts published.'
+          if timeout 240 flutter test --timeout 45s --reporter expanded >/tmp/focusmove-pr8-tests.log 2>&1; then
+            echo 'Complete Flutter test suite passed.'
+          else
+            echo 'Flutter tests FAILED or TIMED OUT. Merge blocked.'
+            grep -E 'Test failed|[0-9]+ tests passed|TimeoutException|Test timed out|Some tests failed' /tmp/focusmove-pr8-tests.log | tail -n 12 || true
+            exit 1
+          fi
+          echo 'FocusMove PR8 analysis and all tests passed; no private logs or artifacts published.'
