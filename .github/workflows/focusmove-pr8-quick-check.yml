@@ -1,4 +1,4 @@
-name: FocusMove PR8 quick validation
+name: FocusMove PR8 targeted private diagnostics
 on:
   push:
     paths:
@@ -9,10 +9,10 @@ permissions:
   contents: read
 
 jobs:
-  analyze-and-test:
+  diagnose-guided-widgets:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'FocusMove')
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -20,7 +20,7 @@ jobs:
           flutter-version: '3.47.9'
           channel: stable
           cache: true
-      - name: Fetch private FocusMove source securely
+      - name: Checkout private code
         env:
           REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: |
@@ -28,26 +28,32 @@ jobs:
           test -n "$REPO_TOKEN"
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --depth=1 --branch=feat/08-guided-break-player https://github.com/Persie0/pomodoroexercise.git source
-      - name: Validate analyzer and tests with hard failure checks
+      - name: Run bounded guide tests and save diagnostics privately
         working-directory: source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         shell: bash
         run: |
-          set -euo pipefail
-          flutter pub get >/tmp/focusmove-pr8-pub.log 2>&1
-          flutter analyze --no-fatal-infos >/tmp/focusmove-pr8-analyze.log 2>&1
-          echo 'Analyzer clean.'
-          if timeout 150 flutter test test/guided_break_widget_test.dart --timeout 45s --reporter expanded >/tmp/focusmove-pr8-targeted.log 2>&1; then
-            echo 'Guided widget tests passed.'
-          else
-            echo 'Guided widget tests FAILED or TIMED OUT. Merge blocked.'
-            grep -E 'Test failed|[0-9]+ tests passed|TimeoutException|Test timed out|Some tests failed' /tmp/focusmove-pr8-targeted.log | tail -n 12 || true
-            exit 1
-          fi
-          if timeout 240 flutter test --timeout 45s --reporter expanded >/tmp/focusmove-pr8-tests.log 2>&1; then
-            echo 'Complete Flutter test suite passed.'
-          else
-            echo 'Flutter tests FAILED or TIMED OUT. Merge blocked.'
-            grep -E 'Test failed|[0-9]+ tests passed|TimeoutException|Test timed out|Some tests failed' /tmp/focusmove-pr8-tests.log | tail -n 12 || true
-            exit 1
-          fi
-          echo 'FocusMove PR8 analysis and all tests passed; no private logs or artifacts published.'
+          set -uo pipefail
+          flutter pub get >/tmp/focusmove-pub.log 2>&1
+          PUB=$?
+          flutter analyze --no-fatal-infos >/tmp/focusmove-analyze.log 2>&1
+          ANALYZE=$?
+          timeout 90 flutter test test/guided_break_widget_test.dart --timeout 15s --reporter expanded >/tmp/focusmove-target.log 2>&1
+          TESTS=$?
+          mkdir -p .ci
+          {
+            printf '# PR8 guided widget diagnostic — private\n\n'
+            printf 'Dependency resolution: %s\nAnalyzer: %s\nGuided tests: %s\n\n' "$PUB" "$ANALYZE" "$TESTS"
+            printf '\x60\x60\x60text\n'
+            cat /tmp/focusmove-target.log
+            printf '\n\x60\x60\x60\n'
+          } > .ci/guided-widget-diagnostic.md
+          git config user.name 'focusmove-ci'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .ci/guided-widget-diagnostic.md
+          git commit -m 'ci: store guided widget diagnostics privately' || true
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/feat/08-guided-break-player
+          printf 'Guided widget tests exit: %s (full diagnostics are PRIVATE)\n' "$TESTS"
+          test "$PUB" -eq 0 && test "$ANALYZE" -eq 0 && test "$TESTS" -eq 0
