@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/decompile
-          ref: abaedefc2556c6201cea6661191b567682921d6b
+          ref: d048b9811c9abd91f6c34d25d8bb9a69f66ed865
           path: research-src
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
@@ -25,7 +25,7 @@ jobs:
         working-directory: research-src
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = abaedefc2556c6201cea6661191b567682921d6b
+          test "$(git rev-parse HEAD)" = d048b9811c9abd91f6c34d25d8bb9a69f66ed865
           python3 -m pip install --quiet --break-system-packages capstone pyelftools
           python3 -m py_compile research/photosphere/checkpoint457/scan_native_four_pointer_sort.py
       - name: Validate original APK/ELF integrity
@@ -50,6 +50,8 @@ jobs:
           d=json.load(open("checkpoint457-source-sort.json"))
           assert d["source_opcode_pins_verified"]
           assert not d["source_four_element_sort_executed"]
+          assert d["sort_dispatch_original_rodata_jump_targets"][4] in ("0x3cf130","0x3cf154")
+          print("CHECKPOINT457_ORIGINAL_SORT_RODATA_JUMP_TARGETS="+json.dumps(d["sort_dispatch_original_rodata_jump_targets"]))
           print("CHECKPOINT457_SORT_SOURCE_STATIC_VERIFIED")
           for name in ("sort_dispatch","four_element_sort","sort_tail"):
               print("CHECKPOINT457_SORT_SOURCE_WINDOW_"+name.upper()+"="+json.dumps(d["windows"][name],separators=(",",":")))
