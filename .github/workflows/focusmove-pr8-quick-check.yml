@@ -34,12 +34,13 @@ jobs:
           REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         shell: bash
         run: |
+          set +e
           set -uo pipefail
           flutter pub get >/tmp/focusmove-pub.log 2>&1
           PUB=$?
           flutter analyze --no-fatal-infos >/tmp/focusmove-analyze.log 2>&1
           ANALYZE=$?
-          timeout 90 flutter test test/guided_break_widget_test.dart --timeout 15s --reporter expanded >/tmp/focusmove-target.log 2>&1
+          timeout 75 flutter test test/guided_break_widget_test.dart --timeout 12s --reporter expanded >/tmp/focusmove-target.log 2>&1
           TESTS=$?
           mkdir -p .ci
           {
