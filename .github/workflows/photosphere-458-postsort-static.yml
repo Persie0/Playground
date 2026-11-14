@@ -1,0 +1,68 @@
+name: Photosphere 458 original ARM64 Ceres post-sort caller inventory
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-458-postsort-static.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-458-postsort-static
+  cancel-in-progress: false
+jobs:
+  source-postsort-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: fa1e713761dd64a7f5298f5407e11d88076e1d45
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned research source and Python
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = fa1e713761dd64a7f5298f5407e11d88076e1d45
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint458/scan_original_ceres_postsort.py
+      - name: Validate original APK/ELF integrity
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Decode original post-sort duplicate checks and next Ceres allocation/lookup
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint458/scan_original_ceres_postsort.py research/native/liblightcycle.so --output checkpoint458-source-postsort.json > checkpoint458-scan.log
+          python3 - <<'PY'
+          import json
+          d=json.load(open("checkpoint458-source-postsort.json"))
+          assert d["original_source_postsort_opcode_pins_verified"]
+          assert not d["original_source_postsort_executed"]
+          assert not d["original_source_first_parameter_lookup_executed"]
+          print("CHECKPOINT458_SOURCE_STATIC_VERIFIED")
+          print("CHECKPOINT458_ORIGINAL_POSTSORT_CALLER="+json.dumps(d["windows"]["first_postsort_caller"],separators=(",",":")))
+          PY
+      - name: Remove original binaries before artifact
+        if: always()
+        working-directory: research-src
+        run: rm -f original.apk research/native/liblightcycle.so
+      - name: Upload source-only opcode inventory
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-458-original-postsort-opcodes
+          path: research-src/checkpoint458-source-postsort.json
+          retention-days: 7
+          if-no-files-found: error
