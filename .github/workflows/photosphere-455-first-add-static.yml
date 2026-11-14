@@ -1,0 +1,72 @@
+name: Photosphere 455 original first AddResidualBlock opcode inventory
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-455-first-add-static.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-455-first-add-static
+  cancel-in-progress: false
+jobs:
+  static-original-ceres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Read-only checkout exact source research SHA
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: bb0e164216d35cf345e13ee16a845fba6fe019a2
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source SHA and Python
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = bb0e164216d35cf345e13ee16a845fba6fe019a2
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint455/scan_original_first_registration.py
+      - name: Verify original GCam 8.8.225 APK and liblightcycle.so
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Source-opcode pin and first native registration branch inventory
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint455/scan_original_first_registration.py research/native/liblightcycle.so --output checkpoint455-static.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open("checkpoint455-static.json"))
+          assert d["original_binary_static_opcode_pins_verified"]
+          assert not d["source_original_first_add_residual_executed"]
+          for name in ("original_ceres_add_entry", "original_first_parameter_lookup"):
+              print("CHECKPOINT455_SOURCE_WINDOW_" + name.upper() + "=" + json.dumps(
+                  d["decoded_source_windows"][name], separators=(",",":")))
+          print("CHECKPOINT455_STATIC_SOURCE_VERIFIED")
+          PY
+      - name: Delete original binary and extracted ELF
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so
+      - name: Upload source-only findings
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-455-first-add-original-source-only
+          path: research-src/checkpoint455-static.json
+          retention-days: 7
+          if-no-files-found: error
