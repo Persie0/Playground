@@ -1,0 +1,68 @@
+name: Photosphere 460 source-original parameter insertion and tree rebalance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-460-native-tree-static.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-460-native-tree-static
+  cancel-in-progress: false
+jobs:
+  source-tree-insertion-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: a9801d5b6fec925c67d393ff2bdc0c2752319e34
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned research source and Python
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = a9801d5b6fec925c67d393ff2bdc0c2752319e34
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint460/scan_original_parameter_tree_insertion.py
+      - name: Validate original APK/ELF integrity
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Decode original native first Ceres parameter-tree insertion and rebalance helper
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint460/scan_original_parameter_tree_insertion.py research/native/liblightcycle.so --output checkpoint460-original-tree.json > checkpoint460-scan.log
+          python3 - <<'PY'
+          import json
+          d=json.load(open("checkpoint460-original-tree.json"))
+          assert d["static_opcode_pins_verified"]
+          assert d["original_native_first_tree_insertion_unexecuted"]
+          print("CHECKPOINT460_SOURCE_STATIC_VERIFIED")
+          for name in ("first_parameter_tree_insertion","tree_rebalance_helper","parameter_owner_caller"):
+              print("CHECKPOINT460_SCAN_"+name.upper()+"="+json.dumps(d["windows"][name],separators=(",",":")))
+          PY
+      - name: Remove original binaries before artifact
+        if: always()
+        working-directory: research-src
+        run: rm -f original.apk research/native/liblightcycle.so
+      - name: Upload source-only opcode inventory
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-460-original-native-tree-opcodes
+          path: research-src/checkpoint460-original-tree.json
+          retention-days: 7
+          if-no-files-found: error
