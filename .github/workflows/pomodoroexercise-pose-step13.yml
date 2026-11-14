@@ -120,3 +120,14 @@ jobs:
           set -euo pipefail
           flutter pub get
           flutter build ios --simulator --no-codesign
+      - name: Verify ML Kit pose model resources are embedded
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP=build/ios/iphonesimulator/Runner.app
+          test -d "$APP"
+          for name in MLKitPoseDetectionFastResources MLKitPoseDetectionCommonResources MLKitXenoResources; do
+            test -d "$APP/$name.bundle" || { echo "Missing iOS model bundle: $name"; exit 1; }
+            echo "Model bundle present: $name"
+          done
