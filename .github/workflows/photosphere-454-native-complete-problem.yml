@@ -1,0 +1,118 @@
+name: Photosphere 454 original native Ceres Problem completion
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-454-native-complete-problem.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-454-native-complete-problem
+  cancel-in-progress: false
+jobs:
+  original-native-complete-problem:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Read-only checkout exact private decompile research SHA
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: ed95f01a01205b4510861cd07bd6e767dcf11e17
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify exact research commit and Python code
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = ed95f01a01205b4510861cd07bd6e767dcf11e17
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py research/photosphere/checkpoint442/live_six_pair_native_camera_getters.py research/photosphere/checkpoint454/live_original_problem_constructor.py
+      - name: Verify original source APK and liblightcycle ELF hashes
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Run exact source-native full Ceres Problem constructor on existing four-image VM
+        working-directory: research-src
+        env:
+          PHOTOSPHERE_THIRD_SHIFT407: '2'
+          PHOTOSPHERE_FOURTH_CERES454: '1'
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint454-native.log 2> checkpoint454-native-diagnostic.log || {
+            echo CHECKPOINT454_NATIVE_ORIGINAL_PROBLEM_FAILURE
+            tail -n 100 checkpoint454-native-diagnostic.log
+            tail -n 6 checkpoint454-native.log | cut -c1-220
+            exit 1
+          }
+          python3 - <<'PY'
+          import json
+          row=next(line for line in open("checkpoint454-native.log") if line.startswith("CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT="))
+          d=json.loads(row.split("=",1)[1])
+          proof=d["checkpoint454_fourth_native_ceres_full_problem_constructor"]
+          previous=d["checkpoint453_fourth_native_ceres_pimpl_initializer"]
+          getters=d["checkpoint442_fourth_original_native_getters"]
+          assert previous["source_original_native_three_allocations"]==[192,56,216]
+          assert not previous["source_original_native_216byte_auxiliary_initializer_executed"]
+          assert not previous["source_original_native_stack_wrapper_pointer_store_executed"]
+          assert proof["checkpoint"]==454
+          assert proof["source_original_full_problem_constructor_source_executed"]
+          assert proof["source_original_stack_wrapper_x0_test_supplied"]
+          assert proof["source_original_earlier_solver_camera_prologue_not_executed"]
+          assert proof["source_original_native_three_allocations"]==[192,56,216]
+          assert proof["source_original_native_auxiliary_entry_executed"]
+          assert proof["source_original_native_auxiliary_helper_executed"]
+          assert proof["source_original_native_auxiliary_tail_executed"]
+          assert proof["source_original_216byte_aux_vtables_source_writes_verified"]
+          assert proof["source_original_216byte_aux_native_initialized_ranges_verified"]
+          assert proof["source_original_pimpl_plus28_pointer_native_attached"]
+          assert proof["source_original_sp_plus4a0_wrapper_native_attached"]
+          assert proof["source_original_heap_bytes_untouched_by_test"]
+          assert proof["source_original_problem_residual_registration_unexecuted"]
+          assert proof["source_original_ceres_optimizer_unexecuted"]
+          assert getters["source_original_problem_ctor_454_completed"]
+          assert getters["source_original_problem_ctor_453_completed"]
+          assert getters["source_original_point_row_451_completed"]
+          assert getters["source_original_same_live_six_matcher_pair_records_verified"]
+          assert getters["source_original_pair_buffer_unchanged"]
+          assert getters["source_original_source_camera_unchanged"]
+          assert getters["source_original_provider_owned_children_unchanged"]
+          assert getters["source_original_nested_vector_payloads_unchanged_443"]
+          vectors=getters["source_original_matcher_owned_nested_vectors_443"]
+          assert [v["point28"]["count"] for v in vectors]==[25,15,16,11,0,19]
+          assert sum(v["point28"]["count"] for v in vectors)==86
+          print("CHECKPOINT454_ORIGINAL_FULL_PROBLEM_CONSTRUCTOR_VERIFIED")
+          print("CHECKPOINT454_NATIVE_SOURCE_RECEIPT=" + json.dumps({
+              "original_pimpl_sha256":proof["source_original_pimpl_sha256"],
+              "original_aux216_sha256":proof["source_original_aux216_sha256"],
+              "native_allocations":proof["source_original_native_three_allocations"],
+              "native_source_pcs":proof["source_original_required_source_pcs"],
+              "registration_unexecuted":True,
+              "source_pair_count":len(vectors),
+              "source_point_count":86,
+          },sort_keys=True))
+          PY
+      - name: Remove original APK and native ELF before artifacts
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so
+      - name: Upload source-only diagnostic on successful run
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-454-original-native-problem-receipt
+          path: |
+            research-src/checkpoint454-native-diagnostic.log
+          if-no-files-found: error
+          retention-days: 7
