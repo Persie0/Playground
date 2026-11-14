@@ -58,6 +58,18 @@ jobs:
           assert not d["source_original_auxiliary_initializer_executed"]
           assert not d["source_original_problem_owner_attachments_executed"]
           assert not d["source_original_ceres_registration_executed"]
+          inspected = {
+              "aux_entry_and_helper": [
+                  x for x in d["source_windows"]["aux_entry_and_helper"]
+                  if int(x["pc"],16)<0x139a90
+              ],
+              "tail_reachable": [
+                  x for x in d["source_windows"]["aux_tail_frontier"]
+                  if x["pc"] in set(d["tail_cfg"]["reachable_pcs"])
+              ],
+              "pimpl_return": d["source_windows"]["problem_pimpl_return"],
+          }
+          print("CHECKPOINT454_SOURCE_OPCODE_DETAIL=" + json.dumps(inspected, separators=(",",":")))
           print("CHECKPOINT454_ORIGINAL_STATIC_SCAN_VERIFIED")
           PY
       - name: Remove original proprietary binaries before any artifacts
