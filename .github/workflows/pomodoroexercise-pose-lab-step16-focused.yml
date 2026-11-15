@@ -1,4 +1,5 @@
 name: FocusMove Step 16 focused Pose Lab regression tests
+# Constrain wall-clock duration and separate widget from file fixtures.
 on:
   push:
     paths:
@@ -32,4 +33,5 @@ jobs:
         run: |
           set -euo pipefail
           flutter pub get
-          flutter test test/pose_lab_data_test.dart test/pose_lab_widget_test.dart --reporter expanded --timeout 45s
+          timeout --signal=TERM 120s flutter test test/pose_lab_widget_test.dart --reporter expanded --timeout 45s
+          timeout --signal=TERM 120s flutter test test/pose_lab_data_test.dart --reporter expanded --timeout 45s
