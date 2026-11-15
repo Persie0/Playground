@@ -1,0 +1,65 @@
+name: Format GlitchTip fixes (public Playground)
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/glitchtip-format-private-source-public.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check private repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Set up Dart and Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Checkout NomadRank formatting branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/skratch_clone
+          ref: chore/glitchtip-map-style-format-20261116
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: nomadrank
+
+      - name: Format and commit only map-style files
+        working-directory: nomadrank
+        run: |
+          set -euo pipefail
+          dart format lib/utils/map_style.dart test/map_style_test.dart
+          git add -- lib/utils/map_style.dart test/map_style_test.dart
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'style(map): apply Dart formatter [skip ci]'
+            git push origin HEAD:refs/heads/chore/glitchtip-map-style-format-20261116
+          fi
+
+      - name: Checkout Noise Remover formatting branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: chore/glitchtip-telemetry-format-20261116
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: noise_remover
+
+      - name: Format and commit only telemetry files
+        working-directory: noise_remover
+        run: |
+          set -euo pipefail
+          dart format lib/services/revenuecat_startup_timeout_policy.dart lib/services/expected_processing_event.dart test/expected_processing_event_test.dart
+          git add -- lib/services/revenuecat_startup_timeout_policy.dart lib/services/expected_processing_event.dart test/expected_processing_event_test.dart
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'style(telemetry): apply Dart formatter [skip ci]'
+            git push origin HEAD:refs/heads/chore/glitchtip-telemetry-format-20261116
+          fi
