@@ -6,7 +6,11 @@ on:
       - .github/workflows/glitchtip-nov15-postmerge-validation.yml
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: glitchtip-nov15-postmerge
+  cancel-in-progress: true
 
 jobs:
   flutter-validation:
@@ -38,14 +42,17 @@ jobs:
         run: flutter pub get
 
       - name: NomadRank formatting
+        id: nomad_format
         working-directory: nomadrank
         run: dart format --output=none --set-exit-if-changed lib/utils/map_style.dart test/map_style_test.dart
 
       - name: NomadRank map analyzer
+        id: nomad_analyze
         working-directory: nomadrank
         run: flutter analyze --no-pub lib/utils/map_style.dart test/map_style_test.dart lib/screens/scratch_map_screen.dart
 
       - name: NomadRank bundled-style tests
+        id: nomad_test
         working-directory: nomadrank
         run: flutter test --no-pub test/map_style_test.dart
 
@@ -63,6 +70,7 @@ jobs:
         run: flutter pub get
 
       - name: Noise Remover formatting
+        id: noise_format
         working-directory: noise_remover
         run: |
           dart format --output=none --set-exit-if-changed \
@@ -73,6 +81,7 @@ jobs:
             test/expected_processing_event_test.dart
 
       - name: Noise Remover analyzer
+        id: noise_analyze
         working-directory: noise_remover
         run: |
           flutter analyze --no-pub \
@@ -86,6 +95,7 @@ jobs:
             test/expected_processing_event_test.dart
 
       - name: Noise Remover focused regression tests
+        id: noise_test
         working-directory: noise_remover
         run: |
           flutter test --no-pub \
@@ -107,6 +117,7 @@ jobs:
         run: flutter pub get
 
       - name: Surebets billing analyzer
+        id: surebets_analyze
         working-directory: surebets
         run: |
           flutter analyze --no-pub \
@@ -116,8 +127,50 @@ jobs:
             test/purchase_error_policy_test.dart
 
       - name: Surebets purchase tests
+        id: surebets_test
         working-directory: surebets
         run: |
           flutter test --no-pub \
             test/purchase_feedback_policy_test.dart \
             test/purchase_error_policy_test.dart
+
+      - name: Record public validation result for review
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const status = {
+              run_id: context.runId,
+              run_number: context.runNumber,
+              source_commit: context.sha,
+              conclusion: "${{ job.status }}",
+              steps: {
+                nomad_format: "${{ steps.nomad_format.outcome }}",
+                nomad_analyze: "${{ steps.nomad_analyze.outcome }}",
+                nomad_test: "${{ steps.nomad_test.outcome }}",
+                noise_format: "${{ steps.noise_format.outcome }}",
+                noise_analyze: "${{ steps.noise_analyze.outcome }}",
+                noise_test: "${{ steps.noise_test.outcome }}",
+                surebets_analyze: "${{ steps.surebets_analyze.outcome }}",
+                surebets_test: "${{ steps.surebets_test.outcome }}"
+              }
+            };
+            const filePath = "reports/glitchtip-nov15-postmerge-validation.json";
+            let sha;
+            try {
+              const existing = await github.rest.repos.getContent({
+                owner: context.repo.owner, repo: context.repo.repo, path: filePath
+              });
+              sha = existing.data.sha;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            const encoded = Buffer.from(
+              JSON.stringify(status, null, 2) + "\n", "utf8"
+            ).toString("base64");
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: context.repo.owner, repo: context.repo.repo, path: filePath,
+              branch: "main", message: "ci: record GlitchTip public validation outcome",
+              content: encoded, ...(sha ? {sha} : {})
+            });
