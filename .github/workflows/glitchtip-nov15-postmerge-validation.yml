@@ -1,0 +1,123 @@
+name: GlitchTip Nov 15 merged-fix validation (public)
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/glitchtip-nov15-postmerge-validation.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  flutter-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Verify private clone token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Checkout NomadRank privately
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/skratch_clone
+          ref: master
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: nomadrank
+
+      - name: NomadRank dependencies
+        working-directory: nomadrank
+        run: flutter pub get
+
+      - name: NomadRank formatting
+        working-directory: nomadrank
+        run: dart format --output=none --set-exit-if-changed lib/utils/map_style.dart test/map_style_test.dart
+
+      - name: NomadRank map analyzer
+        working-directory: nomadrank
+        run: flutter analyze --no-pub lib/utils/map_style.dart test/map_style_test.dart lib/screens/scratch_map_screen.dart
+
+      - name: NomadRank bundled-style tests
+        working-directory: nomadrank
+        run: flutter test --no-pub test/map_style_test.dart
+
+      - name: Checkout Noise Remover privately
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: master
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: noise_remover
+
+      - name: Noise Remover dependencies
+        working-directory: noise_remover
+        run: flutter pub get
+
+      - name: Noise Remover formatting
+        working-directory: noise_remover
+        run: |
+          dart format --output=none --set-exit-if-changed \
+            lib/services/revenuecat_startup_timeout_policy.dart \
+            lib/services/expected_processing_event.dart \
+            lib/services/exceptions.dart \
+            test/services/revenuecat_startup_timeout_policy_test.dart \
+            test/expected_processing_event_test.dart
+
+      - name: Noise Remover analyzer
+        working-directory: noise_remover
+        run: |
+          flutter analyze --no-pub \
+            lib/services/revenuecat_startup_timeout_policy.dart \
+            lib/services/expected_processing_event.dart \
+            lib/services/exceptions.dart \
+            lib/screens/bulk_processing_screen.dart \
+            lib/services/subscription_service.dart \
+            lib/main.dart \
+            test/services/revenuecat_startup_timeout_policy_test.dart \
+            test/expected_processing_event_test.dart
+
+      - name: Noise Remover focused regression tests
+        working-directory: noise_remover
+        run: |
+          flutter test --no-pub \
+            test/services/revenuecat_startup_timeout_policy_test.dart \
+            test/expected_processing_event_test.dart \
+            test/bulk_report_pro_refresh_regression_test.dart
+
+      - name: Checkout Surebets privately
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: master
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: surebets
+
+      - name: Surebets dependencies
+        working-directory: surebets
+        run: flutter pub get
+
+      - name: Surebets billing analyzer
+        working-directory: surebets
+        run: |
+          flutter analyze --no-pub \
+            lib/services/purchase_feedback_policy.dart \
+            lib/services/purchase_error_policy.dart \
+            test/purchase_feedback_policy_test.dart \
+            test/purchase_error_policy_test.dart
+
+      - name: Surebets purchase tests
+        working-directory: surebets
+        run: |
+          flutter test --no-pub \
+            test/purchase_feedback_policy_test.dart \
+            test/purchase_error_policy_test.dart
