@@ -1,0 +1,156 @@
+name: GlitchTip Upscaler and RootDetect native validation (public)
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/glitchtip-upscaler-rootdetect-native-validation.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: glitchtip-upscaler-rootdetect-native
+  cancel-in-progress: true
+
+jobs:
+  native-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Verify private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Checkout private Upscaler (read only)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: upscaler
+
+      - name: Upscaler resolve
+        working-directory: upscaler
+        run: flutter pub get
+
+      - name: Upscaler Dart analyzer
+        id: upscaler_analyze
+        continue-on-error: true
+        working-directory: upscaler
+        run: |
+          flutter analyze --no-pub --no-fatal-infos \
+            lib/utils/model_download.dart lib/services/image_selection_error_policy.dart \
+            lib/services/purchase_error_policy.dart \
+            lib/super_resolution_home_page.dart lib/store/store.dart \
+            test/model_download_test.dart test/image_selection_error_policy_test.dart \
+            test/purchase_error_policy_test.dart
+
+      - name: Upscaler Dart regression tests
+        id: upscaler_test
+        continue-on-error: true
+        working-directory: upscaler
+        run: |
+          flutter test --no-pub \
+            test/model_download_test.dart \
+            test/image_selection_error_policy_test.dart \
+            test/purchase_error_policy_test.dart
+
+      - name: Upscaler package resolve
+        working-directory: upscaler/flutter_super_resolution
+        run: flutter pub get
+
+      - name: Upscaler package ARM32 tests
+        id: upscaler_arm32_dart_test
+        continue-on-error: true
+        working-directory: upscaler/flutter_super_resolution
+        run: flutter test --no-pub test/arm32_onnx_error_policy_test.dart
+
+      - name: Upscaler native Android compile
+        id: upscaler_android
+        continue-on-error: true
+        working-directory: upscaler
+        run: flutter build apk --debug --no-pub
+
+      - name: Upscaler native guard JUnit
+        id: upscaler_android_unit
+        continue-on-error: true
+        working-directory: upscaler/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :flutter_onnxruntime:testDebugUnitTest --tests com.masicai.flutteronnxruntime.Arm32OnnxGuardTest --no-daemon
+
+      - name: Checkout private RootDetect (read only)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/root_detection_app
+          ref: master
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: rootdetect
+
+      - name: RootDetect optimized release compile
+        id: rootdetect_release
+        continue-on-error: true
+        working-directory: rootdetect
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleRelease --no-daemon -Pandroid.injected.signing.store.file=
+
+      - name: Record sanitized validation results
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const result = {
+              run_id: context.runId, run_number: context.runNumber,
+              source_commit: context.sha,
+              steps: {
+                upscaler_analyze: "${{ steps.upscaler_analyze.outcome }}",
+                upscaler_test: "${{ steps.upscaler_test.outcome }}",
+                upscaler_arm32_dart_test: "${{ steps.upscaler_arm32_dart_test.outcome }}",
+                upscaler_android: "${{ steps.upscaler_android.outcome }}",
+                upscaler_android_unit: "${{ steps.upscaler_android_unit.outcome }}",
+                rootdetect_release: "${{ steps.rootdetect_release.outcome }}"
+              }
+            };
+            const path = "reports/glitchtip-native-validation.json";
+            let sha;
+            try {
+              const response = await github.rest.repos.getContent({owner: context.repo.owner, repo: context.repo.repo, path});
+              sha = response.data.sha;
+            } catch (e) { if(e.status !== 404) throw e; }
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: context.repo.owner, repo: context.repo.repo, path,
+              branch: "main",
+              message: "ci: record GlitchTip public native validation result",
+              content: Buffer.from(JSON.stringify(result, null, 2) + "\n").toString("base64"),
+              ...(sha ? {sha} : {})
+            });
+
+      - name: Fail on incomplete native or Dart validation
+        if: always()
+        env:
+          ANALYZE: ${{ steps.upscaler_analyze.outcome }}
+          TEST: ${{ steps.upscaler_test.outcome }}
+          ARM32_DART: ${{ steps.upscaler_arm32_dart_test.outcome }}
+          ANDROID: ${{ steps.upscaler_android.outcome }}
+          ARM32_KOTLIN: ${{ steps.upscaler_android_unit.outcome }}
+          ROOTDETECT: ${{ steps.rootdetect_release.outcome }}
+        run: |
+          test "$ANALYZE" = success
+          test "$TEST" = success
+          test "$ARM32_DART" = success
+          test "$ANDROID" = success
+          test "$ARM32_KOTLIN" = success
+          test "$ROOTDETECT" = success
