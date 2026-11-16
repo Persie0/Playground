@@ -47,8 +47,23 @@ jobs:
           dart run build_runner build
           dart format lib test
           flutter analyze
-          flutter test --reporter expanded test/forge_workshop_repository_test.dart test/forge_workshop_screen_test.dart
-          flutter test --reporter expanded
+          # Keep a failing widget test from flooding publicly visible job logs.
+          # An isolated failure is reported with useful assertions and its tail.
+          run_test() {
+            name="$1"; shift
+            output="/tmp/repforge_${name}.log"
+            if timeout 180s flutter test --reporter expanded "$@" > "$output" 2>&1; then
+              tail -n 8 "$output"
+            else
+              echo "Failed test group: $name"
+              grep -nE 'Expected:|Actual:|Which:|Exception|Error|FAIL|Some tests|timed out' "$output" | tail -n 90 || true
+              tail -n 80 "$output"
+              exit 1
+            fi
+          }
+          run_test repository test/forge_workshop_repository_test.dart
+          run_test widgets test/forge_workshop_screen_test.dart
+          run_test full_suite
       - name: Android debug APK compile
         working-directory: source
         run: |
@@ -108,7 +123,7 @@ jobs:
         run: |
           xcodebuild -version
           flutter pub get
-          flutter test --reporter expanded
+          flutter test --reporter expanded 2>&1 | tail -n 30
           flutter build ios --simulator --no-codesign
           test -d build/ios/iphonesimulator/Runner.app
           echo 'iOS simulator compile completed successfully'
