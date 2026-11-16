@@ -1,0 +1,46 @@
+name: TeamHub auth Google fix validation (private checkout, no artifacts)
+
+on:
+  push:
+    paths:
+      - ".github/workflows/teamhub-auth-google-20261116.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout private TeamHub fix branch
+        uses: actions/checkout@v4
+        with:
+          repository: perzis/teamplus_clone
+          ref: fix/auth-ui-google-login-20261116
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: teamhub
+          persist-credentials: false
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        working-directory: teamhub
+        run: flutter pub get
+      - name: Flutter static analysis
+        working-directory: teamhub
+        run: flutter analyze --no-pub
+      - name: Flutter unit and widget tests
+        working-directory: teamhub
+        run: flutter test --no-pub
+      - name: Python reference backend tests (not production backend)
+        working-directory: teamhub
+        run: |
+          python3 -m pip install --user -r server/requirements.txt -r server/tests/requirements.txt
+          python3 -m pytest -q server/tests
+      - name: Android debug APK compilation (no upload)
+        working-directory: teamhub
+        run: flutter build apk --debug --no-pub
