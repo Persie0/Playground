@@ -1,4 +1,4 @@
-# Step 17 local history, badges and data controls validation (public runner only).
+# Step 18 cosmetic polish, haptics/sound and reduced-motion validation (public runner only).
 name: RepForge Flutter Android and iOS integration validation
 
 on:
@@ -36,7 +36,7 @@ jobs:
           test -n "$REPO_TOKEN" || { echo 'Missing private repository read token'; exit 1; }
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
-            clone --depth 1 --branch feat/step17-history-progress-badges \
+            clone --depth 1 --branch feat/step18-visual-feedback-motion \
             https://github.com/Persie0/gameexercise.git source
           test -s source/pubspec.yaml
       - name: Flutter static checks
@@ -62,8 +62,8 @@ jobs:
               exit 1
             fi
           }
-          run_test repository test/forge_progress_repository_test.dart
-          run_test widgets test/forge_progress_screen_test.dart
+          run_test repository test/forge_feedback_settings_test.dart test/forge_experience_repository_test.dart
+          run_test widgets test/forge_experience_widgets_test.dart test/forge_workout_feedback_screen_test.dart
           run_test full_suite
       - name: Android debug APK compile
         working-directory: source
@@ -94,7 +94,7 @@ jobs:
           git commit -m 'chore: format Dart source and pin Flutter dependencies'
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
-            push origin HEAD:refs/heads/feat/step17-history-progress-badges
+            push origin HEAD:refs/heads/feat/step18-visual-feedback-motion
 
   ios:
     name: iOS simulator compile
@@ -116,7 +116,7 @@ jobs:
           test -n "$REPO_TOKEN" || { echo 'Missing private repository read token'; exit 1; }
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
-            clone --depth 1 --branch feat/step17-history-progress-badges \
+            clone --depth 1 --branch feat/step18-visual-feedback-motion \
             https://github.com/Persie0/gameexercise.git source
           test -s source/pubspec.yaml
       - name: Build unsigned iOS simulator app
