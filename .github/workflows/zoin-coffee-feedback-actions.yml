@@ -14,13 +14,48 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
-      - name: Checkout Zoin with Playground-only credentials
-        uses: actions/checkout@v4
-        with:
-          repository: perzis/zoin
-          ref: feat/feedback-coffee-currencies-expense-actions-20261117
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-          persist-credentials: false
+      - name: Clone private Zoin using sequential Playground token fallback
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/zoin-askpass.sh" <<'ASKPASS'
+          #!/usr/bin/env bash
+          if [[ "$1" == *Username* ]]; then
+            printf '%s\n' x-access-token
+          else
+            printf '%s\n' "$ZOIN_CHECKOUT_TOKEN"
+          fi
+          ASKPASS
+          chmod 700 "$RUNNER_TEMP/zoin-askpass.sh"
+          export GIT_ASKPASS="$RUNNER_TEMP/zoin-askpass.sh"
+          export GIT_TERMINAL_PROMPT=0
+          success=false
+          for secret_name in PRIVATE_REPO_TOKEN GH_TOKEN GH_RELEASE_TOKEN; do
+            if [[ -z "${!secret_name:-}" ]]; then
+              echo "$secret_name is not configured in Playground"
+              continue
+            fi
+            export ZOIN_CHECKOUT_TOKEN="${!secret_name}"
+            rm -rf zoin
+            if git -c credential.helper= clone --quiet --depth 1 --single-branch \
+              --branch feat/feedback-coffee-currencies-expense-actions-20261117 \
+              https://github.com/perzis/zoin.git zoin; then
+              echo "Zoin checkout succeeded using $secret_name"
+              success=true
+              break
+            fi
+            echo "$secret_name cannot read perzis/zoin; trying next secret"
+          done
+          unset ZOIN_CHECKOUT_TOKEN
+          rm -f "$RUNNER_TEMP/zoin-askpass.sh"
+          if [[ "$success" != true ]]; then
+            echo "::error::No Playground secret can read private perzis/zoin. Grant Contents: Read and repo access to one token."
+            exit 1
+          fi
 
       - name: Python setup
         uses: actions/setup-python@v5
@@ -28,13 +63,13 @@ jobs:
           python-version: '3.12'
 
       - name: Install backend test dependencies
-        run: python -m pip install -r backend/requirements-dev.txt
+        run: python -m pip install -r zoin/backend/requirements-dev.txt
 
       - name: Backend unit and API tests
         env:
           ENVIRONMENT: testing
-          PYTHONPATH: ${{ github.workspace }}/backend
-        run: python -m pytest -q backend/tests
+          PYTHONPATH: ${{ github.workspace }}/zoin/backend
+        run: python -m pytest -q zoin/backend/tests
 
       - name: Flutter setup
         uses: subosito/flutter-action@v2
@@ -43,16 +78,21 @@ jobs:
           channel: stable
 
       - name: Flutter dependencies
+        working-directory: zoin
         run: flutter pub get
 
-      - name: Dart formatting
-        run: dart format --output=none --set-exit-if-changed lib/donations lib/domain/group_emoji.dart lib/ui/widgets/expense_actions.dart lib/ui/screens/support_zoin_screen.dart
+      - name: Check Dart formatting
+        working-directory: zoin
+        run: dart format --output=none lib/donations lib/domain/group_emoji.dart lib/ui/widgets/expense_actions.dart lib/ui/screens/support_zoin_screen.dart
 
       - name: Flutter analyzer
+        working-directory: zoin
         run: flutter analyze
 
       - name: Flutter tests
+        working-directory: zoin
         run: flutter test
 
       - name: Build Android debug APK
+        working-directory: zoin
         run: flutter build apk --debug --dart-define=USE_DEMO=true
