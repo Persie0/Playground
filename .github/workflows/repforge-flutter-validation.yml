@@ -69,9 +69,29 @@ jobs:
       - name: Android debug APK compile
         working-directory: source
         run: |
-          flutter build apk --debug
-          test -s build/app/outputs/flutter-apk/app-debug.apk
-          echo 'Android debug APK build completed successfully'
+          set -euo pipefail
+          for attempt in 1 2 3 4; do
+            if flutter build apk --debug > /tmp/repforge_android_build.log 2>&1; then
+              tail -n 25 /tmp/repforge_android_build.log
+              test -s build/app/outputs/flutter-apk/app-debug.apk
+              echo 'Android debug APK build completed successfully'
+              break
+            fi
+            # Do not rerun source/Gradle errors. Maven's HTTP 429 is a
+            # transient upstream limit after multiple public CI attempts.
+            if ! grep -qE 'Received status code 429|Too Many Requests' /tmp/repforge_android_build.log; then
+              tail -n 120 /tmp/repforge_android_build.log
+              exit 1
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo 'Maven Central still rate-limited after bounded retries'
+              tail -n 80 /tmp/repforge_android_build.log
+              exit 1
+            fi
+            delay=$((attempt * 40))
+            echo "Upstream Maven HTTP 429; retrying build after ${delay}s (attempt ${attempt}/4)"
+            sleep "$delay"
+          done
       - name: Verify expected permissions and identifier
         working-directory: source
         run: |
