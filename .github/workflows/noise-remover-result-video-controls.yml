@@ -1,0 +1,61 @@
+name: Noise Remover result video controls regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-result-video-controls.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Require private repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout targeted Noise Remover branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: fix/result-video-playback-hit-targets-20261116
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Authenticate private Git dependencies
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: git config --global url."https://x-access-token:${PRIVATE_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Generate localizations
+        working-directory: app
+        run: flutter gen-l10n
+
+      - name: Check formatting
+        working-directory: app
+        run: dart format --output=none --set-exit-if-changed lib/screens/result_screen.dart lib/widgets/result_video_player_layout.dart test/result_video_player_layout_test.dart
+
+      - name: Analyze changed sources
+        working-directory: app
+        run: dart analyze lib/screens/result_screen.dart lib/widgets/result_video_player_layout.dart test/result_video_player_layout_test.dart
+
+      - name: Run focused video playback tests
+        working-directory: app
+        run: flutter test --no-pub test/result_video_player_layout_test.dart test/video_player_overlay_test.dart
