@@ -1,0 +1,58 @@
+name: Zoin coffee feedback currency expense actions
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/zoin-coffee-feedback-actions.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout Zoin with Playground-only credentials
+        uses: actions/checkout@v4
+        with:
+          repository: perzis/zoin
+          ref: feat/feedback-coffee-currencies-expense-actions-20261117
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Python setup
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install backend test dependencies
+        run: python -m pip install -r backend/requirements-dev.txt
+
+      - name: Backend unit and API tests
+        env:
+          ENVIRONMENT: testing
+          PYTHONPATH: ${{ github.workspace }}/backend
+        run: python -m pytest -q backend/tests
+
+      - name: Flutter setup
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+
+      - name: Flutter dependencies
+        run: flutter pub get
+
+      - name: Dart formatting
+        run: dart format --output=none --set-exit-if-changed lib/donations lib/domain/group_emoji.dart lib/ui/widgets/expense_actions.dart lib/ui/screens/support_zoin_screen.dart
+
+      - name: Flutter analyzer
+        run: flutter analyze
+
+      - name: Flutter tests
+        run: flutter test
+
+      - name: Build Android debug APK
+        run: flutter build apk --debug --dart-define=USE_DEMO=true
