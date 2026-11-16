@@ -1,0 +1,103 @@
+name: FocusMove build installable APK (private delivery)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/focusmove-private-apk-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: focusmove-private-apk-build
+  cancel-in-progress: false
+
+jobs:
+  build-and-deliver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+
+      - name: Checkout pinned FocusMove main privately
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          EXPECTED_SHA: e31b6ce46e80b4f1b97887e8c9aeac7f6234e4d8
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN" || { echo 'Private GitHub token is missing'; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=main https://github.com/Persie0/pomodoroexercise.git source
+          ACTUAL_SHA="$(git -C source rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA" || {
+            echo 'FocusMove main changed; refusing to publish an unreviewed revision.'
+            exit 1
+          }
+          printf 'SOURCE_SHA=%s\n' "$ACTUAL_SHA" >> "$GITHUB_ENV"
+
+      - name: Analyze and test Flutter application
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter analyze
+          flutter test --reporter expanded
+
+      - name: Build release-mode test APK (no upload key required)
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter build apk --release
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$APK"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
+          "$AAPT" dump badging "$APK" | grep -F "package: name='com.persie.pomodoroexercise.ci'"
+          "$AAPT" dump permissions "$APK" > "$RUNNER_TEMP/focusmove-apk-permissions.txt"
+          if grep -E 'android.permission.(INTERNET|RECORD_AUDIO|READ_EXTERNAL_STORAGE|WRITE_EXTERNAL_STORAGE|FOREGROUND_SERVICE|ACCESS_(FINE|COARSE|BACKGROUND)_LOCATION|SCHEDULE_EXACT_ALARM|USE_EXACT_ALARM)' "$RUNNER_TEMP/focusmove-apk-permissions.txt"; then
+            echo 'Unexpected release APK permission'; exit 1
+          fi
+          sha256sum "$APK" | sed 's|  .*|  FocusMove-Test.apk|'
+          echo 'No sources or APKs are uploaded to the public Playground repository.'
+
+      - name: Publish APK only to private FocusMove prerelease
+        working-directory: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'Private release upload credential missing'; exit 1; }
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          SHORT_SHA="${SOURCE_SHA:0:12}"
+          TAG="focusmove-test-apk-$SHORT_SHA"
+          FILE_NAME="FocusMove-Test-$SHORT_SHA.apk"
+          cp "$APK" "$RUNNER_TEMP/$FILE_NAME"
+          if gh release view "$TAG" --repo Persie0/pomodoroexercise >/dev/null 2>&1; then
+            gh release upload "$TAG" "$RUNNER_TEMP/$FILE_NAME" --repo Persie0/pomodoroexercise --clobber
+          else
+            gh release create "$TAG" "$RUNNER_TEMP/$FILE_NAME" \
+              --repo Persie0/pomodoroexercise \
+              --target "$SOURCE_SHA" \
+              --title "FocusMove test APK ($SHORT_SHA)" \
+              --notes "Android release-mode test build from commit $SOURCE_SHA. Debug-signed with application ID com.persie.pomodoroexercise.ci. This is not a Play Store production-signed release." \
+              --prerelease
+          fi
+          gh release view "$TAG" --repo Persie0/pomodoroexercise --json url,assets \
+            --jq '{url,assets:[.assets[]|{name:.name,size:.size}]}'
+          echo "Private APK release published for commit $SOURCE_SHA"
