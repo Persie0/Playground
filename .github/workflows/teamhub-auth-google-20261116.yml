@@ -14,14 +14,31 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - name: Checkout private TeamHub fix branch
-        uses: actions/checkout@v4
-        with:
-          repository: perzis/teamplus_clone
-          ref: fix/auth-ui-google-login-20261116
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-          path: teamhub
-          persist-credentials: false
+      - name: Checkout private TeamHub fix branch (try authorized tokens)
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          GH_TOKEN_FALLBACK: ${{ secrets.GH_TOKEN }}
+          GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          for candidate in "$PRIVATE_REPO_TOKEN" "$GH_TOKEN_FALLBACK" "$GH_RELEASE_TOKEN"; do
+            if [ -z "$candidate" ]; then continue; fi
+            authorization="$(printf 'x-access-token:%s' "$candidate" | base64 -w 0)"
+            if GIT_CONFIG_COUNT=1 \
+               GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+               GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization" \
+               git clone --quiet --depth=1 --single-branch \
+                 --branch fix/auth-ui-google-login-20261116 \
+                 https://github.com/perzis/teamplus_clone.git teamhub 2>/dev/null; then
+              echo "Private TeamHub checkout successful."
+              break
+            fi
+            rm -rf teamhub
+          done
+          if [ ! -d teamhub/.git ]; then
+            echo "No configured token has read access to perzis/teamplus_clone." >&2
+            exit 1
+          fi
       - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
