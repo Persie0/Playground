@@ -1,4 +1,4 @@
-# Step 20 camera safety release gate, adversarial replay and SQLite recovery (public runner only).
+# Step 20 follow-up: resilient camera lifecycle and adverse frame tests (public runner only).
 name: RepForge Flutter Android and iOS integration validation
 
 on:
@@ -36,7 +36,7 @@ jobs:
           test -n "$REPO_TOKEN" || { echo 'Missing private repository read token'; exit 1; }
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
-            clone --depth 1 --branch feat/step20-reliability-release-gates \
+            clone --depth 1 --branch feat/step20-reliability-camera-gates \
             https://github.com/Persie0/gameexercise.git source
           test -s source/pubspec.yaml
       - name: Flutter static checks
@@ -63,6 +63,8 @@ jobs:
             fi
           }
           run_test camera_release test/forge_step20_camera_release_gate_test.dart
+          run_test camera_hud test/forge_workout_hud_test.dart
+          run_test hundred_cycles test/forge_step20_camera_stress_test.dart
           run_test adversarial_replay test/forge_step20_adversarial_replay_test.dart test/forge_camera_validation_test.dart
           run_test persistence test/forge_step20_persistence_recovery_test.dart
           run_test legacy_workouts test/forge_workout_store_test.dart test/forge_workout_session_screen_test.dart
@@ -118,10 +120,10 @@ jobs:
           # The private branch may advance during an Android build. Never
           # force-push or overwrite those changes with the formatter commit.
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
-            fetch --deepen=30 origin feat/step20-reliability-release-gates
+            fetch --deepen=30 origin feat/step20-reliability-camera-gates
           git rebase FETCH_HEAD
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
-            push origin HEAD:refs/heads/feat/step20-reliability-release-gates
+            push origin HEAD:refs/heads/feat/step20-reliability-camera-gates
 
   ios:
     name: iOS simulator compile
@@ -143,7 +145,7 @@ jobs:
           test -n "$REPO_TOKEN" || { echo 'Missing private repository read token'; exit 1; }
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
-            clone --depth 1 --branch feat/step20-reliability-release-gates \
+            clone --depth 1 --branch feat/step20-reliability-camera-gates \
             https://github.com/Persie0/gameexercise.git source
           test -s source/pubspec.yaml
       - name: Build unsigned iOS simulator app
