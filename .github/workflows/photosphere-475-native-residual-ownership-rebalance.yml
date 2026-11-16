@@ -1,0 +1,117 @@
+name: Photosphere 475 original Ceres cost ownership tree rebalance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-475-native-residual-ownership-rebalance.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-475-native-residual-ownership-rebalance
+  cancel-in-progress: false
+jobs:
+  native-ownership-rebalance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact private research SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 68cbb0ad6b65f083235b2b3ddba37b35261df3ae
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify source commit and parse checkpoint475
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 68cbb0ad6b65f083235b2b3ddba37b35261df3ae
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py research/photosphere/checkpoint442/live_six_pair_native_camera_getters.py research/photosphere/checkpoint474/live_residual_node_48byte_allocation.py research/photosphere/checkpoint475/live_residual_ownership_tree_rebalance.py
+      - name: Verify original GCam APK and native library SHA256
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Execute original rebalance and verify protected source state
+        working-directory: research-src
+        env:
+          PHOTOSPHERE_THIRD_SHIFT407: '2'
+          PHOTOSPHERE_FOURTH_CERES474: '1'
+          PHOTOSPHERE_FOURTH_CERES475: '1'
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint475-native.log 2> checkpoint475-diagnostic.log || {
+            echo CHECKPOINT475_NATIVE_FAILURE
+            tail -n 110 checkpoint475-diagnostic.log
+            tail -n 8 checkpoint475-native.log | cut -c1-240
+            exit 1
+          }
+          python3 - <<'PY'
+          import json
+          line=next(x for x in open("checkpoint475-native.log")
+                    if x.startswith("CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT="))
+          d=json.loads(line.split("=",1)[1])
+          getters=d["checkpoint442_fourth_original_native_getters"]
+          n=d["checkpoint474_fourth_original_residual_node_allocation"]
+          if n is None:
+              print("CHECKPOINT475_MISSING_PARENT="+json.dumps({
+                  "callback_error":getters.get("source_original_callback_execution_error"),
+                  "474_requested":getters.get("source_original_residual_node_allocation_474_requested"),
+                  "474_complete":getters.get("source_original_residual_node_allocation_474_completed")
+              },sort_keys=True))
+              raise AssertionError("source 474 native predecessor receipt absent")
+          assert n["checkpoint"]==474
+          assert getters["source_original_residual_node_allocation_474_completed"]
+          assert n["original_residual_source_next_dependency_pc"]=="0x134aa8"
+          assert n["original_residual_source_next_dependency_mnemonic"]=="bl"
+          assert n["original_residual_source_next_dependency_operands"]=="#0x110170"
+          assert n["original_residual_source_root_points_to_new_48byte_node"]
+          assert n["original_residual_source_first_vector_append_retained"]
+          assert n["original_residual_source_four_parameter_owners_unchanged"]
+          assert n["original_residual_source_four_parameter_tree_nodes_unchanged"]
+          assert n["original_residual_source_first_constructed_owner_unchanged"]
+          q=n.get("original_source_475_cost_ownership_rebalance_probe")
+          assert q is not None,("checkpoint475 probe absent",getters.get(
+              "source_original_callback_execution_error"))
+          assert q["checkpoint"]==475
+          assert q["original_source_rebalance_callsite"]=="0x134aa8"
+          assert q["original_source_rebalance_native_entry"]=="0x110170"
+          assert q["original_source_rebalance_caller_return"]=="0x134aac"
+          assert q["original_source_rebalance_helper_native_executed"]
+          assert q["original_source_rebalance_return_reached"]
+          assert q["original_source_cost_ownership_root_is_new_node"]
+          assert q["original_source_cost_ownership_root_black"]
+          assert q["original_source_cost_ownership_root_color_after"]==1
+          assert q["original_source_protected_predecessors_unchanged"]
+          assert q["original_source_caller_continuation_not_executed"]
+          assert q["original_ceres_full_residual_registration_unverified"]
+          assert q["original_ceres_optimizer_unexecuted"]
+          assert getters["source_original_pair_buffer_unchanged"]
+          assert getters["source_original_source_camera_unchanged"]
+          assert getters["source_original_provider_owned_children_unchanged"]
+          assert len(q["original_source_native_pc_trace"])>=3
+          print("CHECKPOINT475_ORIGINAL_COST_OWNERSHIP_REBALANCE_NATIVE_VERIFIED")
+          print("CHECKPOINT475_SOURCE_NATIVE_RECEIPT="+json.dumps(q,sort_keys=True))
+          PY
+      - name: Remove APK and original ELF even on failure
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so
+      - name: Upload source-only diagnostic on success
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-475-cost-ownership-rebalance-source-only
+          path: research-src/checkpoint475-diagnostic.log
+          if-no-files-found: error
+          retention-days: 7
