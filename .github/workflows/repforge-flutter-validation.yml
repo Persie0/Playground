@@ -115,6 +115,11 @@ jobs:
           git config user.email 'repforge-ci@users.noreply.github.com'
           git commit -m 'chore: format Dart source and pin Flutter dependencies'
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 | tr -d '\n')"
+          # The private branch may advance during an Android build. Never
+          # force-push or overwrite those changes with the formatter commit.
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            fetch --deepen=30 origin feat/step19-localization-privacy-access
+          git rebase FETCH_HEAD
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
             push origin HEAD:refs/heads/feat/step19-localization-privacy-access
 
