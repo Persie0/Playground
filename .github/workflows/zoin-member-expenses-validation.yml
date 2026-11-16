@@ -1,0 +1,88 @@
+name: Zoin group editing and restaurant UX validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/zoin-member-expenses-validation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout Zoin via PRIVATE_REPO_TOKEN
+        id: first
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: perzis/zoin
+          ref: fix/expense-edit-restaurant-ui-20261116
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          persist-credentials: false
+
+      - name: Checkout Zoin via GH_TOKEN if needed
+        id: second
+        if: steps.first.outcome == 'failure'
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: perzis/zoin
+          ref: fix/expense-edit-restaurant-ui-20261116
+          token: ${{ secrets.GH_TOKEN }}
+          persist-credentials: false
+
+      - name: Checkout Zoin via GH_RELEASE_TOKEN if needed
+        id: third
+        if: steps.first.outcome == 'failure' && steps.second.outcome == 'failure'
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: perzis/zoin
+          ref: fix/expense-edit-restaurant-ui-20261116
+          token: ${{ secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Require authorized private checkout
+        env:
+          FIRST: ${{ steps.first.outcome }}
+          SECOND: ${{ steps.second.outcome }}
+          THIRD: ${{ steps.third.outcome }}
+        run: |
+          if [ "$FIRST" != success ] && [ "$SECOND" != success ] && [ "$THIRD" != success ]; then
+            echo "None of the Playground tokens can read perzis/zoin." >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install FastAPI test dependencies
+        run: python -m pip install -r backend/requirements-dev.txt
+
+      - name: Backend tests
+        env:
+          ENVIRONMENT: testing
+          PYTHONPATH: ${{ github.workspace }}/backend
+        run: python -m pytest -q backend/tests
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+
+      - name: Flutter dependencies
+        run: flutter pub get
+
+      - name: Flutter analyzer
+        run: flutter analyze
+
+      - name: Flutter tests
+        run: flutter test
+
+      - name: Android debug build
+        run: flutter build apk --debug --dart-define=USE_DEMO=true
