@@ -1,0 +1,455 @@
+name: Photosphere 474 original 48-byte Ceres residual node allocation and ownership
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-474-native-residual-node-allocator.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-474-native-residual-node-allocator
+  cancel-in-progress: false
+jobs:
+  original-residual-node-allocator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout private source SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: de3f4469cdaf6f0a4cc0f947a1df9d90730947e1
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify research SHA and Python syntax
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = de3f4469cdaf6f0a4cc0f947a1df9d90730947e1
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py research/photosphere/checkpoint442/live_six_pair_native_camera_getters.py research/photosphere/checkpoint454/live_original_problem_constructor.py research/photosphere/checkpoint455/live_first_native_registration_entry.py research/photosphere/checkpoint456/live_first_scratch_copy.py research/photosphere/checkpoint457/live_first_native_four_pointer_sort.py research/photosphere/checkpoint457/scan_native_four_pointer_sort.py research/photosphere/checkpoint458/scan_original_ceres_postsort.py research/photosphere/checkpoint458/live_original_postsort_to_lookup.py research/photosphere/checkpoint459/live_first_parameter_owner.py research/photosphere/checkpoint459/scan_original_first_parameter_owner.py research/photosphere/checkpoint460/live_first_parameter_tree_insert.py research/photosphere/checkpoint460/scan_original_parameter_tree_insertion.py research/photosphere/checkpoint461/live_second_parameter_nonempty_tree.py research/photosphere/checkpoint462/live_second_parameter_tree_insert.py research/photosphere/checkpoint463/live_third_parameter_nonempty_two_tree.py research/photosphere/checkpoint464/live_third_parameter_tree_insert.py research/photosphere/checkpoint465/live_fourth_parameter_nonempty_three_tree.py research/photosphere/checkpoint466/live_fourth_parameter_tree_insert.py research/photosphere/checkpoint467/live_fourth_parameter_caller_completion.py research/photosphere/checkpoint468/live_post_four_parameters_allocator.py research/photosphere/checkpoint469/live_residual_owner_constructor_frontier.py research/photosphere/checkpoint470/live_residual_parameter_array_allocator.py research/photosphere/checkpoint471/live_residual_parameter_array_memmove_return.py research/photosphere/checkpoint472/live_residual_registration_caller_frontier.py research/photosphere/checkpoint473/live_first_residual_vector_allocation.py research/photosphere/checkpoint474/live_residual_node_48byte_allocation.py
+      - name: Verify source-original GCam 8.8.225 APK and ARM64 ELF
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Source-run original 48-byte Ceres residual node allocation until next native dependency
+        working-directory: research-src
+        env:
+          PHOTOSPHERE_THIRD_SHIFT407: '2'
+          PHOTOSPHERE_FOURTH_CERES463: '1'
+          PHOTOSPHERE_FOURTH_CERES464: '1'
+          PHOTOSPHERE_FOURTH_CERES465: '1'
+          PHOTOSPHERE_FOURTH_CERES466: '1'
+          PHOTOSPHERE_FOURTH_CERES467: '1'
+          PHOTOSPHERE_FOURTH_CERES468: '1'
+          PHOTOSPHERE_FOURTH_CERES469: '1'
+          PHOTOSPHERE_FOURTH_CERES470: '1'
+          PHOTOSPHERE_FOURTH_CERES471: '1'
+          PHOTOSPHERE_FOURTH_CERES472: '1'
+          PHOTOSPHERE_FOURTH_CERES473: '1'
+          PHOTOSPHERE_FOURTH_CERES474: '1'
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint474-native.log 2> checkpoint474-diagnostic.log || {
+            echo CHECKPOINT474_NATIVE_FAILURE
+            tail -n 90 checkpoint474-diagnostic.log
+            tail -n 8 checkpoint474-native.log | cut -c1-240
+            exit 1
+          }
+          python3 - <<'PY'
+          import json
+          line=next(x for x in open("checkpoint474-native.log")
+                    if x.startswith("CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT="))
+          d=json.loads(line.split("=",1)[1])
+          r=d["checkpoint463_fourth_original_third_parameter"]
+          z=d["checkpoint462_fourth_original_second_parameter_tree_insert"]
+          q=d["checkpoint461_fourth_original_second_parameter"]
+          t=d["checkpoint460_fourth_original_first_parameter_tree_insert"]
+          a=d["checkpoint459_fourth_original_first_parameter_owner"]
+          h=d["checkpoint458_fourth_original_postsort_to_parameter_lookup"]
+          s=d["checkpoint457_fourth_original_four_pointer_sort"]
+          c=d["checkpoint456_fourth_original_first_scratch_copy"]
+          p=d["checkpoint455_fourth_native_first_registration_entry"]
+          getters=d["checkpoint442_fourth_original_native_getters"]
+          if not r:
+              print("CHECKPOINT465_MISSING_PREDECESSOR_RECEIPT_DEBUG="+json.dumps({
+                "callback_error":getters.get("source_original_callback_execution_error"),
+                "requested":getters.get("source_original_third_parameter_463_requested"),
+                "completed":getters.get("source_original_third_parameter_463_completed"),
+                "second_tree_462_completed":getters.get("source_original_second_tree_insert_462_completed"),
+                "second_461_completed":getters.get("source_original_second_parameter_461_completed"),
+                "first_tree_460_completed":getters.get("source_original_first_tree_insert_460_completed"),
+                "first_459_completed":getters.get("source_original_first_parameter_459_completed"),
+                "first_source_row":getters.get("source_original_callback_rows",[])[:1],
+              },default=str,sort_keys=True))
+              raise AssertionError("original source third Ceres dimension-two owner missing receipt")
+          assert r["checkpoint"]==463
+          k=r.get("original_source_464_third_tree_insert_probe")
+          if k is None:
+              print("CHECKPOINT464_MISSING_NATIVE_PROBE="+json.dumps({
+                  "callback_error":getters.get("source_original_callback_execution_error"),
+                  "third_463_completed":getters.get("source_original_third_parameter_463_completed"),
+                  "third_463_receipt_present":bool(r),
+              },default=str,sort_keys=True))
+              raise AssertionError("original source third parameter tree insertion missing")
+          assert k["checkpoint"]==464
+          w=d["checkpoint465_fourth_original_fourth_parameter"]
+          assert w is not None and w["checkpoint"]==465
+          tree466=d["checkpoint466_fourth_original_fourth_tree"]
+          if not tree466:
+              print("CHECKPOINT466_MISSING_NATIVE_RECEIPT="+json.dumps({
+                "callback_error":getters.get("source_original_callback_execution_error"),
+                "requested":getters.get("source_original_fourth_tree_insert_466_requested"),
+                "completed":getters.get("source_original_fourth_tree_insert_466_completed"),
+              },default=str,sort_keys=True))
+              raise AssertionError("missing fourth Ceres native tree registration receipt")
+          assert tree466["checkpoint"]==466
+          caller467=d["checkpoint467_fourth_original_caller_completion"]
+          if not caller467:
+              print("CHECKPOINT467_MISSING_NATIVE_RECEIPT="+json.dumps({
+                  "callback_error":getters.get("source_original_callback_execution_error"),
+                  "requested":getters.get("source_original_fourth_caller_completion_467_requested"),
+                  "completed":getters.get("source_original_fourth_caller_completion_467_completed"),
+              },default=str,sort_keys=True))
+              raise AssertionError("missing original fourth Ceres caller source-native receipt")
+          assert caller467["checkpoint"]==467
+          alloc468=d["checkpoint468_fourth_original_allocator_frontier"]
+          if not alloc468:
+              print("CHECKPOINT468_MISSING_NATIVE_RECEIPT="+json.dumps({
+                  "callback_error":getters.get("source_original_callback_execution_error"),
+                  "requested":getters.get("source_original_post_four_allocator_468_requested"),
+                  "completed":getters.get("source_original_post_four_allocator_468_completed"),
+              },default=str,sort_keys=True))
+              raise AssertionError("missing original post-four-Ceres 32-byte allocator receipt")
+          assert alloc468["checkpoint"]==468
+          ctor469=d["checkpoint469_fourth_original_residual_owner_constructor"]
+          if not ctor469:
+              print("CHECKPOINT469_MISSING_NATIVE_RECEIPT="+json.dumps({
+                  "callback_error":getters.get("source_original_callback_execution_error"),
+                  "requested":getters.get("source_original_residual_owner_ctor_469_requested"),
+                  "completed":getters.get("source_original_residual_owner_ctor_469_completed"),
+              },default=str,sort_keys=True))
+              raise AssertionError("missing source residual owner constructor native receipt")
+          assert ctor469["checkpoint"]==469
+          array470=d["checkpoint470_fourth_original_residual_parameter_array"]
+          if not array470:
+              print("CHECKPOINT470_MISSING_NATIVE_RECEIPT="+json.dumps({
+                  "callback_error":getters.get("source_original_callback_execution_error"),
+                  "requested":getters.get("source_original_residual_parameter_array_470_requested"),
+                  "completed":getters.get("source_original_residual_parameter_array_470_completed"),
+              },default=str,sort_keys=True))
+              raise AssertionError("missing original 470 residual array source-native receipt")
+          assert array470["checkpoint"]==470
+          copy471=d["checkpoint471_fourth_original_residual_memmove_return"]
+          if not copy471:
+              print("CHECKPOINT471_MISSING_NATIVE_RECEIPT="+json.dumps({
+                  "callback_error":getters.get("source_original_callback_execution_error"),
+                  "requested":getters.get("source_original_residual_memmove_return_471_requested"),
+                  "completed":getters.get("source_original_residual_memmove_return_471_completed"),
+              },default=str,sort_keys=True))
+              raise AssertionError("missing original 471 residual memmove native return receipt")
+          assert copy471["checkpoint"]==471
+          caller472=d["checkpoint472_fourth_original_residual_registration_caller"]
+          if not caller472:
+              print("CHECKPOINT472_MISSING_NATIVE_RECEIPT="+json.dumps({
+                  "callback_error":getters.get("source_original_callback_execution_error"),
+                  "requested":getters.get("source_original_residual_registration_caller_472_requested"),
+                  "completed":getters.get("source_original_residual_registration_caller_472_completed"),
+              },default=str,sort_keys=True))
+              raise AssertionError("missing original 472 Ceres caller source-native receipt")
+          assert caller472["checkpoint"]==472
+          storage473=d["checkpoint473_fourth_original_residual_vector_storage"]
+          if not storage473:
+              print("CHECKPOINT473_MISSING_NATIVE_RECEIPT="+json.dumps({
+                  "callback_error":getters.get("source_original_callback_execution_error"),
+                  "requested":getters.get("source_original_residual_vector_storage_473_requested"),
+                  "completed":getters.get("source_original_residual_vector_storage_473_completed"),
+              },default=str,sort_keys=True))
+              raise AssertionError("missing original 473 residual vector 8-byte native allocator receipt")
+          assert storage473["checkpoint"]==473
+          node474=d["checkpoint474_fourth_original_residual_node_allocation"]
+          if not node474:
+              print("CHECKPOINT474_MISSING_NATIVE_RECEIPT="+json.dumps({
+                  "callback_error":getters.get("source_original_callback_execution_error"),
+                  "requested":getters.get("source_original_residual_node_allocation_474_requested"),
+                  "completed":getters.get("source_original_residual_node_allocation_474_completed"),
+              },default=str,sort_keys=True))
+              raise AssertionError("missing original 474 48-byte native residual node allocator receipt")
+          assert node474["checkpoint"]==474
+          assert storage473["original_source_474_residual_node_allocation_probe"]==node474
+          assert storage473["original_residual_source_first_owner_append_observed"]
+          assert node474["original_residual_source_48byte_allocation_BL_executed"]
+          assert node474["original_residual_source_48byte_host_malloc_substituted"]
+          assert node474["original_residual_source_48byte_allocator_returned"]
+          assert int(node474["original_residual_source_48byte_new_node_pointer"],16)%16==0
+          assert node474["original_residual_source_next_dependency_not_executed"]
+          assert node474["original_residual_source_next_dependency_reason"] in (
+              "next_source_call_or_return_unexecuted",
+              "next_source_external_branch_unexecuted")
+          assert int(node474["original_residual_source_next_dependency_pc"],16)>=0x134a60
+          assert node474["original_residual_source_first_vector_append_retained"]
+          assert node474["original_residual_source_auxiliary_residual_vector_unchanged"]
+          assert node474["original_residual_source_four_parameter_owners_unchanged"]
+          assert node474["original_residual_source_four_parameter_tree_nodes_unchanged"]
+          assert node474["original_residual_source_four_pointer_arrays_unchanged"]
+          assert node474["original_residual_source_first_constructed_owner_unchanged"]
+          assert node474["original_residual_source_point_cost_huber_loss_unchanged"]
+          assert node474["original_ceres_all_residuals_registered_unverified"]
+          assert node474["original_ceres_optimizer_unexecuted"]
+          assert getters["source_original_residual_node_allocation_474_completed"]
+          assert caller472["original_source_473_residual_8byte_vector_allocation_probe"]==storage473
+          assert storage473["original_residual_source_8byte_allocation_BL_executed"]
+          assert storage473["original_residual_source_malloc_host_substituted"]
+          assert storage473["original_residual_source_8byte_allocator_returned"]
+          assert int(storage473["original_residual_source_8byte_storage_pointer"],16)%16==0
+          assert storage473["original_residual_source_next_dependency_not_executed"]
+          assert storage473["original_residual_source_next_dependency_stop_reason"] in (
+              "next_native_dependency_unexecuted","next_external_branch_unexecuted")
+          assert int(storage473["original_residual_source_next_dependency_pc"],16)>=0x134998
+          assert storage473["original_residual_source_pimpl_four_registered_parameter_owners_unchanged"]
+          assert storage473["original_residual_source_four_parameter_vector_unchanged"]
+          assert storage473["original_residual_source_cost_loss_point_inputs_unchanged"]
+          assert storage473["original_residual_source_constructor_owner_and_copy_unchanged"]
+          assert storage473["original_ceres_all_residuals_registered_unverified"]
+          assert storage473["original_ceres_optimizer_unexecuted"]
+          assert getters["source_original_residual_vector_storage_473_completed"]
+          assert copy471["original_source_472_residual_caller_frontier_probe"]==caller472
+          assert caller472["original_residual_first_caller_return_source_executed"]
+          assert caller472["original_residual_source_caller_entry_pc"]=="0x1348e0"
+          assert caller472["original_residual_source_caller_next_dependency_not_executed"]
+          assert caller472["original_residual_source_caller_stop_reason"] in (
+              "next_call_not_executed","next_return_or_indirect_not_executed")
+          assert int(caller472["original_residual_source_caller_stop_pc"],16)>=0x1348e0
+          assert caller472["original_residual_source_four_parameter_tree_owners_unchanged"]
+          assert caller472["original_residual_source_four_parameter_vectors_unchanged"]
+          assert caller472["original_residual_source_registered_owner_metadata_unchanged"]
+          assert caller472["original_residual_source_point_cost_loss_inputs_unchanged"]
+          assert caller472["original_residual_source_constructor_32byte_object_unchanged"]
+          assert caller472["original_residual_source_constructor_owner_copy_unchanged"]
+          assert caller472["original_ceres_full_residual_registration_not_verified"]
+          assert caller472["original_ceres_optimizer_unexecuted"]
+          assert getters["source_original_residual_registration_caller_472_completed"]
+          assert array470["original_source_471_residual_memmove_return_probe"]==copy471
+          assert copy471["original_residual_native_tail_branch_executed"]
+          assert copy471["original_residual_host_memmove_existing_override_executed_once"]
+          assert copy471["original_residual_host_memmove_byte_count"]==32
+          assert copy471["original_residual_native_constructor_return_reached"]
+          assert copy471["original_residual_constructor_caller_return_pc"]=="0x1348e0"
+          assert copy471["original_residual_parameter_array_all_four_source_owner_pointers_verified"]
+          assert copy471["original_residual_parameter_array_sha256_after_copy"]=="bbd7d48804a89d127b66f80a496bc10773d1880bf4df6980669a9b1489d64b6c"
+          assert copy471["original_residual_object_cost_loss_and_array_metadata_unchanged"]
+          assert copy471["original_residual_192byte_pimpl_four_nodes_owners_unchanged"]
+          assert copy471["original_residual_56byte_owner_vector_unchanged"]
+          assert copy471["original_residual_input_point_cost_loss_unchanged"]
+          assert copy471["original_residual_source_result_array_unchanged"]
+          assert copy471["original_residual_original_caller_not_executed"]
+          assert copy471["original_residual_imported_bionic_unverified"]
+          assert copy471["original_residual_registration_unexecuted"]
+          assert copy471["original_ceres_optimizer_unexecuted"]
+          assert getters["source_original_residual_memmove_return_471_completed"]
+          assert ctor469["original_source_470_residual_parameter_array_probe"]==array470
+          assert array470["original_residual_parameter_array_source_32byte_allocator_BL_executed"]
+          assert array470["original_residual_parameter_array_host_allocator_substituted"]
+          assert array470["original_residual_parameter_array_native_return_observed"]
+          assert int(array470["original_residual_parameter_array_new_pointer"],16)!=0
+          assert array470["original_residual_owner_cost_loss_first_two_words_preserved"]
+          assert array470["original_residual_owner_ctor_stop_reason"] in (
+              "next_call","constructor_return","imported_memmove_boundary")
+          if array470["original_residual_owner_ctor_stop_reason"]=="next_call":
+              assert array470["original_residual_owner_next_call_not_executed"]
+              assert int(array470["original_residual_owner_next_callsite"],16)>=0x14d26c
+              assert array470["original_residual_owner_next_call_mnemonic"] in ("bl","blr")
+          elif array470["original_residual_owner_ctor_stop_reason"]=="imported_memmove_boundary":
+              assert array470["original_residual_owner_next_dependency_not_executed"]
+              assert array470["original_residual_owner_next_import_target"]=="0x3fbca0"
+              assert array470["original_residual_owner_next_import_service"]=="memmove"
+              assert array470["original_residual_owner_next_callsite"]=="0x14d288"
+          else:
+              assert array470["original_residual_owner_ctor_completed"]
+              assert array470["original_residual_owner_next_callsite"] is None
+          assert array470["original_residual_parameter_owners_and_tree_unchanged"]
+          assert array470["original_residual_owner_vector_and_result_unchanged"]
+          assert array470["original_residual_cost_loss_point_and_sources_unchanged"]
+          assert array470["original_ceres_residual_registration_not_verified"]
+          assert array470["original_ceres_optimizer_unexecuted"]
+          assert getters["source_original_residual_parameter_array_470_completed"]
+          assert alloc468["original_source_469_residual_owner_ctor_probe"]==ctor469
+          assert ctor469["original_residual_owner_source_ctor_BL_executed"]
+          assert ctor469["original_residual_owner_native_entry_executed"]
+          assert ctor469["original_residual_owner_original_32byte_allocation_reused"]
+          assert ctor469["original_residual_owner_source_cost_and_huber_loss_passed"]
+          assert ctor469["original_residual_owner_stop_reason"] in ("nested_call_boundary","constructor_return")
+          if ctor469["original_residual_owner_stop_reason"]=="nested_call_boundary":
+              assert ctor469["original_residual_owner_original_next_dependency_unexecuted"]
+              assert int(ctor469["original_residual_owner_next_dependency_callsite"],16)>=0x14d238
+              assert ctor469["original_residual_owner_next_dependency_mnemonic"] in ("bl","blr")
+          else:
+              assert ctor469["original_residual_owner_native_constructor_returned"]
+              assert ctor469["original_residual_owner_next_dependency_callsite"] is None
+          assert ctor469["original_residual_owner_all_four_ceres_map_nodes_unchanged"]
+          assert ctor469["original_residual_owner_all_four_80byte_parameter_owners_unchanged"]
+          assert ctor469["original_residual_owner_parameter_vector_unchanged"]
+          assert ctor469["original_residual_owner_original_result_array_unchanged"]
+          assert ctor469["original_residual_owner_input_point_cost_loss_unchanged"]
+          assert ctor469["original_ceres_residual_registration_not_verified"]
+          assert ctor469["original_ceres_optimizer_unexecuted"]
+          assert getters["source_original_residual_owner_ctor_469_completed"]
+          assert caller467["original_source_468_post_four_allocator_probe"]==alloc468
+          assert alloc468["original_post_four_parameter_32byte_source_malloc_BL_executed"]
+          assert alloc468["original_post_four_parameter_host_malloc_import_substituted"]
+          assert alloc468["original_post_four_parameter_next_call_not_executed"]
+          assert int(alloc468["original_post_four_parameter_32byte_allocated_pointer"],16)!=0
+          assert int(alloc468["original_post_four_parameter_next_callsite"],16)>0x1348bc
+          assert alloc468["original_post_four_parameter_next_call_mnemonic"] in ("bl","blr")
+          assert alloc468["original_post_four_parameter_caller_unchanged_sp"]
+          assert alloc468["original_post_four_parameter_all_four_registered_owner_nodes_unchanged"]
+          assert alloc468["original_post_four_parameter_all_four_owner_metadata_unchanged"]
+          assert alloc468["original_post_four_parameter_owner_vector_unchanged"]
+          assert alloc468["original_post_four_parameter_source_four_result_pointers_unchanged"]
+          assert alloc468["original_post_four_parameter_source_point_cost_loss_unchanged"]
+          assert alloc468["original_post_four_parameter_source_input_pointers_unchanged"]
+          assert alloc468["original_ceres_residual_registration_not_verified"]
+          assert alloc468["original_ceres_optimizer_unexecuted"]
+          assert getters["source_original_post_four_allocator_468_completed"]
+          assert tree466["original_source_467_fourth_caller_completion_probe"]==caller467
+          assert caller467["original_fourth_parameter_final_result_store_source_executed"]
+          assert caller467["original_four_parameter_native_loop_exited"]
+          assert caller467["original_four_parameter_result_array_all_four_owners"]
+          assert caller467["original_fourth_parameter_native_tree_count_four_unchanged"]
+          assert caller467["original_fourth_parameter_native_tree_colors_unchanged"]
+          assert caller467["original_fourth_parameter_four_80byte_owners_unchanged"]
+          assert caller467["original_fourth_parameter_source_owner_vector_unchanged"]
+          assert caller467["original_fourth_parameter_point_cost_loss_unchanged"]
+          assert caller467["original_fourth_parameter_original_input_pointers_unchanged"]
+          assert caller467["original_next_native_call_not_executed"]
+          assert int(caller467["original_next_native_callsite"],16)>=0x13486c
+          assert caller467["original_next_native_call_mnemonic"] in ("bl","blr")
+          assert caller467["original_ceres_residual_registration_not_verified"]
+          assert caller467["original_ceres_optimizer_unexecuted"]
+          assert getters["source_original_fourth_caller_completion_467_completed"]
+          assert w["original_source_466_fourth_tree_insert_probe"]==tree466
+          assert tree466["original_fourth_tree_source_native_48byte_allocation_executed"]
+          assert tree466["original_fourth_tree_source_native_left_child_inserted"]
+          assert tree466["original_fourth_tree_native_rebalance_helper_executed"]
+          assert tree466["original_fourth_tree_red_uncle_recolor_verified"]
+          assert tree466["original_fourth_tree_root_remains_black"]
+          assert tree466["original_fourth_tree_node_count"]==4
+          assert tree466["original_fourth_tree_source_native_4entry_vector_append_verified"]
+          assert tree466["original_fourth_tree_no_vector_reallocation"]
+          assert tree466["original_fourth_tree_native_lookup_return_executed"]
+          assert tree466["original_fourth_tree_original_caller_stop_pc"]=="0x134858"
+          assert tree466["original_fourth_tree_all_four_80byte_objects_unchanged"]
+          assert tree466["original_fourth_tree_source_parameters_point_cost_loss_unchanged"]
+          assert tree466["original_fourth_tree_result_array_first_three_only"]
+          assert tree466["original_ceres_residual_registration_unexecuted"]
+          assert tree466["original_ceres_optimizer_unexecuted"]
+          assert getters["source_original_fourth_tree_insert_466_completed"]
+          assert k["original_source_465_fourth_parameter_probe"]==w
+          assert w["original_fourth_parameter_caller_advance_executed"]
+          assert w["original_fourth_parameter_native_lookup_executed"]
+          assert w["original_fourth_parameter_three_node_tree_traversed"]
+          assert w["original_fourth_parameter_original_overlap_helper_executed"]
+          assert w["original_fourth_parameter_adjacent_third_nonoverlap_verified"]
+          assert w["original_fourth_parameter_dimension_one"]
+          assert w["original_fourth_parameter_original_80byte_allocator_BL_executed"]
+          assert w["original_fourth_parameter_native_80byte_metadata_initialized"]
+          assert w["original_fourth_parameter_tree_count_still_three"]
+          assert w["original_fourth_parameter_existing_three_tree_nodes_unchanged"]
+          assert w["original_fourth_parameter_existing_three_80byte_objects_unchanged"]
+          assert w["original_fourth_parameter_existing_three_owner_vector_unchanged"]
+          assert w["original_fourth_parameter_native_result_array_three_pointers"]
+          assert w["original_fourth_parameter_input_point_cost_loss_unchanged"]
+          assert w["original_fourth_parameter_native_insertion_stop_pc"]=="0x133ddc"
+          assert w["original_fourth_parameter_native_tree_insertion_unexecuted"]
+          assert w["original_ceres_residual_registration_unexecuted"]
+          assert w["original_ceres_optimizer_unexecuted"]
+          assert getters["source_original_fourth_parameter_465_completed"]
+          assert k["original_third_tree_source_native_left_child_inserted"]
+          assert k["original_third_tree_native_rebalance_helper_executed"]
+          assert k["original_third_tree_root_black_two_red_children_verified"]
+          assert k["original_third_tree_node_count"]==3
+          assert k["original_third_tree_native_48byte_malloc_executed"]
+          assert k["original_third_tree_32byte_vector_growth_source_executed"]
+          assert k["original_third_tree_16byte_imported_memmove_host_substituted"]
+          assert k["original_third_tree_old_vector_imported_free_host_substituted"]
+          assert k["original_third_tree_source_lookup_return_executed"]
+          assert k["original_third_tree_native_return_pc"]=="0x134858"
+          assert k["original_third_tree_three_80byte_objects_unchanged"]
+          assert k["original_third_tree_four_parameter_pointer_words_unchanged"]
+          assert k["original_third_tree_result_array_first_two_only"]
+          assert k["original_third_tree_input_point_cost_loss_unchanged"]
+          assert k["original_fourth_parameter_lookup_unexecuted"]
+          assert k["original_ceres_residual_registration_unexecuted"]
+          assert k["original_ceres_optimizer_unexecuted"]
+          assert r["original_third_parameter_caller_advance_executed"]
+          assert r["original_third_parameter_native_lookup_executed"]
+          assert r["original_third_parameter_nonempty_two_node_tree_traversed"]
+          assert r["original_third_parameter_original_overlap_helper_executed"]
+          assert r["original_third_parameter_original_overlap_nonthrow_verified"]
+          assert r["original_third_parameter_source_size_two"]
+          assert r["original_third_parameter_original_80byte_allocator_BL_executed"]
+          assert r["original_third_parameter_native_80byte_metadata_initialized"]
+          assert r["original_third_parameter_tree_count_still_two"]
+          assert r["original_third_parameter_existing_two_tree_nodes_unchanged"]
+          assert r["original_third_parameter_existing_two_80byte_objects_unchanged"]
+          assert r["original_third_parameter_existing_two_owner_vector_unchanged"]
+          assert r["original_third_parameter_native_result_array_two_pointers"]
+          assert r["original_third_parameter_input_point_cost_loss_unchanged"]
+          assert r["original_third_parameter_native_tree_insertion_stop_pc"]=="0x133ddc"
+          assert r["original_third_parameter_native_tree_insertion_unexecuted"]
+          assert r["original_fourth_parameter_lookup_unexecuted"]
+          assert r["original_ceres_residual_registration_unexecuted"]
+          assert r["original_ceres_optimizer_unexecuted"]
+          assert z["checkpoint"]==462 and z["original_second_tree_node_count"]==2
+          assert z["original_second_tree_root_black_child_red_verified"]
+          assert z["original_second_tree_source_original_lookup_native_return_executed"]
+          assert q["checkpoint"]==461 and q["original_second_parameter_source_overlap_helper_executed"]
+          assert t["checkpoint"]==460 and t["source_original_first_parameter_tree_count"]==1
+          assert a["checkpoint"]==459 and a["original_first_parameter_object_byte_size"]==80
+          assert h["checkpoint"]==458 and h["original_source_3_adjacent_sorted_unique_pointer_checks"]==3
+          assert s["source_original_four_pointer_sorted_ascending_verified"]
+          assert c["source_original_parameter_pointer_copy_verified"]
+          assert p["original_source_0x128e04_call_executed"]
+          assert getters["source_original_third_parameter_463_completed"]
+          assert getters["source_original_second_tree_insert_462_completed"]
+          assert getters["source_original_second_parameter_461_completed"]
+          assert getters["source_original_first_tree_insert_460_completed"]
+          assert getters["source_original_first_parameter_459_completed"]
+          assert getters["source_original_postsort_458_completed"]
+          assert getters["source_original_four_pointer_sort_457_completed"]
+          assert getters["source_original_first_scratch_456_completed"]
+          assert getters["source_original_first_registration_455_completed"]
+          assert getters["source_original_problem_ctor_454_completed"]
+          assert getters["source_original_point_row_451_completed"]
+          assert getters["source_original_pair_buffer_unchanged"]
+          assert getters["source_original_source_camera_unchanged"]
+          assert getters["source_original_provider_owned_children_unchanged"]
+          assert getters["source_original_nested_vector_payloads_unchanged_443"]
+          v=getters["source_original_matcher_owned_nested_vectors_443"]
+          assert [x["point28"]["count"] for x in v]==[25,15,16,11,0,19]
+          assert sum(x["point28"]["count"] for x in v)==86
+          print("CHECKPOINT474_RESIDUAL_48BYTE_NODE_SOURCE_NATIVE_VERIFIED")
+          print("CHECKPOINT474_SOURCE_NATIVE_RECEIPT="+json.dumps(node474,sort_keys=True))
+          PY
+      - name: Delete original APK and native ELF on success or failure
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so
+      - name: Upload source-only diagnostic (no original binary)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-474-residual-node-allocator-source-only
+          path: research-src/checkpoint474-diagnostic.log
+          if-no-files-found: error
+          retention-days: 7
