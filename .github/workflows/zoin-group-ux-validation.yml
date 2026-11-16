@@ -1,0 +1,55 @@
+name: Zoin group UX, invite and currency validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/zoin-group-ux-validation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out Zoin changes (private credentials not persisted)
+        uses: actions/checkout@v4
+        with:
+          repository: perzis/zoin
+          ref: feat/group-invites-currency-ux
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install backend test dependencies
+        run: python -m pip install -r backend/requirements-dev.txt
+
+      - name: Test Zoin API and group management
+        env:
+          ENVIRONMENT: testing
+          PYTHONPATH: ${{ github.workspace }}/backend
+        run: python -m pytest -q backend/tests
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+
+      - name: Install Flutter packages
+        run: flutter pub get
+
+      - name: Analyze Flutter
+        run: flutter analyze
+
+      - name: Test Flutter
+        run: flutter test
+
+      - name: Build Android demo APK
+        run: flutter build apk --debug --dart-define=USE_DEMO=true
