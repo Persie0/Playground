@@ -52,12 +52,13 @@ jobs:
           run_test() {
             name="$1"; shift
             output="/tmp/repforge_${name}.log"
-            if timeout 180s flutter test --reporter expanded "$@" > "$output" 2>&1; then
+            if timeout 45s flutter test --reporter expanded "$@" > "$output" 2>&1; then
               tail -n 8 "$output"
             else
-              echo "Failed test group: $name"
-              grep -nE 'Expected:|Actual:|Which:|Exception|Error|FAIL|Some tests|timed out' "$output" | tail -n 90 || true
-              tail -n 80 "$output"
+              echo "Failed test group: $name; first diagnostics:"
+              head -n 140 "$output" | cut -c 1-300
+              echo "Last diagnostics:"
+              tail -n 24 "$output" | cut -c 1-300
               exit 1
             fi
           }
