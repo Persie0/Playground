@@ -1,0 +1,52 @@
+name: Image Enhancer PR72 — localization validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/image_enhancer_locale_pr72_validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-enhancer-localization-pr72
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Image Enhancer PR72 branch (private)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: feat/play-console-all-locale-coverage
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: image_enhancer
+          fetch-depth: 1
+
+      - name: Install Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: Generate localization Dart classes
+        working-directory: image_enhancer
+        run: flutter gen-l10n
+
+      - name: Validate locale parsing and complete translation packs
+        working-directory: image_enhancer
+        run: flutter test test/supported_languages_test.dart test/new_locale_arb_coverage_test.dart --reporter expanded
+
+      - name: Analyze Flutter source
+        working-directory: image_enhancer
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
