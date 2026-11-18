@@ -1,0 +1,94 @@
+name: Validate and package SkipSilencePlayer playback state fixes
+
+on:
+  push:
+    branches:
+      - validate-skip-silence-playback-state-20261118
+    paths:
+      - '.github/workflows/validate-skip-silence-playback-state.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact SkipSilencePlayer commit
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: 205139afb1bb31e9866f57aab1387eb17b30ca73
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: target
+          persist-credentials: false
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Run Android unit tests and build debug APK
+        working-directory: target/kotlin-android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
+
+      - name: Verify APK
+        run: |
+          test -s target/kotlin-android/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum target/kotlin-android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkipSilencePlayer-debug-205139a
+          path: target/kotlin-android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+  ios:
+    needs: android
+    runs-on: macos-latest
+    steps:
+      - name: Checkout exact SkipSilencePlayer commit
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: 205139afb1bb31e9866f57aab1387eb17b30ca73
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: target
+          persist-credentials: false
+
+      - name: Build iOS simulator
+        working-directory: target/swift-ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project SkipSilencePlayer.xcodeproj \
+            -scheme SkipSilencePlayer \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .derived \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Test real decoded PCM and playback state
+        working-directory: target/swift-ios
+        run: |
+          python3 Tests/generate_fixture.py /tmp/silence-digital.wav digital
+          python3 Tests/generate_fixture.py /tmp/silence-noisy.wav noisy
+          python3 Tests/generate_fixture.py /tmp/silence-quiet.wav quiet-speech
+          xcrun swiftc \
+            -parse-as-library \
+            -framework AVFoundation \
+            -framework CoreMedia \
+            SkipSilencePlayer/SilenceAnalyzer.swift \
+            Tests/SilenceAnalyzerHarness.swift \
+            -o /tmp/silence-analyzer-test
+          /tmp/silence-analyzer-test /tmp/silence-digital.wav digital
+          /tmp/silence-analyzer-test /tmp/silence-noisy.wav noisy
+          /tmp/silence-analyzer-test /tmp/silence-quiet.wav quiet-speech
