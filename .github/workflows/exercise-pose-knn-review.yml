@@ -49,7 +49,26 @@ jobs:
       - name: Compile debug APK
         working-directory: source
         run: |
-          flutter build apk --debug
+          set -euo pipefail
+          built=false
+          for attempt in 1 2 3 4; do
+            if flutter build apk --debug > /tmp/pose-android-build.log 2>&1; then
+              built=true
+              tail -n 12 /tmp/pose-android-build.log
+              break
+            fi
+            if ! grep -Eq 'status code 429|Too Many Requests|HTTP 429' /tmp/pose-android-build.log; then
+              tail -n 100 /tmp/pose-android-build.log
+              exit 1
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              tail -n 80 /tmp/pose-android-build.log
+              exit 1
+            fi
+            sleep $((attempt * 25))
+          done
+          test "$built" = true
+          test -s build/app/outputs/flutter-apk/app-debug.apk
           git rev-parse HEAD > build/app/outputs/flutter-apk/SOURCE_COMMIT.txt
           sha256sum build/app/outputs/flutter-apk/app-debug.apk > build/app/outputs/flutter-apk/SHA256SUMS.txt
       - name: Upload APK and resolution
@@ -132,7 +151,26 @@ jobs:
       - name: Compile debug APK
         working-directory: source
         run: |
-          flutter build apk --debug
+          set -euo pipefail
+          built=false
+          for attempt in 1 2 3 4; do
+            if flutter build apk --debug > /tmp/pose-android-build.log 2>&1; then
+              built=true
+              tail -n 12 /tmp/pose-android-build.log
+              break
+            fi
+            if ! grep -Eq 'status code 429|Too Many Requests|HTTP 429' /tmp/pose-android-build.log; then
+              tail -n 100 /tmp/pose-android-build.log
+              exit 1
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              tail -n 80 /tmp/pose-android-build.log
+              exit 1
+            fi
+            sleep $((attempt * 25))
+          done
+          test "$built" = true
+          test -s build/app/outputs/flutter-apk/app-debug.apk
           git rev-parse HEAD > build/app/outputs/flutter-apk/SOURCE_COMMIT.txt
           sha256sum build/app/outputs/flutter-apk/app-debug.apk > build/app/outputs/flutter-apk/SHA256SUMS.txt
       - name: Upload APK and resolution
@@ -216,7 +254,26 @@ jobs:
       - name: Compile debug APK
         working-directory: source
         run: |
-          flutter build apk --debug
+          set -euo pipefail
+          built=false
+          for attempt in 1 2 3 4; do
+            if flutter build apk --debug > /tmp/pose-android-build.log 2>&1; then
+              built=true
+              tail -n 12 /tmp/pose-android-build.log
+              break
+            fi
+            if ! grep -Eq 'status code 429|Too Many Requests|HTTP 429' /tmp/pose-android-build.log; then
+              tail -n 100 /tmp/pose-android-build.log
+              exit 1
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              tail -n 80 /tmp/pose-android-build.log
+              exit 1
+            fi
+            sleep $((attempt * 25))
+          done
+          test "$built" = true
+          test -s build/app/outputs/flutter-apk/app-debug.apk
           git rev-parse HEAD > build/app/outputs/flutter-apk/SOURCE_COMMIT.txt
           sha256sum build/app/outputs/flutter-apk/app-debug.apk > build/app/outputs/flutter-apk/SHA256SUMS.txt
       - name: Upload APK and resolution
