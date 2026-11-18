@@ -1,0 +1,310 @@
+name: Photosphere 482 original parent residual-registration control flow
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/photosphere-482-native-parent-caller.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: photosphere-482-native-parent-caller
+  cancel-in-progress: false
+jobs:
+  native-ownership-rebalance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact private research SHA read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/decompile
+          ref: 83e0e1e3ac6a29211f863ea89b86a6d864428bc5
+          path: research-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned source SHA and compile native checkpoints through 482
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 83e0e1e3ac6a29211f863ea89b86a6d864428bc5
+          python3 -m pip install --quiet --break-system-packages unicorn capstone pyelftools
+          python3 -m py_compile research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py research/photosphere/checkpoint442/live_six_pair_native_camera_getters.py research/photosphere/checkpoint474/live_residual_node_48byte_allocation.py research/photosphere/checkpoint475/live_residual_ownership_tree_rebalance.py research/photosphere/checkpoint476/live_cost_ownership_caller.py research/photosphere/checkpoint477/live_second_ownership_node_allocator.py research/photosphere/checkpoint478/live_huber_loss_tree_rebalance.py research/photosphere/checkpoint479/live_huber_loss_ownership_caller.py research/photosphere/checkpoint480/live_source_destructor_caller.py research/photosphere/checkpoint481/live_destructor_plt_and_parent_return.py research/photosphere/checkpoint482/live_parent_residual_caller.py
+      - name: Verify original GCam APK and native library SHA256
+        working-directory: research-src
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download pho --repo Persie0/decompile --pattern 'com.google.android.GoogleCamera_8.8.225.510547499.09-66251366_minAPI33.arm64-v8a.nodpi._apkmirror.com.apk' --dir .
+          mv com.google.android.GoogleCamera_*.apk original.apk
+          echo '9ca2264cbf5680c8b5b740e53849c1586c53436a7e860616584c0349dba37c47  original.apk' | sha256sum -c -
+          mkdir -p research/native
+          unzip -p original.apk lib/arm64-v8a/liblightcycle.so > research/native/liblightcycle.so
+          echo '878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1  research/native/liblightcycle.so' | sha256sum -c -
+      - name: Resolve exact original destructor ELF PLT relocation before full native replay
+        working-directory: research-src
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util,json,pathlib
+          source=pathlib.Path("research/photosphere/checkpoint481/live_destructor_plt_and_parent_return.py")
+          spec=importlib.util.spec_from_file_location("checkpoint481_plt",source)
+          module=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          p=module.source_destructor_plt_provenance_481(
+              pathlib.Path("research/native/liblightcycle.so"))
+          assert p["trampoline_address"]=="0x3f1a98"
+          assert p["plt_destination"]=="0x3fbbf0"
+          assert p["relocation_type"]==1026
+          assert p["import_symbol_undefined_in_native_elf"]
+          print("CHECKPOINT481_ORIGINAL_ELF_PLT_IMPORT_PROVENANCE="+json.dumps(p,sort_keys=True))
+          PY
+      - name: Execute bounded native Ceres parent caller after original AddResidualBlock return
+        working-directory: research-src
+        env:
+          PHOTOSPHERE_THIRD_SHIFT407: '2'
+          PHOTOSPHERE_FOURTH_CERES474: '1'
+          PHOTOSPHERE_FOURTH_CERES475: '1'
+          PHOTOSPHERE_FOURTH_CERES476: '1'
+          PHOTOSPHERE_FOURTH_CERES477: '1'
+          PHOTOSPHERE_FOURTH_CERES478: '1'
+          PHOTOSPHERE_FOURTH_CERES479: '1'
+          PHOTOSPHERE_FOURTH_CERES480: '1'
+          PHOTOSPHERE_FOURTH_CERES481: '1'
+          PHOTOSPHERE_FOURTH_CERES482: '1'
+        run: |
+          set -euo pipefail
+          python3 research/photosphere/checkpoint395/native_third_original_postlink_tree_frontier.py > checkpoint482-native.log 2> checkpoint482-diagnostic.log || {
+            echo CHECKPOINT482_NATIVE_FAILURE
+            tail -n 110 checkpoint482-diagnostic.log
+            tail -n 8 checkpoint482-native.log | cut -c1-240
+            exit 1
+          }
+          python3 - <<'PY'
+          import json
+          line=next(x for x in open("checkpoint482-native.log")
+                    if x.startswith("CHECKPOINT395_NATIVE_POINT_SETUP_THIRD_ROBUST_ENTRY_REPORT="))
+          d=json.loads(line.split("=",1)[1])
+          getters=d["checkpoint442_fourth_original_native_getters"]
+          n=d["checkpoint474_fourth_original_residual_node_allocation"]
+          if n is None:
+              print("CHECKPOINT476_MISSING_PARENT="+json.dumps({
+                  "callback_error":getters.get("source_original_callback_execution_error"),
+                  "474_requested":getters.get("source_original_residual_node_allocation_474_requested"),
+                  "474_complete":getters.get("source_original_residual_node_allocation_474_completed")
+              },sort_keys=True))
+              raise AssertionError("source 474 native predecessor receipt absent")
+          assert n["checkpoint"]==474
+          assert getters["source_original_residual_node_allocation_474_completed"]
+          assert n["original_residual_source_next_dependency_pc"]=="0x134aa8"
+          assert n["original_residual_source_next_dependency_mnemonic"]=="bl"
+          assert n["original_residual_source_next_dependency_operands"]=="#0x110170"
+          assert n["original_residual_source_root_points_to_new_48byte_node"]
+          assert n["original_residual_source_first_vector_append_retained"]
+          assert n["original_residual_source_four_parameter_owners_unchanged"]
+          assert n["original_residual_source_four_parameter_tree_nodes_unchanged"]
+          assert n["original_residual_source_first_constructed_owner_unchanged"]
+          q=n.get("original_source_475_cost_ownership_rebalance_probe")
+          assert q is not None,("checkpoint476 probe absent",getters.get(
+              "source_original_callback_execution_error"))
+          assert q["checkpoint"]==475
+          assert q["original_source_rebalance_callsite"]=="0x134aa8"
+          assert q["original_source_rebalance_native_entry"]=="0x110170"
+          assert q["original_source_rebalance_caller_return"]=="0x134aac"
+          assert q["original_source_rebalance_helper_native_executed"]
+          assert q["original_source_rebalance_return_reached"]
+          assert q["original_source_cost_ownership_root_is_new_node"]
+          assert q["original_source_cost_ownership_root_black"]
+          assert q["original_source_cost_ownership_root_color_after"]==1
+          assert q["original_source_protected_predecessors_unchanged"]
+          assert q["original_source_caller_continuation_not_executed"]
+          assert q["original_ceres_full_residual_registration_unverified"]
+          assert q["original_ceres_optimizer_unexecuted"]
+          assert getters["source_original_pair_buffer_unchanged"]
+          assert getters["source_original_source_camera_unchanged"]
+          assert getters["source_original_provider_owned_children_unchanged"]
+          assert len(q["original_source_native_pc_trace"])>=3
+          v=q.get("original_source_476_cost_ownership_caller_probe")
+          assert v is not None,("missing checkpoint476 probe",
+                                getters.get("source_original_callback_execution_error"))
+          assert v["checkpoint"]==476
+          assert v["original_source_caller_entry"]=="0x134aac"
+          assert v["original_source_caller_continuation_executed"]
+          assert v["original_source_next_dependency_not_executed"]
+          assert v["original_source_next_dependency_reason"] in (
+              "next_native_call_return_or_indirect_unexecuted",
+              "next_native_external_branch_unexecuted")
+          assert int(v["original_source_next_dependency_pc"],16)>=0x134aac
+          assert v["original_source_first_cost_ownership_node_retained"]
+          assert v["original_source_protected_residual_parameter_state_retained"]
+          assert all(0x90<=i<0xc0 for i in v["original_source_pimpl_changed_offsets"])
+          assert v["original_ceres_all_residuals_registered_unverified"]
+          assert v["original_ceres_optimizer_unexecuted"]
+          node477=v.get("original_source_477_second_ownership_node_probe")
+          assert node477 is not None,("missing native 477 receipt",
+               getters.get("source_original_callback_execution_error"))
+          assert node477["checkpoint"]==477
+          assert node477["original_source_second_allocator_callsite"]=="0x134b2c"
+          assert node477["original_source_second_allocator_native_executed"]
+          assert node477["original_source_second_allocator_host_malloc_substituted"]
+          assert node477["original_source_second_allocator_return_observed"]
+          assert int(node477["original_source_second_node_pointer"],16)%16==0
+          assert node477["original_source_original_cost_tree_retained"]
+          assert node477["original_source_first_cost_node_and_count_unchanged"]
+          assert node477["original_source_four_parameter_and_residual_predecessors_unchanged"]
+          assert node477["original_source_next_native_dependency_not_executed"]
+          assert node477["original_source_next_native_dependency_reason"] in (
+              "next_source_call_or_return_unexecuted",
+              "next_source_external_branch_unexecuted")
+          assert len(node477["original_source_second_node_native_pc_trace"])>=3
+          assert all(0xa8<=i<0xc0 for i in
+                     node477["original_source_second_tree_header_changed_offsets"])
+          assert node477["original_ceres_all_residuals_registered_unverified"]
+          assert node477["original_ceres_optimizer_unexecuted"]
+          h=node477.get("original_source_478_huber_loss_rebalance_probe")
+          assert h is not None,("missing native 478 receipt",
+              getters.get("source_original_callback_execution_error"))
+          assert h["checkpoint"]==478
+          assert h["original_source_loss_rebalance_callsite"]=="0x134b78"
+          assert h["original_source_loss_rebalance_native_entry"]=="0x110170"
+          assert h["original_source_loss_rebalance_caller_return"]=="0x134b7c"
+          assert h["original_source_loss_rebalance_native_executed"]
+          assert h["original_source_loss_rebalance_caller_return_reached"]
+          assert h["original_source_huber_loss_root_is_second_node"]
+          assert h["original_source_huber_loss_root_black"]
+          assert h["original_source_loss_root_color_before"]==0
+          assert h["original_source_loss_root_color_after"]==1
+          assert h["original_source_loss_root_payload_matches_original_huber_owner"]
+          assert h["original_source_loss_tree_count_at_return"]==0
+          assert h["original_source_first_cost_tree_and_node_retained"]
+          assert h["original_source_four_parameter_and_residual_predecessors_retained"]
+          assert h["original_source_caller_after_rebalance_not_executed"]
+          assert h["original_ceres_all_residuals_registered_unverified"]
+          assert h["original_ceres_optimizer_unexecuted"]
+          assert h["original_source_native_pc_trace"][0]=="0x134b78"
+          assert h["original_source_native_pc_trace"][-1]=="0x134b7c"
+          assert len(h["original_source_native_pc_trace"])>=3
+          c=h.get("original_source_479_huber_loss_caller_probe")
+          assert c is not None,("missing checkpoint479 native caller receipt",
+               getters.get("source_original_callback_execution_error"))
+          assert c["checkpoint"]==479
+          assert c["original_source_loss_caller_entry"]=="0x134b7c"
+          assert c["original_source_loss_caller_native_executed"]
+          assert c["original_source_loss_caller_stop_before_boundary"]
+          assert c["original_source_next_native_dependency_reason"] in (
+              "next_original_call_or_return_unexecuted",
+              "next_original_external_branch_unexecuted")
+          assert int(c["original_source_next_native_dependency_pc"],16)>=0x134b7c
+          assert c["original_source_first_cost_tree_retained"]
+          assert c["original_source_second_loss_tree_root_black_retained"]
+          assert c["original_source_loss_root_payload_matches_huber_owner"]
+          assert c["original_source_four_parameter_and_residual_predecessors_retained"]
+          assert all(0xa8<=i<0xc0 for i in c["original_source_pimpl_changed_offsets"])
+          assert c["original_source_native_pc_trace"][0]=="0x134b7c"
+          assert len(c["original_source_native_pc_trace"])>=2
+          assert c["original_ceres_all_residuals_registered_unverified"]
+          assert c["original_ceres_optimizer_unexecuted"]
+          b=c.get("original_source_480_destructor_caller_probe")
+          assert b is not None,("missing checkpoint480 native caller receipt",
+               getters.get("source_original_callback_execution_error"))
+          assert b["checkpoint"]==480
+          assert b["original_source_destructor_callsite"]=="0x134ba4"
+          assert b["original_source_destructor_target"]=="0x3f1a98"
+          assert b["original_source_destructor_native_body_unexecuted"]
+          assert b["original_source_destructor_host_return_substituted"]
+          assert b["original_source_destructor_host_return_observed"]
+          assert b["original_source_destructor_argument_bytes_unchanged"]
+          assert b["original_source_native_pc_trace"][:3]==[
+              "0x134ba4","0x3f1a98","0x134ba8"]
+          assert b["original_source_caller_resume_at"]=="0x134ba8"
+          assert b["original_source_next_native_dependency_not_executed"]
+          assert b["original_source_next_native_dependency_reason"] in (
+              "next_source_call_or_return_unexecuted",
+              "next_source_external_branch_unexecuted")
+          assert b["original_source_cost_ownership_tree_and_count_retained"]
+          assert b["original_source_huber_ownership_tree_and_count_retained"]
+          assert b["original_source_cost_and_huber_nodes_unchanged"]
+          assert b["original_source_protected_parameter_and_residual_state_retained"]
+          assert b["original_source_bionic_destructor_parity_unverified"]
+          assert b["original_ceres_all_residuals_registered_unverified"]
+          assert b["original_ceres_optimizer_unexecuted"]
+          p=b.get("original_source_481_destructor_plt_parent_return_probe")
+          assert p is not None,("checkpoint481 native return probe absent",
+               getters.get("source_original_callback_execution_error"))
+          assert p["checkpoint"]==481
+          assert p["source_original_ret_pc"]=="0x134bc8"
+          assert p["source_original_ret_native_executed"]
+          assert p["source_original_parent_return_reached"]
+          assert p["source_original_parent_instruction_not_executed"]
+          assert p["source_original_pc_trace"]==[
+              "0x134bc8",p["source_original_parent_return_pc"]]
+          assert p["source_original_parent_instruction"][0]==p["source_original_parent_return_pc"]
+          assert p["source_original_sp_at_parent_return"]=="0x7100f000"
+          assert p["source_original_return_native_writes"]==[]
+          assert p["source_original_first_cost_tree_count_one_retained"]
+          assert p["source_original_huber_loss_tree_count_one_retained"]
+          assert p["source_original_parameter_and_residual_predecessors_retained"]
+          assert p["source_original_native_destructor_unexecuted"]
+          assert p["source_original_ceres_all_residuals_registered_unverified"]
+          assert p["source_original_ceres_optimizer_unexecuted"]
+          imp=p["source_destructor_elf_plt_provenance"]
+          assert imp["source_elf_sha256"]=="878feb4ab3912bc0a4c399d9eb14b6c615926e132b324ad8ea02d4988fd428d1"
+          assert imp["trampoline_address"]=="0x3f1a98"
+          assert imp["plt_destination"]=="0x3fbbf0"
+          assert imp["relocation_type"]==1026
+          assert imp["import_symbol_undefined_in_native_elf"]
+          assert imp["original_import_body_not_executed"]
+          print("CHECKPOINT481_ORIGINAL_ELF_PLT_SYMBOL="+imp["import_symbol"])
+          c482=p.get("original_source_482_parent_residual_caller_probe")
+          assert c482 is not None,("missing checkpoint482 native parent receipt",
+               getters.get("source_original_callback_execution_error"))
+          assert c482["checkpoint"]==482
+          assert c482["source_original_parent_caller_entry"]=="0x128e08"
+          assert c482["source_original_parent_first_instruction"]==[
+              "0x128e08","ldr","x8, [x21]"]
+          assert c482["source_original_parent_native_executed"]
+          assert c482["source_original_parent_next_boundary_not_executed"]
+          assert c482["source_original_parent_source_pc_trace"][0]=="0x128e08"
+          assert len(c482["source_original_parent_source_pc_trace"])>=2
+          assert c482["source_original_parent_next_boundary"]["reason"] in (
+              "next_original_call_return_or_trap_unexecuted",
+              "next_original_backward_loop_or_branch_unexecuted",
+              "next_original_external_branch_unexecuted",
+              "next_original_unresolved_branch_unexecuted")
+          assert c482["source_original_parent_cost_tree_root_retained"]
+          assert c482["source_original_parent_huber_tree_root_retained"]
+          assert c482["source_original_parent_cost_tree_count_at_stop"]>=1
+          assert c482["source_original_parent_huber_tree_count_at_stop"]>=1
+          assert c482["source_original_parent_original_free_host_substituted"]
+          assert c482["source_original_parent_all_residuals_registered_unverified"]
+          assert c482["source_original_parent_optimizer_unexecuted"]
+          print("CHECKPOINT482_ORIGINAL_PARENT_CERES_SOURCE_NATIVE_VERIFIED")
+          print("CHECKPOINT482_SOURCE_NATIVE_RECEIPT="+json.dumps(c482,sort_keys=True))
+          print("CHECKPOINT481_ORIGINAL_PARENT_RET_SOURCE_NATIVE_VERIFIED")
+          print("CHECKPOINT481_SOURCE_NATIVE_RECEIPT="+json.dumps(p,sort_keys=True))
+          print("CHECKPOINT480_ORIGINAL_POST_DTOR_CALLER_SOURCE_NATIVE_VERIFIED")
+          print("CHECKPOINT480_SOURCE_NATIVE_RECEIPT="+json.dumps(b,sort_keys=True))
+          print("CHECKPOINT479_ORIGINAL_HUBER_LOSS_CALLER_NATIVE_VERIFIED")
+          print("CHECKPOINT479_SOURCE_NATIVE_RECEIPT="+json.dumps(c,sort_keys=True))
+          print("CHECKPOINT478_ORIGINAL_HUBER_LOSS_TREE_REBALANCE_NATIVE_VERIFIED")
+          print("CHECKPOINT478_SOURCE_NATIVE_RECEIPT="+json.dumps(h,sort_keys=True))
+          print("CHECKPOINT477_SECOND_48BYTE_OWNERSHIP_ALLOCATOR_SOURCE_NATIVE_VERIFIED")
+          print("CHECKPOINT477_SOURCE_NATIVE_RECEIPT="+json.dumps(node477,sort_keys=True))
+          print("CHECKPOINT476_ORIGINAL_COST_OWNERSHIP_CALLER_NATIVE_VERIFIED")
+          print("CHECKPOINT476_SOURCE_NATIVE_RECEIPT="+json.dumps(v,sort_keys=True))
+          print("CHECKPOINT475_ORIGINAL_COST_OWNERSHIP_REBALANCE_NATIVE_VERIFIED")
+          print("CHECKPOINT475_SOURCE_NATIVE_RECEIPT="+json.dumps(q,sort_keys=True))
+          PY
+      - name: Remove APK and original ELF even on failure
+        if: always()
+        working-directory: research-src
+        run: |
+          rm -f original.apk research/native/liblightcycle.so
+      - name: Upload source-only diagnostic on success
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-482-parent-caller-source-only
+          path: research-src/checkpoint482-diagnostic.log
+          if-no-files-found: error
+          retention-days: 7
