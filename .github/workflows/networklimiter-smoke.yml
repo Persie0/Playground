@@ -1,6 +1,10 @@
-name: NetworkLimiter Linux smoke validation
-
+name: NetworkLimiter — global-only Linux smoke validation
 on:
+  push:
+    branches:
+      - validation/networklimiter-global
+    paths:
+      - .github/workflows/networklimiter-smoke.yml
   workflow_dispatch:
 
 permissions:
@@ -11,26 +15,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Clone public NetworkLimiter main
-        run: git clone --depth 1 --branch main https://github.com/Persie0/networklimiter.git source
+      - name: Clone public NetworkLimiter feature branch
+        run: git clone --depth 1 --branch feat/global-toggle-only https://github.com/Persie0/networklimiter.git source
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      - name: Install test dependencies
+      - name: Install Python dependencies
         run: python -m pip install psutil PySide6
 
-      - name: Validate Python syntax
+      - name: Compile Python
         run: python -m compileall -q source/networklimiter source/tests
 
       - name: Run unit tests
         run: cd source && python -m unittest discover -s tests -v
 
-      - name: Validate installer syntax
+      - name: Check shell syntax
         run: bash -n source/install.sh source/uninstall.sh
 
-      - name: Run offscreen Qt startup smoke test
+      - name: Check minimal UI with offscreen Qt
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
@@ -38,12 +42,14 @@ jobs:
           python - <<'PY'
           from PySide6.QtWidgets import QApplication
           from networklimiter.gui import Window
-
           app = QApplication([])
           window = Window(tray_start=False)
           assert window.windowTitle() == "NetworkLimiter"
-          assert window.global_rates.download.value() == 100
-          assert window.process_table.columnCount() == 6
+          assert window.toggle.text() == "Enable speed limit"
+          assert window.backend_rate == 1024
+          assert window.units.count() == 2
+          assert not hasattr(window, "rule_table")
+          assert not hasattr(window, "process_table")
           window.exit_app()
-          print("Qt startup OK")
+          print("Minimal global-only Qt UI validated")
           PY
