@@ -1,0 +1,51 @@
+name: Build SkipSilencePlayer Android APK
+
+on:
+  push:
+    branches:
+      - build-skip-silence-apk-20261118
+    paths:
+      - '.github/workflows/build-skip-silence-apk-20261118.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout SkipSilencePlayer at verified main commit
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: 3d05910bf673cac5bdd30d03048f15d2594684ae
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: target
+          persist-credentials: false
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Run Android unit tests and assemble installable debug APK
+        working-directory: target/kotlin-android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
+
+      - name: Verify APK and print SHA-256
+        run: |
+          test -s target/kotlin-android/app/build/outputs/apk/debug/app-debug.apk
+          ls -lh target/kotlin-android/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum target/kotlin-android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload installable Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkipSilencePlayer-debug-3d05910
+          path: target/kotlin-android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
