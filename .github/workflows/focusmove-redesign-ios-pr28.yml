@@ -1,0 +1,46 @@
+name: FocusMove redesign PR28 iOS simulator validation
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/focusmove-redesign-ios-pr28.yml'
+      - 'focusmove-redesign-ios-pr28-trigger.txt'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: focusmove-redesign-ios-pr28
+  cancel-in-progress: true
+jobs:
+  ios-simulator:
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: Clone private PR source to ephemeral runner only
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN" || { echo "Missing private read token"; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feature/focusmove-redesign-spec-20261118 https://github.com/Persie0/pomodoroexercise.git source
+      - name: Flutter iOS simulator build (no signing / artifacts)
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build ios --simulator --no-codesign
+          APP=build/ios/iphonesimulator/Runner.app
+          test -d "$APP"
+          for bundle in MLKitPoseDetectionFastResources MLKitPoseDetectionCommonResources MLKitXenoResources; do
+            test -d "$APP/$bundle.bundle" || { echo "Missing ML Kit bundle: $bundle"; exit 1; }
+          done
+          echo "iOS simulator compiled with ML Kit resources and local assets."
