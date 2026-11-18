@@ -1,0 +1,107 @@
+name: FocusMove static offline fonts (redesign PR28)
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/focusmove-redesign-fonts.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle-fonts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install static-font tooling
+        run: python -m pip install 'fonttools>=4.55,<5'
+      - name: Build Latin-subset OFL fonts on private feature branch
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN" || { echo 'Missing private checkout token'; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feature/focusmove-redesign-spec-20261118 https://github.com/Persie0/pomodoroexercise.git source
+          cd source
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.parse import quote
+          from urllib.request import urlopen
+          from fontTools.ttLib import TTFont
+          from fontTools.varLib.instancer import instantiateVariableFont
+          from fontTools.subset import Options, Subsetter
+
+          out = Path("assets/fonts")
+          out.mkdir(parents=True, exist_ok=True)
+          families = [
+              ("Inter", "ofl/inter", "Inter[opsz,wght].ttf", (400, 500, 600)),
+              ("BricolageGrotesque", "ofl/bricolagegrotesque",
+               "BricolageGrotesque[opsz,wdth,wght].ttf", (500, 700)),
+          ]
+          codepoints = set()
+          for start, end in [
+              (0x0020, 0x0300),    # basic/extended Latin, combining marks
+              (0x1E00, 0x1F00),    # Latin additional
+              (0x2000, 0x2150),    # punctuation, symbols and currencies
+              (0x2190, 0x2200),    # arrow glyphs
+          ]:
+              codepoints.update(range(start, end))
+          for family, directory, filename, weights in families:
+              base = "https://raw.githubusercontent.com/google/fonts/main/" + directory + "/"
+              binary = urlopen(base + quote(filename), timeout=35).read()
+              path = out / (family + "-source.ttf")
+              path.write_bytes(binary)
+              (out / ("OFL-" + family + ".txt")).write_bytes(
+                  urlopen(base + "OFL.txt", timeout=35).read())
+              for weight in weights:
+                  font = TTFont(str(path))
+                  axes = font["fvar"].axes
+                  axes_values = {
+                      a.axisTag: weight if a.axisTag == "wght"
+                      else a.defaultValue
+                      for a in axes
+                  }
+                  font = instantiateVariableFont(
+                      font, axes_values, inplace=True, optimize=True)
+                  opts = Options()
+                  opts.name_IDs = ["*"]
+                  opts.layout_features = ["*"]
+                  subset = Subsetter(options=opts)
+                  subset.populate(unicodes=codepoints)
+                  subset.subset(font)
+                  dest = out / (family + "-" + str(weight) + ".ttf")
+                  font.save(dest)
+                  font.close()
+                  print(dest, dest.stat().st_size)
+              path.unlink()
+          pubspec = Path("pubspec.yaml")
+          current = pubspec.read_text(encoding="utf-8")
+          marker = "flutter:\n  uses-material-design: true"
+          assert marker in current and "  fonts:" not in current, "Unexpected pubspec layout"
+          fonts = [
+              "  fonts:",
+              "    - family: Inter",
+              "      fonts:",
+              *sum(([f"        - asset: assets/fonts/Inter-{w}.ttf",
+                     f"          weight: {w}"] for w in (400, 500, 600)), []),
+              "    - family: Bricolage Grotesque",
+              "      fonts:",
+              *sum(([f"        - asset: assets/fonts/BricolageGrotesque-{w}.ttf",
+                     f"          weight: {w}"] for w in (500, 700)), []),
+          ]
+          pubspec.write_text(current.replace(marker, marker + "\n" + "\n".join(fonts) + "\n"),
+              encoding="utf-8")
+          PY
+          git config user.name "FocusMove Playground CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add pubspec.yaml assets/fonts/
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Bundle offline Inter and Bricolage Grotesque OFL static font weights"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:feature/focusmove-redesign-spec-20261118
