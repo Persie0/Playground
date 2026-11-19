@@ -21,7 +21,7 @@ jobs:
           repository: Persie0/noise_remover
           ref: feature/multi-engine-speech-denoising
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-          persist-credentials: false
+          persist-credentials: true
           path: app
       - name: Configure Flutter SDK
         uses: subosito/flutter-action@v2
@@ -43,9 +43,24 @@ jobs:
         run: flutter test --no-pub test/services/noise_model_catalog_test.dart
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      - name: Rust cargo check (pinned Tract backend)
+      - name: Rust cargo check (fixed GTCRN session lifetime)
         working-directory: app/flutter_nnnoiseless/rust
         run: cargo check --lib
+      - name: Save generated lockfiles to the private feature branch
+        if: success()
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Playground CI'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add pubspec.lock flutter_nnnoiseless/rust/Cargo.lock
+          if git diff --cached --quiet; then
+            echo "Lockfiles already current."
+          else
+            git commit -m 'chore: lock alternative denoising runtime dependencies'
+            git push origin HEAD:feature/multi-engine-speech-denoising
+          fi
       - name: Report generated dependency manifest
         if: always()
         working-directory: app
