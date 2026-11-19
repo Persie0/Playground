@@ -33,7 +33,7 @@ jobs:
       - name: Format new files before analysis
         working-directory: app
         run: |
-          dart format lib/services/noise_model_catalog.dart lib/services/native_neural_denoiser.dart lib/services/ulunas_denoiser.dart lib/services/alternative_noise_processor.dart test/services/noise_model_catalog_test.dart
+          dart format lib/services/noise_model_catalog.dart lib/services/native_neural_denoiser.dart lib/services/alternative_noise_processor.dart test/services/noise_model_catalog_test.dart
           git diff --stat
       - name: Analyzer on alternative model integration
         working-directory: app
@@ -43,9 +43,29 @@ jobs:
         run: flutter test --no-pub test/services/noise_model_catalog_test.dart
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      - name: Rust cargo check (fixed GTCRN session lifetime)
+      - name: Format Rust ONNX engines
         working-directory: app/flutter_nnnoiseless/rust
-        run: cargo check --lib
+        run: rustfmt --edition 2021 src/api/alternate.rs
+      - name: Rust cargo check (GTCRN, DTLN, ULUNAS)
+        working-directory: app/flutter_nnnoiseless/rust
+        run: cargo check --lib && cargo test --lib ulunas_tests --locked
+      - name: Assert only one neural runtime and no DeepFilterNet3
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R -nE 'deepfilternet3|flutter_litert|ulunas_denoiser' lib --include='*.dart'; then
+            echo 'Stale Flutter model references' >&2
+            exit 1
+          fi
+          if grep -qE '^name = "(deep_filter|tract-core|tract-onnx)"' flutter_nnnoiseless/rust/Cargo.lock; then
+            echo 'Tract/DeepFilterNet dependency remains in Cargo lockfile' >&2
+            exit 1
+          fi
+          if grep -q '^  flutter_litert:' pubspec.lock; then
+            echo 'LiteRT dependency still in Flutter lockfile' >&2
+            exit 1
+          fi
       - name: Save generated lockfiles to the private feature branch
         if: success()
         working-directory: app
@@ -54,11 +74,11 @@ jobs:
           set -euo pipefail
           git config user.name 'Playground CI'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add pubspec.lock flutter_nnnoiseless/rust/Cargo.lock
+          git add pubspec.lock flutter_nnnoiseless/rust/Cargo.lock flutter_nnnoiseless/rust/src/api/alternate.rs lib/services/noise_model_catalog.dart lib/services/native_neural_denoiser.dart lib/services/alternative_noise_processor.dart test/services/noise_model_catalog_test.dart
           if git diff --cached --quiet; then
             echo "Lockfiles already current."
           else
-            git commit -m 'chore: lock alternative denoising runtime dependencies'
+            git commit -m 'chore: lock and format compact ONNX runtime'
             git push origin HEAD:feature/multi-engine-speech-denoising
           fi
       - name: Report generated dependency manifest
