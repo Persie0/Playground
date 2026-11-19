@@ -1,8 +1,8 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `e991ed0ec3ff4f09135e5d7c655de5ece0ef43bb`
-Runner: https://github.com/Persie0/Playground/actions/runs/44507197371
-Overall checks before report: **failure**
+Private source commit: `20ce61a9cc4ba64d062720ed0f3f1cbb8389c32c`
+Runner: https://github.com/Persie0/Playground/actions/runs/44507517747
+Overall checks before report: **success**
 
 ## Test suites
 - test_adaptive_daily: PASS
@@ -22,18 +22,14 @@ Overall checks before report: **failure**
 - test_generator: PASS
 - test_hint_visibility: PASS
 - test_iap: PASS
-- test_navigation: FAIL
-  - SCRIPT ERROR: Parse Error: There is already a variable named "map_button" declared in this scope.
-  - ERROR: Failed to load script "res://tests/ui/test_navigation.gd" with error "Parse error".
+- test_navigation: PASS
 - test_pause_navigation: PASS
 - test_rules: PASS
 - test_rules_differential: PASS
 - test_save: PASS
 - test_solver: PASS
 - test_swipe: PASS
-- test_touch_scrolling: FAIL
-  - ERROR: FAILED: Pause has a shared touch scroller
-  - ERROR: JELLY TOUCH SCROLL FAIL: 1/28
+- test_touch_scrolling: PASS
 - test_tutorial: PASS
 
 ## Import, solver verification and smoke tests
