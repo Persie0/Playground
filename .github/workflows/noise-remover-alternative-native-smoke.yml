@@ -37,6 +37,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/flutter_nnnoiseless/rust
+          cache-on-failure: true
       - name: Compile native denoisers
         working-directory: app/flutter_nnnoiseless/rust
         run: cargo build --lib --locked
@@ -69,7 +70,49 @@ jobs:
                   out.writeframes(struct.pack('<'+str(count)+'h',*converted))
               print('RESAMPLED',target_rate,count)
           PY
-      - name: Real native inference with GTCRN Hermitian spectrum fix
+      - name: Test deterministic initializer rename for DeepFilterNet3's Tract backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q onnx==1.17.0
+          python3 - <<'PY'
+          import onnx,tarfile,io,gzip,pathlib
+          tarpath=pathlib.Path('/tmp/noise_models/deepfilternet3/DeepFilterNet3_onnx.tar.gz')
+          source=tarpath.read_bytes()
+          archive=tarfile.open(fileobj=io.BytesIO(source), mode='r:gz')
+          members=[]
+          for item in archive:
+              if not item.isfile(): continue
+              raw=archive.extractfile(item).read()
+              if item.name.endswith('.onnx'):
+                  model=onnx.load_from_string(raw)
+                  graph=model.graph
+                  initializer_renames={}
+                  for i,initializer in enumerate(graph.initializer):
+                      old=initializer.name
+                      replacement=f'__df3_unique_constant_{i}'
+                      initializer_renames[old]=replacement
+                      initializer.name=replacement
+                  for node_i,node in enumerate(graph.node):
+                      node.name=f'__df3_unique_operator_{node_i}'
+                      for i,name in enumerate(node.input):
+                          node.input[i]=initializer_renames.get(name,name)
+                  for vi in [*graph.input,*graph.output,*graph.value_info]:
+                      vi.name=initializer_renames.get(vi.name,vi.name)
+                  onnx.checker.check_model(model)
+                  raw=model.SerializeToString()
+                  print('NORMALIZED_ONNX',item.name,len(initializer_renames),flush=True)
+              members.append((item.name,raw))
+          archive.close()
+          buf=io.BytesIO()
+          with tarfile.open(fileobj=buf,mode='w:gz') as out:
+              for name,raw in members:
+                  info=tarfile.TarInfo(name)
+                  info.size=len(raw); info.mode=0o644
+                  out.addfile(info,io.BytesIO(raw))
+          tarpath.write_bytes(buf.getvalue())
+          PY
+      - name: Real native inference with normalized DeepFilterNet3 graphs
         run: |
           set -euo pipefail
           python3 - <<'PY'
