@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/JellySqueeze
-          ref: 76bc6ed9b02aca1d1d701f163f491f46d073bfac
+          ref: e991ed0ec3ff4f09135e5d7c655de5ece0ef43bb
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: game
@@ -41,6 +41,13 @@ jobs:
           timeout 120s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game --editor --quit 2>&1 | tee godot-import.log
           if grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:" godot-import.log; then exit 1; fi
 
+      - name: Generate 500 reproducible reference rules cases (G-01)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 game/tools/differential/generate_cases.py
+          test -s game/tests/content/classic_rule_differential_fixture.json
+
       - name: Execute all headless test scripts
         if: always()
         shell: bash
@@ -48,6 +55,7 @@ jobs:
           set -uo pipefail
           fails=0
           for test in \
+            tests/content/test_rules_differential.gd \
             tests/core/test_rules.gd \
             tests/core/test_tutorial.gd \
             tests/core/test_solver.gd \
@@ -120,7 +128,7 @@ jobs:
         shell: bash
         env:
           VALIDATION_OUTCOME: ${{ job.status }}
-          REPO_SHA: 76bc6ed9b02aca1d1d701f163f491f46d073bfac
+          REPO_SHA: e991ed0ec3ff4f09135e5d7c655de5ece0ef43bb
         run: |
           set -euo pipefail
           mkdir -p result-repo/reports
