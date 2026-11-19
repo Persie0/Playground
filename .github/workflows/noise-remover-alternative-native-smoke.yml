@@ -1,4 +1,4 @@
-name: Noise Remover alternative denoisers native audio smoke
+name: Noise Remover three ONNX denoisers native audio smoke
 
 on:
   push:
@@ -15,139 +15,108 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 100
     steps:
-      - name: Checkout private feature via public Playground
+      - name: Checkout feature through public Playground
         uses: actions/checkout@v4
         with:
           repository: Persie0/noise_remover
           ref: feature/multi-engine-speech-denoising
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          token: \${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: app
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install ONNX Runtime 1.22 native library
+      - name: Install ONNX Runtime 1.22 Linux test library
         run: |
           set -euo pipefail
-          curl -fL --retry 3 -o /tmp/ort.tgz https://dl.photoprism.app/onnx/runtime/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz
+          curl -fsSL --retry 3 -o /tmp/ort.tgz \
+            https://dl.photoprism.app/onnx/runtime/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz
           mkdir -p "$RUNNER_TEMP/onnxruntime"
           tar -xzf /tmp/ort.tgz -C "$RUNNER_TEMP/onnxruntime" --strip-components=1
           echo "ORT_LIB_LOCATION=$RUNNER_TEMP/onnxruntime/lib" >> "$GITHUB_ENV"
           echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$RUNNER_TEMP/onnxruntime/lib" >> "$GITHUB_ENV"
-      - name: Cache Rust compilation
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/flutter_nnnoiseless/rust
           cache-on-failure: true
-      - name: Compile native denoisers
+      - name: Compile existing Rust and ONNX Runtime backend
         working-directory: app/flutter_nnnoiseless/rust
         run: cargo build --lib --locked
-      - name: Download verification samples and optional models
+      - name: Download and authenticate optional weights
         run: |
           set -euo pipefail
-          mkdir -p /tmp/noise_models/dtln /tmp/noise_models/deepfilternet3
-          curl -fL --retry 3 -o /tmp/noise_models/dtln/model_1.onnx https://raw.githubusercontent.com/breizhn/DTLN/master/pretrained_model/model_1.onnx
-          curl -fL --retry 3 -o /tmp/noise_models/dtln/model_2.onnx https://raw.githubusercontent.com/breizhn/DTLN/master/pretrained_model/model_2.onnx
-          curl -fL --retry 3 -o /tmp/noise_models/deepfilternet3/DeepFilterNet3_onnx.tar.gz https://raw.githubusercontent.com/Rikorose/DeepFilterNet/d375b2d8309e0935d165700c91da9de862a99c31/models/DeepFilterNet3_onnx.tar.gz
-          curl -fL --retry 3 -o /tmp/sample.wav https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/speech_with_noise.wav
+          mkdir -p /tmp/noise_models/dtln /tmp/noise_models/ulunas
+          curl -fsSL --retry 3 -o /tmp/noise_models/dtln/model_1.onnx \
+            https://raw.githubusercontent.com/breizhn/DTLN/master/pretrained_model/model_1.onnx
+          curl -fsSL --retry 3 -o /tmp/noise_models/dtln/model_2.onnx \
+            https://raw.githubusercontent.com/breizhn/DTLN/master/pretrained_model/model_2.onnx
+          curl -fsSL --retry 3 -o /tmp/noise_models/ulunas/ulunas_stream_simple.onnx \
+            https://raw.githubusercontent.com/Xiaobin-Rong/ul-unas/00f7c700da43d38347f30a6ccebd86fcbc798e07/ulunas_onnx/onnx_models/ulunas_stream_simple.onnx
+          test "$(git hash-object /tmp/noise_models/dtln/model_1.onnx)" = a50a7d380d716b3bc616423026efc691ee596904
+          test "$(git hash-object /tmp/noise_models/dtln/model_2.onnx)" = 2db53a6e20edce6a7f1ef2e976029f54585629c0
+          test "$(git hash-object /tmp/noise_models/ulunas/ulunas_stream_simple.onnx)" = 70146cd787c593f6134ed947dc2e9373fd44f37d
+          test "$(wc -c < /tmp/noise_models/ulunas/ulunas_stream_simple.onnx)" -eq 788967
+      - name: Create 16 kHz noisy speech validation samples
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o /tmp/sample.wav \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/speech_with_noise.wav
           python3 - <<'PY'
-          import wave,struct,math
+          import wave,struct
           with wave.open('/tmp/sample.wav','rb') as w:
-              rate,channels,width,n=w.getframerate(),w.getnchannels(),w.getsampwidth(),w.getnframes()
-              assert width==2 and channels>=1,(rate,channels,width)
+              sr,ch,width,n=w.getframerate(),w.getnchannels(),w.getsampwidth(),w.getnframes()
+              assert width==2 and ch>=1
               raw=w.readframes(n)
-          data=struct.unpack('<'+str(n*channels)+'h',raw)
-          mono=[sum(data[i*channels:(i+1)*channels])/channels for i in range(n)]
-          for target_rate in [16000,48000]:
-              count=round(len(mono)*target_rate/rate)
-              converted=[]
-              for i in range(count):
-                  x=i*rate/target_rate
-                  a=min(int(x),len(mono)-1)
-                  b=min(a+1,len(mono)-1)
-                  converted.append(round((1-(x-a))*mono[a]+(x-a)*mono[b]))
-              with wave.open(f'/tmp/{target_rate//1000}k.wav','wb') as out:
-                  out.setnchannels(1);out.setsampwidth(2);out.setframerate(target_rate)
-                  out.writeframes(struct.pack('<'+str(count)+'h',*converted))
-              print('RESAMPLED',target_rate,count)
+          data=struct.unpack('<'+str(n*ch)+'h',raw)
+          mono=[sum(data[i*ch:(i+1)*ch])/ch for i in range(n)]
+          count=round(n*16000/sr)
+          converted=[]
+          for i in range(count):
+              x=i*sr/16000
+              a=min(int(x),n-1); b=min(a+1,n-1)
+              converted.append(round((1-(x-a))*mono[a]+(x-a)*mono[b]))
+          with wave.open('/tmp/16k.wav','wb') as w:
+              w.setnchannels(1);w.setsampwidth(2);w.setframerate(16000)
+              w.writeframes(struct.pack('<'+str(count)+'h',*converted))
+          print('SPEECH_TEST_WAV',count,flush=True)
           PY
-      - name: Test deterministic initializer rename for DeepFilterNet3's Tract backend
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m pip install -q --only-binary=:all: onnx==1.23.2
-          python3 - <<'PY'
-          import onnx,tarfile,io,gzip,pathlib
-          tarpath=pathlib.Path('/tmp/noise_models/deepfilternet3/DeepFilterNet3_onnx.tar.gz')
-          source=tarpath.read_bytes()
-          archive=tarfile.open(fileobj=io.BytesIO(source), mode='r:gz')
-          members=[]
-          for item in archive:
-              if not item.isfile(): continue
-              raw=archive.extractfile(item).read()
-              if item.name.endswith('.onnx'):
-                  model=onnx.load_from_string(raw)
-                  graph=model.graph
-                  initializer_renames={}
-                  for i,initializer in enumerate(graph.initializer):
-                      old=initializer.name
-                      replacement=f'__df3_unique_constant_{i}'
-                      initializer_renames[old]=replacement
-                      initializer.name=replacement
-                  for node_i,node in enumerate(graph.node):
-                      node.name=f'__df3_unique_operator_{node_i}'
-                      for i,name in enumerate(node.input):
-                          node.input[i]=initializer_renames.get(name,name)
-                  for vi in [*graph.input,*graph.output,*graph.value_info]:
-                      vi.name=initializer_renames.get(vi.name,vi.name)
-                  onnx.checker.check_model(model)
-                  raw=model.SerializeToString()
-                  print('NORMALIZED_ONNX',item.name,len(initializer_renames),flush=True)
-              members.append((item.name,raw))
-          archive.close()
-          buf=io.BytesIO()
-          with tarfile.open(fileobj=buf,mode='w:gz') as out:
-              for name,raw in members:
-                  info=tarfile.TarInfo(name)
-                  info.size=len(raw); info.mode=0o644
-                  out.addfile(info,io.BytesIO(raw))
-          tarpath.write_bytes(buf.getvalue())
-          PY
-      - name: Real native inference with normalized DeepFilterNet3 graphs
+      - name: Real GTCRN DTLN and ULUNAS ONNX inference
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import ctypes,os,struct,math
+          import ctypes,struct,math
           lib=ctypes.CDLL('app/flutter_nnnoiseless/rust/target/debug/librust_lib_flutter_nnnoiseless.so')
-          fn=lib.nr_process_neural_model
-          fn.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_char_p,ctypes.c_char_p]
-          fn.restype=ctypes.c_int
-          get=lib.nr_last_model_error
-          get.argtypes=[ctypes.c_void_p,ctypes.c_size_t]
-          get.restype=ctypes.c_size_t
-          for model,modeldir,sr in [(1,'',16000),(2,'/tmp/noise_models/dtln',16000),(3,'/tmp/noise_models/deepfilternet3/DeepFilterNet3_onnx.tar.gz',48000)]:
-              src=f'/tmp/{sr//1000}k.wav'
-              dst=f'/tmp/enhanced_{model}.wav'
-              result=fn(model,modeldir.encode(),src.encode(),dst.encode())
-              if result:
-                  out=ctypes.create_string_buffer(4096)
-                  get(out,4096)
-                  raise RuntimeError(f'MODEL_{model}_FAILED: {out.value.decode()}')
+          run=lib.nr_process_neural_model
+          run.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_char_p,ctypes.c_char_p]
+          run.restype=ctypes.c_int
+          error=lib.nr_last_model_error
+          error.argtypes=[ctypes.c_void_p,ctypes.c_size_t]
+          error.restype=ctypes.c_size_t
+          for model,path in [
+              (1, ''),
+              (2,'/tmp/noise_models/dtln'),
+              (3,'/tmp/noise_models/ulunas/ulunas_stream_simple.onnx'),
+          ]:
+              src='/tmp/16k.wav'; dst=f'/tmp/enhanced_{model}.wav'
+              code=run(model,path.encode(),src.encode(),dst.encode())
+              if code!=0:
+                  buffer=ctypes.create_string_buffer(4096)
+                  error(buffer,4096)
+                  raise RuntimeError(f'ONNX_{model}_FAILED code={code}: {buffer.value.decode()}')
               data=open(dst,'rb').read()
-              assert data[:4]==b'RIFF' and data[8:12]==b'WAVE',f'model_{model}: invalid WAV'
-              sr_out=struct.unpack_from('<I',data,24)[0]
-              assert sr_out==sr,(model,sr_out)
+              assert data[:4]==b'RIFF' and data[8:12]==b'WAVE',f'invalid output: {model}'
+              rate=struct.unpack_from('<I',data,24)[0]
+              assert rate==16000,(model,rate)
               pos=12
               while pos+8<=len(data):
-                  typ=data[pos:pos+4]
+                  kind=data[pos:pos+4]
                   n=struct.unpack_from('<I',data,pos+4)[0]
-                  if typ==b'data':break
+                  if kind==b'data': break
                   pos+=8+n+(n&1)
-              assert typ==b'data'
-              count=n//4
-              assert count>sr//2
-              samples=struct.unpack_from(f'<{count}f',data,pos+8)
-              assert all(math.isfinite(s) for s in samples)
+              assert kind==b'data'
+              samples=struct.unpack_from(f'<{n//4}f',data,pos+8)
+              assert len(samples)==38363,(model,len(samples))
+              assert all(math.isfinite(v) for v in samples),(model,'non-finite')
               rms=math.sqrt(sum(v*v for v in samples)/len(samples))
-              assert rms>0.00001,(model,rms)
-              print(f'MODEL_{model}_SMOKE_PASS samples={count} sample_rate={sr_out} rms={rms:.5f}')
+              assert 1e-5 < rms < 1.0,(model,rms)
+              print(f'ONNX_{model}_SMOKE_PASS rate={rate} samples={len(samples)} rms={rms:.6f}',flush=True)
           PY
