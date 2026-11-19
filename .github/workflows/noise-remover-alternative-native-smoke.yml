@@ -1,0 +1,87 @@
+name: Noise Remover alternative denoisers native audio smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/noise-remover-alternative-native-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - name: Checkout private feature via public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: feature/multi-engine-speech-denoising
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install ONNX Runtime 1.26 native library
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o /tmp/ort.tgz https://github.com/microsoft/onnxruntime/releases/download/v1.26.0/onnxruntime-linux-x64-1.26.0.tgz
+          mkdir -p "$RUNNER_TEMP/onnxruntime"
+          tar -xzf /tmp/ort.tgz -C "$RUNNER_TEMP/onnxruntime" --strip-components=1
+          echo "ORT_LIB_LOCATION=$RUNNER_TEMP/onnxruntime/lib" >> "$GITHUB_ENV"
+          echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$RUNNER_TEMP/onnxruntime/lib" >> "$GITHUB_ENV"
+      - name: Compile native denoisers
+        working-directory: app/flutter_nnnoiseless/rust
+        run: cargo build --lib --locked
+      - name: Download verification samples and optional models
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/noise_models/dtln /tmp/noise_models/deepfilternet3
+          curl -fL --retry 3 -o /tmp/noise_models/dtln/model_1.onnx https://raw.githubusercontent.com/breizhn/DTLN/master/pretrained_model/model_1.onnx
+          curl -fL --retry 3 -o /tmp/noise_models/dtln/model_2.onnx https://raw.githubusercontent.com/breizhn/DTLN/master/pretrained_model/model_2.onnx
+          curl -fL --retry 3 -o /tmp/noise_models/deepfilternet3/DeepFilterNet3_onnx.tar.gz https://raw.githubusercontent.com/Rikorose/DeepFilterNet/d375b2d8309e0935d165700c91da9de862a99c31/models/DeepFilterNet3_onnx.tar.gz
+          curl -fL --retry 3 -o /tmp/sample.wav https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/speech_with_noise.wav
+          ffmpeg -v error -y -i /tmp/sample.wav -ar 16000 -ac 1 -c:a pcm_s16le /tmp/16k.wav
+          ffmpeg -v error -y -i /tmp/sample.wav -ar 48000 -ac 1 -c:a pcm_s16le /tmp/48k.wav
+      - name: Real native inference with exact output checks
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import ctypes,os,struct,math
+          lib=ctypes.CDLL('app/flutter_nnnoiseless/rust/target/debug/librust_lib_flutter_nnnoiseless.so')
+          fn=lib.nr_process_neural_model
+          fn.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_char_p,ctypes.c_char_p]
+          fn.restype=ctypes.c_int
+          get=lib.nr_last_model_error
+          get.argtypes=[ctypes.c_void_p,ctypes.c_size_t]
+          get.restype=ctypes.c_size_t
+          for model,modeldir,sr in [(1,'',16000),(2,'/tmp/noise_models/dtln',16000),(3,'/tmp/noise_models/deepfilternet3/DeepFilterNet3_onnx.tar.gz',48000)]:
+              src=f'/tmp/{sr//1000}k.wav'
+              dst=f'/tmp/enhanced_{model}.wav'
+              result=fn(model,modeldir.encode(),src.encode(),dst.encode())
+              if result:
+                  out=ctypes.create_string_buffer(4096)
+                  get(out,4096)
+                  raise RuntimeError(f'MODEL_{model}_FAILED: {out.value.decode()}')
+              data=open(dst,'rb').read()
+              assert data[:4]==b'RIFF' and data[8:12]==b'WAVE',f'model_{model}: invalid WAV'
+              sr_out=struct.unpack_from('<I',data,24)[0]
+              assert sr_out==sr,(model,sr_out)
+              pos=12
+              while pos+8<=len(data):
+                  typ=data[pos:pos+4]
+                  n=struct.unpack_from('<I',data,pos+4)[0]
+                  if typ==b'data':break
+                  pos+=8+n+(n&1)
+              assert typ==b'data'
+              count=n//4
+              assert count>sr//2
+              samples=struct.unpack_from(f'<{count}f',data,pos+8)
+              assert all(math.isfinite(s) for s in samples)
+              rms=math.sqrt(sum(v*v for v in samples)/len(samples))
+              assert rms>0.00001,(model,rms)
+              print(f'MODEL_{model}_SMOKE_PASS samples={count} sample_rate={sr_out} rms={rms:.5f}')
+          PY
