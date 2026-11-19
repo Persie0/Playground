@@ -95,14 +95,18 @@ jobs:
               process_fn process=(process_fn)dlsym(handle,"nr_process_neural_model");
               error_fn error=(error_fn)dlsym(handle,"nr_last_model_error");
               if (!process || !error) return 4;
+              fprintf(stderr, "BEFORE_INFERENCE_MODEL_%s\\n", argv[1]); fflush(stderr);
               int code=process(atoi(argv[1]),argv[2],argv[3],argv[4]);
+              fprintf(stderr, "AFTER_INFERENCE_MODEL_%s_CODE_%d\\n", argv[1], code); fflush(stderr);
               if (code!=0) {
                   unsigned char message[4096];
                   error(message,sizeof(message));
                   fprintf(stderr,"MODEL_%s_INFERENCE_FAILED: %s\n", argv[1],message);
                   return 5;
               }
+              fprintf(stderr, "BEFORE_DLCLOSE_MODEL_%s\\n",argv[1]); fflush(stderr);
               if (dlclose(handle)!=0) return 6;
+              fprintf(stderr, "AFTER_DLCLOSE_MODEL_%s\\n",argv[1]); fflush(stderr);
               printf("MODEL_%s_NATIVE_TEARDOWN_OK\n",argv[1]);
               return 0;
           }
@@ -119,7 +123,8 @@ jobs:
               (3,'/tmp/noise_models/ulunas/ulunas_stream_simple.onnx'),
           ]:
               src='/tmp/16k.wav'; dst=f'/tmp/enhanced_{model}.wav'
-              subprocess.run(['/tmp/native_smoke',str(model),path,src,dst],check=True)
+              print(f'BEFORE_PROCESS_MODEL_{model}',flush=True)
+              subprocess.run(['/tmp/native_smoke',str(model),path,src,dst],check=True,timeout=60)
               data=open(dst,'rb').read()
               assert data[:4]==b'RIFF' and data[8:12]==b'WAVE',f'invalid output: {model}'
               rate=struct.unpack_from('<I',data,24)[0]
