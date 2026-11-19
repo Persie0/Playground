@@ -33,6 +33,10 @@ jobs:
           echo "ORT_LIB_LOCATION=$RUNNER_TEMP/onnxruntime/lib" >> "$GITHUB_ENV"
           echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$RUNNER_TEMP/onnxruntime/lib" >> "$GITHUB_ENV"
+      - name: Cache Rust compilation
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/flutter_nnnoiseless/rust
       - name: Compile native denoisers
         working-directory: app/flutter_nnnoiseless/rust
         run: cargo build --lib --locked
@@ -44,8 +48,27 @@ jobs:
           curl -fL --retry 3 -o /tmp/noise_models/dtln/model_2.onnx https://raw.githubusercontent.com/breizhn/DTLN/master/pretrained_model/model_2.onnx
           curl -fL --retry 3 -o /tmp/noise_models/deepfilternet3/DeepFilterNet3_onnx.tar.gz https://raw.githubusercontent.com/Rikorose/DeepFilterNet/d375b2d8309e0935d165700c91da9de862a99c31/models/DeepFilterNet3_onnx.tar.gz
           curl -fL --retry 3 -o /tmp/sample.wav https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/speech_with_noise.wav
-          ffmpeg -v error -y -i /tmp/sample.wav -ar 16000 -ac 1 -c:a pcm_s16le /tmp/16k.wav
-          ffmpeg -v error -y -i /tmp/sample.wav -ar 48000 -ac 1 -c:a pcm_s16le /tmp/48k.wav
+          python3 - <<'PY'
+          import wave,struct,math
+          with wave.open('/tmp/sample.wav','rb') as w:
+              rate,channels,width,n=w.getframerate(),w.getnchannels(),w.getsampwidth(),w.getnframes()
+              assert width==2 and channels>=1,(rate,channels,width)
+              raw=w.readframes(n)
+          data=struct.unpack('<'+str(n*channels)+'h',raw)
+          mono=[sum(data[i*channels:(i+1)*channels])/channels for i in range(n)]
+          for target_rate in [16000,48000]:
+              count=round(len(mono)*target_rate/rate)
+              converted=[]
+              for i in range(count):
+                  x=i*rate/target_rate
+                  a=min(int(x),len(mono)-1)
+                  b=min(a+1,len(mono)-1)
+                  converted.append(round((1-(x-a))*mono[a]+(x-a)*mono[b]))
+              with wave.open(f'/tmp/{target_rate//1000}k.wav','wb') as out:
+                  out.setnchannels(1);out.setsampwidth(2);out.setframerate(target_rate)
+                  out.writeframes(struct.pack('<'+str(count)+'h',*converted))
+              print('RESAMPLED',target_rate,count)
+          PY
       - name: Real native inference with exact output checks
         run: |
           set -euo pipefail
