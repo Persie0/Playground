@@ -62,7 +62,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          flutter build apk --release
+          # Public runners can share a Maven Central 429 rate limit.
+          # Retry transient dependency download failures with a cooldown.
+          for attempt in 1 2 3 4; do
+            if flutter build apk --release; then
+              break
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo 'Gradle release build failed after four attempts.'
+              exit 1
+            fi
+            delay=$((attempt * 45))
+            echo "Gradle build attempt $attempt failed; retrying after ${delay}s."
+            sleep "$delay"
+          done
           APK=build/app/outputs/flutter-apk/app-release.apk
           test -s "$APK"
           AAPT="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
