@@ -68,7 +68,11 @@ jobs:
           print('Exact synthesized end holds (seconds):',holds)
           assert sum(holds)<35,holds
           assert max(holds)<9,holds
-          assert qa['total_words']>1750
+          from production.narrate_six_chapter import parse_chapters,DEFAULT_SCRIPT
+          chapters=parse_chapters(DEFAULT_SCRIPT.read_text(encoding='utf8'))
+          expected=sum(len(p.split()) for chapter in chapters for p in chapter.paragraphs)
+          assert qa['total_words']==expected,(qa['total_words'],expected)
+
           PY
       - uses: actions/upload-artifact@v4
         with:
