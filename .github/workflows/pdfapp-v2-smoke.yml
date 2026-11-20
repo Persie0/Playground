@@ -1,5 +1,5 @@
-name: PDF Studio merged-main smoke tests
-# Verify PDF Studio after squash merge into private main.
+name: PDF Studio UI feature smoke tests
+# Check UX overhaul branch using public Playground, no private Actions.
 on:
   push:
     paths:
@@ -18,11 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout merged PDF Studio main
+      - name: Checkout PDF Studio UX branch
         uses: actions/checkout@v4
         with:
           repository: Persie0/pdfapp
-          ref: main
+          ref: feature/impeccable-ux-overhaul
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Install Flutter stable
@@ -35,23 +35,3 @@ jobs:
           flutter pub get
           flutter analyze
           flutter test
-
-      - name: Persist resolved Flutter dependency lockfile
-        env:
-          PUSH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          git add pubspec.lock
-          if git diff --cached --quiet; then
-            echo "Dependency lock already current"
-            exit 0
-          fi
-          git config user.name "Persie0 Playground CI"
-          git config user.email "76871553+Persie0@users.noreply.github.com"
-          git commit -m "chore: resolve locked Flutter dependencies for PDF Studio v2"
-          git fetch "https://x-access-token:${PUSH_TOKEN}@github.com/Persie0/pdfapp.git" feature/all-pdf-tools-v2
-          git rebase FETCH_HEAD
-          GIT_TERMINAL_PROMPT=0 git push \
-            "https://x-access-token:${PUSH_TOKEN}@github.com/Persie0/pdfapp.git" \
-            HEAD:refs/heads/feature/all-pdf-tools-v2
