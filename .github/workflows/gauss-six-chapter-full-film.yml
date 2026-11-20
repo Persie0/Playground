@@ -1,0 +1,154 @@
+name: Gauss Circle — Six-Chapter 1080p30 Master and Voice
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gauss-circle-six-chapter-1080p30-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ORIGINAL_TAG: gauss-circle-complete-1080p30-20261112
+  ORIGINAL_MP4: Gauss_Circle_Complete_1080p30_NoNarration.mp4
+  ORIGINAL_SHA256: e0396bd59ecebf10e8a2b319680b0497632bc8d1ca1a7ba60ec94005f6e0d33e
+  RELEASE_TAG: gauss-circle-six-chapter-1080p30-20261120
+  OUTPUT: Gauss_Circle_Six_Chapter_1080p30_Narrated.mp4
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  render-narrate-verify:
+    name: New single-world picture + real TTS + verified six-chapter release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 345
+    steps:
+      - name: Checkout public Playground
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout private source via public runner ONLY
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: feature/gauss-circle-six-chapter-rebuild
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Manim, LaTeX, fonts and speech dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg pkg-config libcairo2-dev libpango1.0-dev \
+            texlive-latex-base texlive-latex-extra texlive-fonts-recommended texlive-science \
+            dvisvgm fonts-dejavu-core
+          python -m pip install --disable-pip-version-check \
+            -r source/gauss-circle-problem/requirements-six-chapter.txt
+      - name: Mathematical and audio-plan tests
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m unittest discover -s tests -p test_six_chapter.py -v
+          python -m production.narrate_six_chapter --validate-script-only
+      - name: Render NEW continuous vector picture (not old 15-scene cutaways)
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          manim -qh -r 1920,1080 --fps 30 \
+            production/six_chapter_film.py GaussCircleSixChapterFilm
+          test -s media/videos/six_chapter_film/1080p30/GaussCircleSixChapterFilm.mp4
+      - name: Verify native picture has exactly 20,550 frames and 685 seconds
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python - <<'PY'
+          from pathlib import Path
+          from production.narrate_six_chapter import check_picture
+          check_picture(Path('media/videos/six_chapter_film/1080p30/GaussCircleSixChapterFilm.mp4'))
+          print('Pass: original newly rendered vector master 1080p30, 20550 frames')
+          PY
+      - name: Download the verified *original instrumental*, audio source only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p input
+          gh release download "$ORIGINAL_TAG" --repo Persie0/Playground \
+            --pattern "$ORIGINAL_MP4" --dir input
+          echo "$ORIGINAL_SHA256  input/$ORIGINAL_MP4" | sha256sum -c -
+      - name: Synthesize native voice, real SRT and six-chapter master
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m production.narrate_six_chapter \
+            --picture media/videos/six_chapter_film/1080p30/GaussCircleSixChapterFilm.mp4 \
+            --soundtrack-source ../../input/Gauss_Circle_Complete_1080p30_NoNarration.mp4 \
+            --output-dir ../../release \
+            --voice en-US-AndrewNeural
+      - name: Verify chapter metadata, audio, timings and SHA256
+        run: |
+          set -euo pipefail
+          (cd release && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json,subprocess
+          f='release/Gauss_Circle_Six_Chapter_1080p30_Narrated.mp4'
+          meta=json.loads(subprocess.check_output(['ffprobe','-v','error',
+              '-show_streams','-show_chapters','-show_format','-of','json',f]))
+          video=next(x for x in meta['streams'] if x['codec_type']=='video')
+          audio=next(x for x in meta['streams'] if x['codec_type']=='audio')
+          assert (video['codec_name'],video['r_frame_rate'],
+                  int(video['width']),int(video['height']),int(video['nb_frames'])) == (
+                      'h264','30/1',1920,1080,20550)
+          assert (audio['codec_name'],int(audio['sample_rate']),int(audio['channels'])) == ('aac',48000,2)
+          assert abs(float(meta['format']['duration'])-685)<.2
+          assert len(meta['chapters']) == 6
+          qa=json.load(open('release/Gauss_Circle_Six_Chapter_Audio_QA.json'))
+          assert qa['scene_count']==6 and qa['total_words']>=1400
+          cues=json.load(open('release/Gauss_Circle_Narration_Cues.json'))
+          assert cues['scene_count']==6
+          assert all(p.get('word_events') for p in cues['paragraphs'])
+          print('Validated six chapters, 20,550 frames, real timed voice and external captions')
+          PY
+          ffmpeg -hide_banner -nostdin -v error -xerror -i "release/$OUTPUT" \
+            -map 0:v:0 -map 0:a:0 -f null -
+      - name: Upload independently editable master and timing manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gauss-Circle-Six-Chapter-1080p30-Full-Master
+          path: |
+            release/Gauss_Circle_Six_Chapter_1080p30_Narrated.mp4
+            release/Gauss_Circle_English_Neural_Voice.wav
+            release/Gauss_Circle_English_Subtitles.srt
+            release/Gauss_Circle_Narration_Cues.json
+            release/Gauss_Circle_Six_Chapter_Audio_QA.json
+            release/six_chapter_manifest.json
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Publish a NEW release without overwriting previous editions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            echo "Release tag already exists; refuse to overwrite original published assets" >&2
+            exit 1
+          fi
+          cat > release-notes.md <<'NOTES'
+          New original six-chapter, single-world Manim Gauss Circle film.
+          - 11:25; FullHD 1920×1080; 30 fps; exactly 20,550 frames.
+          - Six directly connected mathematical chapters, not fifteen separate OpenCV inserts.
+          - Actual computed lattice counts, shell arrivals and signed discrepancy.
+          - Separate real word-boundary English neural narration and selectable SRT.
+          - Native film/audio full-decode verification and SHA-256 manifests.
+          - All rendering and release activity executed on public Persie0/Playground Actions.
+          NOTES
+          gh release create "$RELEASE_TAG" release/* \
+            --repo Persie0/Playground --target "$GITHUB_SHA" \
+            --title "Gauss Circle — Six-Chapter New Manim Film (1080p30)" \
+            --notes-file release-notes.md
