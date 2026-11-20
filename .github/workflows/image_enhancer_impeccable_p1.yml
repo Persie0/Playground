@@ -1,0 +1,58 @@
+name: Image Enhancer Impeccable P1 checks
+
+on:
+  push:
+    branches: [image-enhancer-impeccable-p1-validation-20261120]
+    paths: [.github/workflows/image_enhancer_impeccable_p1.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-enhancer-impeccable-p1-validation-20261120
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout private Image Enhancer P1 branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: ui/impeccable-p1-followup-20261120
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: image_enhancer
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: Generate all app localizations
+        working-directory: image_enhancer
+        run: flutter gen-l10n
+
+      - name: Focused UX and localization tests
+        working-directory: image_enhancer
+        run: flutter test test/enhancement_presets_test.dart test/result_comparison_page_test.dart test/upscale_cancellation_regression_test.dart test/home_layout_test.dart --timeout 2m --reporter expanded
+
+      - name: Static analysis
+        working-directory: image_enhancer
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Full Flutter regression suite
+        working-directory: image_enhancer
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
+
+      - name: Build Android debug APK
+        working-directory: image_enhancer
+        run: flutter build apk --debug --no-pub
