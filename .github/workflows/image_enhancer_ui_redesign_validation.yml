@@ -1,0 +1,60 @@
+name: Image Enhancer UI redesign validation
+
+on:
+  push:
+    branches: [ui-image-enhancer-validation-20261120]
+    paths:
+      - .github/workflows/image_enhancer_ui_redesign_validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-enhancer-ui-redesign-validation-20261120
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout private Image Enhancer feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: ui/image-first-enhancement-flow-20261120
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: image_enhancer
+          fetch-depth: 1
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: Generate localization classes
+        working-directory: image_enhancer
+        run: flutter gen-l10n
+
+      - name: Run focused UI regressions
+        working-directory: image_enhancer
+        run: flutter test test/enhancement_presets_test.dart test/result_comparison_page_test.dart test/home_layout_test.dart --reporter expanded
+
+      - name: Analyze Flutter source
+        working-directory: image_enhancer
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Run all Flutter tests
+        working-directory: image_enhancer
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
+
+      - name: Build Android debug APK
+        working-directory: image_enhancer
+        run: flutter build apk --debug --no-pub
