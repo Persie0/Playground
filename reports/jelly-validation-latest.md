@@ -1,7 +1,7 @@
 # Jelly Squeeze public validation summary
 
 Private source commit: `f2f7e9cd522dc115f66322c19f23bf1f00976649`
-Runner: https://github.com/Persie0/Playground/actions/runs/44761116190
+Runner: https://github.com/Persie0/Playground/actions/runs/44761209723
 Overall checks before report: **success**
 
 ## Test suites
@@ -10,6 +10,7 @@ Overall checks before report: **success**
 - test_audio: PASS
 - test_bank_binary: PASS
 - test_bank_generated: PASS
+- test_bank_release: PASS
 - test_bank_runtime: PASS
 - test_campaign_50: PASS
 - test_chapter_cosmetics: PASS
