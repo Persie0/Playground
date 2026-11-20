@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/JellySqueeze
-          ref: e5dc4c25392364c729923d70f91d9197c82f0450
+          ref: 0b006734ca5d78b579eb3726f2b7425d29462099
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: game
@@ -47,6 +47,26 @@ jobs:
           set -euo pipefail
           python3 game/tools/differential/generate_cases.py
           test -s game/tests/content/classic_rule_differential_fixture.json
+
+      - name: Compile and run reference-verified BFS layer harvester (G-02)
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra game/tools/bankgen/harvest.cpp -o bankgen
+          ./bankgen --recipe t1 --seed 7 --limit 12 > t1.jsonl
+          ./bankgen --recipe t2 --seed 11 --limit 12 > t2.jsonl
+          ./bankgen --recipe t1 --seed 7 --limit 12 > t1-again.jsonl
+          cmp t1.jsonl t1-again.jsonl
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for name in ('t1', 't2'):
+              data = [json.loads(s) for s in Path(f'{name}.jsonl').read_text().splitlines()]
+              assert len(data) == 12
+              assert all(d['par_proven'] and len(d['solution_certificate']) ==
+                         d['par_moves'] for d in data)
+              print('G-02 BFS CANDIDATES', name, len(data))
+          PY
 
       - name: Compile deterministic test-only binary bank (G-03)
         shell: bash
@@ -145,7 +165,7 @@ jobs:
         shell: bash
         env:
           VALIDATION_OUTCOME: ${{ job.status }}
-          REPO_SHA: e5dc4c25392364c729923d70f91d9197c82f0450
+          REPO_SHA: 0b006734ca5d78b579eb3726f2b7425d29462099
         run: |
           set -euo pipefail
           mkdir -p result-repo/reports
