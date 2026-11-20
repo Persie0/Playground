@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/JellySqueeze
-          ref: 4960b37dd0a010600e2163bcc1dc38b475e6a91b
+          ref: efa1d992c793d0918005455f63d2cca66234e0c2
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: game
@@ -68,6 +68,16 @@ jobs:
                          d['par_moves'] for d in data)
               print('G-02 BFS CANDIDATES', name, len(data))
           PY
+
+      - name: Differential test C++ BFS successor sets against Python rules (G-01+)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./bankgen --recipe t1 --seed 7 --dump-successors 500 > cpp-t1.jsonl
+          ./bankgen --recipe t2 --seed 11 --dump-successors 500 > cpp-t2.jsonl
+          ./bankgen --recipe t3 --seed 7 --dump-successors 500 > cpp-t3.jsonl
+          python3 game/tools/differential/verify_cpp_rules.py \
+            cpp-t1.jsonl cpp-t2.jsonl cpp-t3.jsonl
 
       - name: Score BFS candidates and pack test-only binary (G-02 and G-04)
         shell: bash
@@ -187,7 +197,7 @@ jobs:
         shell: bash
         env:
           VALIDATION_OUTCOME: ${{ job.status }}
-          REPO_SHA: 4960b37dd0a010600e2163bcc1dc38b475e6a91b
+          REPO_SHA: efa1d992c793d0918005455f63d2cca66234e0c2
         run: |
           set -euo pipefail
           mkdir -p result-repo/reports
