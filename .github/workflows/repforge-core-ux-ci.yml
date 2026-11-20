@@ -1,4 +1,4 @@
-# Validating RepForge UX branch at c8102550bccc7c3fb2f759cdb4dc94b7429b6100 (public Playground only)
+# Validating RepForge UX branch at 3acf799418aba2d1d3c1f731972392a3b8f9869b (public Playground only)
 name: RepForge UI core validation (private checkout)
 
 on:
@@ -36,7 +36,7 @@ jobs:
         env:
           REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           SOURCE_REF: fix/core-workout-loop-ux
-          EXPECTED_SOURCE_SHA: c8102550bccc7c3fb2f759cdb4dc94b7429b6100
+          EXPECTED_SOURCE_SHA: 3acf799418aba2d1d3c1f731972392a3b8f9869b
         run: |
           set -euo pipefail
           test -n "$REPO_TOKEN" || { echo 'Missing read token for private RepForge'; exit 1; }
@@ -78,7 +78,9 @@ jobs:
             if ! flutter test "$suite" --reporter expanded > /tmp/repforge_focus.log 2>&1; then
               echo "=== FAILED SUITE: $suite ==="
               grep -E 'TestFailure|EXCEPTION CAUGHT|The test description was:|Expected:|Actual:|\[E\]' /tmp/repforge_focus.log | tail -n 70 | cut -c 1-240 || true
-              echo '=== Test failure context ==='
+              echo '=== First failure context ==='
+              head -n 100 /tmp/repforge_focus.log | cut -c 1-280
+              echo '=== Final test context ==='
               tail -n 110 /tmp/repforge_focus.log | cut -c 1-280
               failed_suites=$((failed_suites + 1))
             else
