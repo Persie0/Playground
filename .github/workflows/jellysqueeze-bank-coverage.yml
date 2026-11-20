@@ -1,0 +1,90 @@
+name: Jelly Squeeze - offline bank coverage exploration (public runner)
+
+on:
+  push:
+    paths:
+      - ".github/workflows/jellysqueeze-bank-coverage.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout approved private source at immutable revision
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/JellySqueeze
+          ref: 7a2475af621693b914d7cc22b7e0795a5fabd50c
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: game
+
+      - name: Build offline C++ harvester
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra game/tools/bankgen/harvest.cpp -o bankgen
+
+      - name: Harvest reproducible goal candidates across distinct starts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p candidates
+          for recipe in t1 t2 t3; do
+            for seed in 7 11 13 17; do
+              ./bankgen --recipe "$recipe" --seed "$seed" --limit 50 \
+                > "candidates/${recipe}-${seed}.jsonl"
+            done
+          done
+          wc -l candidates/*.jsonl
+
+      - name: Independently rate with 50 bot trials and report 0.25 BDI bins
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 game/tools/bankgen/rate_candidates.py \
+            --inputs candidates/t1-*.jsonl candidates/t2-*.jsonl candidates/t3-*.jsonl \
+            --campaign-dir game/content/levels \
+            --output-prefix game/tests/content/generated_candidate \
+            --trials 50 --min-levels 200 --emit-rated
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path("game/tests/content/generated_candidate.report.json").read_text())
+          print("G-04 family/bucket histogram (0.25 BDI):")
+          for family, bins in report["bucket_histogram_025"].items():
+              print(" family", family, sorted(((int(k),v) for k,v in bins.items())))
+              print(" eligible buckets >=40", [k for k,v in bins.items() if v>=40])
+          PY
+
+      - name: Load and independently replay every candidate with Godot 4.7.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+          echo "cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4  godot.zip" | sha256sum -c -
+          unzip -q godot.zip
+          chmod +x Godot_v4.7.2-stable_linux.x86_64
+          timeout 120s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game --editor --quit \
+            2>&1 | tee import.log
+          ! grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:" import.log
+          timeout 300s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game \
+            --script res://tests/content/test_bank_generated.gd 2>&1 | tee bank-validation.log
+          grep -q "JELLY GENERATED CANDIDATES:" bank-validation.log
+          ! grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:|failures: [1-9]|ERROR:" bank-validation.log
+
+      - name: Refuse to release exploration bank
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path("game/tests/content/generated_candidate.report.json").read_text())
+          assert d["test_only"] is True
+          print("Coverage exploration is test-only; no production bank will be published")
+          PY
