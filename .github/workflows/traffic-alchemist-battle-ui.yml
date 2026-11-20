@@ -42,6 +42,9 @@ jobs:
           set -o pipefail
           timeout 70s godot --headless --editor --path . --import --quit 2>&1 | tee /tmp/import.log
           if grep -Eq 'SCRIPT ERROR:|Failed to load script' /tmp/import.log; then exit 1; fi
+      - name: Debug interactive UI suite with streamed error output
+        working-directory: game
+        run: timeout 22s godot --headless --path . --script tests/test_ui.gd
       - name: Run eight Godot regression suites
         working-directory: game
         run: python3 tests/run_checks.py
