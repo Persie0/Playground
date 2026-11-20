@@ -1,4 +1,4 @@
-# Validating RepForge UX branch at 7ea1986142efd5dc15942ef64346654e91a6e038 (public Playground only)
+# Validating RepForge UX branch at c8102550bccc7c3fb2f759cdb4dc94b7429b6100 (public Playground only)
 name: RepForge UI core validation (private checkout)
 
 on:
@@ -36,7 +36,7 @@ jobs:
         env:
           REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           SOURCE_REF: fix/core-workout-loop-ux
-          EXPECTED_SOURCE_SHA: 7ea1986142efd5dc15942ef64346654e91a6e038
+          EXPECTED_SOURCE_SHA: c8102550bccc7c3fb2f759cdb4dc94b7429b6100
         run: |
           set -euo pipefail
           test -n "$REPO_TOKEN" || { echo 'Missing read token for private RepForge'; exit 1; }
@@ -67,6 +67,25 @@ jobs:
           flutter analyze > /tmp/repforge_analyze.log 2>&1 || {
             tail -n 100 /tmp/repforge_analyze.log | cut -c 1-280; exit 1;
           }
+          # Run affected widget suites first, and show each failure clearly.
+          failed_suites=0
+          for suite in \
+            test/forge_workout_session_screen_test.dart \\
+            test/forge_workout_feedback_screen_test.dart \\
+            test/forge_quest_board_test.dart \\
+            test/exercise_library_screen_test.dart \\
+            test/app_smoke_test.dart; do
+            if ! flutter test "$suite" --reporter expanded > /tmp/repforge_focus.log 2>&1; then
+              echo "=== FAILED SUITE: $suite ==="
+              grep -E 'TestFailure|EXCEPTION CAUGHT|The test description was:|Expected:|Actual:|\[E\]' /tmp/repforge_focus.log | tail -n 70 | cut -c 1-240 || true
+              echo '=== Test failure context ==='
+              tail -n 110 /tmp/repforge_focus.log | cut -c 1-280
+              failed_suites=$((failed_suites + 1))
+            else
+              echo "PASS: $suite"
+            fi
+          done
+          test "$failed_suites" -eq 0 || exit 1
           flutter test --reporter compact > /tmp/repforge_test.log 2>&1 || {
             echo '=== All failed test names and assertions (bounded) ==='
             tr '\r' '\n' < /tmp/repforge_test.log | grep -E '\[E\]|The test description was:|Expected:|Actual:' | tail -n 150 | cut -c 1-240 || true
