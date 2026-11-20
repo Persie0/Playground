@@ -1,5 +1,5 @@
 name: Flow Forge - Godot 4.7.2 validation (public Playground runner)
-# Validate press-release gesture and auto-placement state fixes before review/merge.
+# Validate merged Flow Forge main including input safety and visual screenshot captures.
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
           test -n "$REPO_TOKEN" || { echo "Missing token with access to Persie0/flowforge"; exit 1; }
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
-            clone --depth=1 --branch=fix/press-gesture-and-booster-state https://github.com/Persie0/flowforge.git source
+            clone --depth=1 --branch=main https://github.com/Persie0/flowforge.git source
           echo "FLOWFORGE_SHA=$(git -C source rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Download official stable Godot 4.7.2
@@ -75,12 +75,6 @@ jobs:
               quit()
           GDSCRIPT
           xvfb-run -a /tmp/Godot_v4.7.2-stable_linux.x86_64 --path source --script res://tests/ci_ui_capture.gd --resolution 540x960 2>&1 | tee capture.log
-          if [ -f source/ui-level-25.png ]; then
-            echo UI_PNG_START
-            base64 -w0 source/ui-level-25.png
-            echo
-            echo UI_PNG_END
-          fi
 
       - name: Upload visual screenshots
         if: always()
