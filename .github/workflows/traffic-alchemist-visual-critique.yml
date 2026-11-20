@@ -1,7 +1,7 @@
-name: Traffic Alchemist Home Campaign UI visual capture
+name: Traffic Alchemist Final UX visual capture
 on:
   push:
-    branches: [ci/traffic-alchemist-home-visual]
+    branches: [ci/traffic-alchemist-impeccable-final-visual]
     paths:
       - .github/workflows/traffic-alchemist-visual-critique.yml
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Persie0/trafficalchemist
-          ref: feat/impeccable-home-campaign-clarity
+          ref: feat/impeccable-p1-p2-final-pass
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: game
@@ -51,6 +51,16 @@ jobs:
           	scene.begin_battle()
           	scene._show_turret_upgrades(0)
           	scene._show_support_upgrades(0)
+          elif screen_name == "move":
+          	scene.launch_game(mission)
+          	scene.close_modal()
+          	scene.begin_battle()
+          	scene._toggle_move_mode()
+          elif screen_name == "quests":
+          	scene.show_quests()
+          elif screen_name == "briefing-details":
+          	scene.launch_game(mission)
+          	scene._show_briefing(true)
           elif screen_name == "hint":
           	scene.launch_game(mission)
           	scene.close_modal()
@@ -65,7 +75,7 @@ jobs:
         working-directory: game
         run: |
           set -e
-          for state in "home 1" "game 1" "game 38" "hint 38" "tower 38" "support 38" "campaign 38" "workshop 1" "briefing 38"; do
+          for state in "home 1" "game 1" "game 38" "hint 38" "tower 38" "support 38" "campaign 38" "workshop 1" "briefing 38" "briefing-details 38" "recipes 1" "quests 1" "move 38"; do
             set -- $state
             echo "Capturing $1 level $2"
             timeout 35s xvfb-run -a -s "-screen 0 1280x1024x24" godot --rendering-method gl_compatibility --path . --audio-driver Dummy --script tests/capture.gd -- --screen="$1" --level="$2" --compact
