@@ -38,7 +38,7 @@ jobs:
           from pathlib import Path
           path = Path("tests/capture.gd")
           content = path.read_text()
-          anchor = 'elif screen_name == "campaign":'
+          anchor = '\telif screen_name == "campaign":'
           assert content.count(anchor) == 1
           extra = '''elif screen_name == "tower":
           	scene.launch_game(mission)
@@ -57,6 +57,7 @@ jobs:
           	scene.begin_battle()
           	scene._hint()
           '''
+          extra = '\n'.join('\t' + line for line in extra.splitlines() if line) + '\n'
           content = content.replace(anchor, extra + anchor)
           path.write_text(content)
           PY
