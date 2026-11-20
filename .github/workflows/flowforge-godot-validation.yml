@@ -1,5 +1,5 @@
 name: Flow Forge - Godot 4.7.2 validation (public Playground runner)
-# Post-merge Godot checks: precision drag, full-height overlays, and playable tutorials on main.
+# UI follow-up: gated 7-level chapter map, explicit controls, hidden unavailable IAP and keyboard support.
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
           test -n "$REPO_TOKEN" || { echo "Missing token with access to Persie0/flowforge"; exit 1; }
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
-            clone --depth=1 --branch=main https://github.com/Persie0/flowforge.git source
+            clone --depth=1 --branch=feat/chapter-map-controls-keyboard https://github.com/Persie0/flowforge.git source
           echo "FLOWFORGE_SHA=$(git -C source rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Download official stable Godot 4.7.2
@@ -72,6 +72,12 @@ jobs:
                   await RenderingServer.frame_post_draw
                   await RenderingServer.frame_post_draw
                   assert(root.get_texture().get_image().save_png("res://ui-shop-tall.png") == OK)
+                  game.shop_open = false
+                  game._open_map()
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-chapter-map-tall.png") == OK)
+                  game.map_open = false
                   game.shop_open = false
                   game.phase = "won"
                   await RenderingServer.frame_post_draw
