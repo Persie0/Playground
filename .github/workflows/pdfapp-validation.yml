@@ -1,5 +1,5 @@
 name: PDF Studio Flutter validation
-# Revalidate full PDF Studio v2 after native import, batch and page tools.
+# Validate complete PDF Studio v2 including Android and unsigned iOS builds.
 on:
   push:
     paths:
@@ -36,12 +36,32 @@ jobs:
           flutter analyze
           flutter test
       - name: Build Android debug APK
-        if: github.event_name == 'workflow_dispatch'
         run: flutter build apk --debug
       - name: Upload debug APK
-        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: pdf-studio-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 7
+
+  ios:
+    needs: flutter
+    runs-on: macos-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout private PDF Studio
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/pdfapp
+          ref: feature/all-pdf-tools-v2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: iOS unsigned build and native Swift validation
+        run: |
+          flutter pub get
+          flutter build ios --no-codesign
