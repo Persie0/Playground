@@ -45,11 +45,17 @@ jobs:
                        for m in re.finditer(r"[A-Za-z]+(?:'[A-Za-z]+)*|[0-9]+",text))
           request=SynthesisSegment(id="gauss-probe",text=text,language="en-us",
                                    voice="am_michael",tokens=tokens)
+          from pykokoro.prepared_g2p import PreparedG2PAdapter
+          adapter=PreparedG2PAdapter()
+          prepared=adapter.phonemize(request,cfg)
+          print("prepared alignments:",len(prepared.alignment_tokens),flush=True)
+          print("prepared first alignments:",[
+              t.to_dict() for t in prepared.alignment_tokens[:4]],flush=True)
           with KokoroSynthesizer(cfg) as s:
               out=s.synthesize(request)
           print("phonemes:",out.phonemes[:100],"tokens:",len(out.token_ids),flush=True)
           print("diagnostics:",out.diagnostics,flush=True)
-          print("trace sample:",str(out.trace)[:1500],flush=True)
+          print("trace sample:",str(out.trace)[-4500:],flush=True)
           out.save_wav("probe-out/kokoro-sample.wav")
           print("result:",type(out).__name__,"word timing attrs:",hasattr(out,"word_timings"),flush=True)
           print("voice sample rate:",getattr(out,"sample_rate",None),flush=True)
