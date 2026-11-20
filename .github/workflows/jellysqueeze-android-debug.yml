@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/JellySqueeze
-          ref: f65a274c8b5d33a931f64600371c4704458fa616
+          ref: f2f7e9cd522dc115f66322c19f23bf1f00976649
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: game
@@ -118,6 +118,86 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify --verbose \
             game/build/android/JellySqueeze-debug.apk
 
+      - name: Audit shipped offline bank paths inside Android PCK
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=game/build/android/JellySqueeze-debug.apk
+          packed="$(unzip -Z1 "$apk" | grep -E '^assets/.*\\.pck
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JellySqueeze-Godot-4.7.2-Android-Debug-arm64
+          path: game/build/android/JellySqueeze-debug.apk
+          compression-level: 0
+          retention-days: 7
+
+      - name: Checkout public Playground for APK status
+        if: always()
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Playground
+          ref: main
+          path: status-repo
+
+      - name: Record public debug APK build result
+        if: always()
+        shell: bash
+        env:
+          BUILD_RESULT: ${{ job.status }}
+          GAME_SHA: f2f7e9cd522dc115f66322c19f23bf1f00976649
+        run: |
+          set -euo pipefail
+          mkdir -p status-repo/reports
+          {
+            echo "# Jelly Squeeze debug APK"
+            echo
+            echo "Source commit: \`$GAME_SHA\`"
+            echo "Build run: https://github.com/Persie0/Playground/actions/runs/${GITHUB_RUN_ID}"
+            echo "Result before report: **$BUILD_RESULT**"
+            echo "Expected artifact name: \`JellySqueeze-Godot-4.7.2-Android-Debug-arm64\`"
+            echo
+            if [ -s game/build/android/JellySqueeze-debug.apk ]; then
+              echo "APK created: yes"
+              sha256sum game/build/android/JellySqueeze-debug.apk
+              echo "APK size: $(wc -c < game/build/android/JellySqueeze-debug.apk) bytes"
+            else
+              echo "APK created: no"
+            fi
+            if [ -f android-export.log ]; then
+              grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:" android-export.log | head -n 8 || true
+            fi
+          } > status-repo/reports/jelly-android-debug-latest.md
+          cp status-repo/reports/jelly-android-debug-latest.md "$RUNNER_TEMP/jelly-android-report.md"
+          git -C status-repo config user.name "Jelly Android Build"
+          git -C status-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git -C status-repo fetch origin main
+            git -C status-repo reset --hard FETCH_HEAD
+            cp "$RUNNER_TEMP/jelly-android-report.md" status-repo/reports/jelly-android-debug-latest.md
+            git -C status-repo add reports/jelly-android-debug-latest.md
+            if git -C status-repo diff --cached --quiet; then
+              break
+            fi
+            git -C status-repo commit -m "ci: record latest JellySqueeze Android debug build"
+            if git -C status-repo push origin HEAD:main; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::warning::Public report updated concurrently; APK result remains in Actions."
+            fi
+          done
+ | head -n 1)"
+          test -n "$packed"
+          unzip -p "$apk" "$packed" > packed.pck
+          for asset in bank_v1.bin bank_v1.index.json bank_v1.report.json; do
+            if ! grep -aFq "$asset" packed.pck; then
+              echo "::error::Missing verified offline bank asset from APK: $asset"
+              exit 1
+            fi
+          done
+          echo "G-04 verified offline bank data, index and report are bundled in APK"
+
       - name: Upload installable APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -140,7 +220,7 @@ jobs:
         shell: bash
         env:
           BUILD_RESULT: ${{ job.status }}
-          GAME_SHA: f65a274c8b5d33a931f64600371c4704458fa616
+          GAME_SHA: f2f7e9cd522dc115f66322c19f23bf1f00976649
         run: |
           set -euo pipefail
           mkdir -p status-repo/reports
