@@ -1,4 +1,4 @@
-# Validating RepForge UX branch at 3c5f9a053107df91502112ac41ecf3d8e6d36a39 (public Playground only)
+# Validating RepForge UX branch at 7ea1986142efd5dc15942ef64346654e91a6e038 (public Playground only)
 name: RepForge UI core validation (private checkout)
 
 on:
@@ -36,7 +36,7 @@ jobs:
         env:
           REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           SOURCE_REF: fix/core-workout-loop-ux
-          EXPECTED_SOURCE_SHA: 3c5f9a053107df91502112ac41ecf3d8e6d36a39
+          EXPECTED_SOURCE_SHA: 7ea1986142efd5dc15942ef64346654e91a6e038
         run: |
           set -euo pipefail
           test -n "$REPO_TOKEN" || { echo 'Missing read token for private RepForge'; exit 1; }
@@ -83,32 +83,19 @@ jobs:
           }
           test -s build/app/outputs/flutter-apk/app-debug.apk
           echo 'Android compilation passed. Private APK is not published.'
-      - name: Report bounded validation summary to private PR
+      - name: Publish validation summary to public run
         if: always()
-        continue-on-error: true
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          SOURCE_SHA: 7ea1986142efd5dc15942ef64346654e91a6e038
           CHECKOUT_RESULT: ${{ steps.private_checkout.outcome }}
           VERIFY_RESULT: ${{ steps.verify.outcome }}
           ANDROID_RESULT: ${{ steps.android.outcome }}
         run: |
-          set -euo pipefail
-          if [ -z "$GH_TOKEN" ]; then
-            echo 'No GitHub token available for private PR report'
-            exit 0
-          fi
-          SOURCE_SHA='checkout failed'
-          if [ -d source/.git ]; then
-            SOURCE_SHA="$(git -C source rev-parse HEAD)"
-          fi
           {
-            printf 'Public Playground RepForge UI validation\n\n'
-            printf '%s\n' "- Source commit: $SOURCE_SHA"
-            printf '%s\n' "- Private branch checkout: **$CHECKOUT_RESULT**"
-            printf '%s\n' "- Flutter format parse + analyzer + tests: **$VERIFY_RESULT**"
-            printf '%s\n' "- Android debug compilation: **$ANDROID_RESULT**"
-            printf '\n%s\n' 'No private source or APK artifact was uploaded to Playground.'
-          } > "$RUNNER_TEMP/repforge-validation-summary.md"
-          gh api --method POST repos/Persie0/gameexercise/issues/24/comments \
-            --field body="$(cat "$RUNNER_TEMP/repforge-validation-summary.md")" >/dev/null
+            printf '### RepForge validation (no private artifacts uploaded)\\n\\n'
+            printf '%s\\n' "- Source commit: \`$SOURCE_SHA\`"
+            printf '%s\\n' "- Private checkout: **$CHECKOUT_RESULT**"
+            printf '%s\\n' "- Flutter analyzer and tests: **$VERIFY_RESULT**"
+            printf '%s\\n' "- Android debug APK compilation: **$ANDROID_RESULT**"
+          } >> "$GITHUB_STEP_SUMMARY"
