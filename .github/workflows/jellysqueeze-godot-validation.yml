@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/JellySqueeze
-          ref: 2772d2fd9770be7d97df35fe6e1c089b93ee3fff
+          ref: fb4fa8df3a9bcc6ae2f0e85dbc13ce05f4971356
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: game
@@ -125,6 +125,7 @@ jobs:
             tests/progression/test_local_flow_history.gd \
             tests/progression/test_endless_progress.gd \
             tests/ui/test_endless_navigation.gd \
+            tests/ui/test_colorblind_patterns.gd \
             tests/ui/test_map_stars.gd \
             tests/ui/test_screen_layouts.gd \
             tests/core/test_rules.gd \
@@ -199,7 +200,7 @@ jobs:
         shell: bash
         env:
           VALIDATION_OUTCOME: ${{ job.status }}
-          REPO_SHA: 2772d2fd9770be7d97df35fe6e1c089b93ee3fff
+          REPO_SHA: fb4fa8df3a9bcc6ae2f0e85dbc13ce05f4971356
         run: |
           set -euo pipefail
           mkdir -p result-repo/reports
@@ -236,10 +237,24 @@ jobs:
               fi
             done
           } > result-repo/reports/jelly-validation-latest.md
+          cp result-repo/reports/jelly-validation-latest.md "$RUNNER_TEMP/jelly-report.md"
           git -C result-repo config user.name "Jelly Validation"
           git -C result-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C result-repo add reports/jelly-validation-latest.md
-          if ! git -C result-repo diff --cached --quiet; then
+          for attempt in 1 2 3; do
+            # Concurrent public workflows may update this same summary. The
+            # validation must not fail because the optional report raced.
+            git -C result-repo fetch origin main
+            git -C result-repo reset --hard FETCH_HEAD
+            cp "$RUNNER_TEMP/jelly-report.md" result-repo/reports/jelly-validation-latest.md
+            git -C result-repo add reports/jelly-validation-latest.md
+            if git -C result-repo diff --cached --quiet; then
+              break
+            fi
             git -C result-repo commit -m "ci: record JellySqueeze public validation summary"
-            git -C result-repo push origin main
-          fi
+            if git -C result-repo push origin HEAD:main; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::warning::Public summary raced repeatedly; actual test status is in this run."
+            fi
+          done
