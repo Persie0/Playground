@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           repository: Persie0/DriftBlast
-          ref: 68ab7fe8e3959b145ad73eef20f20098faaee2d7
+          ref: 71fb76aa597af0cbba4d1af658b91d21757a3aa1
           path: game
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
@@ -39,6 +39,11 @@ jobs:
           set -euo pipefail
           timeout 90s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game --script res://tests/test_board.gd 2>&1 | tee tests.log
           ! grep -E "SCRIPT ERROR:|Parse Error:" tests.log
+      - name: Replay 600 certified puzzle solutions
+        run: |
+          set -euo pipefail
+          timeout 120s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game --script res://tests/test_level_factory.gd 2>&1 | tee certificates.log
+          ! grep -E "SCRIPT ERROR:|Parse Error:" certificates.log
       - name: First-run gameplay integration tests
         run: |
           set -euo pipefail
