@@ -1,5 +1,5 @@
 name: Flow Forge - Godot 4.7.2 validation (public Playground runner)
-# Test replayable neutral/orbit/bridge demos and adaptive phone safe-area geometry on feature branch.
+# Inspect real native Godot rule demo and 540x1200 expanded viewport after tutorial spacing fix.
 
 on:
   workflow_dispatch:
@@ -45,8 +45,7 @@ jobs:
           /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --editor --path source --quit 2>&1 | tee import.log
           if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' import.log; then exit 1; fi
 
-      - name: Render gameplay screenshots for UI review
-        continue-on-error: true
+      - name: Render tutorial and expanded phone screenshots
         run: |
           set -euo pipefail
           cat > source/tests/ci_ui_capture.gd <<'GDSCRIPT'
@@ -60,21 +59,35 @@ jobs:
           func _capture() -> void:
               var game: Control = MainScene.instantiate()
               root.add_child(game)
+              game.tutorial_seen.clear()
               for number in [4, 25, 60]:
                   game._open_level(number)
-                  game.selected_index = 0
-                  var piece: Dictionary = game.level["pieces"][0]
-                  game.pointer = game._tile_pixel(piece["origin"]) + Vector2.ONE * (game._tile_size() * 0.5)
+                  game.selected_index = -1
                   await RenderingServer.frame_post_draw
                   await RenderingServer.frame_post_draw
-                  var image: Image = root.get_texture().get_image()
-                  var path: String = "res://ui-level-%d.png" % number
-                  var err: Error = image.save_png(path)
-                  assert(err == OK, "Could not capture level %d" % number)
+                  var result: Error = root.get_texture().get_image().save_png(
+                      "res://ui-level-%d.png" % number)
+                  assert(result == OK, "Screenshot failed at level %d" % number)
                   print("UI_CAPTURE_OK ", number)
+
+              # A tall 360x800-class device corresponds to a 540x1200
+              # viewport. Verify actual expanded rendering, not only math.
+              DisplayServer.window_set_size(Vector2i(540, 1200))
+              await process_frame
+              await process_frame
+              game._open_level(60)
+              game.selected_index = -1
+              await RenderingServer.frame_post_draw
+              await RenderingServer.frame_post_draw
+              assert(root.size.y >= 1100, "Canvas did not expand on tall viewport")
+              var result: Error = root.get_texture().get_image().save_png(
+                  "res://ui-level-60-tall.png")
+              assert(result == OK, "Tall screenshot failed")
+              print("UI_CAPTURE_TALL_OK ", root.size)
               quit()
           GDSCRIPT
-          xvfb-run -a /tmp/Godot_v4.7.2-stable_linux.x86_64 --path source --script res://tests/ci_ui_capture.gd --resolution 540x960 2>&1 | tee capture.log
+          xvfb-run -a -s '-screen 0 1080x1920x24' /tmp/Godot_v4.7.2-stable_linux.x86_64 --path source --script res://tests/ci_ui_capture.gd --resolution 540x960 2>&1 | tee capture.log
+          grep -q 'UI_CAPTURE_TALL_OK' capture.log
 
       - name: Upload visual screenshots
         if: always()
