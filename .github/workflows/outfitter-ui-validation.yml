@@ -14,7 +14,7 @@ on:
         description: Outfitter branch to validate
         required: false
         type: string
-        default: feat/outfit-first-navigation-and-results
+        default: feat/outfit-visual-time-refresh-favorites-demo
 
 permissions:
   contents: write
@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Persie0/outfitter
-          ref: ${{ inputs.source_ref || 'feat/outfit-first-navigation-and-results' }}
+          ref: ${{ inputs.source_ref || 'feat/outfit-visual-time-refresh-favorites-demo' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: true
           path: source
@@ -55,9 +55,19 @@ jobs:
       - name: Format updated Dart files
         working-directory: source
         run: |
-          dart format lib/screens/home_shell.dart \
+          dart format lib/models/trip_plan.dart \
+            lib/models/saved_outfit.dart \
+            lib/services/weather_service.dart \
+            lib/services/saved_outfit_service.dart \
+            lib/widgets/garment_illustration.dart \
+            lib/screens/home_shell.dart \
             lib/screens/plan_screen.dart \
             lib/screens/recommendation_screen.dart \
+            lib/screens/saved_library_screen.dart \
+            lib/screens/example_outfit_screen.dart \
+            lib/screens/api_key_setup_screen.dart \
+            test/weather_service_test.dart \
+            test/saved_outfit_test.dart \
             test/plan_screen_test.dart
 
       - name: Run Flutter tests
@@ -73,10 +83,15 @@ jobs:
       - name: Push validated formatting to feature branch
         working-directory: source
         env:
-          SOURCE_REF: ${{ inputs.source_ref || 'feat/outfit-first-navigation-and-results' }}
+          SOURCE_REF: ${{ inputs.source_ref || 'feat/outfit-visual-time-refresh-favorites-demo' }}
         run: |
-          git add lib/screens/home_shell.dart lib/screens/plan_screen.dart \
-            lib/screens/recommendation_screen.dart test/plan_screen_test.dart
+          git add lib/models/trip_plan.dart lib/models/saved_outfit.dart \
+            lib/services/weather_service.dart lib/services/saved_outfit_service.dart \
+            lib/widgets/garment_illustration.dart lib/screens/home_shell.dart \
+            lib/screens/plan_screen.dart lib/screens/recommendation_screen.dart \
+            lib/screens/saved_library_screen.dart lib/screens/example_outfit_screen.dart \
+            lib/screens/api_key_setup_screen.dart test/weather_service_test.dart \
+            test/saved_outfit_test.dart test/plan_screen_test.dart
           if ! git diff --cached --quiet; then
             git config user.name "playground-ci"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -89,7 +104,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VALIDATION_STATUS: ${{ job.status }}
-          SOURCE_REF: ${{ inputs.source_ref || 'feat/outfit-first-navigation-and-results' }}
+          SOURCE_REF: ${{ inputs.source_ref || 'feat/outfit-visual-time-refresh-favorites-demo' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
