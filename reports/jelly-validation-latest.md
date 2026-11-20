@@ -1,7 +1,7 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `0b006734ca5d78b579eb3726f2b7425d29462099`
-Runner: https://github.com/Persie0/Playground/actions/runs/44746852692
+Private source commit: `9d5408cb2be285cafe43c2a2f5cb81ac621b4b96`
+Runner: https://github.com/Persie0/Playground/actions/runs/44747176167
 Overall checks before report: **success**
 
 ## Test suites
@@ -9,6 +9,7 @@ Overall checks before report: **success**
 - test_android_settings_scroll: PASS
 - test_audio: PASS
 - test_bank_binary: PASS
+- test_bank_generated: PASS
 - test_bank_runtime: PASS
 - test_campaign_50: PASS
 - test_chapter_cosmetics: PASS
