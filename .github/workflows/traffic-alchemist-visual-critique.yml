@@ -1,0 +1,81 @@
+name: Traffic Alchemist visual critique captures
+on:
+  push:
+    branches: [ci/traffic-alchemist-visual-critique]
+    paths:
+      - .github/workflows/traffic-alchemist-visual-critique.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capture-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout private Traffic Alchemist into temporary workspace
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/trafficalchemist
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: game
+      - name: Install Godot 4.7.2
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.7.2
+          use-dotnet: false
+          include-templates: false
+      - name: Install virtual display
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libgl1-mesa-dri >/dev/null
+      - name: Import resources
+        working-directory: game
+        run: timeout 75s godot --headless --editor --path . --import --quit
+      - name: Enable illustrative tower and help capture states
+        working-directory: game
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("tests/capture.gd")
+          content = path.read_text()
+          anchor = 'elif screen_name == "campaign":'
+          assert content.count(anchor) == 1
+          extra = '''elif screen_name == "tower":
+          	scene.launch_game(mission)
+          	scene.close_modal()
+          	scene.begin_battle()
+          	scene._show_turret_upgrades(0)
+          elif screen_name == "support":
+          	scene.launch_game(mission)
+          	scene.close_modal()
+          	scene.begin_battle()
+          	scene._show_turret_upgrades(0)
+          	scene._show_support_upgrades(0)
+          elif screen_name == "hint":
+          	scene.launch_game(mission)
+          	scene.close_modal()
+          	scene.begin_battle()
+          	scene._hint()
+          '''
+          content = content.replace(anchor, extra + anchor)
+          path.write_text(content)
+          PY
+      - name: Capture fresh phone UI states
+        working-directory: game
+        run: |
+          set -e
+          for state in "home 1" "game 1" "game 38" "hint 38" "tower 38" "support 38" "campaign 38" "workshop 1" "briefing 38"; do
+            set -- $state
+            echo "Capturing $1 level $2"
+            timeout 35s xvfb-run -a -s "-screen 0 1280x1024x24" godot --rendering-method gl_compatibility --path . --audio-driver Dummy --script tests/capture.gd -- --screen="$1" --level="$2" --compact
+          done
+          ls -lh /tmp/traffic-alchemist-*.png
+          mkdir -p /tmp/ta-review
+          cp /tmp/traffic-alchemist-*.png /tmp/ta-review/
+      - name: Upload screenshots without private source code
+        uses: actions/upload-artifact@v4
+        with:
+          name: ta-fresh-visual-critique
+          path: /tmp/ta-review/*.png
+          retention-days: 2
+          if-no-files-found: error
