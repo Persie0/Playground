@@ -1,8 +1,8 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `8b371a4fe10ecbf8e0c772b5022afb961c4fe9a4`
-Runner: https://github.com/Persie0/Playground/actions/runs/44743087516
-Overall checks before report: **success**
+Private source commit: `17db8b3cd8c72192d933f6b57466de2711b4a10e`
+Runner: https://github.com/Persie0/Playground/actions/runs/44743510997
+Overall checks before report: **failure**
 
 ## Test suites
 - test_adaptive_daily: PASS
@@ -30,6 +30,8 @@ Overall checks before report: **success**
 - test_rules: PASS
 - test_rules_differential: PASS
 - test_save: PASS
+- test_screen_layouts: FAIL
+  - ERROR: Puzzle keeps a usable board height
 - test_solver: PASS
 - test_stars_migration: PASS
 - test_swipe: PASS
