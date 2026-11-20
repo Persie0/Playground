@@ -1,0 +1,81 @@
+name: FocusMove Move Stats You redesign
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/focusmove-tabs-redesign.yml'
+      - 'focusmove-tabs-redesign-trigger.txt'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: focusmove-tabs-redesign
+  cancel-in-progress: true
+jobs:
+  android-flutter:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: Clone private source into ephemeral runner
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feature/focusmove-move-stats-you-redesign-20261120 https://github.com/Persie0/pomodoroexercise.git source
+          git -C source log -1 --format='%h %s'
+      - name: Flutter analysis, widget and unit tests
+        working-directory: source
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter analyze
+          flutter test --reporter expanded
+      - name: Build Android debug APK without publishing artifacts
+        working-directory: source
+        run: |
+          flutter build apk --debug
+          test -s build/app/outputs/flutter-apk/app-debug.apk
+  ios-simulator:
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: Clone private source into ephemeral runner
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feature/focusmove-move-stats-you-redesign-20261120 https://github.com/Persie0/pomodoroexercise.git source
+          git -C source log -1 --format='%h %s'
+      - name: Build iOS simulator without signing
+        working-directory: source
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build ios --simulator --no-codesign
+          APP=build/ios/iphonesimulator/Runner.app
+          test -d "$APP"
+          for bundle in MLKitPoseDetectionFastResources MLKitPoseDetectionCommonResources MLKitXenoResources; do
+            test -d "$APP/$bundle.bundle" || { echo "Missing ML Kit bundle: $bundle"; exit 1; }
+          done
