@@ -1,0 +1,61 @@
+name: Gauss Circle — Six-Chapter Source Preflight (public runner)
+
+on:
+  push:
+    branches:
+      - ci/gauss-six-preflight-20261120
+    paths:
+      - .github/workflows/gauss-six-chapter-preflight.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gauss-six-chapter-preflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    name: Pure-math, timing, syntax and Manim-import QA
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out PRIVATE source using public Playground runner only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: feature/gauss-circle-six-chapter-rebuild
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install scientific and renderer dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg pkg-config libcairo2-dev libpango1.0-dev fonts-dejavu-core
+          python -m pip install --disable-pip-version-check 'numpy>=1.26,<3' 'scipy>=1.12,<2' 'manim>=0.19,<0.20' 'edge-tts>=7,<9'
+      - name: Python AST and executable contract tests
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m compileall -q production/six_chapter_film.py production/narrate_six_chapter.py shared/six_chapter_math.py tests/test_six_chapter.py
+          python -m unittest discover -s tests -p test_six_chapter.py -v
+          python -m production.narrate_six_chapter --validate-script-only
+      - name: Import single-scene film and preflight geometry
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python - <<'PY'
+          from production.six_chapter_film import GaussCircleSixChapterFilm, DURATIONS, TOTAL_SECONDS, error_curve, shell_size
+          assert sum(DURATIONS) == TOTAL_SECONDS == 685
+          assert len(error_curve(25)) > 200
+          assert shell_size(25) == 12
+          print("Six-chapter Manim scene imported, true lattice graph available")
+          PY
