@@ -1,0 +1,47 @@
+name: Traffic Alchemist Battle UI Validation
+on:
+  push:
+    branches: [ci/traffic-alchemist-battle-ui]
+    paths:
+      - .github/workflows/traffic-alchemist-battle-ui.yml
+  workflow_dispatch:
+    inputs:
+      private_ref:
+        description: Branch or commit in Traffic Alchemist
+        type: string
+        required: true
+        default: feat/impeccable-battle-ux
+permissions:
+  contents: read
+jobs:
+  ui-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+      - name: Checkout private game without persisting credentials
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/trafficalchemist
+          ref: ${{ inputs.private_ref || 'feat/impeccable-battle-ux' }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: game
+      - name: Install Godot 4.7.2
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.7.2
+          use-dotnet: false
+          include-templates: false
+      - name: Import and validate scripts
+        working-directory: game
+        run: |
+          set -o pipefail
+          timeout 70s godot --headless --editor --path . --import --quit 2>&1 | tee /tmp/import.log
+          if grep -Eq 'SCRIPT ERROR:|Failed to load script' /tmp/import.log; then exit 1; fi
+      - name: Run eight Godot regression suites
+        working-directory: game
+        run: python3 tests/run_checks.py
