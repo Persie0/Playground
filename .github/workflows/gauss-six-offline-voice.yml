@@ -61,6 +61,15 @@ jobs:
           test -s ../../voice-only/Gauss_Circle_English_Subtitles.srt
           test -s ../../voice-only/Gauss_Circle_Kokoro_Audio_QA.json
           (cd ../../voice-only && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json
+          qa=json.load(open('../../voice-only/Gauss_Circle_Kokoro_Audio_QA.json'))
+          holds=[s['end_hold_seconds'] for s in qa['scenes']]
+          print('Exact synthesized end holds (seconds):',holds)
+          assert sum(holds)<35,holds
+          assert max(holds)<9,holds
+          assert qa['total_words']>1750
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: gauss-circle-kokoro-real-speech-qa
