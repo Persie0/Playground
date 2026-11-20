@@ -1,7 +1,7 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `04245e8598cec05dbbe88cae59a5a3c674623e2b`
-Runner: https://github.com/Persie0/Playground/actions/runs/44755905146
+Private source commit: `ec5ae85616e95567c138d0eb9d67dd1337b921d3`
+Runner: https://github.com/Persie0/Playground/actions/runs/44756229694
 Overall checks before report: **failure**
 
 ## Test suites
@@ -20,8 +20,9 @@ Overall checks before report: **failure**
 - test_daily_ui: PASS
 - test_difficulty: PASS
 - test_endless_progress: FAIL
-  - ERROR: ENDLESS: First bank level selected
-  - SCRIPT ERROR: Invalid access to property or key 'bank_sha' on a base object of type 'Dictionary'.
+  - ERROR: ENDLESS: Flow director chooses a new verified bank level
+  - ERROR: ENDLESS: Selecting next never deletes past endless records
+  - ERROR: ENDLESS: Endless progress survives full reload
 - test_flex_lab: PASS
 - test_flex_rules: PASS
 - test_flow_director: PASS
