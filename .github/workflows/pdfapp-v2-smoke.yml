@@ -1,5 +1,5 @@
-name: PDF Studio UI feature smoke tests
-# Validate offline help access and full UI interaction test suite.
+name: PDF Studio UX release validation
+# Validate merged-ready PDF Studio UX code on public Linux and macOS runners.
 on:
   push:
     paths:
@@ -16,7 +16,7 @@ concurrency:
 jobs:
   analyze-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - name: Checkout PDF Studio UX branch
         uses: actions/checkout@v4
@@ -35,3 +35,34 @@ jobs:
           flutter pub get
           flutter analyze
           flutter test
+
+      - name: Build Android debug APK
+        run: flutter build apk --debug
+      - name: Upload UX debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-studio-ux-debug
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 7
+
+  ios:
+    needs: analyze-and-test
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout PDF Studio UX branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/pdfapp
+          ref: feature/impeccable-ux-overhaul
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Compile unsigned iOS app
+        run: |
+          flutter pub get
+          flutter build ios --no-codesign
