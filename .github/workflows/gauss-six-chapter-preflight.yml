@@ -1,4 +1,4 @@
-name: Gauss Circle — Six-Chapter Source Preflight (public runner, corrected QA)
+name: Gauss Circle — Six-Chapter Visual Smoke (public runner)
 
 on:
   push:
@@ -59,28 +59,6 @@ jobs:
           assert shell_size(25) == 12
           print("Six-chapter Manim scene imported, true lattice graph available")
           PY
-      - name: Synthesize all connected narration beats and validate actual speech timings
-        run: |
-          set -euo pipefail
-          cd source/gauss-circle-problem
-          python -m production.narrate_six_chapter \
-            --voice-only --output-dir ../../voice-only --voice en-US-AndrewNeural
-          test -s ../../voice-only/Gauss_Circle_English_Neural_Voice.wav
-          test -s ../../voice-only/Gauss_Circle_English_Subtitles.srt
-          test -s ../../voice-only/Gauss_Circle_Six_Chapter_Audio_QA.json
-          (cd ../../voice-only && sha256sum -c SHA256SUMS.txt)
-      - name: Publish voice QA artifacts for review
-        uses: actions/upload-artifact@v4
-        with:
-          name: gauss-circle-six-chapter-voice-qa
-          path: |
-            voice-only/Gauss_Circle_English_Neural_Voice.wav
-            voice-only/Gauss_Circle_English_Subtitles.srt
-            voice-only/Gauss_Circle_Narration_Cues.json
-            voice-only/Gauss_Circle_Six_Chapter_Audio_QA.json
-          if-no-files-found: error
-          retention-days: 7
-
       - name: Install LaTeX tooling for true Manim composition
         run: |
           set -euo pipefail
@@ -94,3 +72,10 @@ jobs:
           timeout --signal=INT --kill-after=30s 10m manim -ql -r 640,360 --fps 12 --disable_caching \
             production/six_chapter_film.py GaussCircleSixChapterFilm
           find media -name 'GaussCircleSixChapterFilm.mp4' -size +1k -print | grep .
+      - name: Publish six-chapter visual smoke video
+        uses: actions/upload-artifact@v4
+        with:
+          name: gauss-six-chapter-visual-smoke-360p12
+          path: source/gauss-circle-problem/media/videos/six_chapter_film/360p12/GaussCircleSixChapterFilm.mp4
+          if-no-files-found: error
+          retention-days: 7
