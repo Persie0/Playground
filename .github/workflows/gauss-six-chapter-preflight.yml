@@ -59,3 +59,16 @@ jobs:
           assert shell_size(25) == 12
           print("Six-chapter Manim scene imported, true lattice graph available")
           PY
+      - name: Install LaTeX tooling for true Manim composition
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq texlive-latex-base texlive-latex-extra texlive-fonts-recommended texlive-science dvisvgm
+      - name: Exercise all six chapter compositions at accelerated preview speed
+        env:
+          GAUSS_SMOKE_RENDER: '1'
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          manim -ql -r 640,360 --fps 12 --disable_caching \
+            production/six_chapter_film.py GaussCircleSixChapterFilm
+          find media -name 'GaussCircleSixChapterFilm.mp4' -size +1k -print | grep .
