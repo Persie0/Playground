@@ -1,0 +1,36 @@
+name: PDF Studio v2 current-head smoke tests
+on:
+  push:
+    paths:
+      - .github/workflows/pdfapp-v2-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pdf-studio-v2-smoke
+  cancel-in-progress: true
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout latest PDF Studio feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/pdfapp
+          ref: feature/all-pdf-tools-v2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve and validate
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
