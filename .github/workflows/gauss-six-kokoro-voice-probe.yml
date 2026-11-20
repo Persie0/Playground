@@ -35,12 +35,21 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import json
-          from pykokoro import GenerationConfig, KokoroSynthesizer, SynthesisConfig
-          cfg=SynthesisConfig(voice="am_michael",generation=GenerationConfig(lang="en-us"))
+          import re
+          from pykokoro import (GenerationConfig, KokoroSynthesizer, SynthesisConfig,
+                                SynthesisSegment, LinguisticToken)
+          cfg=SynthesisConfig(voice="am_michael",generation=GenerationConfig(lang="en-us"),return_trace=True)
           text="Count the dots inside this circle. A tiny difference raises a surprisingly deep mathematical mystery."
           print("Initializing Kokoro...",flush=True)
+          tokens=tuple(LinguisticToken(m.start(),m.end(),text=m.group(0))
+                       for m in re.finditer(r"[A-Za-z]+(?:'[A-Za-z]+)*|[0-9]+",text))
+          request=SynthesisSegment(id="gauss-probe",text=text,language="en-us",
+                                   voice="am_michael",tokens=tokens)
           with KokoroSynthesizer(cfg) as s:
-              out=s.synthesize_text(text,language="en-us",voice="am_michael")
+              out=s.synthesize(request)
+          print("phonemes:",out.phonemes[:100],"tokens:",len(out.token_ids),flush=True)
+          print("diagnostics:",out.diagnostics,flush=True)
+          print("trace sample:",str(out.trace)[:1500],flush=True)
           out.save_wav("probe-out/kokoro-sample.wav")
           print("result:",type(out).__name__,"word timing attrs:",hasattr(out,"word_timings"),flush=True)
           print("voice sample rate:",getattr(out,"sample_rate",None),flush=True)
