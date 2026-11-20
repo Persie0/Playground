@@ -1,14 +1,15 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `ec5ae85616e95567c138d0eb9d67dd1337b921d3`
-Runner: https://github.com/Persie0/Playground/actions/runs/44756229694
+Private source commit: `1484f481da16258afce7e9110ee279329d351f7b`
+Runner: https://github.com/Persie0/Playground/actions/runs/44756529256
 Overall checks before report: **failure**
 
 ## Test suites
 - test_adaptive_daily: PASS
 - test_android_settings_scroll: PASS
 - test_audio: PASS
-- test_bank_binary: PASS
+- test_bank_binary: FAIL
+  - ERROR: G-03: Sorted index narrow range
 - test_bank_generated: PASS
 - test_bank_runtime: PASS
 - test_campaign_50: PASS
@@ -19,10 +20,7 @@ Overall checks before report: **failure**
 - test_daily_rewards: PASS
 - test_daily_ui: PASS
 - test_difficulty: PASS
-- test_endless_progress: FAIL
-  - ERROR: ENDLESS: Flow director chooses a new verified bank level
-  - ERROR: ENDLESS: Selecting next never deletes past endless records
-  - ERROR: ENDLESS: Endless progress survives full reload
+- test_endless_progress: PASS
 - test_flex_lab: PASS
 - test_flex_rules: PASS
 - test_flow_director: PASS
