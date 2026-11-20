@@ -1,0 +1,75 @@
+name: Gauss Circle — Offline Kokoro Six-Chapter Voice QA
+
+on:
+  push:
+    branches: [ci/gauss-six-preflight-20261120]
+    paths: [.github/workflows/gauss-six-offline-voice.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gauss-circle-offline-voice-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measured-voice:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: feature/gauss-circle-six-chapter-rebuild
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU-only model runtime and signal-processing dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg espeak-ng libespeak-ng1
+          python -m pip install --disable-pip-version-check 'pykokoro[cpu]==0.10.6' \
+            'scipy>=1.12,<2' 'numpy>=1.26,<3' 'soundfile>=0.12,<1'
+      - name: Compile and validate before costly synthesis
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m py_compile production/narrate_kokoro.py
+          python -m production.narrate_kokoro --validate-script-only
+          python - <<'PY'
+          from production.narrate_kokoro import sentences
+          from production.narrate_six_chapter import parse_chapters,DEFAULT_SCRIPT
+          sections=parse_chapters(DEFAULT_SCRIPT.read_text())
+          print([(x.number,len(x.paragraphs),sum(len(sentences(p)) for p in x.paragraphs)) for x in sections])
+          assert len(sections)==6
+          PY
+      - name: Generate six measured chapter voice tracks with offline Kokoro ONNX
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -u -m production.narrate_kokoro \
+            --voice-only --output-dir ../../voice-only --voice am_michael
+          test -s ../../voice-only/Gauss_Circle_Kokoro_Offline_Voice.wav
+          test -s ../../voice-only/Gauss_Circle_English_Subtitles.srt
+          test -s ../../voice-only/Gauss_Circle_Kokoro_Audio_QA.json
+          (cd ../../voice-only && sha256sum -c SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gauss-circle-kokoro-real-speech-qa
+          path: |
+            voice-only/Gauss_Circle_Kokoro_Offline_Voice.wav
+            voice-only/Gauss_Circle_English_Subtitles.srt
+            voice-only/Gauss_Circle_Narration_Cues.json
+            voice-only/Gauss_Circle_Kokoro_Audio_QA.json
+            voice-only/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
