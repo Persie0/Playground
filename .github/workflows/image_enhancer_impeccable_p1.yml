@@ -53,6 +53,25 @@ jobs:
         working-directory: image_enhancer
         run: flutter test --concurrency=2 --timeout 2m --reporter compact
 
+      - name: Install Android CMake 3.22.1 with retries
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager)"; fi
+          for attempt in 1 2 3 4; do
+            echo "CMake SDK installation attempt $attempt/4"
+            if "$SDKMANAGER" --sdk_root="$SDK" --install "cmake;3.22.1"; then
+              test -x "$SDK/cmake/3.22.1/bin/cmake"
+              exit 0
+            fi
+            rm -rf "$SDK/.temp" || true
+            sleep $((attempt * 12))
+          done
+          echo "::error::Unable to install Android CMake 3.22.1"
+          exit 1
+
       - name: Build Android debug APK
         working-directory: image_enhancer
         run: flutter build apk --debug --no-pub
