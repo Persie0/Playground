@@ -1,8 +1,8 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `f2f7e9cd522dc115f66322c19f23bf1f00976649`
-Runner: https://github.com/Persie0/Playground/actions/runs/44761209723
-Overall checks before report: **success**
+Private source commit: `6e494fa5ad1c29a3a3e97427aac3a1e8d0f02783`
+Runner: https://github.com/Persie0/Playground/actions/runs/44762011416
+Overall checks before report: **failure**
 
 ## Test suites
 - test_adaptive_daily: PASS
@@ -10,7 +10,8 @@ Overall checks before report: **success**
 - test_audio: PASS
 - test_bank_binary: PASS
 - test_bank_generated: PASS
-- test_bank_release: PASS
+- test_bank_release: FAIL
+  - ERROR: G-04 RELEASE: Runtime release gate accepts the pinned 840-level proven bank
 - test_bank_runtime: PASS
 - test_campaign_50: PASS
 - test_chapter_cosmetics: PASS
