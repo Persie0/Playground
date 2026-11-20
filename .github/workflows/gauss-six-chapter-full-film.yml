@@ -45,7 +45,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg pkg-config libcairo2-dev libpango1.0-dev \
             texlive-latex-base texlive-latex-extra texlive-fonts-recommended texlive-science \
-            dvisvgm fonts-dejavu-core
+            dvisvgm fonts-dejavu-core espeak-ng libespeak-ng1
           python -m pip install --disable-pip-version-check \
             -r source/gauss-circle-problem/requirements-six-chapter.txt
       - name: Mathematical and audio-plan tests
@@ -54,6 +54,13 @@ jobs:
           cd source/gauss-circle-problem
           python -m unittest discover -s tests -p test_six_chapter.py -v
           python -m production.narrate_six_chapter --validate-script-only
+      - name: Generate full authentic offline voice and measured captions first
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -u -m production.narrate_kokoro --voice-only \
+            --output-dir ../../release --voice am_michael
+          (cd ../../release && sha256sum -c SHA256SUMS.txt)
       - name: Render NEW continuous vector picture (not old 15-scene cutaways)
         run: |
           set -euo pipefail
@@ -80,15 +87,15 @@ jobs:
           gh release download "$ORIGINAL_TAG" --repo Persie0/Playground \
             --pattern "$ORIGINAL_MP4" --dir input
           echo "$ORIGINAL_SHA256  input/$ORIGINAL_MP4" | sha256sum -c -
-      - name: Synthesize native voice, real SRT and six-chapter master
+      - name: Mix verified offline voice and actual SRT with the new native picture
         run: |
           set -euo pipefail
           cd source/gauss-circle-problem
-          python -m production.narrate_six_chapter \
+          python -m production.narrate_kokoro --reuse-voice \
             --picture media/videos/six_chapter_film/1080p30/GaussCircleSixChapterFilm.mp4 \
             --soundtrack-source ../../input/Gauss_Circle_Complete_1080p30_NoNarration.mp4 \
             --output-dir ../../release \
-            --voice en-US-AndrewNeural
+            --voice am_michael
       - name: Verify chapter metadata, audio, timings and SHA256
         run: |
           set -euo pipefail
@@ -106,11 +113,13 @@ jobs:
           assert (audio['codec_name'],int(audio['sample_rate']),int(audio['channels'])) == ('aac',48000,2)
           assert abs(float(meta['format']['duration'])-685)<.2
           assert len(meta['chapters']) == 6
-          qa=json.load(open('release/Gauss_Circle_Six_Chapter_Audio_QA.json'))
-          assert qa['scene_count']==6 and qa['total_words']>=1400
+          qa=json.load(open('release/Gauss_Circle_Kokoro_Audio_QA.json'))
+          assert len(qa['scenes'])==6 and qa['total_words']>=1400
+          assert qa['all_segments_from_real_waveforms']
           cues=json.load(open('release/Gauss_Circle_Narration_Cues.json'))
           assert cues['scene_count']==6
-          assert all(p.get('word_events') for p in cues['paragraphs'])
+          assert all(p['caption_timing_source'] in ('native-word-model',
+                          'individual-synthesized-waveform') for p in cues['paragraphs'])
           print('Validated six chapters, 20,550 frames, real timed voice and external captions')
           PY
           ffmpeg -hide_banner -nostdin -v error -xerror -i "release/$OUTPUT" \
@@ -121,10 +130,10 @@ jobs:
           name: Gauss-Circle-Six-Chapter-1080p30-Full-Master
           path: |
             release/Gauss_Circle_Six_Chapter_1080p30_Narrated.mp4
-            release/Gauss_Circle_English_Neural_Voice.wav
+            release/Gauss_Circle_Kokoro_Offline_Voice.wav
             release/Gauss_Circle_English_Subtitles.srt
             release/Gauss_Circle_Narration_Cues.json
-            release/Gauss_Circle_Six_Chapter_Audio_QA.json
+            release/Gauss_Circle_Kokoro_Audio_QA.json
             release/six_chapter_manifest.json
             release/SHA256SUMS.txt
           if-no-files-found: error
@@ -144,16 +153,16 @@ jobs:
           - 11:25; FullHD 1920×1080; 30 fps; exactly 20,550 frames.
           - Six directly connected mathematical chapters, not fifteen separate OpenCV inserts.
           - Actual computed lattice counts, shell arrivals and signed discrepancy.
-          - Separate real word-boundary English neural narration and selectable SRT.
+          - Offline Kokoro English neural narration, exact synthesized-utterance timestamps and SRT; native word timings only if present.
           - Native film/audio full-decode verification and SHA-256 manifests.
           - All rendering and release activity executed on public Persie0/Playground Actions.
           NOTES
           gh release create "$RELEASE_TAG" \
             release/Gauss_Circle_Six_Chapter_1080p30_Narrated.mp4 \
-            release/Gauss_Circle_English_Neural_Voice.wav \
+            release/Gauss_Circle_Kokoro_Offline_Voice.wav \
             release/Gauss_Circle_English_Subtitles.srt \
             release/Gauss_Circle_Narration_Cues.json \
-            release/Gauss_Circle_Six_Chapter_Audio_QA.json \
+            release/Gauss_Circle_Kokoro_Audio_QA.json \
             release/six_chapter_manifest.json \
             release/SHA256SUMS.txt \
             --repo Persie0/Playground --target "$GITHUB_SHA" \
