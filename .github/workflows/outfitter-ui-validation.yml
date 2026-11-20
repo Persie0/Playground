@@ -1,0 +1,78 @@
+name: Outfitter UI validation
+
+# Runs on PUBLIC Playground Actions minutes. The private source is never
+# copied into this repository or uploaded as an artifact.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/outfitter-ui-validation.yml
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Outfitter branch to validate
+        required: false
+        type: string
+        default: feat/outfit-first-navigation-and-results
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Verify private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout Outfitter source
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/outfitter
+          ref: ${{ inputs.source_ref || 'feat/outfit-first-navigation-and-results' }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: source
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Fetch dependencies
+        working-directory: source
+        run: flutter pub get
+
+      - name: Format updated Dart files
+        working-directory: source
+        run: |
+          dart format lib/screens/home_shell.dart \
+            lib/screens/plan_screen.dart \
+            lib/screens/recommendation_screen.dart \
+            test/plan_screen_test.dart
+
+      - name: Run Flutter tests
+        working-directory: source
+        run: flutter test
+
+      - name: Analyze application
+        working-directory: source
+        run: flutter analyze
+
+      - name: Push validated formatting to feature branch
+        working-directory: source
+        env:
+          SOURCE_REF: ${{ inputs.source_ref || 'feat/outfit-first-navigation-and-results' }}
+        run: |
+          git add lib/screens/home_shell.dart lib/screens/plan_screen.dart \
+            lib/screens/recommendation_screen.dart test/plan_screen_test.dart
+          if ! git diff --cached --quiet; then
+            git config user.name "playground-ci"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "style: format Outfitter UI redesign"
+            git push origin "HEAD:$SOURCE_REF"
+          fi
