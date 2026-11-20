@@ -116,6 +116,9 @@ jobs:
           qa=json.load(open('release/Gauss_Circle_Kokoro_Audio_QA.json'))
           assert len(qa['scenes'])==6 and qa['total_words']>=1400
           assert qa['all_segments_from_real_waveforms']
+          fx=json.load(open('release/Gauss_Original_SFX.json'))
+          assert fx['frames']==685*48000 and len(fx['events'])>=12
+          assert fx['peak_pre_mix']<.5
           cues=json.load(open('release/Gauss_Circle_Narration_Cues.json'))
           assert cues['scene_count']==6
           assert all(p['caption_timing_source'] in ('native-word-model',
@@ -134,6 +137,8 @@ jobs:
             release/Gauss_Circle_English_Subtitles.srt
             release/Gauss_Circle_Narration_Cues.json
             release/Gauss_Circle_Kokoro_Audio_QA.json
+            release/Gauss_Original_SFX.wav
+            release/Gauss_Original_SFX.json
             release/six_chapter_manifest.json
             release/SHA256SUMS.txt
           if-no-files-found: error
@@ -154,6 +159,7 @@ jobs:
           - Six directly connected mathematical chapters, not fifteen separate OpenCV inserts.
           - Actual computed lattice counts, shell arrivals and signed discrepancy.
           - Offline Kokoro English neural narration, exact synthesized-utterance timestamps and SRT; native word timings only if present.
+          - Original deterministic low-level mathematical sound accents, with cue manifest.
           - Native film/audio full-decode verification and SHA-256 manifests.
           - All rendering and release activity executed on public Persie0/Playground Actions.
           NOTES
@@ -163,6 +169,8 @@ jobs:
             release/Gauss_Circle_English_Subtitles.srt \
             release/Gauss_Circle_Narration_Cues.json \
             release/Gauss_Circle_Kokoro_Audio_QA.json \
+            release/Gauss_Original_SFX.wav \
+            release/Gauss_Original_SFX.json \
             release/six_chapter_manifest.json \
             release/SHA256SUMS.txt \
             --repo Persie0/Playground --target "$GITHUB_SHA" \
