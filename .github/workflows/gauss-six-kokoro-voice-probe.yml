@@ -1,0 +1,68 @@
+name: Gauss Circle — Offline Kokoro Voice and Native Timing Probe
+
+on:
+  push:
+    branches: [ci/gauss-six-preflight-20261120]
+    paths:
+      - .github/workflows/gauss-six-kokoro-voice-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Validate real on-device speech with native per-word timing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Kokoro ONNX CPU and phonemizer
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq espeak-ng libespeak-ng1
+          python -m pip install --disable-pip-version-check 'pykokoro[cpu]==0.10.6' 'soundfile>=0.12,<1'
+      - name: Render authentic speech and inspect model-derived sample timings
+        run: |
+          set -euo pipefail
+          mkdir -p probe-out
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          from pykokoro import GenerationConfig, KokoroSynthesizer, SynthesisConfig
+          cfg=SynthesisConfig(voice="am_michael",generation=GenerationConfig(lang="en-us"))
+          text="Count the dots inside this circle. A tiny difference raises a surprisingly deep mathematical mystery."
+          print("Initializing Kokoro...",flush=True)
+          with KokoroSynthesizer(cfg) as s:
+              out=s.synthesize_text(text,language="en-us",voice="am_michael")
+          out.save_wav("probe-out/kokoro-sample.wav")
+          print("result:",type(out).__name__,"word timing attrs:",hasattr(out,"word_timings"),flush=True)
+          print("voice sample rate:",getattr(out,"sample_rate",None),flush=True)
+          rows=[]
+          for w in (getattr(out,"word_timings",[]) or []):
+              rows.append({
+                  "start_sample":int(w.start_sample),
+                  "end_sample":int(w.end_sample),
+                  "char_start":int(w.char_start),
+                  "char_end":int(w.char_end)})
+          print("native aligned tokens:",len(rows),flush=True)
+          print(rows[:8],flush=True)
+          assert len(rows)>=7,"No native words: refuse to invent alignment"
+          assert all(w["end_sample"]>w["start_sample"]>=0 for w in rows)
+          assert all(b["start_sample"]>=a["end_sample"] for a,b in zip(rows,rows[1:]))
+          assert Path("probe-out/kokoro-sample.wav").stat().st_size>10000
+          Path("probe-out/native-timings.json").write_text(
+              json.dumps({"source":text,"word_timings":rows},indent=2)+"\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gauss-kokoro-native-timings-smoke
+          path: probe-out
+          if-no-files-found: error
+          retention-days: 7
