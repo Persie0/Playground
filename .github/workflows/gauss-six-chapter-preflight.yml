@@ -19,7 +19,7 @@ jobs:
   preflight:
     name: Pure-math, timing, syntax and Manim-import QA
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,7 +40,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg pkg-config libcairo2-dev libpango1.0-dev fonts-dejavu-core
-          python -m pip install --disable-pip-version-check 'numpy>=1.26,<3' 'scipy>=1.12,<2' 'manim>=0.19,<0.20' 'edge-tts>=7,<9'
+          python -m pip install --disable-pip-version-check 'numpy>=1.26,<3' 'scipy>=1.12,<2' 'manim>=0.19,<0.20' 'edge-tts>=7,<9' 'Pillow>=10,<13'
       - name: Python AST and executable contract tests
         run: |
           set -euo pipefail
@@ -59,19 +59,6 @@ jobs:
           assert shell_size(25) == 12
           print("Six-chapter Manim scene imported, true lattice graph available")
           PY
-      - name: Install LaTeX tooling for true Manim composition
-        run: |
-          set -euo pipefail
-          sudo apt-get install -y -qq texlive-latex-base texlive-latex-extra texlive-fonts-recommended texlive-science dvisvgm
-      - name: Exercise all six chapter compositions at accelerated preview speed
-        env:
-          GAUSS_SMOKE_RENDER: '1'
-        run: |
-          set -euo pipefail
-          cd source/gauss-circle-problem
-          manim -ql -r 640,360 --fps 12 --disable_caching \
-            production/six_chapter_film.py GaussCircleSixChapterFilm
-          find media -name 'GaussCircleSixChapterFilm.mp4' -size +1k -print | grep .
       - name: Synthesize all connected narration beats and validate actual speech timings
         run: |
           set -euo pipefail
@@ -93,3 +80,17 @@ jobs:
             voice-only/Gauss_Circle_Six_Chapter_Audio_QA.json
           if-no-files-found: error
           retention-days: 7
+
+      - name: Install LaTeX tooling for true Manim composition
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq texlive-latex-base texlive-latex-extra texlive-fonts-recommended texlive-science dvisvgm
+      - name: Exercise all six chapter compositions at accelerated preview speed
+        env:
+          GAUSS_SMOKE_RENDER: '1'
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          timeout --signal=INT --kill-after=30s 10m manim -ql -r 640,360 --fps 12 --disable_caching \
+            production/six_chapter_film.py GaussCircleSixChapterFilm
+          find media -name 'GaussCircleSixChapterFilm.mp4' -size +1k -print | grep .
