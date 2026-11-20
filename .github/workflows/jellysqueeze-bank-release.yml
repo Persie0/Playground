@@ -1,0 +1,149 @@
+name: Jelly Squeeze - verified offline bank v1 release (public runner)
+
+on:
+  push:
+    paths:
+      - ".github/workflows/jellysqueeze-bank-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout immutable source revision (private repo, public runner)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/JellySqueeze
+          ref: 6cc8cad1305271b17db0d97938a300f9dc23381f
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 0
+          path: game
+
+      - name: Compile deterministic classic-v1 C++ harvester
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra game/tools/bankgen/harvest.cpp -o bankgen
+
+      - name: BFS-complete 25 independently seeded arenas per family
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p candidates
+          for recipe in t1 t2 t3; do
+            for seed in $(seq 7 31); do
+              ./bankgen --recipe "$recipe" --seed "$seed" --limit 100 \
+                > "candidates/${recipe}-${seed}.jsonl"
+            done
+          done
+          test "$(wc -l < <(cat candidates/*.jsonl))" -eq 7500
+          echo "BFS G-02 harvested 7,500 distinct-seed candidates; rated with independent rules next."
+
+      - name: Rate independently with 50 trials for each of three bots
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 game/tools/bankgen/rate_candidates.py \
+            --inputs candidates/t1-*.jsonl candidates/t2-*.jsonl candidates/t3-*.jsonl \
+            --campaign-dir game/content/levels \
+            --output-prefix game/tests/content/release_candidates \
+            --trials 50 --min-levels 6500 --emit-rated
+
+      - name: Select actual G-04 coverage and pack signed-by-hash offline release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 game/tools/bankgen/select_release.py \
+            --rated game/tests/content/release_candidates.rated.jsonl \
+            --coverage game/tools/bankgen/release_v1_coverage.json \
+            --campaign-dir game/content/levels \
+            --out-prefix game/content/bank_v1
+          python3 game/tools/bankgen/verify_release.py \
+            --index game/content/bank_v1.index.json \
+            --report game/content/bank_v1.report.json \
+            --coverage game/tools/bankgen/release_v1_coverage.json
+          python3 game/tools/bank/test_pack_bank.py
+          python3 game/tools/bankgen/test_release_gate.py
+
+      - name: Prepare additional test-only bank for navigation fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 game/tools/bank/pack_bank.py --fixtures \
+            --campaign-dir game/content/levels \
+            --out-prefix game/tests/content/bank_fixture
+
+      - name: Fetch pinned Godot binary and verify distribution checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+          echo "cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4  godot.zip" | sha256sum -c -
+          unzip -q godot.zip
+          chmod +x Godot_v4.7.2-stable_linux.x86_64
+
+      - name: Import, certify entire release in Godot and test app routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          GODOT=./Godot_v4.7.2-stable_linux.x86_64
+          timeout 120s "$GODOT" --headless --path game --editor --quit > import.log 2>&1
+          ! grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:" import.log
+          for script in \
+            tests/content/test_bank_release.gd \
+            tests/content/test_bank_binary.gd \
+            tests/content/test_bank_runtime.gd \
+            tests/progression/test_endless_progress.gd \
+            tests/ui/test_endless_navigation.gd \
+            tests/ui/test_screen_layouts.gd; do
+            echo "RELEASE TEST: $script"
+            timeout 300s "$GODOT" --headless --path game \
+              --script "res://$script" > test.log 2>&1 || {
+                cat test.log
+                exit 1
+              }
+            tail -n 6 test.log
+            ! grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:|failures: [1-9]" test.log
+          done
+          timeout 240s "$GODOT" --headless --path game \
+            --script res://tools/verify_levels.gd > campaign.log 2>&1
+          grep -q "ALL 50 MANIFEST LEVELS VERIFIED" campaign.log
+          timeout 90s "$GODOT" --headless --path game --quit-after 20 > smoke.log 2>&1
+          ! grep -Ei "SCRIPT ERROR:|Parse Error:|ERROR:|Invalid call" smoke.log
+
+      - name: Commit the three certified bank files to the private feature branch
+        shell: bash
+        env:
+          PRIVATE_ACCESS_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_ACCESS_TOKEN"
+          cat > "$RUNNER_TEMP/jelly-git-askpass.sh" <<'SCRIPT'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$PRIVATE_ACCESS_TOKEN" ;;
+          esac
+          SCRIPT
+          chmod 700 "$RUNNER_TEMP/jelly-git-askpass.sh"
+          export GIT_ASKPASS="$RUNNER_TEMP/jelly-git-askpass.sh"
+          export GIT_TERMINAL_PROMPT=0
+          remote="https://github.com/Persie0/JellySqueeze.git"
+          remote_head="$(git -C game ls-remote "$remote" refs/heads/feature/candy-smooth-redesign | cut -f 1)"
+          test "$remote_head" = "6cc8cad1305271b17db0d97938a300f9dc23381f" || {
+            echo "Private feature branch changed; refusing stale bank write (no force push)."
+            exit 1
+          }
+          git -C game checkout -B feature/candy-smooth-redesign
+          git -C game config user.name "Jelly Verified Bank CI"
+          git -C game config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C game add content/bank_v1.bin content/bank_v1.index.json content/bank_v1.report.json
+          git -C game commit -m "feat(bank): ship Godot-certified 50-trial 7-bucket offline bank v1"
+          git -C game push "$remote" HEAD:refs/heads/feature/candy-smooth-redesign
+          echo "Verified bank committed on private feature branch. No private Actions were executed."
