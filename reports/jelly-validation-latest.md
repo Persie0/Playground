@@ -1,8 +1,8 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `efa1d992c793d0918005455f63d2cca66234e0c2`
-Runner: https://github.com/Persie0/Playground/actions/runs/44753559358
-Overall checks before report: **success**
+Private source commit: `04245e8598cec05dbbe88cae59a5a3c674623e2b`
+Runner: https://github.com/Persie0/Playground/actions/runs/44755905146
+Overall checks before report: **failure**
 
 ## Test suites
 - test_adaptive_daily: PASS
@@ -19,6 +19,9 @@ Overall checks before report: **success**
 - test_daily_rewards: PASS
 - test_daily_ui: PASS
 - test_difficulty: PASS
+- test_endless_progress: FAIL
+  - ERROR: ENDLESS: First bank level selected
+  - SCRIPT ERROR: Invalid access to property or key 'bank_sha' on a base object of type 'Dictionary'.
 - test_flex_lab: PASS
 - test_flex_rules: PASS
 - test_flow_director: PASS
