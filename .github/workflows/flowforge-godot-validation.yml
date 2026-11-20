@@ -45,6 +45,52 @@ jobs:
           /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --editor --path source --quit 2>&1 | tee import.log
           if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' import.log; then exit 1; fi
 
+      - name: Render gameplay screenshots for UI review
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cat > source/tests/ci_ui_capture.gd <<'GDSCRIPT'
+          extends SceneTree
+
+          const MainScene = preload("res://scenes/main.tscn")
+
+          func _initialize() -> void:
+              call_deferred("_capture")
+
+          func _capture() -> void:
+              var game: Control = MainScene.instantiate()
+              root.add_child(game)
+              for number in [4, 25, 60]:
+                  game._open_level(number)
+                  game.selected_index = 0
+                  var piece: Dictionary = game.level["pieces"][0]
+                  game.pointer = game._tile_pixel(piece["origin"]) + Vector2.ONE * (game._tile_size() * 0.5)
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  var image: Image = root.get_texture().get_image()
+                  var path: String = "res://ui-level-%d.png" % number
+                  var err: Error = image.save_png(path)
+                  assert(err == OK, "Could not capture level %d" % number)
+                  print("UI_CAPTURE_OK ", number)
+              quit()
+          GDSCRIPT
+          xvfb-run -a /tmp/Godot_v4.7.2-stable_linux.x86_64 --path source --script res://tests/ci_ui_capture.gd --resolution 540x960 2>&1 | tee capture.log
+          if [ -f source/ui-level-25.png ]; then
+            echo UI_PNG_START
+            base64 -w0 source/ui-level-25.png
+            echo
+            echo UI_PNG_END
+          fi
+
+      - name: Upload visual screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowforge-ui-captures
+          path: source/ui-level-*.png
+          if-no-files-found: ignore
+          retention-days: 3
+
       - name: Validate generated levels
         run: |
           set -euo pipefail
