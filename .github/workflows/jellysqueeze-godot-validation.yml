@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/JellySqueeze
-          ref: 9d5408cb2be285cafe43c2a2f5cb81ac621b4b96
+          ref: 094df459dfd65f429319b60d7983967ae8121415
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: game
@@ -55,14 +55,15 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra game/tools/bankgen/harvest.cpp -o bankgen
           ./bankgen --recipe t1 --seed 7 --limit 12 > t1.jsonl
           ./bankgen --recipe t2 --seed 11 --limit 12 > t2.jsonl
+          timeout 120s ./bankgen --recipe t3 --seed 7 --limit 6 > t3.jsonl
           ./bankgen --recipe t1 --seed 7 --limit 12 > t1-again.jsonl
           cmp t1.jsonl t1-again.jsonl
           python3 - <<'PY'
           import json
           from pathlib import Path
-          for name in ('t1', 't2'):
+          for name in ('t1', 't2', 't3'):
               data = [json.loads(s) for s in Path(f'{name}.jsonl').read_text().splitlines()]
-              assert len(data) == 12
+              assert len(data) == (6 if name == 't3' else 12)
               assert all(d['par_proven'] and len(d['solution_certificate']) ==
                          d['par_moves'] for d in data)
               print('G-02 BFS CANDIDATES', name, len(data))
@@ -179,7 +180,7 @@ jobs:
         shell: bash
         env:
           VALIDATION_OUTCOME: ${{ job.status }}
-          REPO_SHA: 9d5408cb2be285cafe43c2a2f5cb81ac621b4b96
+          REPO_SHA: 094df459dfd65f429319b60d7983967ae8121415
         run: |
           set -euo pipefail
           mkdir -p result-repo/reports
