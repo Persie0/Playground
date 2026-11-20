@@ -1,16 +1,15 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `9aa6d7c47ef8b63a546efdefa7daf724a29bd426`
-Runner: https://github.com/Persie0/Playground/actions/runs/44746095493
-Overall checks before report: **failure**
+Private source commit: `e5dc4c25392364c729923d70f91d9197c82f0450`
+Runner: https://github.com/Persie0/Playground/actions/runs/44746299528
+Overall checks before report: **success**
 
 ## Test suites
 - test_adaptive_daily: PASS
 - test_android_settings_scroll: PASS
 - test_audio: PASS
 - test_bank_binary: PASS
-- test_bank_runtime: FAIL
-  - ERROR: G-06: Restart remains undoable on generated levels
+- test_bank_runtime: PASS
 - test_campaign_50: PASS
 - test_chapter_cosmetics: PASS
 - test_collection: PASS
