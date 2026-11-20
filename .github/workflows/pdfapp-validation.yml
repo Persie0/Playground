@@ -1,16 +1,13 @@
-name: PDF Studio Flutter validation
-# Final merge gate: PDF Studio v2 rotated redaction and Android/iOS build verification.
+name: PDF Studio Flutter Android and iOS build
+# Manual public Playground build of merged private pdfapp main.
 on:
-  push:
-    paths:
-      - .github/workflows/pdfapp-validation.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pdf-studio-checks
+  group: pdf-studio-merged-main-build
   cancel-in-progress: true
 
 jobs:
@@ -22,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/pdfapp
-          ref: feature/all-pdf-tools-v2
+          ref: main
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Install Flutter
@@ -53,7 +50,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/pdfapp
-          ref: feature/all-pdf-tools-v2
+          ref: main
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Install Flutter
