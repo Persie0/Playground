@@ -1,0 +1,246 @@
+name: Flow Forge Impeccable Round 4 - Godot 4.7.2 validation
+# Post-merge validation of Flow Forge main: chapter map, boost controls and keyboard placement.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/flowforge-impeccable-r4.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch private Flow Forge feature branch
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN" || { echo "Missing token with access to Persie0/flowforge"; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            clone --depth=1 --branch=feature/impeccable-round4-precision-and-help https://github.com/Persie0/flowforge.git source
+          echo "FLOWFORGE_SHA=$(git -C source rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Download official stable Godot 4.7.2
+        run: |
+          set -euo pipefail
+          wget --quiet --show-progress --progress=dot:giga \
+            'https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip' \
+            -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --version
+
+      - name: Validate pinned RevenueCat installer syntax
+        run: bash -n source/tools/install-revenuecat.sh
+
+      - name: Import project and compile GDScript
+        run: |
+          set -euo pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --editor --path source --quit 2>&1 | tee import.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' import.log; then exit 1; fi
+
+      - name: Render bounded native screenshots at 540x960 and 540x1200
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cat > source/tests/ci_ui_capture.gd <<'GDSCRIPT'
+          extends SceneTree
+
+          const MainScene = preload("res://scenes/main.tscn")
+
+          func _initialize() -> void:
+              call_deferred("_capture")
+
+          func _capture() -> void:
+              var game: Control = MainScene.instantiate()
+              root.add_child(game)
+              game.tutorial_seen.clear()
+              if OS.get_environment("FLOW_COMPACT") == "1":
+                  game._open_level(60)
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-level-60-compact.png") == OK)
+                  game._open_map()
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-chapter-map-compact.png") == OK)
+                  game.map_open = false
+                  game.selected_index = 0
+                  game.selected_turns = int(game.level["pieces"][0].get("solution_turns", 0))
+                  var piece_origin: Vector2i = game.level["pieces"][0]["origin"]
+                  var preview: Dictionary = game._precision_lens_contents(piece_origin)
+                  var center_cell: Vector2i = preview["center"]
+                  var target: Vector2 = game._tile_pixel(center_cell) + Vector2.ONE * (game._tile_size() * 0.5)
+                  game.pointer = target + Vector2(0, maxf(42.0, game._tile_size() * 1.25))
+                  game.drag_from = Vector2(-100, -100)
+                  game.drag_active = true
+                  game.precision_touch_override = true
+                  game.queue_redraw()
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-precision-lens-compact.png") == OK)
+                  game.precision_touch_override = false
+                  game.drag_active = false
+                  print("UI_CAPTURE_COMPACT_OK")
+              elif OS.get_environment("FLOW_TALL") == "1":
+                  game._open_level(60)
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  print("TALL_ROOT ", root.size, " CONTROL ", game.size)
+                  assert(game._layout_height() > 1100.0, "Height did not expand")
+                  assert(root.get_texture().get_image().save_png("res://ui-level-60-tall.png") == OK)
+                  game.selected_index = 0
+                  game.selected_turns = int(game.level["pieces"][0].get("solution_turns", 0))
+                  var first_origin: Vector2i = game.level["pieces"][0]["origin"]
+                  var lens_data: Dictionary = game._precision_lens_contents(first_origin)
+                  var mid_cell: Vector2i = lens_data["center"]
+                  var target: Vector2 = game._tile_pixel(mid_cell) + Vector2.ONE * (game._tile_size() * 0.5)
+                  game.pointer = target + Vector2(0, maxf(42.0, game._tile_size() * 1.25))
+                  game.drag_from = Vector2(-100, -100)
+                  game.drag_active = true
+                  game.precision_touch_override = true
+                  game.queue_redraw()
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-precision-lens-tall.png") == OK)
+                  game.precision_touch_override = false
+                  game.drag_active = false
+                  game.selected_index = -1
+                  game._open_level(1, false)
+                  game._show_tutorial("basics")
+                  game.queue_redraw()
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-basics-tutorial-tall.png") == OK)
+                  game._start_tutorial_demo()
+                  game._process(2.2)
+                  game.queue_redraw()
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-basics-practice-tall.png") == OK)
+                  game._finish_tutorial()
+                  game._open_level(60, false)
+                  game.shop_open = true
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-shop-tall.png") == OK)
+                  game.shop_open = false
+                  game._open_map()
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-chapter-map-tall.png") == OK)
+                  game.map_open = false
+                  game.shop_open = false
+                  game.session_open = false
+                  game.selected_index = 0
+                  game.selected_turns = 1
+                  game.inspector_open = true
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-inspector-tall.png") == OK)
+                  game.inspector_open = false
+                  game.selected_index = -1
+                  game.placements.clear()
+                  for i in range(game.level["pieces"].size()):
+                      var piece: Dictionary = game.level["pieces"][i]
+                      game.placements.append({
+                          "index": i,
+                          "origin": piece["origin"],
+                          "turns": int(piece.get("solution_turns", 0)),
+                      })
+                  game.phase = "won"
+                  game.earned_stars = 3
+                  game.earned_coins = 30
+                  game.move_count = 6
+                  game.win_board_visible = false
+                  game.queue_redraw()
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-win-tall.png") == OK)
+                  game._win_choose(3)
+                  assert(game.win_board_visible)
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-win-board-tall.png") == OK)
+                  print("UI_CAPTURE_TALL_OK")
+              else:
+                  for number in [4, 25, 60]:
+                      game._open_level(number)
+                      game.selected_index = -1
+                      await RenderingServer.frame_post_draw
+                      await RenderingServer.frame_post_draw
+                      assert(root.get_texture().get_image().save_png(
+                          "res://ui-level-%d.png" % number) == OK)
+                      print("UI_CAPTURE_OK ", number)
+                      if number == 25:
+                          game._start_tutorial_demo()
+                          game._process(2.2)
+                          await RenderingServer.frame_post_draw
+                          await RenderingServer.frame_post_draw
+                          assert(root.get_texture().get_image().save_png(
+                              "res://ui-bridge-practice.png") == OK)
+                          game._pointer_down(game._tutorial_trial_piece_rect().get_center())
+                          game._pointer_up(game._tutorial_trial_target_rect().get_center())
+                          await RenderingServer.frame_post_draw
+                          await RenderingServer.frame_post_draw
+                          assert(root.get_texture().get_image().save_png(
+                              "res://ui-bridge-solved.png") == OK)
+              quit()
+          GDSCRIPT
+          timeout 35s xvfb-run -a -s '-screen 0 1080x1920x24' /tmp/Godot_v4.7.2-stable_linux.x86_64 --audio-driver Dummy --path source --script res://tests/ci_ui_capture.gd --resolution 540x960 2>&1 | tee capture.log
+          FLOW_TALL=1 timeout 35s xvfb-run -a -s '-screen 0 1080x1920x24' /tmp/Godot_v4.7.2-stable_linux.x86_64 --audio-driver Dummy --path source --script res://tests/ci_ui_capture.gd --resolution 540x1200 2>&1 | tee -a capture.log
+          FLOW_COMPACT=1 timeout 35s xvfb-run -a -s '-screen 0 1080x1920x24' /tmp/Godot_v4.7.2-stable_linux.x86_64 --audio-driver Dummy --path source --script res://tests/ci_ui_capture.gd --resolution 360x640 2>&1 | tee -a capture.log
+          grep -q 'UI_CAPTURE_TALL_OK' capture.log
+          grep -q 'UI_CAPTURE_COMPACT_OK' capture.log
+
+      - name: Upload visual screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowforge-ui-captures
+          path: source/ui-*.png
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Validate generated levels
+        run: |
+          set -euo pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/level_tests.gd --quit-after 500 2>&1 | tee levels.log
+          grep -q 'generated levels validated' levels.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' levels.log; then exit 1; fi
+
+      - name: Gameplay interaction regression tests
+        run: |
+          set -euo pipefail
+          timeout 100s /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/gameplay_tests.gd 2>&1 | tee gameplay.log
+          grep -q 'gameplay interactions and 60 level completions validated' gameplay.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' gameplay.log; then exit 1; fi
+
+      - name: Coins and RevenueCat contract tests
+        run: |
+          set -euo pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/economy_tests.gd 2>&1 | tee economy.log
+          grep -q 'fail-closed IAP tests validated' economy.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' economy.log; then exit 1; fi
+
+      - name: Game scene smoke test
+        run: |
+          set -euo pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --quit-after 100 2>&1 | tee smoke.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' smoke.log; then exit 1; fi
+
+      - name: Validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowforge-godot-validation-logs
+          path: |
+            *.log
+          if-no-files-found: ignore
+          retention-days: 7
