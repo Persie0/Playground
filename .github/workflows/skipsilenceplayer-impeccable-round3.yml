@@ -1,0 +1,63 @@
+name: SkipSilencePlayer Impeccable round 3 native validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/skipsilenceplayer-impeccable-round3.yml
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android unit tests + debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout SkipSilencePlayer UX branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: impeccable/final-native-ux-pass
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: SkipSilencePlayer
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Run tests and build APK
+        working-directory: SkipSilencePlayer/kotlin-android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkipSilencePlayer-round3-debug-APK
+          path: SkipSilencePlayer/kotlin-android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS simulator compile
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout SkipSilencePlayer UX branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: impeccable/final-native-ux-pass
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: SkipSilencePlayer
+      - name: Build unsigned iOS simulator app
+        run: |
+          set -o pipefail
+          xcodebuild -project SkipSilencePlayer/swift-ios/SkipSilencePlayer.xcodeproj \
+            -scheme SkipSilencePlayer -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build
