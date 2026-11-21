@@ -90,6 +90,50 @@ jobs:
           gh release download "$ORIGINAL_TAG" --repo Persie0/Playground \
             --dir input --pattern "$ORIGINAL_MP4"
           printf '%s  %s\n' "$ORIGINAL_SHA256" "input/$ORIGINAL_MP4" | sha256sum -c -
+      - name: Capture annotated frame checks for the eleven exact review timestamps
+        run: |
+          set -euo pipefail
+          mkdir -p preview
+          cd source/gauss-circle-problem
+          python - <<'PY'
+          import cv2
+          from pathlib import Path
+          from PIL import Image,ImageDraw
+          from production.directors_cut_visual import replace_frame,FPS
+          path=Path('../../input/Gauss_Circle_Complete_1080p30_NoNarration.mp4')
+          cap=cv2.VideoCapture(str(path))
+          cases=[('00_00',.819),('00_51',51.029),('01_49',109),
+                 ('04_05',245.441),('05_12',312.176),('06_03',363.528),
+                 ('06_38',398.058),('07_51',471.153),('08_59',539.406),
+                 ('10_02',602.8),('11_04',664.119)]
+          panels=[]
+          for label,time in cases:
+              frame_index=round(time*FPS)
+              cap.set(cv2.CAP_PROP_POS_FRAMES,frame_index)
+              ok,frame=cap.read()
+              assert ok,(label,frame_index)
+              changed=replace_frame(frame,frame_index)
+              shot=cv2.cvtColor(cv2.resize(changed,(960,540)),cv2.COLOR_BGR2RGB)
+              image=Image.fromarray(shot)
+              ImageDraw.Draw(image).text((12,12),label,fill='white')
+              image.save('../../preview/'+label+'.jpg',quality=90)
+              panels.append(image)
+          combined=Image.new('RGB',(1920,3240))
+          for index,panel in enumerate(panels):
+              combined.paste(panel,((index%2)*960,(index//2)*540))
+          combined.save('../../preview/all_review_frames.jpg',quality=91)
+          cap.release()
+          print('Exported',len(panels),'review frames for close inspection')
+          PY
+
+      - name: Upload quick reviewed visual reference frames
+        uses: actions/upload-artifact@v4
+        with:
+          name: gauss-circle-reviewed-11-keyframes
+          path: preview/*
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Apply reviewed graphical fixes to actual original 20,550 video frames
         run: |
           set -euo pipefail
