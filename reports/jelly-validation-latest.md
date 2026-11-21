@@ -1,7 +1,7 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `aacbcde24975d387091e420f7090bf2c7a47e71a`
-Runner: https://github.com/Persie0/Playground/actions/runs/44929552511
+Private source commit: `32343724b6964189d9e7ff8beecaeb1dd589a6d8`
+Runner: https://github.com/Persie0/Playground/actions/runs/44929752634
 Overall checks before report: **failure**
 
 ## Test suites
@@ -19,9 +19,7 @@ Overall checks before report: **failure**
 - test_completion_chapters: PASS
 - test_cosmetics: PASS
 - test_daily_rewards: PASS
-- test_daily_ui: FAIL
-  - ERROR: FAILED: Daily results return to hub
-  - ERROR: JELLY DAILY UI FAIL: 1/15
+- test_daily_ui: PASS
 - test_difficulty: PASS
 - test_endless_navigation: PASS
 - test_endless_progress: PASS
@@ -33,11 +31,7 @@ Overall checks before report: **failure**
 - test_hint_visibility: PASS
 - test_iap: PASS
 - test_local_flow_history: PASS
-- test_map_stars: FAIL
-  - ERROR: MAP STARS: At chapter boundary Journey expands next playable chapter, not solved one
-  - ERROR: MAP STARS: Continue and expanded chapter both point to Level 11
-  - ERROR: MAP STARS: Locked tile is visually labelled and explains its prerequisite
-  - ERROR: MAP STARS: Locked tile displays a visible notice over the scrollable Journey map
+- test_map_stars: PASS
 - test_navigation: PASS
 - test_pause_navigation: PASS
 - test_rules: PASS
@@ -55,3 +49,9 @@ Overall checks before report: **failure**
 - godot-import: PASS (inspect runner exit status if job failed)
 - verify-levels: PASS (inspect runner exit status if job failed)
 - smoke: PASS (inspect runner exit status if job failed)
+- screenshot-layout: FAIL
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_card_inum returned error: No such file or directory
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_concat returned error: No such file or directory
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_refer returned error: No such file or directory
+  - ALSA lib conf.c:5734:(snd_config_expand) [error.core] Evaluate error: No such file or directory
+  - ERROR: Condition "status < 0" is true. Returning: ERR_CANT_OPEN
