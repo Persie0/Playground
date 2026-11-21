@@ -1,0 +1,100 @@
+name: FocusMove Impeccable round 4 private branch verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/focusmove-impeccable-round4.yml'
+      - 'focusmove-impeccable-round4-trigger.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: focusmove-impeccable-round4
+  cancel-in-progress: true
+
+jobs:
+  flutter-and-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: Clone private PR branch into ephemeral runner
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN" || { echo 'Private repository access token missing'; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=fix/impeccable-focusmove-round4-20261121 https://github.com/Persie0/pomodoroexercise.git source
+          git -C source log -1 --format='Testing private revision %h'
+      - name: Format changed Dart files and push only to private branch
+        shell: bash
+        working-directory: source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          dart format lib/src/screens/activities_home.dart test/live_activity_preview_test.dart test/impeccable_ux_test.dart
+          if ! git diff --quiet -- lib/src/screens/activities_home.dart test/live_activity_preview_test.dart test/impeccable_ux_test.dart; then
+            git config user.name 'focusmove-public-ci'
+            git config user.email 'actions@users.noreply.github.com'
+            git add lib/src/screens/activities_home.dart test/live_activity_preview_test.dart test/impeccable_ux_test.dart
+            git commit -m 'style: format FocusMove round 4 UI changes'
+            AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/fix/impeccable-focusmove-round4-20261121
+          fi
+      - name: Install, analyze and test
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter analyze
+          flutter test --reporter expanded
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Compile Android debug APK without publishing binaries
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          flutter build apk --debug
+          test -s build/app/outputs/flutter-apk/app-debug.apk
+
+  ios:
+    needs: flutter-and-android
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: Checkout private source in ephemeral runner
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=fix/impeccable-focusmove-round4-20261121 https://github.com/Persie0/pomodoroexercise.git source
+      - name: Compile unsigned iOS simulator build
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build ios --simulator --no-codesign
+          test -d build/ios/iphonesimulator/Runner.app
