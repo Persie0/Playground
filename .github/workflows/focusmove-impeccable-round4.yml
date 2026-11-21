@@ -63,12 +63,18 @@ jobs:
         run: |
           set -euo pipefail
           timeout 120s flutter analyze
-      - name: Run focused UX regressions (bounded)
+      - name: Run live preview widget regression (diagnostic)
         shell: bash
         working-directory: source
         run: |
           set -euo pipefail
-          timeout 180s flutter test test/live_activity_preview_test.dart test/impeccable_ux_test.dart --reporter expanded
+          timeout 80s flutter test test/live_activity_preview_test.dart --reporter expanded
+      - name: Run compact-layout UX regressions
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          timeout 100s flutter test test/impeccable_ux_test.dart --reporter expanded
       - name: Run complete Flutter suite (bounded)
         shell: bash
         working-directory: source
