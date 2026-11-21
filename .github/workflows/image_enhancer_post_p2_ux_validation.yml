@@ -1,0 +1,55 @@
+name: Image Enhancer post-P2 UI validation
+
+on:
+  push:
+    branches: [image-enhancer-post-p2-ux-validation-20261121]
+    paths:
+      - .github/workflows/image_enhancer_post_p2_ux_validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-enhancer-post-p2-ux-validation-20261121
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout private editor from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: impeccable/post-p2-model-ux-accessibility
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: image_enhancer
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: Generate localizations
+        working-directory: image_enhancer
+        run: flutter gen-l10n
+
+      - name: Focused post-P2 UX regressions
+        working-directory: image_enhancer
+        run: flutter test test/impeccable_post_p2_ux_test.dart test/impeccable_p2_layout_test.dart test/impeccable_p2_photo_first_test.dart test/model_catalog_test.dart test/enhancement_presets_test.dart --timeout 2m --reporter expanded
+
+      - name: Flutter analysis
+        working-directory: image_enhancer
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Full Flutter regression suite
+        working-directory: image_enhancer
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
