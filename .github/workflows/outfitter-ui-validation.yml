@@ -114,8 +114,10 @@ jobs:
             git config user.name "playground-ci"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git commit -m "style: format Outfitter UI redesign"
-            # Formatting should rebase over concurrent source updates, never
-            # discard a newer commit or force-push the private branch.
+            # Only committed changes are retained; discard generated tracked
+            # files left dirty by Flutter before rebasing over concurrent edits.
+            git reset --hard HEAD
+            git clean -fd
             git fetch origin "$SOURCE_REF"
             git rebase FETCH_HEAD
             git push origin "HEAD:$SOURCE_REF"
