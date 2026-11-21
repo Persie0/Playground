@@ -1,0 +1,45 @@
+name: Surebets Impeccable round 6
+on:
+  push:
+    branches: [ci/surebets-impeccable-round6-20261121]
+    paths: [.github/workflows/surebets-impeccable-round6.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Surebets source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: fix/impeccable-round6-precision-accessibility-20261121
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Dependencies
+        run: flutter pub get
+      - name: Formatting and whitespace
+        run: |
+          dart format lib/logic/odds_converter.dart lib/logic/surebet_calculator.dart lib/logic/odds_input_feedback.dart lib/widgets/calculation_overview.dart lib/settings_provider.dart lib/settings_page.dart lib/calculator_screen.dart test/impeccable_round6_numeric_safety_test.dart test/impeccable_round6_result_widget_test.dart visual_tests/impeccable_round6_goldens_test.dart
+          git diff --check
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+      - name: Complete test suite
+        run: flutter test --reporter expanded
+      - name: Capture Flutter UI golden screenshots
+        run: flutter test visual_tests/impeccable_round6_goldens_test.dart --update-goldens --reporter expanded
+      - name: Upload UI screenshot matrix
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surebets-impeccable-round6-ui
+          path: visual_tests/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 7
