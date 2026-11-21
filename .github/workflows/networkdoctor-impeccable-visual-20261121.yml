@@ -30,14 +30,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Android platform 37
+      - name: Install required Android platforms with preinstalled command line tools
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager "platforms;android-37.0"
+          SDKMANAGER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-37.0" "platforms;android-35" "platform-tools" "emulator"
 
       - uses: gradle/actions/setup-gradle@v4
 
