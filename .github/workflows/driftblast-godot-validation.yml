@@ -49,6 +49,70 @@ jobs:
           set -euo pipefail
           timeout 90s ./Godot_v4.7.2-stable_linux.x86_64 --headless --path game --script res://tests/test_game.gd 2>&1 | tee flow.log
           ! grep -E "SCRIPT ERROR:|Parse Error:" flow.log
+      - name: Capture Godot UI in software-rendered virtual display
+        id: visual-capture
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p game/ux_screens
+          if ! command -v xvfb-run >/dev/null 2>&1; then sudo apt-get update -qq && sudo apt-get install -y xvfb; fi
+          cat > game/visual_capture.gd <<'GDSCRIPT'
+          extends SceneTree
+          var game: Control
+          
+          func _initialize() -> void:
+          	call_deferred("_capture_all")
+          
+          func _capture_all() -> void:
+          	var scene: PackedScene = load("res://scenes/main.tscn")
+          	game = scene.instantiate()
+          	root.add_child(game)
+          	await process_frame
+          	game.reduced_motion = true
+          	game._start_level()
+          	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://ux_screens"))
+          	await _capture("intro-420", Vector2i(420, 840), 0, Vector2.ZERO)
+          	await _capture("play-420", Vector2i(420, 840), 1, Vector2.ZERO)
+          	await _capture("pause-420", Vector2i(420, 840), 4, Vector2.ZERO)
+          	await _capture("settings-420", Vector2i(420, 840), 5, Vector2.ZERO)
+          	await _capture("play-320-insets50", Vector2i(320, 480), 1, Vector2(50, 50))
+          	await _capture("settings-320-insets50", Vector2i(320, 480), 5, Vector2(50, 50))
+          	await _capture("settings-320-insets96", Vector2i(320, 480), 5, Vector2(96, 96))
+          	print("Captured seven Godot UI screenshots")
+          	quit()
+          
+          func _capture(name: String, resolution: Vector2i, screen_id: int, insets: Vector2) -> void:
+          	root.size = resolution
+          	game.size = Vector2(resolution)
+          	game.safe_insets_override = insets
+          	game.screen = screen_id
+          	game._layout()
+          	game.queue_redraw()
+          	await process_frame
+          	await RenderingServer.frame_post_draw
+          	var image: Image = root.get_texture().get_image()
+          	if image.is_empty():
+          		push_error("Empty capture " + name)
+          		quit(1)
+          		return
+          	var error: Error = image.save_png("res://ux_screens/%s.png" % name)
+          	if error != OK:
+          		push_error("Capture write failed: " + name)
+          		quit(1)
+          		return
+          	print("Captured %s at %s" % [name, str(image.get_size())])
+          GDSCRIPT
+          timeout 90s xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 ./Godot_v4.7.2-stable_linux.x86_64 --path game --script res://visual_capture.gd 2>&1 | tee visual.log
+          test -s game/ux_screens/intro-420.png
+          test -s game/ux_screens/settings-320-insets96.png
+      - name: Upload visual review captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: driftblast-visual-ux
+          path: game/ux_screens/*.png
+          if-no-files-found: warn
+          retention-days: 7
       - name: Smoke-test main scene
         run: |
           set -euo pipefail
