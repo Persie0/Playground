@@ -1,8 +1,8 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `477faa8efe7483029b1af3ff2d383f828fb3a83b`
-Runner: https://github.com/Persie0/Playground/actions/runs/44841074793
-Overall checks before report: **failure**
+Private source commit: `23f05e3a8f1e601ac5283b958d7396db3665fe69`
+Runner: https://github.com/Persie0/Playground/actions/runs/44841401991
+Overall checks before report: **success**
 
 ## Test suites
 - test_adaptive_daily: PASS
@@ -23,10 +23,7 @@ Overall checks before report: **failure**
 - test_difficulty: PASS
 - test_endless_navigation: PASS
 - test_endless_progress: PASS
-- test_flex_lab: FAIL
-  - ERROR: FAILED: Home loads
-  - ERROR: FAILED: Button exists: FlexLabButton
-  - ERROR: FAILED: Flex Lab opens directly from Home
+- test_flex_lab: PASS
 - test_flex_rules: PASS
 - test_flow_director: PASS
 - test_gel_layer: PASS
@@ -44,8 +41,7 @@ Overall checks before report: **failure**
 - test_solver: PASS
 - test_stars_migration: PASS
 - test_swipe: PASS
-- test_tap_journey: FAIL
-  - SCRIPT ERROR: Trying to get a return value of a method that returns "void"
+- test_tap_journey: PASS
 - test_touch_scrolling: PASS
 - test_tutorial: PASS
 
