@@ -1,0 +1,81 @@
+name: Aircash APK to private release (public runner)
+
+on:
+  push:
+    branches: [ci/check-abon-rotation-20261121]
+    paths: [.github/workflows/aircash-private-apk-release.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish-private:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out merged private source at exact SHA
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/mc_aircash_decompiled
+          ref: 7ef9faf9e622f95bf3e1168e5c01f561b93e3c67
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            /AbonAuto/app
+            /AbonAuto/gradle
+            /AbonAuto/gradlew
+            /AbonAuto/build.gradle.kts
+            /AbonAuto/settings.gradle.kts
+            /AbonAuto/gradle.properties
+          sparse-checkout-cone-mode: false
+          path: target
+
+      - name: Verify reviewed merge SHA
+        run: test "$(git -C target rev-parse HEAD)" = "7ef9faf9e622f95bf3e1168e5c01f561b93e3c67"
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Configure Android SDK
+        run: printf 'sdk.dir=%s\n' "$ANDROID_HOME" > target/AbonAuto/local.properties
+
+      - name: Run Android unit tests and assemble APK
+        working-directory: target/AbonAuto
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Prepare private APK and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=target/AbonAuto/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          mkdir -p private-release
+          cp "$apk" private-release/Aircash-7ef9faf9-debug.apk
+          (cd private-release && sha256sum Aircash-7ef9faf9-debug.apk > SHA256SUMS)
+          ls -lh private-release/*
+
+      - name: Publish only to private Aircash repository release
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}" || { echo '::error::Missing release token'; exit 1; }
+          tag=abon-routing-7ef9faf9-debug
+          repo=Persie0/mc_aircash_decompiled
+          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            gh release upload "$tag" private-release/Aircash-7ef9faf9-debug.apk private-release/SHA256SUMS --clobber --repo "$repo"
+          else
+            gh release create "$tag" private-release/Aircash-7ef9faf9-debug.apk private-release/SHA256SUMS \
+              --repo "$repo" --target "7ef9faf9e622f95bf3e1168e5c01f561b93e3c67" \
+              --title "Aircash debug APK 7ef9faf9 — daily signer rotation" \
+              --notes "Built from merged PR #18 at 7ef9faf9e622f95bf3e1168e5c01f561b93e3c67. Android unit tests and debug assembly passed on the public Playground runner. Private release; no APK uploaded to Playground." \
+              --prerelease
+          fi
+          echo "### Private APK release" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://github.com/$repo/releases/tag/$tag" >> "$GITHUB_STEP_SUMMARY"
