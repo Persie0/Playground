@@ -1,0 +1,119 @@
+name: RepForge workout UX + Android device smoke (public only)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/repforge-impeccable-workout-ci.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+          cache: true
+      - name: Read pinned RepForge private source
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          SOURCE_BRANCH: feat/impeccable-workout-back-smalltext-20261121
+          SOURCE_SHA: aca776859d5e61c6f5a76b7ebb12a54e68bf02a6
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN" || { echo 'Private repository token missing'; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            clone --quiet --depth 1 --branch "$SOURCE_BRANCH" \
+            https://github.com/Persie0/gameexercise.git source
+          test -s source/pubspec.yaml
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA" || {
+            echo 'Private branch changed after CI was prepared'; exit 1;
+          }
+      - name: Flutter analyze, UX regressions and full tests
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get > /tmp/repforge_pub.log 2>&1 || {
+            tail -n 80 /tmp/repforge_pub.log; exit 1;
+          }
+          dart format --output=none lib test > /tmp/repforge_fmt.log 2>&1 || {
+            tail -n 100 /tmp/repforge_fmt.log; exit 1;
+          }
+          flutter analyze > /tmp/repforge_analysis.log 2>&1 || {
+            tail -n 160 /tmp/repforge_analysis.log; exit 1;
+          }
+          flutter test test/forge_workout_session_screen_test.dart test/onboarding_flow_test.dart --reporter expanded > /tmp/repforge_focused.log 2>&1 || {
+            tail -n 240 /tmp/repforge_focused.log | cut -c 1-300; exit 1;
+          }
+          flutter test --reporter compact > /tmp/repforge_all.log 2>&1 || {
+            tr '\r' '\n' < /tmp/repforge_all.log |
+              grep -E '\[E\]|TestFailure|Expected:|Actual:|The test description was:' |
+              tail -n 120 | cut -c 1-240 || true
+            tail -n 150 /tmp/repforge_all.log | cut -c 1-240
+            exit 1
+          }
+          tail -n 5 /tmp/repforge_analysis.log
+          tr '\r' '\n' < /tmp/repforge_all.log | tail -n 4 | cut -c 1-200
+      - name: Compile Android debug APK
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter build apk --debug > /tmp/repforge_apk.log 2>&1 || {
+            tail -n 125 /tmp/repforge_apk.log | cut -c 1-300; exit 1;
+          }
+          test -s build/app/outputs/flutter-apk/app-debug.apk
+          echo 'Android debug APK compiled successfully; not uploaded'
+      - name: Capture native Android phone and expanded-window screenshots
+        id: device
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -e
+            mkdir -p captures
+            adb shell wm size 360x800
+            adb shell wm density 160
+            adb shell cmd uimode night yes
+            adb install -r source/build/app/outputs/flutter-apk/app-debug.apk
+            adb shell am start -n com.persie.repforge/.MainActivity
+            sleep 9
+            adb exec-out screencap -p > captures/01_onboarding_phone_dark.png
+            adb shell settings put system font_scale 1.3
+            adb shell am force-stop com.persie.repforge
+            adb shell am start -n com.persie.repforge/.MainActivity
+            sleep 5
+            adb exec-out screencap -p > captures/02_onboarding_130pct.png
+            adb shell input tap 300 62
+            sleep 5
+            adb exec-out screencap -p > captures/03_after_skip_phone.png
+            adb shell wm size 1000x800
+            adb shell settings put system font_scale 1
+            adb shell am force-stop com.persie.repforge
+            adb shell am start -n com.persie.repforge/.MainActivity
+            sleep 5
+            adb exec-out screencap -p > captures/04_expanded_window.png
+            ls -lh captures
+      - name: Upload only native UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repforge-native-ui-screenshots-${{ github.run_id }}
+          path: captures/*.png
+          if-no-files-found: ignore
+          retention-days: 7
