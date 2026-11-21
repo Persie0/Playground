@@ -1,8 +1,8 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `159359f50c6bc628ac0f75683806dc26813b2069`
-Runner: https://github.com/Persie0/Playground/actions/runs/44941460438
-Overall checks before report: **failure**
+Private source commit: `ef9742fa44ea2ad8f2653edf49694a32aebd6c86`
+Runner: https://github.com/Persie0/Playground/actions/runs/44941636918
+Overall checks before report: **success**
 
 ## Test suites
 - test_adaptive_daily: PASS
@@ -37,10 +37,7 @@ Overall checks before report: **failure**
 - test_rules: PASS
 - test_rules_differential: PASS
 - test_save: PASS
-- test_screen_layouts: FAIL
-  - ERROR: Primary button normal text passes 4.5:1 contrast (3.48:1)
-  - ERROR: Primary button hover text passes 4.5:1 contrast (3.48:1)
-  - ERROR: Primary button pressed text passes 4.5:1 contrast (3.48:1)
+- test_screen_layouts: PASS
 - test_solver: PASS
 - test_stars_migration: PASS
 - test_swipe: PASS
@@ -52,4 +49,9 @@ Overall checks before report: **failure**
 - godot-import: PASS (inspect runner exit status if job failed)
 - verify-levels: PASS (inspect runner exit status if job failed)
 - smoke: PASS (inspect runner exit status if job failed)
-- screenshot-layout: NOT RUN
+- screenshot-layout: FAIL
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_card_inum returned error: No such file or directory
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_concat returned error: No such file or directory
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_refer returned error: No such file or directory
+  - ALSA lib conf.c:5734:(snd_config_expand) [error.core] Evaluate error: No such file or directory
+  - ERROR: Condition "status < 0" is true. Returning: ERR_CANT_OPEN
