@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           repository: Persie0/DriftBlast
-          ref: 5efcff9aa812fcb749359866ff0379432e43d8a6
+          ref: 27d22683bd5cf3b0a8898b7f15554b70d7c6dd3f
           path: game
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
@@ -69,19 +69,30 @@ jobs:
           	root.add_child(game)
           	await process_frame
           	game.reduced_motion = true
+          	game.level = 1
+          	game.unlocked_level = 1
+          	game.rewarded_levels.clear()
+          	game.first_move_completed = false
+          	game.score = 0
+          	game.best_score = 0
+          	game.coins = 0
           	game._start_level()
           	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://ux_screens"))
           	await _capture("intro-420", Vector2i(420, 840), 0, Vector2.ZERO)
+          	await _capture("guided-420", Vector2i(420, 840), 1, Vector2.ZERO)
+          	game.first_move_completed = true
+          	game.coins = 100
           	await _capture("play-420", Vector2i(420, 840), 1, Vector2.ZERO)
           	await _capture("pause-420", Vector2i(420, 840), 4, Vector2.ZERO)
           	await _capture("settings-420", Vector2i(420, 840), 5, Vector2.ZERO)
           	await _capture("play-320-insets50", Vector2i(320, 480), 1, Vector2(50, 50))
           	await _capture("settings-320-insets50", Vector2i(320, 480), 5, Vector2(50, 50))
           	await _capture("settings-320-insets96", Vector2i(320, 480), 5, Vector2(96, 96))
-          	print("Captured seven Godot UI screenshots")
+          	print("Captured eight Godot UI screenshots")
           	quit()
           
           func _capture(name: String, resolution: Vector2i, screen_id: int, insets: Vector2) -> void:
+          	root.content_scale_size = resolution
           	root.size = resolution
           	game.size = Vector2(resolution)
           	game.safe_insets_override = insets
