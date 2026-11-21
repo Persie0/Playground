@@ -1,0 +1,92 @@
+name: Publish Verified 11-Note Gauss Director Cut from Public Artifact
+
+on:
+  push:
+    branches: [ci/gauss-directors-cut-tight-seams-20261121]
+    paths: [.github/workflows/gauss-directors-review-publish-only-20261121.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: gauss-directors-final-release-public-only-20261121
+  cancel-in-progress: false
+
+jobs:
+  publish-verified-artifact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    env:
+      GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN || github.token }}
+      SOURCE_RUN: '44931100389'
+      RELEASE_TAG: gauss-circle-directors-cut-eleven-review-fixes-final-1080p30-20261121
+    steps:
+      - name: Check out public Playground only, never consume private Actions
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Retrieve the fully QA-verified public Full HD artifact when uploaded
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          for attempt in $(seq 1 60); do
+            if gh run download "$SOURCE_RUN" \
+                --repo Persie0/Playground \
+                --name gauss-circle-all-eleven-review-fixes-1080p30 \
+                --dir output; then
+              break
+            fi
+            echo "Verified film artifact is not available yet (check $attempt of 60)"
+            sleep 30
+          done
+          test -s output/Gauss_Circle_20261121_Reviewed_1080p30.mp4
+          test -s output/Gauss_Circle_English_Subtitles.srt
+          test -s output/Gauss_Circle_Review_QA.json
+          (cd output && sha256sum -c SHA256SUMS.txt)
+
+      - name: Recheck revision QA and absence of deleted scene 14
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          output=Path('output')
+          qa=json.loads((output/'Gauss_Circle_Review_QA.json').read_text())
+          cues=json.loads((output/'Gauss_Circle_Narration_Cues.json').read_text())
+          assert qa['retained_scene_ids']==list(range(1,14))+[15]
+          assert qa['removed_scene_ids']==[14]
+          assert qa['discarded_original_finale_before_seconds']==664
+          assert len(qa['seam_gaps'])==13
+          assert all(1.4<=x<=1.6 for x in qa['seam_gaps'])
+          assert cues['scene_count']==14
+          assert (output/'Gauss_Circle_English_Subtitles.srt').read_text().count('-->')==cues['subtitle_cues']
+          assert qa['final_frames']>13000 and qa['final_frames']<19000
+          print('PASS verified 14-chapter reviewed release, duration',qa['final_seconds'])
+          PY
+
+      - name: Publish release using authorized public-repository token, no branch tag target
+        run: |
+          set -euo pipefail
+          cat > notes.md <<'EOF'
+          Gauss Circle — reviewed director's cut, independent from PR #260.
+          - Revised original opening placement and fade, distinct axes vs lattice colors.
+          - Simplified exact N(r) counting and clearer floor/column proof, plus 12-dot r=5 arrival.
+          - Signed-error formula moved outside graph; old GAUSS / CIRCLE STUDY header hidden.
+          - More conversational narration, genuine Edge TTS word-synchronized optional captions.
+          - Scenes 1–13 go directly into the original 11:04+ finale; scene 14 and the first part of 15 are removed.
+          - Shorter 1.5-second scene speech gaps, with 14ms anti-click music fades.
+          - Verified 1080p30 H.264, stereo AAC, 14 MP4 chapters, complete decode, SHA256 manifests.
+          - Original 11:25 director's cut and 15-scene original remain unchanged.
+          Source PR: https://github.com/Persie0/manimVideos/pull/261
+          Public rendering: https://github.com/Persie0/Playground/actions/runs/44931100389
+          EOF
+          if gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" output/* --repo Persie0/Playground --clobber
+          else
+            gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground \
+              --title "Gauss Circle — Director's Cut: All 11 Review Fixes (1080p30)" \
+              --notes-file notes.md
+          fi
