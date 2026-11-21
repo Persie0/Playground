@@ -108,6 +108,10 @@ jobs:
                   game._open_level(4, false)
                   game._on_store_message("No active Lifetime Pro found — check store account")
                   assert(game._status_toast_lines(game.status_text).size() >= 2)
+                  for tray_rect in game._tray_rects():
+                      assert(not game._status_rect().intersects(tray_rect),
+                          "Restore notice must not conceal puzzle pieces")
+                  assert(not game._status_rect().intersects(game._help_rect()))
                   game.queue_redraw()
                   await RenderingServer.frame_post_draw
                   await RenderingServer.frame_post_draw
