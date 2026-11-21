@@ -1,8 +1,8 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `d46df56af2fba1625ffaa5376d59cda568d1afe9`
-Runner: https://github.com/Persie0/Playground/actions/runs/44932076501
-Overall checks before report: **failure**
+Private source commit: `d38a8cb459b34a09f369ffef68c0962219c89ea3`
+Runner: https://github.com/Persie0/Playground/actions/runs/44932236494
+Overall checks before report: **success**
 
 ## Test suites
 - test_adaptive_daily: PASS
@@ -37,8 +37,7 @@ Overall checks before report: **failure**
 - test_rules: PASS
 - test_rules_differential: PASS
 - test_save: PASS
-- test_screen_layouts: FAIL
-  - ERROR: Landscape 4x4 board provides at least 32px logical cells
+- test_screen_layouts: PASS
 - test_solver: PASS
 - test_stars_migration: PASS
 - test_swipe: PASS
@@ -50,4 +49,9 @@ Overall checks before report: **failure**
 - godot-import: PASS (inspect runner exit status if job failed)
 - verify-levels: PASS (inspect runner exit status if job failed)
 - smoke: PASS (inspect runner exit status if job failed)
-- screenshot-layout: NOT RUN
+- screenshot-layout: FAIL
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_card_inum returned error: No such file or directory
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_concat returned error: No such file or directory
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_refer returned error: No such file or directory
+  - ALSA lib conf.c:5734:(snd_config_expand) [error.core] Evaluate error: No such file or directory
+  - ERROR: Condition "status < 0" is true. Returning: ERR_CANT_OPEN
