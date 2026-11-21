@@ -1,0 +1,42 @@
+name: Image Enhancer post83 Android compile smoke test
+on:
+  push:
+    branches: [image-enhancer-post83-android-smoke-20261121]
+    paths:
+      - .github/workflows/image_enhancer_post83_android_smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private Flutter app through public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: impeccable/post83-quality-safety-accessibility
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: image_enhancer
+      - name: Install JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve locked dependencies
+        working-directory: image_enhancer
+        run: flutter pub get --enforce-lockfile
+      - name: Generate localized strings
+        working-directory: image_enhancer
+        run: flutter gen-l10n
+      - name: Build Android debug APK for platform smoke verification
+        working-directory: image_enhancer
+        run: flutter build apk --debug
+      # Do not upload an APK from a private repository to public artifacts.
