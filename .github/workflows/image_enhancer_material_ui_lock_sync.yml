@@ -1,0 +1,44 @@
+name: Image Enhancer material_ui lockfile sync
+on:
+  push:
+    branches: [image-enhancer-analyzer-zero-20261121]
+    paths: [.github/workflows/image_enhancer_material_ui_lock_sync.yml]
+permissions:
+  contents: read
+jobs:
+  sync-validated-lockfile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout private branch through public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: chore/flutter-analyzer-cleanup-20261121
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: image_enhancer
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Regenerate exact dependency lockfile
+        working-directory: image_enhancer
+        run: flutter pub get
+      - name: Commit only resolved lockfile to the same private feature branch
+        working-directory: image_enhancer
+        env:
+          PUSH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          if git diff --quiet -- pubspec.lock; then
+            echo 'Lockfile already current'
+            exit 0
+          fi
+          git config user.name "Playground Validation"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- pubspec.lock
+          git commit -m "chore: lock standalone Material dependencies [skip ci]"
+          AUTH_HEADER="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH_HEADER" \
+            push https://github.com/Persie0/image_enhancer.git \
+            HEAD:refs/heads/chore/flutter-analyzer-cleanup-20261121
