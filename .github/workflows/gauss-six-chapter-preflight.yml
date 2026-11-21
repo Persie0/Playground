@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   preflight:
-    name: Pure-math, timing, syntax and Manim-import QA
+    name: Revised six-chapter math, original SFX and native Manim smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
@@ -45,9 +45,11 @@ jobs:
         run: |
           set -euo pipefail
           cd source/gauss-circle-problem
-          python -m compileall -q production/six_chapter_film.py production/narrate_six_chapter.py shared/six_chapter_math.py tests/test_six_chapter.py
+          python -m compileall -q production/six_chapter_film.py production/narrate_six_chapter.py production/narrate_kokoro.py production/six_chapter_sfx.py shared/six_chapter_math.py tests/test_six_chapter.py
           python -m unittest discover -s tests -p test_six_chapter.py -v
           python -m production.narrate_six_chapter --validate-script-only
+          python -m production.narrate_kokoro --validate-script-only
+          python -m production.six_chapter_sfx --check-only
       - name: Import single-scene film and preflight geometry
         run: |
           set -euo pipefail
