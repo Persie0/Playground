@@ -1,0 +1,44 @@
+name: Surebets Impeccable round 4 validation
+
+on:
+  push:
+    branches: [ci/surebets-impeccable-round4-20261121]
+    paths:
+      - .github/workflows/surebets-impeccable-round4.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout private app source using token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: design/impeccable-ux-round4-20261121
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Format all changed Dart source
+        run: |
+          dart format lib/widgets/responsive_column.dart lib/advanced_screen.dart lib/odds_converter_screen.dart lib/free_bet_snr_screen.dart lib/free_bet_sr_screen.dart lib/onboarding_screen.dart lib/settings_page.dart lib/bet_history_screen.dart test/impeccable_round2_regression_test.dart test/impeccable_round4_adaptive_test.dart test/impeccable_round4_regression_test.dart test/ui_accent_contrast_test.dart
+          git diff --check
+
+      - name: Analyze source and report diagnostics
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run entire regression and adaptability suite
+        run: flutter test
