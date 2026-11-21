@@ -1,9 +1,6 @@
 name: Gauss Circle - All 11 Director Review Fixes + Final Cut 1080p30 (Public)
 
 on:
-  push:
-    branches: [ci/gauss-directors-cut-tight-seams-20261121]
-    paths: [.github/workflows/gauss-directors-cut-review-fixed-20261121.yml]
   workflow_dispatch:
 
 permissions:
@@ -202,9 +199,14 @@ jobs:
           retention-days: 21
           compression-level: 0
       - name: Publish separate reviewed release, preserving prior versions
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN || github.token }}
         run: |
           set -euo pipefail
-          gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground \
-            --target "$GITHUB_SHA" --latest=false \
-            --title "Gauss Circle — Director's Cut: All 11 Review Fixes (1080p30)" \
-            --notes "Reworked original geometry overlays and opening headline, distinct axis/dot colors, exact count-only visuals, understandable column-floor derivation, readable graph formula, removed legacy branding, and conversational revised English voice. Scene 14 is removed and scene 13 cuts to the final 11:04 onward segment of original scene 15. All retained words have authentic Edge TTS word-aligned captions; original 685-second director cut and previous versions remain unchanged. Shortened gaps to approximately 1.5 seconds. Fully decoded and frame-verified."
+          if gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" output/* --repo Persie0/Playground --clobber
+          else
+            gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground \
+              --title "Gauss Circle — Director's Cut: All 11 Review Fixes (1080p30)" \
+              --notes "Reworked original geometry overlays, rewritten narration, 14 retained chapters and click-free short voice gaps. Original releases remain unchanged."
+          fi
