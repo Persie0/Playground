@@ -1,0 +1,52 @@
+name: FocusMove UX PR33 private-branch validation (public runner)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/focusmove-ux-pr33-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: focusmove-ux-pr33-validation
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+
+      - name: Checkout private FocusMove PR branch in runner only
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN" || { echo 'Missing private repository token'; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=fix/impeccable-focusmove-ux-20261121 https://github.com/Persie0/pomodoroexercise.git source
+          git -C source log -1 --format='Testing private revision %h'
+
+      - name: Install dependencies and analyze
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter analyze
+
+      - name: Run full Flutter tests
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          flutter test --reporter expanded
