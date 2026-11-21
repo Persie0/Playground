@@ -1,0 +1,47 @@
+name: Validate Aircash routing (public runner)
+
+on:
+  push:
+    branches:
+      - ci/check-abon-rotation-20261121
+    paths:
+      - .github/workflows/check-abon-routing.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Check out target branch with private-repository token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/mc_aircash_decompiled
+          ref: feature/daily-abon-signer-routing
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            /server/abon_routing.py
+            /server/server.py
+            /server/test_abon_routing.py
+            /server/static/js/app.js
+            /ProtonMail Interspar Abon Link Extractor - Vercel.user.js
+          sparse-checkout-cone-mode: false
+          path: target
+
+      - name: Python syntax
+        run: python -m py_compile target/server/server.py target/server/abon_routing.py target/server/test_abon_routing.py
+
+      - name: Routing unit tests
+        env:
+          PYTHONPATH: target/server
+        run: python -m unittest discover -s target/server -p test_abon_routing.py -v
+
+      - name: JavaScript syntax
+        run: |
+          node --check target/server/static/js/app.js
+          node --check "target/ProtonMail Interspar Abon Link Extractor - Vercel.user.js"
