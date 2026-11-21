@@ -1,0 +1,44 @@
+name: Surebets Impeccable round 5 validation
+
+on:
+  push:
+    branches: [ci/surebets-impeccable-round5-20261121]
+    paths:
+      - .github/workflows/surebets-impeccable-round5.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout private app source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: fix/impeccable-round5-money-safety-20261121
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Verify Dart formatting and check whitespace
+        run: |
+          dart format lib/logic/surebet_calculator.dart lib/logic/display_bet_outcome.dart lib/services/bet_history_service.dart lib/bet_history_screen.dart test/display_bet_outcome_test.dart test/impeccable_round5_history_undo_test.dart test/impeccable_round5_history_undo_widget_test.dart
+          git diff --check
+
+      - name: Flutter analyze (nonfatal informational diagnostics)
+        run: flutter analyze --no-fatal-infos
+
+      - name: Full Flutter regression suite
+        run: flutter test
