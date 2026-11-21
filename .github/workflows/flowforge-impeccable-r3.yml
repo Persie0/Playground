@@ -98,15 +98,25 @@ jobs:
                   assert(root.get_texture().get_image().save_png("res://ui-inspector-tall.png") == OK)
                   game.inspector_open = false
                   game.selected_index = -1
+                  game.placements.clear()
+                  for i in range(game.level["pieces"].size()):
+                      var piece: Dictionary = game.level["pieces"][i]
+                      game.placements.append({
+                          "index": i,
+                          "origin": piece["origin"],
+                          "turns": int(piece.get("solution_turns", 0)),
+                      })
                   game.phase = "won"
                   game.earned_stars = 3
                   game.earned_coins = 30
                   game.move_count = 6
                   game.win_board_visible = false
+                  game.queue_redraw()
                   await RenderingServer.frame_post_draw
                   await RenderingServer.frame_post_draw
                   assert(root.get_texture().get_image().save_png("res://ui-win-tall.png") == OK)
-                  game.win_board_visible = true
+                  game._win_choose(3)
+                  assert(game.win_board_visible)
                   await RenderingServer.frame_post_draw
                   await RenderingServer.frame_post_draw
                   assert(root.get_texture().get_image().save_png("res://ui-win-board-tall.png") == OK)
