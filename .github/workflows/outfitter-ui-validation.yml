@@ -1,7 +1,7 @@
 name: Outfitter UI validation
 
 # Validation pass after awaiting bundled fonts (97b9b2a71161).
-# Outfitter PR #12: forecast race, recent-plan deletion and fresh new-plan defaults.
+# Outfitter PR #13: upcoming Later restoration and accessible API-key guidance.
 # Runs on PUBLIC Playground Actions minutes. The private source is never
 # copied into this repository or uploaded as an artifact.
 on:
@@ -15,7 +15,7 @@ on:
         description: Outfitter branch to validate
         required: false
         type: string
-        default: fix/outfitter-post11-review-races-history-reset
+        default: fix/pr13-future-plan-restore-key-help
 
 permissions:
   contents: write
@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Persie0/outfitter
-          ref: ${{ inputs.source_ref || 'fix/outfitter-post11-review-races-history-reset' }}
+          ref: ${{ inputs.source_ref || 'fix/pr13-future-plan-restore-key-help' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: true
           path: source
@@ -56,7 +56,10 @@ jobs:
       - name: Format updated Dart files
         working-directory: source
         run: |
-          dart format test/forecast_refresh_race_test.dart \
+          dart format test/launch_plan_service_test.dart \
+            test/api_key_setup_help_test.dart \
+            lib/services/launch_plan_service.dart \
+            test/forecast_refresh_race_test.dart \
             lib/models/garment_metadata.dart \
             lib/models/outfit_preferences.dart \
             lib/services/outfit_preferences_service.dart \
@@ -106,9 +109,12 @@ jobs:
       - name: Push validated formatting to feature branch
         working-directory: source
         env:
-          SOURCE_REF: ${{ inputs.source_ref || 'fix/outfitter-post11-review-races-history-reset' }}
+          SOURCE_REF: ${{ inputs.source_ref || 'fix/pr13-future-plan-restore-key-help' }}
         run: |
           git add pubspec.yaml pubspec.lock \
+            lib/services/launch_plan_service.dart \
+            test/launch_plan_service_test.dart \
+            test/api_key_setup_help_test.dart \
             test/forecast_refresh_race_test.dart \
             lib/models/garment_metadata.dart \
             lib/models/outfit_preferences.dart \
@@ -148,7 +154,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VALIDATION_STATUS: ${{ job.status }}
-          SOURCE_REF: ${{ inputs.source_ref || 'fix/outfitter-post11-review-races-history-reset' }}
+          SOURCE_REF: ${{ inputs.source_ref || 'fix/pr13-future-plan-restore-key-help' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
