@@ -1,8 +1,8 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `2a367c2dd31972609339787ff52d4b4c9e9d1296`
-Runner: https://github.com/Persie0/Playground/actions/runs/44928315102
-Overall checks before report: **success**
+Private source commit: `aacbcde24975d387091e420f7090bf2c7a47e71a`
+Runner: https://github.com/Persie0/Playground/actions/runs/44929552511
+Overall checks before report: **failure**
 
 ## Test suites
 - test_adaptive_daily: PASS
@@ -19,7 +19,9 @@ Overall checks before report: **success**
 - test_completion_chapters: PASS
 - test_cosmetics: PASS
 - test_daily_rewards: PASS
-- test_daily_ui: PASS
+- test_daily_ui: FAIL
+  - ERROR: FAILED: Daily results return to hub
+  - ERROR: JELLY DAILY UI FAIL: 1/15
 - test_difficulty: PASS
 - test_endless_navigation: PASS
 - test_endless_progress: PASS
@@ -31,7 +33,11 @@ Overall checks before report: **success**
 - test_hint_visibility: PASS
 - test_iap: PASS
 - test_local_flow_history: PASS
-- test_map_stars: PASS
+- test_map_stars: FAIL
+  - ERROR: MAP STARS: At chapter boundary Journey expands next playable chapter, not solved one
+  - ERROR: MAP STARS: Continue and expanded chapter both point to Level 11
+  - ERROR: MAP STARS: Locked tile is visually labelled and explains its prerequisite
+  - ERROR: MAP STARS: Locked tile displays a visible notice over the scrollable Journey map
 - test_navigation: PASS
 - test_pause_navigation: PASS
 - test_rules: PASS
