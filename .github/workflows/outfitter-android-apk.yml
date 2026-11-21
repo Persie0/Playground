@@ -1,0 +1,80 @@
+name: Outfitter Android APK (public Playground)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/outfitter-android-apk.yml
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Outfitter branch or commit to build
+        type: string
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: outfitter-android-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout private Outfitter source (never publish source)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/outfitter
+          ref: ${{ inputs.source_ref || 'fix/impeccable-native-qa-apk-20261121' }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+
+      - name: Report exact source commit
+        working-directory: source
+        run: git rev-parse HEAD
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        working-directory: source
+        run: flutter pub get
+
+      - name: Format Flutter sources for the isolated build
+        working-directory: source
+        run: dart format lib test
+
+      - name: Run Flutter widget and unit tests
+        working-directory: source
+        run: flutter test
+
+      - name: Analyze Flutter sources
+        working-directory: source
+        run: flutter analyze --no-fatal-infos
+
+      - name: Build installable release APK
+        working-directory: source
+        run: flutter build apk --release --no-pub
+
+      - name: Upload APK only
+        uses: actions/upload-artifact@v4
+        with:
+          name: outfitter-release-apk-${{ github.run_number }}
+          path: source/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
