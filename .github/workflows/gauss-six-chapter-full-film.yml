@@ -1,6 +1,9 @@
 name: Gauss Circle — Six-Chapter 1080p30 Master and Voice
 
 on:
+  push:
+    branches: [ci/gauss-six-preflight-20261120]
+    paths: [.github/workflows/gauss-six-chapter-full-film.yml]
   workflow_dispatch:
 
 permissions:
@@ -14,7 +17,7 @@ env:
   ORIGINAL_TAG: gauss-circle-complete-1080p30-20261112
   ORIGINAL_MP4: Gauss_Circle_Complete_1080p30_NoNarration.mp4
   ORIGINAL_SHA256: e0396bd59ecebf10e8a2b319680b0497632bc8d1ca1a7ba60ec94005f6e0d33e
-  RELEASE_TAG: gauss-circle-six-chapter-1080p30-20261120
+  RELEASE_TAG: gauss-circle-six-chapter-1080p30-20261121
   OUTPUT: Gauss_Circle_Six_Chapter_1080p30_Narrated.mp4
   PYTHONUNBUFFERED: '1'
 
@@ -54,6 +57,31 @@ jobs:
           cd source/gauss-circle-problem
           python -m unittest discover -s tests -p test_six_chapter.py -v
           python -m production.narrate_six_chapter --validate-script-only
+      - name: Cheap complete 685-second frame-lock gate before FullHD rendering
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          timeout --signal=INT --kill-after=30s 19m manim -ql \
+            -r 320,180 --fps 10 --disable_caching \
+            production/six_chapter_film.py GaussCircleSixChapterFilm
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          video=list(Path('media').rglob('GaussCircleSixChapterFilm.mp4'))
+          checked=0
+          for candidate in video:
+              result=json.loads(subprocess.check_output(['ffprobe','-v','error',
+                  '-show_entries','stream=width,height,r_frame_rate,nb_frames:format=duration',
+                  '-of','json',str(candidate)]))
+              track=result['streams'][0]
+              if (track['width'],track['height'])!=(320,180):continue
+              assert track['r_frame_rate']=='10/1',track
+              assert int(track['nb_frames'])==6850,track
+              assert abs(float(result['format']['duration'])-685)<.1,result
+              checked+=1
+          assert checked==1,(video,checked)
+          print('PASS: 685-second native frame-lock gate, 6850/6850 physical frames')
+          PY
       - name: Generate full authentic offline voice and measured captions first
         run: |
           set -euo pipefail
