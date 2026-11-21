@@ -1,7 +1,7 @@
 name: Outfitter UI validation
 
 # Validation pass after awaiting bundled fonts (97b9b2a71161).
-# Outfitter PR #10: rerun after bundled font teardown fix.
+# Outfitter PR #10: final analysis and Android native debug build.
 # Runs on PUBLIC Playground Actions minutes. The private source is never
 # copied into this repository or uploaded as an artifact.
 on:
@@ -87,6 +87,10 @@ jobs:
         # Flutter 3.50 marks legacy material.dart imports as deprecated infos.
         # Keep diagnostics visible, but fail the job only for warnings/errors.
         run: flutter analyze --no-fatal-infos
+
+      - name: Verify Android native build (secure storage & timezone)
+        working-directory: source
+        run: flutter build apk --debug --no-pub
 
       - name: Push validated formatting to feature branch
         working-directory: source
