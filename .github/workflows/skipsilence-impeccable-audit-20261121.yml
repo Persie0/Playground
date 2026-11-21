@@ -1,0 +1,125 @@
+name: SkipSilencePlayer Impeccable full UI QA
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/skipsilence-impeccable-audit-20261121.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: 4826054821a1a9974babe27c007d6eb6da9fb9ba
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Test and build Android
+        working-directory: source/kotlin-android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SkipSilencePlayer-Impeccable-APK
+          path: source/kotlin-android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: 4826054821a1a9974babe27c007d6eb6da9fb9ba
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+      - name: Build iOS Simulator Debug
+        working-directory: source/swift-ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project SkipSilencePlayer.xcodeproj \
+            -scheme SkipSilencePlayer \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .derived \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+  emulator:
+    needs: android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: SkipSilencePlayer-Impeccable-APK
+          path: apk
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Capture Android UI smoke screenshots
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -eu
+            mkdir -p screenshots
+            adb install apk/app-debug.apk
+            adb shell am start -n at.persie0.skipsilenceplayer/.MainActivity
+            sleep 8
+            adb exec-out screencap -p > screenshots/01-library.png
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null || true
+            adb pull /sdcard/window.xml screenshots/01-library.xml || true
+            python3 - <<'PY' > /tmp/settings-location.txt
+            import os, re, xml.etree.ElementTree as ET
+            path = 'screenshots/01-library.xml'
+            if os.path.exists(path):
+                try:
+                    root = ET.parse(path).getroot()
+                    for node in root.iter('node'):
+                        if 'Settings' in (node.attrib.get('text') or '') or 'Settings' in (node.attrib.get('content-desc') or ''):
+                            bounds = node.attrib.get('bounds', '')
+                            values = [int(x) for x in re.findall(r'\d+',bounds)]
+                            if len(values)==4:
+                                print((values[0]+values[2])//2, (values[1]+values[3])//2)
+                                break
+                except Exception as e:
+                    print('Could not inspect Settings:', e, file=__import__('sys').stderr)
+            PY
+            if [ -s /tmp/settings-location.txt ]; then
+              read X Y < /tmp/settings-location.txt
+              adb shell input tap "$X" "$Y"
+              sleep 3
+              adb exec-out screencap -p > screenshots/02-settings-portrait.png
+              adb shell settings put system accelerometer_rotation 0
+              adb shell settings put system user_rotation 1
+              sleep 4
+              adb exec-out screencap -p > screenshots/03-settings-landscape.png
+              adb shell settings put system user_rotation 0
+              adb shell settings put system font_scale 1.3
+              sleep 4
+              adb exec-out screencap -p > screenshots/04-settings-large-type.png
+            else
+              echo 'Settings coordinates were unavailable; captured Library only.'
+            fi
+            find screenshots -maxdepth 1 -name '*.png' -type f -printf '%f %s bytes\n'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: SkipSilencePlayer-Impeccable-emulator-screenshots
+          path: screenshots/
+          if-no-files-found: warn
+          retention-days: 30
