@@ -1,8 +1,8 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `2827a2f87993006e74d371cd940e03665d3bf10b`
-Runner: https://github.com/Persie0/Playground/actions/runs/44932643101
-Overall checks before report: **success**
+Private source commit: `62faa659c2e6a261c1d9db0c5ab4575abd4d8391`
+Runner: https://github.com/Persie0/Playground/actions/runs/44933877209
+Overall checks before report: **failure**
 
 ## Test suites
 - test_adaptive_daily: PASS
@@ -37,7 +37,12 @@ Overall checks before report: **success**
 - test_rules: PASS
 - test_rules_differential: PASS
 - test_save: PASS
-- test_screen_layouts: PASS
+- test_screen_layouts: FAIL
+  - ERROR: Early-level tutorial appears when the viewport can fit readable copy
+  - ERROR: Advanced mechanic guidance adapts to short and portrait screens
+  - ERROR: 07-gameplay: PauseButton fits horizontally ([P: (-5.5, 15.0), S: (48.0, 55.0)])
+  - ERROR: 07-gameplay: MoveCounter fits horizontally ([P: (527.5, 24.0), S: (46.0, 37.0)])
+  - ERROR: 07-gameplay: TapSelectNextButton fits horizontally ([P: (-5.5, 216.0), S: (111.0, 44.0)])
 - test_solver: PASS
 - test_stars_migration: PASS
 - test_swipe: PASS
@@ -49,9 +54,4 @@ Overall checks before report: **success**
 - godot-import: PASS (inspect runner exit status if job failed)
 - verify-levels: PASS (inspect runner exit status if job failed)
 - smoke: PASS (inspect runner exit status if job failed)
-- screenshot-layout: FAIL
-  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_card_inum returned error: No such file or directory
-  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_concat returned error: No such file or directory
-  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_refer returned error: No such file or directory
-  - ALSA lib conf.c:5734:(snd_config_expand) [error.core] Evaluate error: No such file or directory
-  - ERROR: Condition "status < 0" is true. Returning: ERR_CANT_OPEN
+- screenshot-layout: NOT RUN
