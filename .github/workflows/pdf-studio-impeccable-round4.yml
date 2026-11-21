@@ -1,0 +1,45 @@
+name: PDF Studio Impeccable round 4 validation
+
+on:
+  push:
+    branches: [pdf-studio-impeccable-round4-ci]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pdf-studio-impeccable-round4
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout PDF Studio feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/pdfapp
+          ref: feature/pdf-studio-impeccable-round4
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Fetch dependencies
+        run: flutter pub get
+      - name: Analyze Flutter source
+        run: flutter analyze
+      - name: Run all Flutter tests
+        run: flutter test
+      - name: Build Android debug APK
+        run: flutter build apk --debug
+      - name: Publish debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-studio-impeccable-round4-debug
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 7
