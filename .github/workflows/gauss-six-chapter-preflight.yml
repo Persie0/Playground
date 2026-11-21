@@ -19,7 +19,7 @@ jobs:
   preflight:
     name: Revised six-chapter math, original SFX and native Manim smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,6 +74,35 @@ jobs:
           timeout --signal=INT --kill-after=30s 10m manim -ql -r 640,360 --fps 12 --disable_caching \
             production/six_chapter_film.py GaussCircleSixChapterFilm
           find media -name 'GaussCircleSixChapterFilm.mp4' -size +1k -print | grep .
+      - name: Verify native full 685s clock at low resolution before spending 1080p resources
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          # IMPORTANT: no GAUSS_SMOKE_RENDER here: this is the complete movie
+          # timeline at 10fps. Its 6,850 physical frames must be exact.
+          timeout --signal=INT --kill-after=30s 19m manim -ql \
+            -r 320,180 --fps 10 --disable_caching \
+            production/six_chapter_film.py GaussCircleSixChapterFilm
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          paths=list(Path("media").rglob("GaussCircleSixChapterFilm.mp4"))
+          matches=[]
+          for p in paths:
+              data=json.loads(subprocess.check_output([
+                  "ffprobe","-v","error","-show_entries",
+                  "stream=width,height,r_frame_rate,nb_frames:format=duration",
+                  "-of","json",str(p)]))
+              v=data["streams"][0]
+              if (v["width"],v["height"])==(320,180):
+                  matches.append((p,v,data["format"]))
+          assert len(matches)==1,matches
+          p,v,fmt=matches[0]
+          assert v["r_frame_rate"]=="10/1",(p,v)
+          assert int(v["nb_frames"])==6850,(p,v)
+          assert abs(float(fmt["duration"])-685)<.1,(p,fmt)
+          print("Native complete 685-second timeline: 6850 exact frames",p)
+          PY
       - name: Publish six-chapter visual smoke video
         uses: actions/upload-artifact@v4
         with:
