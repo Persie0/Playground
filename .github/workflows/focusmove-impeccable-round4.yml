@@ -51,14 +51,30 @@ jobs:
             AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
             git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/fix/impeccable-focusmove-round4-20261121
           fi
-      - name: Install, analyze and test
+      - name: Resolve Flutter dependencies (bounded)
         shell: bash
         working-directory: source
         run: |
           set -euo pipefail
-          flutter pub get
-          flutter analyze
-          flutter test --reporter expanded
+          timeout 240s flutter pub get
+      - name: Analyze Flutter project (bounded)
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          timeout 120s flutter analyze
+      - name: Run focused UX regressions (bounded)
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          timeout 180s flutter test test/live_activity_preview_test.dart test/impeccable_ux_test.dart --reporter expanded
+      - name: Run complete Flutter suite (bounded)
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          timeout 300s flutter test --reporter expanded
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
