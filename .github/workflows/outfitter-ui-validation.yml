@@ -1,7 +1,7 @@
 name: Outfitter UI validation
 
 # Validation pass after awaiting bundled fonts (97b9b2a71161).
-# Outfitter PR #16: rerun after Settings ink feedback and hidden-key test fixes.
+# Outfitter PR #17: refresh resilience, preserved names, startup and Saved navigation.
 # Runs on PUBLIC Playground Actions minutes. The private source is never
 # copied into this repository or uploaded as an artifact.
 on:
@@ -15,7 +15,7 @@ on:
         description: Outfitter branch to validate
         required: false
         type: string
-        default: feat/impeccable-comfort-named-looks-location-recovery
+        default: fix/impeccable-refresh-resilience-saved-navigation
 
 permissions:
   contents: write
@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Persie0/outfitter
-          ref: ${{ inputs.source_ref || 'feat/impeccable-comfort-named-looks-location-recovery' }}
+          ref: ${{ inputs.source_ref || 'fix/impeccable-refresh-resilience-saved-navigation' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: true
           path: source
@@ -56,7 +56,9 @@ jobs:
       - name: Format updated Dart files
         working-directory: source
         run: |
-          dart format lib/services/location_recovery_copy.dart \
+          dart format lib/services/home_data_loader.dart \
+            test/home_data_loader_test.dart \
+            lib/services/location_recovery_copy.dart \
             test/location_recovery_copy_test.dart \
             test/settings_key_privacy_test.dart \
             test/saved_library_search_test.dart \
@@ -113,9 +115,11 @@ jobs:
       - name: Push validated formatting to feature branch
         working-directory: source
         env:
-          SOURCE_REF: ${{ inputs.source_ref || 'feat/impeccable-comfort-named-looks-location-recovery' }}
+          SOURCE_REF: ${{ inputs.source_ref || 'fix/impeccable-refresh-resilience-saved-navigation' }}
         run: |
           git add pubspec.yaml pubspec.lock \
+            lib/services/home_data_loader.dart \
+            test/home_data_loader_test.dart \
             lib/services/location_recovery_copy.dart \
             test/location_recovery_copy_test.dart \
             test/settings_key_privacy_test.dart \
@@ -162,7 +166,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VALIDATION_STATUS: ${{ job.status }}
-          SOURCE_REF: ${{ inputs.source_ref || 'feat/impeccable-comfort-named-looks-location-recovery' }}
+          SOURCE_REF: ${{ inputs.source_ref || 'fix/impeccable-refresh-resilience-saved-navigation' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
