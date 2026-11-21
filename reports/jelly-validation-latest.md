@@ -1,8 +1,8 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `f76fd934379db5cd6efa9b5ba2c04df9e4f49763`
-Runner: https://github.com/Persie0/Playground/actions/runs/44927987892
-Overall checks before report: **failure**
+Private source commit: `2a367c2dd31972609339787ff52d4b4c9e9d1296`
+Runner: https://github.com/Persie0/Playground/actions/runs/44928315102
+Overall checks before report: **success**
 
 ## Test suites
 - test_adaptive_daily: PASS
@@ -37,10 +37,7 @@ Overall checks before report: **failure**
 - test_rules: PASS
 - test_rules_differential: PASS
 - test_save: PASS
-- test_screen_layouts: FAIL
-  - ERROR: 03-levels: chapter text stays inside its banner
-  - ERROR: 03-levels-expanded: chapter text stays inside its banner
-  - ERROR: Victory details and actions fit within short landscape screen
+- test_screen_layouts: PASS
 - test_solver: PASS
 - test_stars_migration: PASS
 - test_swipe: PASS
