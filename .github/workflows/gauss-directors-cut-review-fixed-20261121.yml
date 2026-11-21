@@ -1,0 +1,166 @@
+name: Gauss Circle - All 11 Director Review Fixes + Final Cut 1080p30 (Public)
+
+on:
+  push:
+    branches: [ci/gauss-directors-cut-tight-seams-20261121]
+    paths: [.github/workflows/gauss-directors-cut-review-fixed-20261121.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gauss-directors-cut-review-20261121
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  SOURCE_BRANCH: fix/gauss-directors-cut-seam-gaps-20261121
+  ORIGINAL_TAG: gauss-circle-complete-1080p30-20261112
+  ORIGINAL_MP4: Gauss_Circle_Complete_1080p30_NoNarration.mp4
+  ORIGINAL_SHA256: e0396bd59ecebf10e8a2b319680b0497632bc8d1ca1a7ba60ec94005f6e0d33e
+  RELEASE_TAG: gauss-circle-directors-cut-eleven-review-fixes-1080p30-20261121
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+
+jobs:
+  reviewed-film:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 245
+    steps:
+      - name: Checkout public Playground
+        uses: actions/checkout@v4
+      - name: Checkout private source via PUBLIC RUNNER only
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_BRANCH }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install scientific graphics, voice and codec dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-lato
+          python -m pip install --disable-pip-version-check \
+            'numpy>=1.26,<3' 'scipy>=1.12,<2' 'Pillow>=10,<13' \
+            'opencv-python-headless>=4.9,<5' 'edge-tts>=7,<9'
+      - name: Compile and test all 11 review items, mathematical proofs and original gap editor
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m compileall -q production/directors_cut_review_edit.py \
+            production/tighten_directors_cut_seams.py \
+            production/directors_cut_visual.py \
+            production/narrate_directors_cut.py \
+            scene01/render_scene01.py
+          python -m unittest discover -s tests -p test_directors_cut_review.py -v
+          python -m unittest discover -s tests -p test_directors_cut_seams.py -v
+          python -m unittest discover -s tests -p test_directors_cut.py -v
+          python -m production.directors_cut_visual --check-only
+          python -m production.narrate_directors_cut \
+            --video /dev/null --narration-md planning/narration-directors-cut.md \
+            --output-dir ../../preflight --validate-script-only
+      - name: Probe REAL Edge TTS audio and genuine per-word timestamps before expensive render
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python - <<'PY'
+          import asyncio
+          from pathlib import Path
+          from production import narrate
+          async def main():
+              s='A circle can hold an exact number of points.'
+              p=Path('../../preflight/review_tts.mp3')
+              events=await narrate.synthesize(s,narrate.VOICE_DEFAULT,'-5%',p)
+              words=narrate.validate_boundaries(events,s,len(narrate.decode_mp3(p))/narrate.SAMPLE_RATE)
+              assert len(words)>=8
+              print('Real voice and',len(words),'authentic Edge TTS word boundaries verified')
+          asyncio.run(main())
+          PY
+      - name: Download original 15-scene native 1080p film, validate SHA-256
+        run: |
+          set -euo pipefail
+          mkdir -p input
+          gh release download "$ORIGINAL_TAG" --repo Persie0/Playground \
+            --dir input --pattern "$ORIGINAL_MP4"
+          printf '%s  %s\n' "$ORIGINAL_SHA256" "input/$ORIGINAL_MP4" | sha256sum -c -
+      - name: Apply reviewed graphical fixes to actual original 20,550 video frames
+        run: |
+          set -euo pipefail
+          mkdir -p intermediate
+          cd source/gauss-circle-problem
+          python -m production.directors_cut_visual \
+            --video "../../input/$ORIGINAL_MP4" \
+            --output ../../intermediate/Gauss_Circle_Review_685s_NoNarration.mp4
+      - name: Synthesize rewritten natural narration with REAL word-timed SRT
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m production.narrate_directors_cut \
+            --video ../../intermediate/Gauss_Circle_Review_685s_NoNarration.mp4 \
+            --narration-md planning/narration-directors-cut.md \
+            --output-dir ../../narrated --voice en-GB-RyanNeural
+          (cd ../../narrated && sha256sum -c SHA256SUMS.txt)
+      - name: Cut scene 14, jump scene 13 to original 11:04 finale and tighten every voice gap
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          cd source/gauss-circle-problem
+          python -m production.directors_cut_review_edit \
+            --video ../../narrated/Gauss_Circle_Directors_Cut_1080p30_English.mp4 \
+            --cues ../../narrated/Gauss_Circle_Narration_Cues.json \
+            --voice ../../narrated/Gauss_Circle_English_Neural_Voice.wav \
+            --subtitles ../../narrated/Gauss_Circle_English_Subtitles.srt \
+            --output-dir ../../output
+          (cd ../../output && sha256sum -c SHA256SUMS.txt)
+      - name: Independently verify real 1080p30 movie, all retained captions and 14 correct chapters
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          p=Path('output')
+          film=p/'Gauss_Circle_20261121_Reviewed_1080p30.mp4'
+          qa=json.loads((p/'Gauss_Circle_Review_QA.json').read_text())
+          cues=json.loads((p/'Gauss_Circle_Narration_Cues.json').read_text())
+          pr=json.loads(subprocess.check_output([
+              'ffprobe','-v','error','-show_streams','-show_format',
+              '-show_chapters','-of','json',str(film)]))
+          v=next(s for s in pr['streams'] if s['codec_type']=='video')
+          a=next(s for s in pr['streams'] if s['codec_type']=='audio')
+          assert v['codec_name']=='h264' and (int(v['width']),int(v['height']))==(1920,1080)
+          assert v['r_frame_rate']=='30/1' and int(v['nb_frames'])==qa['final_frames']
+          assert a['codec_name']=='aac' and a['sample_rate']=='48000'
+          assert abs(float(pr['format']['duration'])-qa['final_seconds'])<.1
+          assert qa['retained_scene_ids']==list(range(1,14))+[15]
+          assert len(pr['chapters'])==14
+          assert len(qa['seam_gaps'])==13 and max(qa['seam_gaps'])<=1.6
+          assert len(cues['scenes'])==14 and cues['scene_count']==14
+          assert cues['subtitle_cues']==(p/'Gauss_Circle_English_Subtitles.srt').read_text().count('-->')
+          assert qa['retained_subtitle_blocks']>=100
+          print('PASS full review fixed movie',qa)
+          PY
+          ffmpeg -hide_banner -nostdin -v error -xerror \
+            -i output/Gauss_Circle_20261121_Reviewed_1080p30.mp4 \
+            -map 0:v:0 -map 0:a:0 -f null -
+      - name: Upload reviewed Full HD and editable source voice/cues
+        uses: actions/upload-artifact@v4
+        with:
+          name: gauss-circle-all-eleven-review-fixes-1080p30
+          path: output/*
+          if-no-files-found: error
+          retention-days: 21
+          compression-level: 0
+      - name: Publish separate reviewed release, preserving prior versions
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground \
+            --target "$GITHUB_SHA" --latest=false \
+            --title "Gauss Circle — Director's Cut: All 11 Review Fixes (1080p30)" \
+            --notes "Reworked original geometry overlays and opening headline, distinct axis/dot colors, exact count-only visuals, understandable column-floor derivation, readable graph formula, removed legacy branding, and conversational revised English voice. Scene 14 is removed and scene 13 cuts to the final 11:04 onward segment of original scene 15. All retained words have authentic Edge TTS word-aligned captions; original 685-second director cut and previous versions remain unchanged. Shortened gaps to approximately 1.5 seconds. Fully decoded and frame-verified."
