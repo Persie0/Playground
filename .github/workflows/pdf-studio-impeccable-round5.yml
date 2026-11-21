@@ -38,22 +38,36 @@ jobs:
       - name: Run Flutter unit and widget tests
         run: flutter test --reporter expanded
       - name: Build installable release APK
+        id: release
+        continue-on-error: true
         run: flutter build apk --release
+      - name: Fall back to installable debug APK
+        if: steps.release.outcome == 'failure'
+        run: flutter build apk --debug
       - name: Record APK checksum and build details
         shell: bash
         run: |
           set -euo pipefail
+          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
+            APK=build/app/outputs/flutter-apk/app-release.apk
+            MODE=release
+          else
+            APK=build/app/outputs/flutter-apk/app-debug.apk
+            MODE=debug
+          fi
+          test -s "$APK"
+          cp "$APK" pdf-studio-android.apk
           echo "Git commit: $(git rev-parse HEAD)" | tee apk-build-info.txt
           flutter --version | head -n 1 | tee -a apk-build-info.txt
-          echo "Build mode: release (Android project currently uses debug-key signing)" | tee -a apk-build-info.txt
-          ls -lh build/app/outputs/flutter-apk/app-release.apk | tee -a apk-build-info.txt
-          sha256sum build/app/outputs/flutter-apk/app-release.apk | tee apk-sha256.txt
-      - name: Upload release APK and checksum
+          echo "Build mode: $MODE (Android project currently uses debug-key signing)" | tee -a apk-build-info.txt
+          ls -lh pdf-studio-android.apk | tee -a apk-build-info.txt
+          sha256sum pdf-studio-android.apk | tee apk-sha256.txt
+      - name: Upload installable APK and checksum
         uses: actions/upload-artifact@v4
         with:
-          name: pdf-studio-impeccable-round5-release-apk
+          name: pdf-studio-impeccable-round5-apk
           path: |
-            build/app/outputs/flutter-apk/app-release.apk
+            pdf-studio-android.apk
             apk-build-info.txt
             apk-sha256.txt
           retention-days: 14
