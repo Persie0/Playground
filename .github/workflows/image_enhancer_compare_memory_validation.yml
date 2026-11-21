@@ -1,0 +1,55 @@
+name: Image Enhancer preview-memory UX validation
+
+on:
+  push:
+    branches: [image-enhancer-compare-memory-validation-20261121]
+    paths:
+      - .github/workflows/image_enhancer_compare_memory_validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-enhancer-compare-memory-validation-20261121
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout private image editor through public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: impeccable/post80-preview-memory-and-errors
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: image_enhancer
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: Generate localizations
+        working-directory: image_enhancer
+        run: flutter gen-l10n
+
+      - name: Focused comparison and model picker tests
+        working-directory: image_enhancer
+        run: flutter test test/result_comparison_page_test.dart test/impeccable_model_purpose_test.dart test/model_catalog_test.dart test/impeccable_post_p2_ux_test.dart test/impeccable_result_flow_v2_test.dart --timeout 2m --reporter expanded
+
+      - name: Flutter analysis
+        working-directory: image_enhancer
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Full Flutter regression suite
+        working-directory: image_enhancer
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
