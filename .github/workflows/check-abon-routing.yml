@@ -1,4 +1,4 @@
-name: Validate Aircash routing (public runner)
+name: Validate Aircash routing and APK (public runner)
 
 on:
   push:
@@ -62,6 +62,9 @@ jobs:
         run: |
           printf 'sdk.dir=%s\n' "$ANDROID_HOME" > target/AbonAuto/local.properties
 
-      - name: Compile Android Kotlin
+      - name: Test and assemble Android debug APK
         working-directory: target/AbonAuto
-        run: bash ./gradlew :app:compileDebugKotlin --no-daemon --stacktrace
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Confirm built APK
+        run: test -s target/AbonAuto/app/build/outputs/apk/debug/app-debug.apk
