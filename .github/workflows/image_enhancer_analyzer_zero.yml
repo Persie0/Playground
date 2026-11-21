@@ -1,0 +1,44 @@
+name: Image Enhancer zero-diagnostics verification
+on:
+  push:
+    branches: [image-enhancer-analyzer-zero-20261121]
+    paths: [.github/workflows/image_enhancer_analyzer_zero.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-enhancer-analyzer-zero-20261121
+  cancel-in-progress: true
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout private app through public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: chore/flutter-analyzer-cleanup-20261121
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: image_enhancer
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve Flutter dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+      - name: Generate localization source
+        working-directory: image_enhancer
+        run: flutter gen-l10n
+      - name: Strict analyzer (zero diagnostics required)
+        working-directory: image_enhancer
+        run: flutter analyze
+      - name: Complete Flutter regression suite
+        working-directory: image_enhancer
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
