@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/NetworkDoctor
-          ref: a3c7c5448d03351071a79ca236a66f8032eca716
+          ref: 59adb4f07de6709a8e918467a5782e2f842c0cd1
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: networkdoctor
@@ -103,6 +103,19 @@ jobs:
           adb exec-out screencap -p > screenshots/overview-offline.png
           switch_tab 1
           adb exec-out screencap -p > screenshots/checks-offline.png
+          # Exercise expanded-width Material navigation and landscape layout.
+          adb shell settings put system font_scale 1.0
+          adb shell wm size 1280x1920
+          adb shell wm density 200
+          adb shell am force-stop at.persie0.networkdoctor
+          adb shell am start -n at.persie0.networkdoctor/.MainActivity
+          sleep 9
+          adb exec-out screencap -p > screenshots/overview-tablet.png
+          adb shell settings put system accelerometer_rotation 0
+          adb shell settings put system user_rotation 1
+          sleep 5
+          adb exec-out screencap -p > screenshots/overview-tablet-landscape.png
+
           NETWORKDOCTOR_SCRIPT
           chmod +x capture-networkdoctor.sh
 
