@@ -44,6 +44,11 @@ jobs:
           flutter pub get > /tmp/pub.log 2>&1 || { tail -n 50 /tmp/pub.log; exit 1; }
           dart format --output=none lib test > /tmp/format.log 2>&1 || { tail -n 70 /tmp/format.log; exit 1; }
           flutter analyze > /tmp/analyze.log 2>&1 || { tail -n 100 /tmp/analyze.log; exit 1; }
+          flutter test test/exercise_library_screen_test.dart --reporter expanded > /tmp/train_focus.log 2>&1 || {
+            echo '=== Detailed Train widget failures ==='
+            tail -n 320 /tmp/train_focus.log | cut -c 1-300
+            exit 1
+          }
           flutter test --reporter compact > /tmp/tests.log 2>&1 || {
             tr '\r' '\n' < /tmp/tests.log | grep -E '\[E\]|TestFailure|Expected:|Actual:|The test description was:' | tail -n 120 || true
             tail -n 90 /tmp/tests.log | cut -c 1-250
