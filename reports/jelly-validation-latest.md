@@ -1,8 +1,8 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `5ca34430bd039993f4c6acc5a7999794f664a4db`
-Runner: https://github.com/Persie0/Playground/actions/runs/44936886708
-Overall checks before report: **failure**
+Private source commit: `97041dcc401458a0f23bce6fa95d00c9aa546239`
+Runner: https://github.com/Persie0/Playground/actions/runs/44937111276
+Overall checks before report: **success**
 
 ## Test suites
 - test_adaptive_daily: PASS
@@ -23,12 +23,7 @@ Overall checks before report: **failure**
 - test_difficulty: PASS
 - test_endless_navigation: PASS
 - test_endless_progress: PASS
-- test_flex_lab: FAIL
-  - SCRIPT ERROR: Trying to assign an array of type "Array" to a variable of type "Array[Vector2i]".
-  - SCRIPT ERROR: Trying to assign an array of type "Array" to a variable of type "Array[Vector2i]".
-  - SCRIPT ERROR: Trying to assign an array of type "Array" to a variable of type "Array[Vector2i]".
-  - SCRIPT ERROR: Trying to assign an array of type "Array" to a variable of type "Array[Vector2i]".
-  - SCRIPT ERROR: Trying to assign an array of type "Array" to a variable of type "Array[Vector2i]".
+- test_flex_lab: PASS
 - test_flex_rules: PASS
 - test_flow_director: PASS
 - test_gel_layer: PASS
@@ -42,12 +37,7 @@ Overall checks before report: **failure**
 - test_rules: PASS
 - test_rules_differential: PASS
 - test_save: PASS
-- test_screen_layouts: FAIL
-  - SCRIPT ERROR: Trying to assign an array of type "Array" to a variable of type "Array[Vector2i]".
-  - SCRIPT ERROR: Trying to assign an array of type "Array" to a variable of type "Array[Vector2i]".
-  - SCRIPT ERROR: Trying to assign an array of type "Array" to a variable of type "Array[Vector2i]".
-  - SCRIPT ERROR: Trying to assign an array of type "Array" to a variable of type "Array[Vector2i]".
-  - SCRIPT ERROR: Trying to assign an array of type "Array" to a variable of type "Array[Vector2i]".
+- test_screen_layouts: PASS
 - test_solver: PASS
 - test_stars_migration: PASS
 - test_swipe: PASS
@@ -59,4 +49,9 @@ Overall checks before report: **failure**
 - godot-import: PASS (inspect runner exit status if job failed)
 - verify-levels: PASS (inspect runner exit status if job failed)
 - smoke: PASS (inspect runner exit status if job failed)
-- screenshot-layout: NOT RUN
+- screenshot-layout: FAIL
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_card_inum returned error: No such file or directory
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_concat returned error: No such file or directory
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_refer returned error: No such file or directory
+  - ALSA lib conf.c:5734:(snd_config_expand) [error.core] Evaluate error: No such file or directory
+  - ERROR: Condition "status < 0" is true. Returning: ERR_CANT_OPEN
