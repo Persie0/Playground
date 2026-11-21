@@ -1,7 +1,7 @@
 name: Outfitter UI validation
 
 # Validation pass after awaiting bundled fonts (97b9b2a71161).
-# Outfitter PR #17: final validation after unique date and Saved-action test fixtures.
+# Outfitter PR #18: safe storage retries and responsive Saved outfit details.
 # Runs on PUBLIC Playground Actions minutes. The private source is never
 # copied into this repository or uploaded as an artifact.
 on:
@@ -15,7 +15,7 @@ on:
         description: Outfitter branch to validate
         required: false
         type: string
-        default: fix/impeccable-refresh-resilience-saved-navigation
+        default: fix/impeccable-storage-recovery-readable-saved
 
 permissions:
   contents: write
@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Persie0/outfitter
-          ref: ${{ inputs.source_ref || 'fix/impeccable-refresh-resilience-saved-navigation' }}
+          ref: ${{ inputs.source_ref || 'fix/impeccable-storage-recovery-readable-saved' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: true
           path: source
@@ -115,7 +115,7 @@ jobs:
       - name: Push validated formatting to feature branch
         working-directory: source
         env:
-          SOURCE_REF: ${{ inputs.source_ref || 'fix/impeccable-refresh-resilience-saved-navigation' }}
+          SOURCE_REF: ${{ inputs.source_ref || 'fix/impeccable-storage-recovery-readable-saved' }}
         run: |
           git add pubspec.yaml pubspec.lock \
             lib/services/home_data_loader.dart \
@@ -166,7 +166,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VALIDATION_STATUS: ${{ job.status }}
-          SOURCE_REF: ${{ inputs.source_ref || 'fix/impeccable-refresh-resilience-saved-navigation' }}
+          SOURCE_REF: ${{ inputs.source_ref || 'fix/impeccable-storage-recovery-readable-saved' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
