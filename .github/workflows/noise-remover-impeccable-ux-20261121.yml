@@ -1,0 +1,99 @@
+name: Noise Remover Impeccable UX branch validation
+
+on:
+  push:
+    branches:
+      - validation/noise-remover-impeccable-ux-20261121
+    paths:
+      - .github/workflows/noise-remover-impeccable-ux-20261121.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Format, analyze, and test Noise Remover
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Require a private repository access token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout Noise Remover UX branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: feature/impeccable-noise-remover-ux
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Authenticate private Git dependencies
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: git config --global url."https://x-access-token:${PRIVATE_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Generate localizations
+        working-directory: app
+        run: flutter gen-l10n
+
+      - name: Format touched Dart files
+        working-directory: app
+        run: |
+          dart format \
+            lib/screens/home_screen.dart \
+            lib/screens/result_screen.dart \
+            lib/screens/processing_screen.dart \
+            lib/screens/bulk_processing_screen.dart \
+            lib/widgets/audio_waveform_preview.dart \
+            test/audio_waveform_preview_test.dart
+          git diff --check
+
+      - name: Analyze changed source and tests
+        working-directory: app
+        run: |
+          dart analyze \
+            lib/screens/home_screen.dart \
+            lib/screens/result_screen.dart \
+            lib/screens/processing_screen.dart \
+            lib/screens/bulk_processing_screen.dart \
+            lib/widgets/audio_waveform_preview.dart \
+            test/audio_waveform_preview_test.dart
+
+      - name: Run Flutter test suite
+        working-directory: app
+        run: flutter test --no-pub --reporter expanded
+
+      - name: Commit formatter changes to feature branch
+        working-directory: app
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git add \
+            lib/screens/home_screen.dart \
+            lib/screens/result_screen.dart \
+            lib/screens/processing_screen.dart \
+            lib/screens/bulk_processing_screen.dart \
+            lib/widgets/audio_waveform_preview.dart \
+            test/audio_waveform_preview_test.dart
+          if ! git diff --cached --quiet; then
+            git -c user.name='Playground UI validation' \
+              -c user.email='github-actions[bot]@users.noreply.github.com' \
+              commit -m 'style: format Noise Remover Impeccable UI changes'
+            git push "https://x-access-token:${PRIVATE_TOKEN}@github.com/Persie0/noise_remover.git" \
+              HEAD:refs/heads/feature/impeccable-noise-remover-ux
+          fi
