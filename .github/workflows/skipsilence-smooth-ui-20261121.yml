@@ -1,0 +1,62 @@
+name: SkipSilencePlayer smooth playback UI validation
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/skipsilence-smooth-ui-20261121.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact SkipSilencePlayer commit
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: b8b8a31cc1fa39bb032c47a897cd19b2e659eff1
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+      - name: Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Android unit tests and debug APK
+        working-directory: source/kotlin-android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkipSilencePlayer-Smooth-UX-debug-APK
+          path: source/kotlin-android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+  ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout exact SkipSilencePlayer commit
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: b8b8a31cc1fa39bb032c47a897cd19b2e659eff1
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+      - name: Build iOS simulator
+        working-directory: source/swift-ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project SkipSilencePlayer.xcodeproj \
+            -scheme SkipSilencePlayer \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .derived \
+            CODE_SIGNING_ALLOWED=NO \
+            build
