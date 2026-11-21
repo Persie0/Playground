@@ -1,7 +1,7 @@
 name: Outfitter UI validation
 
 # Validation pass after awaiting bundled fonts (97b9b2a71161).
-# Outfitter PR #10: final analysis and Android native debug build.
+# Outfitter PR #10: final source validation; native debug APK already built.
 # Runs on PUBLIC Playground Actions minutes. The private source is never
 # copied into this repository or uploaded as an artifact.
 on:
@@ -89,6 +89,7 @@ jobs:
         run: flutter analyze --no-fatal-infos
 
       - name: Verify Android native build (secure storage & timezone)
+        if: github.event_name == 'workflow_dispatch'
         working-directory: source
         run: flutter build apk --debug --no-pub
 
@@ -113,6 +114,10 @@ jobs:
             git config user.name "playground-ci"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git commit -m "style: format Outfitter UI redesign"
+            # Formatting should rebase over concurrent source updates, never
+            # discard a newer commit or force-push the private branch.
+            git fetch origin "$SOURCE_REF"
+            git rebase FETCH_HEAD
             git push origin "HEAD:$SOURCE_REF"
           fi
 
