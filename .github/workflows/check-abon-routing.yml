@@ -14,7 +14,7 @@ permissions:
 jobs:
   validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     steps:
       - name: Check out target branch with private-repository token
         uses: actions/checkout@v4
@@ -25,6 +25,12 @@ jobs:
           persist-credentials: false
           filter: blob:none
           sparse-checkout: |
+            /AbonAuto/app
+            /AbonAuto/gradle
+            /AbonAuto/gradlew
+            /AbonAuto/build.gradle.kts
+            /AbonAuto/settings.gradle.kts
+            /AbonAuto/gradle.properties
             /server/abon_routing.py
             /server/server.py
             /server/test_abon_routing.py
@@ -45,3 +51,17 @@ jobs:
         run: |
           node --check target/server/static/js/app.js
           node --check "target/ProtonMail Interspar Abon Link Extractor - Vercel.user.js"
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Use runner Android SDK
+        run: |
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > target/AbonAuto/local.properties
+
+      - name: Compile Android Kotlin
+        working-directory: target/AbonAuto
+        run: bash ./gradlew :app:compileDebugKotlin --no-daemon --stacktrace
