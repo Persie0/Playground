@@ -1,0 +1,75 @@
+name: Image Enhancer batch and backup recovery validation
+
+on:
+  push:
+    branches: [image-enhancer-batch-recovery-validation-20261121]
+    paths: [.github/workflows/image_enhancer_batch_recovery_validation.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-enhancer-batch-recovery-validation-20261121
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout private Image Enhancer from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: ui/impeccable-p1-batch-backups-l10n-20261121
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: image_enhancer
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: Generate all localization classes
+        working-directory: image_enhancer
+        run: flutter gen-l10n
+
+      - name: Focused UI and regression tests
+        working-directory: image_enhancer
+        run: flutter test test/batch_recovery_ux_test.dart test/enhancement_presets_test.dart test/impeccable_p2_layout_test.dart test/result_comparison_page_test.dart --timeout 2m --reporter expanded
+
+      - name: Static analysis
+        working-directory: image_enhancer
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Full Flutter regression suite
+        working-directory: image_enhancer
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
+
+      - name: Install CMake for Android with retries
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager)"; fi
+          for attempt in 1 2 3 4; do
+            if "$SDKMANAGER" --sdk_root="$SDK" --install "cmake;3.22.1"; then
+              test -x "$SDK/cmake/3.22.1/bin/cmake"
+              exit 0
+            fi
+            rm -rf "$SDK/.temp" || true
+            sleep $((attempt * 12))
+          done
+          exit 1
+
+      - name: Build Android debug APK including native recovery bridge
+        working-directory: image_enhancer
+        run: flutter build apk --debug --no-pub
