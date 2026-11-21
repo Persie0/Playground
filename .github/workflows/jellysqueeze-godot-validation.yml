@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/JellySqueeze
-          ref: aacbcde24975d387091e420f7090bf2c7a47e71a
+          ref: 32343724b6964189d9e7ff8beecaeb1dd589a6d8
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: game
@@ -170,6 +170,47 @@ jobs:
           echo "FAILED_TESTS=$fails" >> "$GITHUB_ENV"
           [ "$fails" -eq 0 ]
 
+      - name: Render exact-revision UI screenshots under a virtual display
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v xvfb-run >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y xvfb
+          fi
+          mkdir -p ux-screens
+          timeout 180s xvfb-run -a -s '-screen 0 1280x1024x24' \
+            ./Godot_v4.7.2-stable_linux.x86_64 \
+            --rendering-method gl_compatibility --path game \
+            --script res://tests/ui/test_screen_layouts.gd -- \
+            "--capture-dir=${PWD}/ux-screens" 2>&1 | tee screenshot-layout.log
+          grep -E "JELLY SCREEN LAYOUTS: [0-9]+ checks, 0 failures" screenshot-layout.log
+          python3 - <<'PY'
+          from pathlib import Path
+          from struct import unpack
+          root = Path("ux-screens")
+          images = sorted(root.glob("*/*.png"))
+          assert len(images) >= 36, f"Expected 36+ current UI PNG screenshots, got {len(images)}"
+          found = {p.parent.name for p in images}
+          expected = {"390x844", "320x568", "568x320"}
+          assert expected.issubset(found), f"Missing viewport captures: {expected - found}"
+          for p in images:
+              raw = p.read_bytes()
+              assert raw[:8] == b"\\x89PNG\\r\\n\\x1a\\n" and len(raw) > 800, f"Invalid PNG: {p}"
+              w, h = unpack(">II", raw[16:24])
+              target = tuple(map(int, p.parent.name.split("x")))
+              assert (w, h) == target, f"Wrong viewport for {p}: {w}x{h}"
+          print(f"JELLY UI SCREENSHOTS: {len(images)} validated PNG files across {len(found)} viewports")
+          PY
+
+      - name: Upload screenshot-only UI review artifact (public, short-lived)
+        uses: actions/upload-artifact@v4
+        with:
+          name: jellysqueeze-ui-screenshots
+          path: ux-screens/
+          retention-days: 3
+          if-no-files-found: error
+
       - name: Verify every campaign puzzle with exact solver
         if: always()
         shell: bash
@@ -202,7 +243,7 @@ jobs:
         shell: bash
         env:
           VALIDATION_OUTCOME: ${{ job.status }}
-          REPO_SHA: aacbcde24975d387091e420f7090bf2c7a47e71a
+          REPO_SHA: 32343724b6964189d9e7ff8beecaeb1dd589a6d8
         run: |
           set -euo pipefail
           mkdir -p result-repo/reports
@@ -226,7 +267,7 @@ jobs:
             done
             echo
             echo "## Import, solver verification and smoke tests"
-            for name in godot-import verify-levels smoke; do
+            for name in godot-import verify-levels smoke screenshot-layout; do
               if [ -f "${name}.log" ]; then
                 if grep -Eiq "SCRIPT ERROR:|Parse Error:|ERROR:|Invalid call" "${name}.log"; then
                   echo "- $name: FAIL"
