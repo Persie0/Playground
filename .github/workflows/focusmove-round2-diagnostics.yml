@@ -1,0 +1,41 @@
+name: FocusMove Round 2 targeted Flutter diagnosis
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/focusmove-round2-diagnostics.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: Checkout verified private FocusMove PR branch
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          EXPECTED_SHA: 9d40f59944782210601c34977d4a682b6e89dcd5
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feat/focusmove-impeccable-round2 https://github.com/Persie0/pomodoroexercise.git source
+          test "$(git -C source rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Analyze and targeted widget tests (bounded)
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter analyze
+          flutter test --timeout=90s --reporter expanded \
+            test/activities_widget_test.dart \
+            test/insights_panel_widget_test.dart \
+            test/onboarding_flow_test.dart
