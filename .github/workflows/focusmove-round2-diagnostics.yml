@@ -33,7 +33,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          flutter pub get --offline
+          # Restore missing Pub packages; fail over if pub.dev stalls.
+          if ! timeout 120s flutter pub get; then
+            echo 'pub.dev failed or timed out; trying the Flutter mirror'
+            PUB_HOSTED_URL=https://pub.flutter-io.cn timeout 120s flutter pub get
+          fi
           flutter analyze --no-pub
           flutter test --no-pub --timeout=90s --reporter expanded \
             test/activities_widget_test.dart \
