@@ -1,0 +1,45 @@
+name: Surebets Impeccable round 2 validation
+
+on:
+  push:
+    branches:
+      - ci/surebets-round2-20261121
+    paths:
+      - .github/workflows/surebets-impeccable-round2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout private Surebets review branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: design/impeccable-ux-round2-20261121
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Validate formatting and syntax
+        run: |
+          dart format lib/main.dart lib/calculator_screen.dart lib/settings_page.dart lib/onboarding_screen.dart lib/odds_converter_screen.dart lib/bet_history_screen.dart lib/widgets/odds_keyboard_toolbar.dart lib/logic/odds_input_feedback.dart test/odds_input_feedback_test.dart test/impeccable_round2_regression_test.dart
+          git diff --check
+
+      - name: Analyze Flutter
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run full Flutter tests
+        run: flutter test
