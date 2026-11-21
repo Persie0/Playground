@@ -1,0 +1,53 @@
+name: Image Enhancer post84 model guidance and accessibility
+on:
+  push:
+    branches: [image-enhancer-post84-model-guidance-validation-20261121]
+    paths:
+      - .github/workflows/image_enhancer_post84_model_guidance.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: image-enhancer-post84-model-guidance-20261121
+  cancel-in-progress: true
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout private app using public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: impeccable/post84-model-help-catalog-polish
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: image_enhancer
+      - name: Setup Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve locked dependencies
+        working-directory: image_enhancer
+        run: flutter pub get --enforce-lockfile
+      - name: Generate localized Flutter strings
+        working-directory: image_enhancer
+        run: flutter gen-l10n
+      - name: Focused UX and ARB regression tests
+        working-directory: image_enhancer
+        run: |
+          flutter test test/impeccable_post84_model_guidance_test.dart \
+            test/enhancement_presets_test.dart \
+            test/impeccable_p2_layout_test.dart \
+            test/impeccable_live_batch_queue_test.dart \
+            test/new_locale_arb_coverage_test.dart \
+            test/play_locale_arb_integration_test.dart \
+            test/result_comparison_page_test.dart \
+            --timeout 2m --reporter expanded
+      - name: Strict Flutter analyzer
+        working-directory: image_enhancer
+        run: flutter analyze
+      - name: Full Flutter regression
+        working-directory: image_enhancer
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
