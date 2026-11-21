@@ -1,4 +1,4 @@
-name: FocusMove Impeccable UI redesign PR validation
+name: FocusMove Impeccable Round 2 PR validation
 
 on:
   push:
@@ -34,7 +34,7 @@ jobs:
           set -euo pipefail
           test -n "$REPO_TOKEN" || { echo 'Missing private repository token'; exit 1; }
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feat/impeccable-focusmove-ui https://github.com/Persie0/pomodoroexercise.git source
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feat/focusmove-impeccable-round2 https://github.com/Persie0/pomodoroexercise.git source
       - name: Flutter analyze and all tests
         working-directory: source
         shell: bash
@@ -67,14 +67,23 @@ jobs:
           set -euo pipefail
           test -n "$REPO_TOKEN"
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feat/impeccable-focusmove-ui https://github.com/Persie0/pomodoroexercise.git source
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feat/focusmove-impeccable-round2 https://github.com/Persie0/pomodoroexercise.git source
       - name: Build release-mode test APK and audit permissions
         working-directory: source
         shell: bash
         run: |
           set -euo pipefail
           flutter pub get
-          flutter build apk --release
+          for attempt in 1 2 3; do
+            if flutter build apk --release; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo 'Gradle release build still failing after retry.'
+              exit 1
+            fi
+            sleep "$((attempt * 40))"
+          done
           APK=build/app/outputs/flutter-apk/app-release.apk
           test -s "$APK"
           AAPT="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
@@ -103,7 +112,7 @@ jobs:
           set -euo pipefail
           test -n "$REPO_TOKEN"
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64)"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feat/impeccable-focusmove-ui https://github.com/Persie0/pomodoroexercise.git source
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feat/focusmove-impeccable-round2 https://github.com/Persie0/pomodoroexercise.git source
       - name: Unsigned iOS simulator build and ML Kit resources
         working-directory: source
         shell: bash
