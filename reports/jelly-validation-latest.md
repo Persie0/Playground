@@ -1,8 +1,8 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `947c92ccb071bc56ca259e3e6ff543461aed0bba`
-Runner: https://github.com/Persie0/Playground/actions/runs/44930874893
-Overall checks before report: **success**
+Private source commit: `de5f763f94ec2d14c767a65052dbe1699194b949`
+Runner: https://github.com/Persie0/Playground/actions/runs/44931954345
+Overall checks before report: **failure**
 
 ## Test suites
 - test_adaptive_daily: PASS
@@ -32,12 +32,17 @@ Overall checks before report: **success**
 - test_iap: PASS
 - test_local_flow_history: PASS
 - test_map_stars: PASS
-- test_navigation: PASS
+- test_navigation: FAIL
+  - ERROR: FAILED: Locked level shows a clear requirement
+  - ERROR: JELLY NAVIGATION FAIL: 1 of 45
 - test_pause_navigation: PASS
 - test_rules: PASS
 - test_rules_differential: PASS
 - test_save: PASS
-- test_screen_layouts: PASS
+- test_screen_layouts: FAIL
+  - SCRIPT ERROR: Parse Error: Cannot find member "translated" in base "Rect2".
+  - SCRIPT ERROR: Parse Error: Function "translated()" not found in base Rect2.
+  - ERROR: Failed to load script "res://tests/ui/test_screen_layouts.gd" with error "Parse error".
 - test_solver: PASS
 - test_stars_migration: PASS
 - test_swipe: PASS
@@ -49,9 +54,4 @@ Overall checks before report: **success**
 - godot-import: PASS (inspect runner exit status if job failed)
 - verify-levels: PASS (inspect runner exit status if job failed)
 - smoke: PASS (inspect runner exit status if job failed)
-- screenshot-layout: FAIL
-  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_card_inum returned error: No such file or directory
-  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_concat returned error: No such file or directory
-  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_refer returned error: No such file or directory
-  - ALSA lib conf.c:5734:(snd_config_expand) [error.core] Evaluate error: No such file or directory
-  - ERROR: Condition "status < 0" is true. Returning: ERR_CANT_OPEN
+- screenshot-layout: NOT RUN
