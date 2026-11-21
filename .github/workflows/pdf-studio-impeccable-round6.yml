@@ -1,0 +1,58 @@
+name: PDF Studio Impeccable round 6 validation
+
+on:
+  push:
+    branches: [pdf-studio-impeccable-round6-ci]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pdf-studio-impeccable-round6
+  cancel-in-progress: true
+
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private PDF Studio feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/pdfapp
+          ref: feature/pdf-studio-impeccable-round6
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Fetch dependencies
+        run: flutter pub get
+      - name: Flutter analyzer
+        run: flutter analyze
+      - name: Flutter tests
+        run: flutter test --reporter expanded
+      - name: Build Android release APK
+        run: flutter build apk --release
+      - name: Package checksum and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp build/app/outputs/flutter-apk/app-release.apk pdf-studio-round6.apk
+          echo "Git commit: $(git rev-parse HEAD)" > apk-build-info.txt
+          echo "Android release mode; currently debug-key signed" >> apk-build-info.txt
+          sha256sum pdf-studio-round6.apk > apk-sha256.txt
+          ls -lh pdf-studio-round6.apk
+      - name: Upload Android release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-studio-impeccable-round6-release-apk
+          path: |
+            pdf-studio-round6.apk
+            apk-build-info.txt
+            apk-sha256.txt
+          retention-days: 14
+          if-no-files-found: error
