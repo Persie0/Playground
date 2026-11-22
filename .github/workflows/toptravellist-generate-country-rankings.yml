@@ -1,0 +1,125 @@
+name: TopTravelList generate all country rankings
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-generate-country-rankings.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toptravellist-generated-markdown
+  cancel-in-progress: false
+
+jobs:
+  generate-rankings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Verify token for private TopTravelList
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout private TopTravelList feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: feature/generate-country-ranking-markdown
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: toptravellist
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        working-directory: toptravellist
+        run: python -m pip install -r requirements.txt
+
+      - name: Verify generator syntax and all source YAML
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/generate_rankings.py scripts/rank.py scripts/validate.py
+          python scripts/validate.py
+
+      - name: Generate all 394 ranking files
+        working-directory: toptravellist
+        run: python scripts/generate_rankings.py
+
+      - name: Verify stable generation and no outdated files
+        working-directory: toptravellist
+        run: python scripts/generate_rankings.py --check
+
+      - name: Verify all countries have two markdown lists and exact Google Maps GPS links
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+          import re
+          import yaml
+          from urllib.parse import quote
+          from scripts.rank import overall_score
+          from decimal import Decimal
+
+          root = pathlib.Path.cwd()
+          codes = json.loads((root / "countries/_registry.json").read_text())["codes"]
+          assert len(codes) == 197
+          checked_rows = 0
+          markdown_count = 0
+          for code in codes:
+              for kind in ("cities", "sights"):
+                  folder = root / "countries" / code
+                  md = folder / f"{kind}.md"
+                  assert md.is_file(), md
+                  txt = md.read_text(encoding="utf-8")
+                  source = sorted((folder / kind).glob("*.yaml"))
+                  assert "Google Maps" in txt and "Worldwide" in txt, md
+                  rows = re.findall(r"^\| (?:\d+|—) \|", txt, re.M)
+                  assert len(rows) == len(source), (md, len(rows), len(source))
+                  assert txt.count("https://www.google.com/maps/search/?api=1&query=") == len(source), md
+                  for p in source:
+                      data = yaml.safe_load(p.read_text(encoding="utf-8"))
+                      loc = data["location"]
+                      gps = f'{loc["latitude"]},{loc["longitude"]}'
+                      url = "https://www.google.com/maps/search/?api=1&query=" + quote(gps, safe=",")
+                      assert url in txt, (p, url)
+                      assert f"]({kind}/{p.name})" in txt, p
+                  checked_rows += len(rows)
+                  markdown_count += 1
+          assert checked_rows == 1540, checked_rows
+          assert markdown_count == 394, markdown_count
+          for code, city_count, sight_count in [
+              ("AT", 45, 133), ("TH", 69, 206),
+              ("KR", 82, 284), ("CN", 231, 490),
+          ]:
+              folder = root / "countries" / code
+              assert (folder / "cities.md").read_text().count("https://www.google.com/maps/search/?api=1&query=") == city_count
+              assert (folder / "sights.md").read_text().count("https://www.google.com/maps/search/?api=1&query=") == sight_count
+          print(f"PASS: {markdown_count} Markdown lists across {len(codes)} countries; "
+                f"{checked_rows} ranked destinations, every YAML and GPS Maps link verified.")
+          PY
+
+      - name: Commit 394 Markdown overview files to private feature branch
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "toptravellist-ranking-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add countries/*/cities.md countries/*/sights.md
+          test "$(git diff --cached --name-only | wc -l)" -eq 394
+          test "$(git diff --cached --name-only | grep -Ec '^countries/[A-Z]{2}/(cities|sights)\.md$')" -eq 394
+          git diff --cached --check
+          git commit -m "Generate 394 complete country rankings with exact GPS Maps links"
+          git push origin HEAD:refs/heads/feature/generate-country-ranking-markdown
+          echo "Markdown rankings committed on private feature branch for review."
