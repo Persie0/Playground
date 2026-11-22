@@ -66,6 +66,15 @@ jobs:
             base64 -w 0 native-review/video-player.png
             echo
             echo 'ANDROID_PLAYER_CAPTURE_END'
+      - name: Print player screenshot when UI smoke fails
+        if: failure()
+        run: |
+          if [ -f native-review/video-player.png ]; then
+            echo 'ANDROID_PLAYER_CAPTURE_START'
+            base64 -w 0 native-review/video-player.png
+            echo
+            echo 'ANDROID_PLAYER_CAPTURE_END'
+          fi
       - name: Upload native UI review captures
         if: always()
         uses: actions/upload-artifact@v4
