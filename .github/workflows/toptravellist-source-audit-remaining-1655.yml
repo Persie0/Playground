@@ -1,0 +1,69 @@
+name: TopTravelList source audit remaining sights
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-source-audit-remaining-1655.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toptravellist-wikipedia-audit-1655
+  cancel-in-progress: false
+
+jobs:
+  wikipedia-source-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout source repo using user approved token priority
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: audit/research-remaining-1655-sights-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: repo
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install repository validation dependencies
+        working-directory: repo
+        run: |
+          python -m pip install -r requirements.txt
+          python -m py_compile scripts/source_link_sights_2026.py
+
+      - name: Probe 30 evidence matches with geographic cross-check
+        working-directory: repo
+        run: |
+          python -u scripts/source_link_sights_2026.py --collect --limit 30 --workers 5
+
+      - name: Collect and verify all 1655 missing site identities
+        working-directory: repo
+        run: |
+          python -u scripts/source_link_sights_2026.py --collect --workers 5
+          python scripts/source_link_sights_2026.py --check
+
+      - name: Validate no scores or cities changed
+        working-directory: repo
+        run: |
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py --check
+
+      - name: Commit per-site source evidence with attribution
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'toptravellist-source-review-bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add methodology/sight-review-2026-remaining-evidence.json methodology/sight-review-2026-evidence-report.md
+          git diff --cached --check
+          git commit -m 'Source-match all remaining 1655 sights against geo-verified Wikipedia entities'
+          git push origin HEAD:refs/heads/audit/research-remaining-1655-sights-2026
