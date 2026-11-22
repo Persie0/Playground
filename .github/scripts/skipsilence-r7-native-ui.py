@@ -123,19 +123,25 @@ adb("shell", "input", "keyevent", "KEYCODE_BACK")
 time.sleep(1)
 
 open_media(media_uri())
-# Keep the controls from auto-hiding during slow UIAutomator hierarchy queries.
+# Pausing through the media key is not reliable on every emulator image.
+# Explicitly pause the actual native transport control if still playing:
+# otherwise an ordinary four-second auto-hide races slow UIAutomator dumps.
 adb("shell", "input", "keyevent", "KEYCODE_MEDIA_PAUSE")
 time.sleep(1)
-try:
-    wait_for("More options", tries=2)
-except RuntimeError:
+for attempt in range(4):
+    root = dump()
+    if find(root, "Play video") is not None:
+        break
+    if find(root, "Pause video") is not None:
+        tap("Pause video")
+        break
     adb("shell", "input", "tap", "500", "1050")
-    wait_for("More options")
-screenshot("video-player.png")
-wait_for("skipsilence-native-qa.mp4", tries=2)
+    time.sleep(1)
 wait_for("Play video", tries=5)
+wait_for("skipsilence-native-qa.mp4", tries=2)
 wait_for("Seek backward 10 seconds", tries=3)
 wait_for("Seek forward 10 seconds", tries=3)
+screenshot("video-player.png")
 print("Verified stateful playback and seek accessibility labels", flush=True)
 tap("More options")
 tap("Settings")
