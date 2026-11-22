@@ -1,0 +1,92 @@
+name: TopTravelList Vietnam complete 360 individual sight assessments
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/toptravellist-vietnam-all-360-sights-20261122.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-vietnam-360-20261122
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout TopTravelList review through public Playground fallback token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: audit/complete-vietnam-286-sights-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: repo
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        working-directory: repo
+        run: python -m pip install -r requirements.txt
+      - name: Apply 286 individual Vietnam decisions and update evidence-audit metadata
+        working-directory: repo
+        run: |
+          python -m py_compile scripts/review_sights_individually_2026.py
+          python scripts/review_sights_individually_2026.py --apply
+      - name: Validate all worldwide scores and approved 10 registry
+        working-directory: repo
+        run: |
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+      - name: Generate all country ranking Markdown and check idempotency
+        working-directory: repo
+        run: |
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/review_sights_individually_2026.py --check
+      - name: Assert all 360 Vietnam sites have distinct decisions
+        working-directory: repo
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          root=Path.cwd()
+          s=json.loads((root/'methodology/sight-review-2026-stats.json').read_text())
+          assert s['records']==1913 and s['targeted']==1506,s
+          assert s['screened_only']==407 and s['source_referenced']==571
+          assert s['changed']>=1400,s
+          for cc,expected in {'AT':133,'TH':206,'KR':284,'KH':260,'TW':180,'VN':360}.items():
+              assert s['by_country'][cc]['total']==s['by_country'][cc]['reviewed']==expected,(cc,s)
+          assert s['by_country']['CN']['reviewed']==83
+          src={p.stem for p in (root/'countries/VN/sights').glob('*.yaml')}
+          lines=(root/'methodology/sight-review-decisions-2026/VN.tsv').read_text().splitlines()
+          data=[x.split('|') for x in lines if x and not x.startswith('#')]
+          assert len(src)==len(data)==360
+          assert src=={fields[0] for fields in data}
+          for row in data:
+              assert len(row)==4 and len(row[1].split(','))==5 and len(row[3])>=60
+          assert sum(1 for _ in (root/'countries').glob('*/cities/*.yaml'))==703
+          assert sum(1 for _ in (root/'countries').glob('*/sights/*.yaml'))==1913
+          print('PASS: all 360 Vietnam sites individually decided; 1506/1913 globally; 407 pending China.')
+          PY
+      - name: Commit only Vietnamese sight YAML, generated rankings and source audit reports
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add countries/VN/sights/*.yaml countries/VN/sights.md
+          git add methodology/sight-review-2026-full-audit.md
+          git add methodology/sight-review-2026-summary.md
+          git add methodology/sight-review-2026-stats.json
+          git diff --cached --check
+          git diff --cached --name-only > /tmp/changed-files
+          count="$(grep -Ec '^countries/VN/sights/[a-z0-9-]+[.]yaml$' /tmp/changed-files)"
+          test "$count" -ge 250
+          if grep -E '^countries/[^/]+/cities/' /tmp/changed-files; then exit 1; fi
+          git commit -m 'Individual worldwide recalibration of 286 remaining Vietnamese sights'
+          git push origin HEAD:refs/heads/audit/complete-vietnam-286-sights-2026
