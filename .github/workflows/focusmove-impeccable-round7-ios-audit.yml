@@ -1,0 +1,84 @@
+name: FocusMove native iOS iPhone iPad screenshot audit round7
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'focusmove-round7-ios-audit-trigger.txt'
+permissions:
+  contents: read
+concurrency:
+  group: focusmove-round7-ios-audit
+  cancel-in-progress: false
+jobs:
+  native-captures:
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: Checkout private audit snapshot only on temporary runner
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=audit/focusmove-round7-ios-20261122 https://github.com/Persie0/pomodoroexercise.git source
+          git -C source rev-parse HEAD
+      - name: Build unsigned app for the Apple simulator
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build ios --simulator --no-codesign
+          test -d build/ios/iphonesimulator/Runner.app
+      - name: Capture native iPhone and iPad onboarding in light and dark appearance
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          mkdir -p .ux-native/ios
+          APP="$PWD/build/ios/iphonesimulator/Runner.app"
+          BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")
+          echo "Using iOS simulator bundle: $BUNDLE"
+          xcrun simctl list devices available -j > .ux-native/ios/devices.json
+          choose_device() {
+            python3 -c 'import json,sys; x=json.load(open(".ux-native/ios/devices.json")); kind=sys.argv[1]; devices=[d for k,ds in x["devices"].items() if "iOS" in k for d in ds if d.get("isAvailable", False) and kind in d.get("name","")]; devices.sort(key=lambda d: (("Pro" not in d["name"]) if kind=="iPhone" else ("Air" not in d["name"]), d["name"])); print(devices[0]["udid"] if devices else "")' "$1"
+          }
+          for kind in iPhone iPad; do
+            UDID="$(choose_device "$kind")"
+            test -n "$UDID" || { echo "Missing available $kind simulator"; exit 1; }
+            echo "Booting $kind simulator $UDID"
+            xcrun simctl boot "$UDID"
+            xcrun simctl bootstatus "$UDID" -b
+            xcrun simctl ui "$UDID" appearance light
+            xcrun simctl install "$UDID" "$APP"
+            xcrun simctl launch "$UDID" "$BUNDLE"
+            sleep 15
+            xcrun simctl io "$UDID" screenshot ".ux-native/ios/${kind}-onboarding-light.png"
+            xcrun simctl ui "$UDID" appearance dark
+            sleep 5
+            xcrun simctl io "$UDID" screenshot ".ux-native/ios/${kind}-onboarding-dark.png"
+            xcrun simctl terminate "$UDID" "$BUNDLE" || true
+            xcrun simctl shutdown "$UDID" || true
+          done
+          for f in .ux-native/ios/*.png; do base64 < "$f" | tr -d '\n' > "$f.b64.txt"; done
+          ls -lh .ux-native/ios/*.png
+      - name: Keep screenshots exclusively in private audit branch
+        shell: bash
+        working-directory: source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name 'focusmove-ux-audit'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -f .ux-native/ios
+          git commit -m 'audit: native iPhone and iPad light/dark screenshots (private only)'
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/audit/focusmove-round7-ios-20261122
