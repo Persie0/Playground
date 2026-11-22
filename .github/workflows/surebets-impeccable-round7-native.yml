@@ -33,8 +33,9 @@ jobs:
           cache: true
       - name: Android 37 compile SDK and NDK
         run: |
-          SDK_MANAGER="/usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager"
-          test -x "$SDK_MANAGER"
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDK_MANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -n "$SDK_MANAGER" && test -x "$SDK_MANAGER"
           yes | "$SDK_MANAGER" --licenses > /dev/null || true
           "$SDK_MANAGER" "platforms;android-37" "build-tools;37.0.0" "ndk;29.0.14206865"
       - name: Resolve dependencies
