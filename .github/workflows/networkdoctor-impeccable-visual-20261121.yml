@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/NetworkDoctor
-          ref: 865a92b729b71237efca9bd7b61d0ed464e8f14f
+          ref: e17b30b7376e43e3510b33ac05f2747fa0ec591e
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: networkdoctor
@@ -76,10 +76,18 @@ jobs:
           }
           switch_tab 1
           adb exec-out screencap -p > screenshots/checks-light.png
+          # Expand an informational result to confirm the original technical measurement is reachable.
+          adb shell input tap "$((W / 2))" "$((H * 53 / 100))"
+          sleep 2
+          adb exec-out screencap -p > screenshots/checks-expanded.png
           switch_tab 2
           adb exec-out screencap -p > screenshots/history-light.png
           switch_tab 3
           adb exec-out screencap -p > screenshots/settings-light.png
+          # Exercise the plain-language glossary without a browser or mocked screenshot.
+          adb shell input tap "$((W * 28 / 100))" "$((H * 78 / 100))"
+          sleep 2
+          adb exec-out screencap -p > screenshots/settings-glossary.png
           adb shell cmd uimode night yes
           sleep 3
           switch_tab 0
@@ -96,6 +104,15 @@ jobs:
           # Capture native accessibility semantics for navigation-label inspection.
           adb shell uiautomator dump /sdcard/window.xml >/dev/null || true
           adb pull /sdcard/window.xml screenshots/navigation-200-font.xml >/dev/null || true
+          # Narrow 320dp device at 200% text scale, in addition to the standard 400dp capture.
+          adb shell wm size 640x1280
+          adb shell wm density 320
+          adb shell am force-stop at.persie0.networkdoctor
+          adb shell am start -n at.persie0.networkdoctor/.MainActivity
+          sleep 10
+          adb exec-out screencap -p > screenshots/overview-narrow-200-font.png
+          adb shell wm size reset
+          adb shell wm density reset
           adb shell settings put system font_scale 1.0
           adb shell cmd uimode night no || true
           adb shell svc wifi disable || true
