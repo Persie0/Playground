@@ -1,0 +1,95 @@
+name: TopTravelList Austrian sight individual review
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-austria-individual-sight-review-20261122.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toptravellist-austria-sight-review
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout specific private or public repository with fallback token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: audit/austria-sites-spotchecked-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: source
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        working-directory: source
+        run: |
+          python -m pip install -r requirements.txt
+          python -m py_compile scripts/review_sights_individually_2026.py
+
+      - name: Apply 14 named Austrian site-specific decisions
+        working-directory: source
+        run: python scripts/review_sights_individually_2026.py --apply
+
+      - name: Validate all worldwide schemas and comparison fixtures
+        working-directory: source
+        run: |
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+
+      - name: Regenerate and check rankings
+        working-directory: source
+        run: |
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/review_sights_individually_2026.py --check
+
+      - name: Audit exact counts, GPS and unmodified city records
+        working-directory: source
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          root=Path.cwd()
+          s=json.loads((root/'methodology/sight-review-2026-stats.json').read_text())
+          assert s['records']==1913
+          assert s['targeted']==345,s
+          assert s['screened_only']==1568,s
+          assert s['source_referenced']==196,s
+          assert s['by_country']['AT']['reviewed']==39,s
+          assert s['changed']>=300,s
+          assert sum(1 for _ in (root/'countries').glob('*/cities/*.yaml'))==703
+          assert sum(1 for _ in (root/'countries').glob('*/sights/*.yaml'))==1913
+          print('PASS: source-grounded individual review of 14 more Austrian sights')
+          PY
+
+      - name: Commit generated files without altering cities
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-audit-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add countries/*/sights/*.yaml countries/*/sights.md
+          git add methodology/sight-review-2026-stats.json
+          git add methodology/sight-review-2026-full-audit.md
+          git add methodology/sight-review-2026-summary.md
+          git diff --cached --check
+          git diff --cached --name-only > /tmp/changed.txt
+          test "$(grep -Ec '^countries/AT/sights/[a-z0-9-]+[.]yaml$' /tmp/changed.txt)" -ge 10
+          if grep -E '^countries/[^/]+/cities/' /tmp/changed.txt; then exit 1; fi
+          git commit -m 'Individual research and recalibration for 14 Austrian sights'
+          git push origin HEAD:refs/heads/audit/austria-sites-spotchecked-2026
