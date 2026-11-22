@@ -1,0 +1,47 @@
+name: Surebets Impeccable round 8 verification
+on:
+  push:
+    branches: [ci/surebets-impeccable-round8-20261122]
+    paths:
+      - .github/workflows/surebets-impeccable-round8.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Surebets source in public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: fix/impeccable-round8-history-converter-20261122
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Format changed Dart files and check whitespace
+        run: |
+          dart format lib/bet_history_screen.dart lib/logic/display_bet_outcome.dart lib/widgets/calculation_overview.dart lib/odds_converter_screen.dart test/history_screen_dismissal_regression_test.dart test/impeccable_round8_history_identity_widget_test.dart test/impeccable_round8_converter_responsive_test.dart visual_tests/impeccable_round6_goldens_test.dart
+          git diff --check
+      - name: Static analyzer
+        run: flutter analyze --no-fatal-infos
+      - name: Complete Flutter test suite
+        run: timeout 240s flutter test --reporter expanded
+      - name: Render eight UI snapshots
+        if: always()
+        run: timeout 180s flutter test visual_tests/impeccable_round6_goldens_test.dart --update-goldens --reporter expanded
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surebets-round8-screenshots
+          path: visual_tests/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 7
