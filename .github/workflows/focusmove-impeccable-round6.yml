@@ -34,11 +34,11 @@ jobs:
           REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
-          dart format lib/src/screens/manual_activity_screens.dart lib/src/screens/profile_home.dart lib/src/screens/focusmove_help_screen.dart test/manual_activity_widget_test.dart test/round6_help_widget_test.dart
+          dart format lib/src/screens/manual_activity_screens.dart lib/src/screens/profile_home.dart lib/src/screens/focusmove_help_screen.dart lib/src/design/timer_components.dart test/manual_activity_widget_test.dart test/round6_help_widget_test.dart test/round6_notice_widget_test.dart
           if ! git diff --quiet; then
             git config user.name 'focusmove-public-ci'
             git config user.email 'actions@users.noreply.github.com'
-            git add lib/src/screens/manual_activity_screens.dart lib/src/screens/profile_home.dart lib/src/screens/focusmove_help_screen.dart test/manual_activity_widget_test.dart test/round6_help_widget_test.dart
+            git add lib/src/screens/manual_activity_screens.dart lib/src/screens/profile_home.dart lib/src/screens/focusmove_help_screen.dart lib/src/design/timer_components.dart test/manual_activity_widget_test.dart test/round6_help_widget_test.dart test/round6_notice_widget_test.dart
             git commit -m 'style: format Impeccable round 6'
             AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
             git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/fix/impeccable-focusmove-round6-20261122
@@ -51,7 +51,7 @@ jobs:
         run: flutter analyze
       - name: Manual activity tests
         working-directory: source
-        run: flutter test test/manual_activity_widget_test.dart test/round6_help_widget_test.dart --reporter expanded
+        run: flutter test test/manual_activity_widget_test.dart test/round6_help_widget_test.dart test/round6_notice_widget_test.dart --reporter expanded
       - name: Entire Flutter suite
         working-directory: source
         run: flutter test --reporter expanded
