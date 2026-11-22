@@ -1,5 +1,5 @@
 name: AudioBooster PR25 Android validation
-# Final validation of the latest PR branch after radio-group semantics and rotation-state fixes.
+# Public-only validation for private AudioBooster UX changes (no private Actions minutes).
 
 on:
   push:
@@ -18,7 +18,7 @@ concurrency:
 jobs:
   android:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout private AudioBooster PR branch
         uses: actions/checkout@v4
@@ -51,3 +51,12 @@ jobs:
           set -euo pipefail
           chmod +x gradlew
           ./gradlew --no-daemon --stacktrace :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+
+      - name: Validate supported-app catalog UI on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.persie0.audiobooster.ui.SupportedAppsScreenTest
