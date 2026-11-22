@@ -27,7 +27,7 @@ jobs:
         env:
           REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           SOURCE_BRANCH: feat/impeccable-workshop-layout-dialogs-20261122
-          SOURCE_SHA: b48f13f4cdb95b9e2016bcd198c114f5cf361f27
+          SOURCE_SHA: 18f5ddfe8d9b9b6a08550ac89028d27fe9399658
         run: |
           set -euo pipefail
           test -n "$REPO_TOKEN" || { echo 'Private repository access token missing'; exit 1; }
@@ -69,6 +69,11 @@ jobs:
         working-directory: source
         run: |
           set -euo pipefail
+          SCREENSHOT_TEXT_FONT="$(fc-match -f '%{file}' 'DejaVu Sans')"
+          SCREENSHOT_MATERIAL_FONT="$(find "$FLUTTER_ROOT/bin/cache" -name MaterialIcons-Regular.otf -print -quit)"
+          test -s "$SCREENSHOT_TEXT_FONT" || { echo 'No usable text font on public runner'; exit 1; }
+          test -s "$SCREENSHOT_MATERIAL_FONT" || { echo 'Flutter MaterialIcons font missing'; exit 1; }
+          export SCREENSHOT_TEXT_FONT SCREENSHOT_MATERIAL_FONT
           flutter test test/workshop_visual_capture.dart --update-goldens --reporter expanded > /tmp/repforge_visual.log 2>&1 || {
             tail -n 170 /tmp/repforge_visual.log | cut -c 1-280; exit 1;
           }
