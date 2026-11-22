@@ -9,6 +9,10 @@ on:
       - hanzihero-impeccable-ui/run.txt
   workflow_dispatch:
 
+concurrency:
+  group: hanzihero-impeccable-20261122
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -69,6 +73,8 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git commit -m "style(ui): format Impeccable UX changes"
           AUTH="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" fetch origin impeccable/hanzihero-ux-40-20261122
+          git rebase FETCH_HEAD
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/impeccable/hanzihero-ux-40-20261122
 
       - name: Resolve Flutter dependencies
