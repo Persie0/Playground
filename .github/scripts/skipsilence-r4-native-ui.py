@@ -45,6 +45,14 @@ def wait_for(label, tries=5):
         except (ET.ParseError, RuntimeError) as exc:
             print("UI dump retry:", str(exc)[:220], flush=True)
         time.sleep(2)
+    root = dump()
+    labels = [
+        (node.attrib.get("text") or node.attrib.get("content-desc"))
+        for node in root.iter("node")
+    ]
+    labels = [value for value in labels if value]
+    print("Current accessibility labels:", labels[:90], flush=True)
+    screenshot("missing-" + label.replace(" ", "-") + ".png")
     raise RuntimeError(f"Expected accessible UI item not found: {label}")
 
 
@@ -115,6 +123,9 @@ adb("shell", "input", "keyevent", "KEYCODE_BACK")
 time.sleep(1)
 
 open_media(media_uri())
+# Keep the controls from auto-hiding during slow UIAutomator hierarchy queries.
+adb("shell", "input", "keyevent", "KEYCODE_MEDIA_PAUSE")
+time.sleep(1)
 try:
     wait_for("More options", tries=2)
 except RuntimeError:
