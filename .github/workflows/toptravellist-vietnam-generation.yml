@@ -1,0 +1,126 @@
+name: TopTravelList Vietnam generation and validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-vietnam-generation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toptravellist-vietnam-generation
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Verify private-repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Check out Vietnam feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: feature/add-vietnam-destinations
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: toptravellist
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        working-directory: toptravellist
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile and validate all 2040 destination YAML records
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/validate.py scripts/rank.py scripts/generate_rankings.py
+          python scripts/validate.py
+
+      - name: Generate Vietnam rankings and root country directory
+        working-directory: toptravellist
+        run: python scripts/generate_rankings.py --country VN
+
+      - name: Verify all country overviews are current
+        working-directory: toptravellist
+        run: python scripts/generate_rankings.py --check
+
+      - name: Check all 500 Vietnam records and Markdown map links
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from decimal import Decimal, ROUND_HALF_UP
+          from urllib.parse import quote
+          import yaml
+          from scripts.rank import overall_score
+
+          root = Path.cwd()
+          meta = json.loads((root / "methodology/scoring.json").read_text())
+          assert meta["version"] == 2
+          weights = {k: Decimal(str(v)) for k,v in meta["dimensions"].items()}
+          folder = root / "countries/VN"
+          n_total = 0
+          for kind, expected in (("cities", 140), ("sights", 360)):
+              source = sorted((folder / kind).glob("*.yaml"))
+              assert len(source) == expected, (kind,len(source))
+              page = (folder / f"{kind}.md").read_text(encoding="utf-8")
+              assert page.count("https://www.google.com/maps/search/?api=1&query=") == expected
+              rows = [l for l in page.splitlines() if l.startswith("| ") and "](" + kind + "/" in l]
+              assert len(rows) == expected, (kind,len(rows))
+              for path in source:
+                  data = yaml.safe_load(path.read_text(encoding="utf-8"))
+                  assert data["location"]["country_code"] == "VN"
+                  assert set(data["location"]) == {"country_code","latitude","longitude"}
+                  values = [data["scores"].get(k) for k in weights]
+                  assert all(isinstance(v,(float,int)) and 0 <= v <= 9.9 for v in values), path
+                  assert all(v is None or v < 10 for v in data["scores"]["categories"].values()), path
+                  score = overall_score(data,weights)
+                  assert score is not None
+                  fmt = str(score.quantize(Decimal(".01"),rounding=ROUND_HALF_UP))
+                  gps = f'{data["location"]["latitude"]},{data["location"]["longitude"]}'
+                  link = "https://www.google.com/maps/search/?api=1&query=" + quote(gps,safe=",")
+                  matches = [row for row in rows if f"]({kind}/{path.name})" in row]
+                  assert len(matches) == 1, (path,len(matches))
+                  assert f"**{fmt}**" in matches[0], (path,fmt)
+                  assert link in matches[0], (path,link)
+                  n_total += 1
+          assert n_total == 500
+          readme = (root / "README.md").read_text()
+          assert "**5 done · 192 not done · 197 countries total.**" in readme
+          assert "| [Vietnam](countries/VN/) (" + chr(96) + "VN" + chr(96) + ") | 140 | 360 |" in readme
+          assert len(set(__import__("re").findall(r"\]\(countries/([A-Z]{2})/\)",readme))) == 197
+          print("PASS: 140 cities + 360 sights; all 500 ranked Markdown rows, exact scores, source links, GPS Maps links and README country status.")
+          PY
+
+      - name: Commit generated VN Markdown and updated README only
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "toptravellist-ranking-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add countries/VN/cities.md countries/VN/sights.md README.md
+          git diff --cached --check
+          echo "Generated files:"
+          git diff --cached --name-only
+          test "$(git diff --cached --name-only | wc -l)" -eq 3
+          git diff --cached --name-only | grep -Fx 'countries/VN/cities.md'
+          git diff --cached --name-only | grep -Fx 'countries/VN/sights.md'
+          git diff --cached --name-only | grep -Fx 'README.md'
+          git commit -m "Generate Vietnam full rankings and mark Vietnam done in README"
+          git push origin HEAD:refs/heads/feature/add-vietnam-destinations
