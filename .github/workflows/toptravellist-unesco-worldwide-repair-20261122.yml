@@ -1,0 +1,106 @@
+name: TopTravelList worldwide UNESCO benchmark repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-unesco-worldwide-repair-20261122.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toptravellist-unesco-repair-20261122
+  cancel-in-progress: false
+
+jobs:
+  calibrate-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout TopTravelList revision using user-preferred public Playground token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: audit/global-unesco-anchor-reassessment-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: source
+
+      - name: Python runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        working-directory: source
+        run: python -m pip install -r requirements.txt
+
+      - name: Apply revised individual heritage judgments and generate audit
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/review_sights_individually_2026.py
+          python scripts/review_sights_individually_2026.py --apply
+
+      - name: Schema and global benchmark validation
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+
+      - name: Regenerate all worldwide sight score ranking tables
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/review_sights_individually_2026.py --check
+
+      - name: Verify exact 45 independent decisions and all source YAML counts
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path.cwd()
+          b=json.loads((root/'methodology/sight-review-2026-baseline.json').read_text())
+          s=json.loads((root/'methodology/sight-review-2026-stats.json').read_text())
+          assert len(b)==1913
+          assert s['records']==1913
+          assert s['targeted']==303,s
+          assert s['screened_only']==1610,s
+          assert s['source_referenced']==154,s
+          assert s['changed']>=260,s
+          assert s['by_country']['CN']['reviewed']==64
+          assert s['by_country']['KH']['reviewed']==77
+          assert sum(1 for _ in (root/'countries').glob('*/cities/*.yaml'))==703
+          assert sum(1 for _ in (root/'countries').glob('*/sights/*.yaml'))==1913
+          print('PASS: 45 new source-linked individual judgments; 1913 sights tracked; no city edits.')
+          PY
+
+      - name: Commit only reviewed sight records, country rankings and audit reports
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'toptravellist-unesco-bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add countries/*/sights/*.yaml countries/*/sights.md
+          git add methodology/sight-review-2026-stats.json
+          git add methodology/sight-review-2026-full-audit.md
+          git add methodology/sight-review-2026-summary.md
+          git diff --cached --check
+          git diff --cached --name-only > /tmp/changed-sights.txt
+          test "$(grep -Ec '^countries/(CN|KH)/sights/[a-z0-9-]+[.]yaml$' /tmp/changed-sights.txt)" -ge 35
+          if grep -E '^countries/[^/]+/cities/' /tmp/changed-sights.txt; then exit 1; fi
+          git commit -m 'Fix 45 individually benchmarked UNESCO and Cambodian sight scores'
+          git push origin HEAD:refs/heads/audit/global-unesco-anchor-reassessment-2026
