@@ -1,0 +1,51 @@
+name: ToiletCompass Impeccable UI review validation
+
+on:
+  push:
+    branches:
+      - impeccable/toiletcompass-ux-qa
+    paths:
+      - .github/workflows/toiletcompass-impeccable-ux-qa.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout Toilet Compass branch with public Playground secret
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/toiletcompass
+          ref: impeccable/toiletcompass-ux-40-point-pass
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze modified Flutter surfaces and tests
+        working-directory: app
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings lib/main_screen.dart lib/map_screen.dart lib/onboarding_screen.dart lib/settings_screen.dart lib/settings_provider.dart lib/theme.dart test/onboarding_keyboard_focus_test.dart test/settings_ux_test.dart
+
+      - name: Widget and interaction regression tests
+        working-directory: app
+        run: flutter test test/settings_ux_test.dart test/onboarding_keyboard_focus_test.dart
+
+      - name: Core application widget regression smoke
+        working-directory: app
+        run: flutter test test/widget_test.dart
