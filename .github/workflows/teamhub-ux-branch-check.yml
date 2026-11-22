@@ -1,0 +1,33 @@
+name: TeamHub UX branch checks
+on:
+  push:
+    branches:
+      - ci/teamhub-impeccable-20261122
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout TeamHub from private repository
+        uses: actions/checkout@v4
+        with:
+          repository: perzis/teamplus_clone
+          ref: impeccable/teamhub-ux-hardening-20261122
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve packages
+        run: flutter pub get
+      - name: Analyze code
+        run: flutter analyze --no-pub --no-fatal-infos
+      - name: Run Flutter widget and unit tests
+        run: flutter test --no-pub
