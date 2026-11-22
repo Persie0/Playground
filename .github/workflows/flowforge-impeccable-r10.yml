@@ -1,5 +1,5 @@
 name: Flow Forge Impeccable Round 10 - Godot 4.7.2 validation
-# UX round 10: skippable multi-guide sequences, chronological Help and latest-topic replay.
+# UX round 10 final: first-use live puzzle coach marks, centered arrows, once-only guides and chronological Help.
 
 on:
   workflow_dispatch:
@@ -266,8 +266,24 @@ jobs:
                   await RenderingServer.frame_post_draw
                   await RenderingServer.frame_post_draw
                   assert(root.get_texture().get_image().save_png("res://ui-rotate-first-use-compact.png") == OK)
+                  assert(game._feature_coach_rect().end.y <= game._board_top().y)
+                  var rotation_piece: int = game._tray_item_at(game._feature_focus_rect().get_center())
+                  assert(rotation_piece >= 0)
+                  game._activate_feature_spotlight()
+                  assert(game.tutorial_stage == 1)
+                  assert(game.selected_index == rotation_piece)
+                  assert(game._feature_focus_rect() == game._action_rect(1))
+                  game.queue_redraw()
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-rotate-real-control-compact.png") == OK)
+                  game._activate_feature_spotlight()
+                  assert(game.tutorial_kind.is_empty() and game.selected_turns == 1)
+                  game._open_level(r10_rotate_level, false)
+                  assert(game.tutorial_kind.is_empty())
                   # New first-use sequence: show progress and an honest
                   # next action, while the close control skips the stack.
+                  game.tutorial_seen.erase("rotate")
                   game.tutorial_seen.erase("larger_board")
                   game._open_level(r10_rotate_level, false)
                   assert(game.tutorial_is_auto and game.tutorial_sequence_total == 2)
@@ -293,6 +309,8 @@ jobs:
                   assert(game.tutorial_kind == "precision" and not game.tutorial_is_auto)
                   game._refresh_accessibility()
                   assert(game._access_controls["tutorial_next"].visible)
+                  assert(is_equal_approx(game._tutorial_nav_rect(true).get_center().y,
+                      game._tutorial_panel().get_center().y))
                   game.queue_redraw()
                   await RenderingServer.frame_post_draw
                   await RenderingServer.frame_post_draw
