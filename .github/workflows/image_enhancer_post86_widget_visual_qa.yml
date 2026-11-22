@@ -43,7 +43,10 @@ jobs:
           cd image_enhancer
           git config user.name 'Public Playground QA'
           git config user.email 'playground-qa@users.noreply.github.com'
-          git add docs/qa/impeccable-post86/*.png
+          for png in docs/qa/impeccable-post86/*.png; do
+            base64 -w0 "$png" > "$png.b64"
+          done
+          git add docs/qa/impeccable-post86/*.png docs/qa/impeccable-post86/*.b64
           git commit -m 'Capture synthetic model UI in light and large-text dark themes [skip ci]'
           BASIC=$(printf 'x-access-token:%s' "$PRIVATE_TOKEN" | base64 -w0)
           git -c "http.extraheader=AUTHORIZATION: basic $BASIC" fetch \
