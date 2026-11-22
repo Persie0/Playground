@@ -1,0 +1,108 @@
+name: TopTravelList KR TH VN TW individual sight re-review
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-korea-thailand-taiwan-reviews-20261122.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toptravellist-kr-th-vn-tw-reviews-20261122
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out reviewed TopTravelList branch with approved token order
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: audit/korea-thailand-vietnam-taiwan-peer-review-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: source
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install requirements
+        working-directory: source
+        run: |
+          python -m pip install -r requirements.txt
+          python -m py_compile scripts/review_sights_individually_2026.py
+
+      - name: Apply named individual decisions to YAML and render full audit
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/review_sights_individually_2026.py --apply
+
+      - name: Validate geography, schema, 10-point registry and global benchmarks
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+
+      - name: Generate and independently re-check all worldwide sight tables
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/review_sights_individually_2026.py --check
+
+      - name: Assert 28 new individual reviewed sights and preserve cities
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          root=Path.cwd()
+          stats=json.loads((root/'methodology/sight-review-2026-stats.json').read_text())
+          baseline=json.loads((root/'methodology/sight-review-2026-baseline.json').read_text())
+          assert len(baseline)==1913 and stats['records']==1913
+          assert stats['targeted']==331, stats
+          assert stats['source_referenced']==182, stats
+          assert stats['screened_only']==1582
+          assert stats['changed']>=280
+          assert sum(1 for _ in (root/'countries').glob('*/sights/*.yaml'))==1913
+          assert sum(1 for _ in (root/'countries').glob('*/cities/*.yaml'))==703
+          assert stats['by_country']['KR']['reviewed']==37
+          assert stats['by_country']['TH']['reviewed']==34
+          assert stats['by_country']['VN']['reviewed']==66
+          assert stats['by_country']['TW']['reviewed']==28
+          print('PASS 331 detailed individual sight decisions; 182 with explicit evidence references.')
+          PY
+
+      - name: Commit revised source YAMLs, regenerated rankings and per-record audit
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'toptravellist-review-bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add countries/*/sights/*.yaml countries/*/sights.md
+          git add methodology/sight-review-2026-stats.json
+          git add methodology/sight-review-2026-full-audit.md
+          git add methodology/sight-review-2026-summary.md
+          git diff --cached --check
+          git diff --cached --name-only > /tmp/review-files.txt
+          test "$(grep -Ec '^countries/(KR|TH|VN|TW)/sights/[a-z0-9-]+[.]yaml$' /tmp/review-files.txt)" -ge 20
+          if grep -E '^countries/[^/]+/cities/' /tmp/review-files.txt; then exit 1; fi
+          git commit -m 'Individually reassess 28 KR TH VN TW sights against worldwide peers'
+          git push origin HEAD:refs/heads/audit/korea-thailand-vietnam-taiwan-peer-review-2026
