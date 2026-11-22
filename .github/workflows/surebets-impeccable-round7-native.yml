@@ -1,0 +1,82 @@
+name: Surebets Impeccable round 7 native Android
+on:
+  push:
+    branches: [ci/surebets-impeccable-round7-20261122]
+    paths:
+      - .github/workflows/surebets-impeccable-round7-native.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Surebets (public Playground job)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: fix/impeccable-round7-hedge-undo-20261122
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android command-line tools
+        uses: android-actions/setup-android@v3
+      - name: Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Android 37 compile SDK and NDK
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-37" "build-tools;37.0.0" "ndk;29.0.14206865"
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Build unsigned debug APK
+        run: flutter build apk --debug --no-pub
+      - name: Capture running Android 35 screens
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 2048M
+          disk-size: 4096M
+          heap-size: 512M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            set -euo pipefail
+            mkdir -p native-screenshots
+            adb install -r build/app/outputs/flutter-apk/app-debug.apk
+            adb shell am start -W -n at.persie0.surebets_calculator/.MainActivity
+            sleep 15
+            adb exec-out screencap -p > native-screenshots/android_phone_default.png
+            adb shell uiautomator dump /sdcard/a11y.xml || true
+            adb pull /sdcard/a11y.xml native-screenshots/android_accessibility_tree.xml || true
+            adb shell settings put system font_scale 1.6
+            adb shell am force-stop at.persie0.surebets_calculator
+            adb shell am start -W -n at.persie0.surebets_calculator/.MainActivity
+            sleep 8
+            adb exec-out screencap -p > native-screenshots/android_phone_large_text.png
+            adb shell cmd uimode night yes
+            adb shell am force-stop at.persie0.surebets_calculator
+            adb shell am start -W -n at.persie0.surebets_calculator/.MainActivity
+            sleep 8
+            adb exec-out screencap -p > native-screenshots/android_phone_dark_large_text.png
+            adb shell settings put system font_scale 1.0
+      - name: Publish native Android evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surebets-round7-native-android
+          path: native-screenshots/*
+          if-no-files-found: warn
+          retention-days: 7
