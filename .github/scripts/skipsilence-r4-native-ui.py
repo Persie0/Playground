@@ -50,7 +50,7 @@ def wait_for(label, tries=5):
 
 def tap(label):
     _, node = wait_for(label)
-    coords = re.findall(r"\\[(\\d+),(\\d+)\\]", node.attrib.get("bounds", ""))
+    coords = re.findall(r"\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
     if len(coords) != 2:
         raise RuntimeError(f"No tap bounds for {label}: {node.attrib!r}")
     (x1, y1), (x2, y2) = ((int(x), int(y)) for x, y in coords)
@@ -92,7 +92,7 @@ def media_uri():
         rows = adb("shell", "content", "query", "--uri",
                    "content://media/external/video/media", "--projection", "_id:_display_name",
                    check=False)
-        found = re.search(r"_id=(\\d+).*_display_name=skipsilence-native-qa.mp4", rows)
+        found = re.search(r"_id=(\d+).*_display_name=skipsilence-native-qa\.mp4", rows)
         if found:
             uri = "content://media/external/video/media/" + found.group(1)
             print("MediaStore fixture URI:", uri, flush=True)
