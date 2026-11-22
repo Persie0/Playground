@@ -1,0 +1,93 @@
+name: AudioBooster private native UI screenshot audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/audiobooster-native-ui-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audiobooster-native-ui-audit
+  cancel-in-progress: true
+
+jobs:
+  native-capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - name: Checkout public capture helper
+        uses: actions/checkout@v4
+
+      - name: Checkout private audit branch (not published)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          ref: audit/audiobooster-impeccable-20261122
+          path: source
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install compile SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-37.0' 'platforms;android-36' 'build-tools;36.0.0'
+
+      - name: Compile private app without publishing APK
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug
+          test -s app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Enable emulator virtualization
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod a+rw /dev/kvm; fi
+
+      - name: Capture real native UI privately on Android 15 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            adb install -r source/app/build/outputs/apk/debug/app-debug.apk
+            python3 .github/scripts/audiobooster-capture.py
+
+      - name: Store screenshots ONLY on private audit branch
+        if: always()
+        working-directory: source
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          test -d .ux-native/android
+          test -n "$(find .ux-native/android -maxdepth 1 -name '*.png' -print -quit)"
+          git config user.name 'audiobooster-ux-audit'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -f .ux-native/android
+          git commit -m 'audit: private native Android UI captures'
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/audit/audiobooster-impeccable-20261122
