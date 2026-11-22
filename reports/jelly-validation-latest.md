@@ -1,8 +1,8 @@
 # Jelly Squeeze public validation summary
 
-Private source commit: `81c9f1aa96626ee1cfdb18d99a7a80c75d5aee78`
-Runner: https://github.com/Persie0/Playground/actions/runs/44973343996
-Overall checks before report: **failure**
+Private source commit: `c5e3405e639540a5f4c9be56ba48fa3217f9a80c`
+Runner: https://github.com/Persie0/Playground/actions/runs/44973473920
+Overall checks before report: **success**
 
 ## Test suites
 - test_adaptive_daily: PASS
@@ -37,8 +37,7 @@ Overall checks before report: **failure**
 - test_rules: PASS
 - test_rules_differential: PASS
 - test_save: PASS
-- test_screen_layouts: FAIL
-  - ERROR: Landscape Flex Lab moves the count into its title to save space
+- test_screen_layouts: PASS
 - test_solver: PASS
 - test_stars_migration: PASS
 - test_swipe: PASS
@@ -50,4 +49,9 @@ Overall checks before report: **failure**
 - godot-import: PASS (inspect runner exit status if job failed)
 - verify-levels: PASS (inspect runner exit status if job failed)
 - smoke: PASS (inspect runner exit status if job failed)
-- screenshot-layout: NOT RUN
+- screenshot-layout: FAIL
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_card_inum returned error: No such file or directory
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_concat returned error: No such file or directory
+  - ALSA lib conf.c:5211:(_snd_config_evaluate) [error.core] function snd_func_refer returned error: No such file or directory
+  - ALSA lib conf.c:5734:(snd_config_expand) [error.core] Evaluate error: No such file or directory
+  - ERROR: Condition "status < 0" is true. Returning: ERR_CANT_OPEN
