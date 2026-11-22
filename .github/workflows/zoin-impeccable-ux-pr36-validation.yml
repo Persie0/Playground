@@ -1,0 +1,60 @@
+name: Zoin Impeccable UX PR 36 validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/zoin-impeccable-ux-pr36-validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private Zoin branch without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          repository: perzis/zoin
+          ref: design/impeccable-ux-review-20261122
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run analyzer
+        id: analyze
+        continue-on-error: true
+        run: flutter analyze
+
+      - name: Run Impeccable widget regression tests
+        id: focused_tests
+        continue-on-error: true
+        run: flutter test test/impeccable_overview_test.dart
+
+      - name: Run complete Flutter test suite
+        id: full_tests
+        continue-on-error: true
+        run: flutter test
+
+      - name: Fail on any failed validation
+        if: always()
+        env:
+          ANALYZE: ${{ steps.analyze.outcome }}
+          FOCUSED: ${{ steps.focused_tests.outcome }}
+          FULL: ${{ steps.full_tests.outcome }}
+        run: |
+          printf 'Analyze: %s\nFocused: %s\nFull: %s\n' "$ANALYZE" "$FOCUSED" "$FULL"
+          test "$ANALYZE" = success
+          test "$FOCUSED" = success
+          test "$FULL" = success
