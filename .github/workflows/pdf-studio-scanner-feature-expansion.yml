@@ -1,0 +1,58 @@
+name: PDF Studio scanner and feature expansion - APK
+
+on:
+  push:
+    branches: [pdf-studio-scanner-feature-expansion-ci]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pdf-studio-scanner-feature-expansion
+  cancel-in-progress: true
+
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout PDF Studio feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/pdfapp
+          ref: feature/pdf-studio-scanner-and-toolbox-expansion
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+      - name: Flutter static analysis
+        run: flutter analyze
+      - name: Complete Flutter test suite
+        run: flutter test --reporter expanded
+      - name: Build Android release APK
+        run: flutter build apk --release
+      - name: Package release APK and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp build/app/outputs/flutter-apk/app-release.apk pdf-studio-scanner-features.apk
+          echo "Commit: $(git rev-parse HEAD)" | tee apk-build-info.txt
+          echo "Build mode: release (project currently uses debug-key signing)" | tee -a apk-build-info.txt
+          sha256sum pdf-studio-scanner-features.apk | tee apk-sha256.txt
+          ls -lh pdf-studio-scanner-features.apk
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-studio-scanner-feature-expansion-release-apk
+          path: |
+            pdf-studio-scanner-features.apk
+            apk-build-info.txt
+            apk-sha256.txt
+          retention-days: 14
+          if-no-files-found: error
