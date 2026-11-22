@@ -1,0 +1,107 @@
+name: TopTravelList South Korea complete 284 sight reviews
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/toptravellist-korea-all-284-sights-20261122.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-korea-284-review-20261122
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout source in public Playground using approved token priority
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: audit/complete-south-korea-240-sights-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: repo
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install requirements
+        working-directory: repo
+        run: python -m pip install -r requirements.txt
+      - name: Apply 240 named South Korean score decisions
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/review_sights_individually_2026.py
+          python scripts/review_sights_individually_2026.py --apply
+      - name: Global schema and benchmark validation
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+      - name: Regenerate all worldwide ranking tables and verify idempotence
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/review_sights_individually_2026.py --check
+      - name: Verify exact per-sight Korean review coverage
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          root=Path.cwd()
+          s=json.loads((root/'methodology/sight-review-2026-stats.json').read_text())
+          assert s['records']==1913
+          assert s['targeted']==1220,s
+          assert s['screened_only']==693,s
+          assert s['source_referenced']==556,s
+          assert s['by_country']['KR']['reviewed']==s['by_country']['KR']['total']==284,s
+          assert s['by_country']['AT']['reviewed']==133
+          assert s['by_country']['TW']['reviewed']==180
+          assert s['by_country']['TH']['reviewed']==206
+          assert s['by_country']['KH']['reviewed']==260
+          assert s['changed']>=1100,s
+          src=list((root/'countries/KR/sights').glob('*.yaml'))
+          lines=(root/'methodology/sight-review-decisions-2026/KR.tsv').read_text().splitlines()
+          records=[x for x in lines if x and not x.startswith('#')]
+          assert len(src)==len(records)==284
+          assert {p.stem for p in src}=={x.split('|',1)[0] for x in records}
+          assert len({x.split('|',1)[0] for x in records})==284
+          for row in records:
+            fields=row.split('|')
+            assert len(fields)==4 and len(fields[1].split(','))==5
+            assert len(fields[3])>=60
+          assert sum(1 for _ in (root/'countries').glob('*/sights/*.yaml'))==1913
+          assert sum(1 for _ in (root/'countries').glob('*/cities/*.yaml'))==703
+          print('PASS: all 284 Korean sights have individual decisions; 1220 worldwide reviewed, 693 remain.')
+          PY
+      - name: Commit updated sight YAMLs and generated rankings and audit only
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'toptravellist-editorial-bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add countries/KR/sights/*.yaml countries/KR/sights.md
+          git add methodology/sight-review-2026-full-audit.md
+          git add methodology/sight-review-2026-summary.md
+          git add methodology/sight-review-2026-stats.json
+          git diff --cached --check
+          git diff --cached --name-only > /tmp/review-files
+          count="$(grep -Ec '^countries/KR/sights/[a-z0-9-]+[.]yaml$' /tmp/review-files)"
+          test "$count" -ge 200
+          if grep -E '^countries/[^/]+/cities/' /tmp/review-files; then exit 1; fi
+          git commit -m 'Individually review and score all 240 remaining Korean sights'
+          git push origin HEAD:refs/heads/audit/complete-south-korea-240-sights-2026
