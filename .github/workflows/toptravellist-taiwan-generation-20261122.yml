@@ -1,0 +1,110 @@
+name: TopTravelList Taiwan complete worldwide rankings
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-taiwan-generation-20261122.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toptravellist-taiwan-rankings-20261122
+  cancel-in-progress: false
+
+jobs:
+  generate-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Taiwan feature branch with approved token fallback
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: feature/taiwan-globally-calibrated-rankings
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: toptravellist
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned project requirements
+        working-directory: toptravellist
+        run: python -m pip install -r requirements.txt
+
+      - name: Validate all destination YAML and global benchmark comparisons
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+
+      - name: Generate Taiwan city and sight rankings plus README country directory
+        working-directory: toptravellist
+        run: python scripts/generate_rankings.py --country TW
+
+      - name: Verify all 197 country ranking pages remain up to date
+        working-directory: toptravellist
+        run: python scripts/generate_rankings.py --check
+
+      - name: Audit Taiwan 244 records, linked GPS and scoring restrictions
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from urllib.parse import quote
+          import yaml
+
+          root=Path.cwd()
+          score_meta=json.loads((root/'methodology/scoring.json').read_text())
+          assert score_meta['version']==2
+          assert sum(1 for _ in (root/'countries/TW/cities').glob('*.yaml'))==64
+          assert sum(1 for _ in (root/'countries/TW/sights').glob('*.yaml'))==180
+          for kind,expected in [('cities',64),('sights',180)]:
+              folder=root/'countries/TW'/kind
+              md=(root/'countries/TW'/(kind+'.md')).read_text()
+              rows=[line for line in md.splitlines() if line.startswith('| ') and f']({kind}/' in line]
+              assert len(rows)==expected,(kind,len(rows))
+              assert md.count('https://www.google.com/maps/search/?api=1&query=')==expected
+              for path in folder.glob('*.yaml'):
+                  rec=yaml.safe_load(path.read_text())
+                  assert rec['id']==('city' if kind=='cities' else 'sight')+'-tw-'+path.stem
+                  assert set(rec['location'])=={'country_code','latitude','longitude'}
+                  assert rec['location']['country_code']=='TW'
+                  assert set(rec['scores'])=={'impact','uniqueness','significance','experience','depth','categories'}
+                  assert all(v<10 for k,v in rec['scores'].items() if k!='categories')
+                  assert all(v<10 for v in rec['scores']['categories'].values())
+                  gps=f"{rec['location']['latitude']},{rec['location']['longitude']}"
+                  link='https://www.google.com/maps/search/?api=1&query='+quote(gps,safe=',')
+                  matches=[line for line in rows if f']({kind}/{path.name})' in line]
+                  assert len(matches)==1,(path,len(matches))
+                  assert link in matches[0],(path,link)
+          readme=(root/'README.md').read_text()
+          assert '**7 done · 190 not done · 197 countries total.**' in readme
+          assert '| [Taiwan](countries/TW/) (`TW`) | 64 | 180 |' in readme
+          assert sum(1 for _ in (root/'countries').glob('*/cities/*.yaml'))==703
+          assert sum(1 for _ in (root/'countries').glob('*/sights/*.yaml'))==1913
+          print('PASS: Taiwan 64 cities, 180 sights; 244 matching ranking/map links; 2616 global records; all 197 countries linked.')
+          PY
+
+      - name: Commit only Taiwan generated overviews and root README
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "toptravellist-ranking-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md countries/TW/cities.md countries/TW/sights.md
+          git diff --cached --check
+          test "$(git diff --cached --name-only | wc -l)" -eq 3
+          git commit -m "Generate Taiwan complete rankings and worldwide country index"
+          git push origin HEAD:refs/heads/feature/taiwan-globally-calibrated-rankings
