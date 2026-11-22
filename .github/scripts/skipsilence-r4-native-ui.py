@@ -132,6 +132,7 @@ except RuntimeError:
     adb("shell", "input", "tap", "500", "1050")
     wait_for("More options")
 screenshot("video-player.png")
+wait_for("skipsilence-native-qa.mp4", tries=2)
 tap("More options")
 tap("Audio only")
 time.sleep(1)
