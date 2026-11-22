@@ -1,0 +1,199 @@
+name: TopTravelList worldwide sight calibration review
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-worldwide-sight-calibration.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toptravellist-worldwide-sight-calibration
+  cancel-in-progress: false
+
+jobs:
+  recalibrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Confirm private repository access token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Check out private feature branch from public Playground runner
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: feature/worldwide-sight-calibration-and-methodology
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: toptravellist
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        working-directory: toptravellist
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile one-time calibration and future benchmark checker
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/recalibrate_sights_2026.py scripts/check_sight_benchmarks.py scripts/check_city_benchmarks.py scripts/validate.py scripts/generate_rankings.py
+          python scripts/recalibrate_sights_2026.py
+
+      - name: Apply documented one-time correction to all 1733 sight YAMLs
+        working-directory: toptravellist
+        run: python scripts/recalibrate_sights_2026.py --apply
+
+      - name: Reject accidental second application
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          if python scripts/recalibrate_sights_2026.py --apply; then
+            echo "FAIL: historic migration permitted double-conversion"
+            exit 1
+          else
+            echo "PASS: historic sight calibration is one-shot"
+          fi
+
+      - name: Run full 2372-destination schema and exact 10-per-field validation
+        working-directory: toptravellist
+        run: python scripts/validate.py
+
+      - name: Check future city and sight global comparison benchmarks
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+
+      - name: Regenerate 197-country ranking pages and README index
+        working-directory: toptravellist
+        run: python scripts/generate_rankings.py
+
+      - name: Check all ranking pages and country directory are fresh
+        working-directory: toptravellist
+        run: python scripts/generate_rankings.py --check
+
+      - name: Audit 1733 sights, rankings, geography and benchmark examples
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          import statistics
+          from decimal import Decimal, ROUND_HALF_UP
+          from pathlib import Path
+          from urllib.parse import quote
+          import yaml
+          from scripts.rank import overall_score
+
+          root=Path.cwd()
+          meta=json.loads((root/"methodology/scoring.json").read_text())
+          assert meta["version"]==2
+          weights={k:Decimal(str(v)) for k,v in meta["dimensions"].items()}
+          counts={"AT":133,"TH":206,"KR":284,"CN":490,"VN":360,"KH":260}
+          assert sum(counts.values())==1733
+          found=set()
+          summary={}
+          for country,n in counts.items():
+              files=sorted((root/"countries"/country/"sights").glob("*.yaml"))
+              assert len(files)==n,(country,len(files),n)
+              md=(root/"countries"/country/"sights.md").read_text(encoding="utf-8")
+              rows=[x for x in md.splitlines() if re.match(r"^\| \d+ \|",x)]
+              assert len(rows)==n,(country,len(rows),n)
+              assert md.count("https://www.google.com/maps/search/?api=1&query=")==n
+              values=[]
+              for path in files:
+                  data=yaml.safe_load(path.read_text(encoding="utf-8"))
+                  ident=data["id"]
+                  assert ident==f"sight-{country.lower()}-{path.stem}"
+                  assert set(data["location"])=={"country_code","latitude","longitude"}
+                  assert data["location"]["country_code"]==country
+                  assert set(data["scores"])==set(weights)|{"categories"}
+                  cats=data["scores"]["categories"]
+                  assert cats and set(cats)<=set(meta["categories"])
+                  score=overall_score(data,weights)
+                  assert score is not None
+                  values.append(float(score))
+                  score_str=str(score.quantize(Decimal(".01"),rounding=ROUND_HALF_UP))
+                  matches=[row for row in rows if f"](sights/{path.name})" in row]
+                  assert len(matches)==1,(ident,len(matches))
+                  assert f"**{score_str}**" in matches[0],(ident,score_str)
+                  coords=f'{data["location"]["latitude"]},{data["location"]["longitude"]}'
+                  link="https://www.google.com/maps/search/?api=1&query="+quote(coords,safe=",")
+                  assert link in matches[0],(ident,link)
+                  for field,val in {**{k:data["scores"][k] for k in weights},**cats}.items():
+                      if val==10:
+                          assert ident in meta["global_ten_anchors"].get(field,[])
+                          found.add((field,ident))
+              summary[country]=(len(values),round(statistics.mean(values),2),sum(v>=90 for v in values))
+              print(country,summary[country])
+          approved={(k,ident) for k,arr in meta["global_ten_anchors"].items() for ident in arr if ident.startswith("sight-")}
+          assert found==approved,(found^approved)
+          assert len(found)==27,(len(found),found)
+
+          anchors={
+            ("KH","angkor-archaeological-park"):"99.70",
+            ("KH","angkor-wat"):"99.20",
+            ("CN","great-wall-jinshanling"):"98.90",
+            ("VN","ha-long-bay"):"97.85",
+            ("KR","gyeongju-historic-areas"):"96.15",
+            ("TH","ayutthaya-historical-park"):"95.75",
+            ("AT","schoenbrunn-palace"):"94.20",
+            ("AT","hofburg-palace"):"93.90",
+            ("AT","hohensalzburg-fortress"):"91.65",
+            ("VN","nha-trang-beach"):"81.95",
+            ("KH","made-in-cambodia-market"):"75.25",
+            ("KH","siem-reap-royal-gardens"):"68.05",
+          }
+          for (country,slug),expected in anchors.items():
+              doc=yaml.safe_load((root/"countries"/country/"sights"/(slug+".yaml")).read_text())
+              result=overall_score(doc,weights).quantize(Decimal(".01"),rounding=ROUND_HALF_UP)
+              assert str(result)==expected,(country,slug,result,expected)
+
+          audit=(root/"methodology/sight-calibration-audit.md").read_text(encoding="utf-8")
+          audits=re.findall(r"^\| (?:AT|TH|KR|CN|VN|KH) \| \[",audit,re.M)
+          assert len(audits)==1733,len(audits)
+          marker=json.loads((root/"methodology/sight-calibration-2026.json").read_text())
+          assert marker["sights_recalibrated"]==1733
+          assert marker["individually_benchmarked"]==189
+          profiles=[x for x in (root/"methodology/sight-benchmark-profiles.txt").read_text().splitlines() if x and not x.startswith("#")]
+          assert len(profiles)==189,len(profiles)
+          assert len([p for p in (root/"countries").glob("*/cities/*.yaml")])==639
+          assert len([p for p in (root/"countries").glob("*/sights/*.yaml")])==1733
+          readme=(root/"README.md").read_text()
+          assert "**6 done · 191 not done · 197 countries total.**" in readme
+          assert len(set(re.findall(r"\]\(countries/([A-Z]{2})/\)",readme)))==197
+          print("PASS: 1733 sight YAMLs, 1733 matching Markdown totals + GPS links, 27 approved ten fields, 189 global profiles, full audit.")
+          PY
+
+      - name: Assert only sight records changed; commit exactly 1733 sights, six overviews and two audit files
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "toptravellist-calibration-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git diff --exit-code -- countries/AT/cities countries/TH/cities countries/KR/cities countries/CN/cities countries/VN/cities countries/KH/cities methodology/scoring.json
+          git add countries/AT/sights/*.yaml countries/TH/sights/*.yaml countries/KR/sights/*.yaml countries/CN/sights/*.yaml countries/VN/sights/*.yaml countries/KH/sights/*.yaml
+          git add countries/AT/sights.md countries/TH/sights.md countries/KR/sights.md countries/CN/sights.md countries/VN/sights.md countries/KH/sights.md
+          git add methodology/sight-calibration-2026.json methodology/sight-calibration-audit.md
+          git diff --cached --check
+          changed_sights="$(git diff --cached --name-only | grep -Ec '^countries/(AT|TH|KR|CN|VN|KH)/sights/[a-z0-9-]+\.yaml$')"
+          echo "Changed sight YAMLs: $changed_sights / 1733"
+          test "$changed_sights" -eq 1733
+          test "$(git diff --cached --name-only | wc -l)" -eq 1741
+          git commit -m "Recalibrate all 1733 sights and record complete worldwide audit"
+          git push origin HEAD:refs/heads/feature/worldwide-sight-calibration-and-methodology
+          echo "PASS: All artifacts updated from public Playground runner."
