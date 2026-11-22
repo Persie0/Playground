@@ -192,8 +192,18 @@ jobs:
           git diff --cached --check
           changed_sights="$(git diff --cached --name-only | grep -Ec '^countries/(AT|TH|KR|CN|VN|KH)/sights/[a-z0-9-]+\.yaml$')"
           echo "Changed sight YAMLs: $changed_sights / 1733"
-          test "$changed_sights" -eq 1733
-          test "$(git diff --cached --name-only | wc -l)" -eq 1741
+          # 1733 assessed source records; 1731 need edits and 2 already match the
+          # new reference scale. Do not alter identical YAML merely to pad a diff.
+          test "$changed_sights" -eq 1731
+          echo "Two already-consistent source YAMLs (unchanged):"
+          comm -23 \
+            <(find countries/{AT,TH,KR,CN,VN,KH}/sights -maxdepth 1 -name '*.yaml' -type f | sort) \
+            <(git diff --cached --name-only | grep -E '^countries/(AT|TH|KR|CN|VN|KH)/sights/[a-z0-9-]+\.yaml
+          git commit -m "Recalibrate all 1733 sights and record complete worldwide audit"
+          git push origin HEAD:refs/heads/feature/worldwide-sight-calibration-and-methodology
+          echo "PASS: All artifacts updated from public Playground runner."
+ | sort)
+          test "$(git diff --cached --name-only | wc -l)" -eq 1739
           git commit -m "Recalibrate all 1733 sights and record complete worldwide audit"
           git push origin HEAD:refs/heads/feature/worldwide-sight-calibration-and-methodology
           echo "PASS: All artifacts updated from public Playground runner."
