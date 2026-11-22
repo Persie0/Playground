@@ -1,0 +1,99 @@
+name: RepForge Impeccable City Build UX (public Playground)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/repforge-impeccable-city-build.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+          cache: true
+      - name: Fetch pinned RepForge branch with public runner secret
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          SOURCE_BRANCH: fix/impeccable-city-build-discoverability-20261122
+          SOURCE_SHA: 34b4bfe7d6c7111618cb01a31e2cf56a4200b60c
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN" || { echo 'Repository token missing'; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            clone --quiet --depth 1 --branch "$SOURCE_BRANCH" \
+            https://github.com/Persie0/gameexercise.git source
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA" || {
+            echo 'Pinned private source hash differs from branch HEAD'; exit 1;
+          }
+      - name: Flutter analyze, focused Build regressions and complete suite
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get > /tmp/city_pub.log 2>&1 || {
+            tail -n 100 /tmp/city_pub.log; exit 1;
+          }
+          dart format --output=none lib test > /tmp/city_format.log 2>&1 || {
+            tail -n 110 /tmp/city_format.log; exit 1;
+          }
+          flutter analyze > /tmp/city_analyze.log 2>&1 || {
+            tail -n 150 /tmp/city_analyze.log; exit 1;
+          }
+          flutter test test/forge_city_build_screen_test.dart --reporter expanded > /tmp/city_focused.log 2>&1 || {
+            tail -n 230 /tmp/city_focused.log | cut -c 1-300; exit 1;
+          }
+          flutter test --reporter compact > /tmp/city_all.log 2>&1 || {
+            tr '\r' '\n' < /tmp/city_all.log |
+              grep -E '\[E\]|TestFailure|Expected:|Actual:|The test description was:' |
+              tail -n 120 | cut -c 1-245 || true
+            tail -n 150 /tmp/city_all.log | cut -c 1-290
+            exit 1
+          }
+          tail -n 5 /tmp/city_analyze.log
+          tr '\r' '\n' < /tmp/city_all.log | tail -n 4 | cut -c 1-180
+      - name: Generate inspectable Flutter City Build screenshots with real fonts
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SCREENSHOT_TEXT_FONT="$(fc-match -f '%{file}' 'DejaVu Sans')"
+          SCREENSHOT_MATERIAL_FONT="$(find "$FLUTTER_ROOT/bin/cache" -name MaterialIcons-Regular.otf -print -quit)"
+          test -s "$SCREENSHOT_TEXT_FONT"
+          test -s "$SCREENSHOT_MATERIAL_FONT"
+          export SCREENSHOT_TEXT_FONT SCREENSHOT_MATERIAL_FONT
+          flutter test test/city_build_visual_capture.dart --update-goldens --reporter expanded > /tmp/city_visual.log 2>&1 || {
+            tail -n 160 /tmp/city_visual.log | cut -c 1-300; exit 1;
+          }
+          test -s test/goldens/city_build_320_de_text200.png
+          test -s test/goldens/city_build_900_en.png
+          echo 'City Build Flutter widget screenshots generated; no native emulator used'
+      - name: Upload City Build widget captures (fail if absent)
+        uses: actions/upload-artifact@v4
+        with:
+          name: repforge-city-build-ui-captures
+          path: source/test/goldens/city_build_*.png
+          if-no-files-found: error
+          retention-days: 7
+      - name: Compile Android debug APK, not published
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          flutter build apk --debug > /tmp/city_apk.log 2>&1 || {
+            tail -n 160 /tmp/city_apk.log | cut -c 1-290; exit 1;
+          }
+          test -s build/app/outputs/flutter-apk/app-debug.apk
+          echo 'Android debug build passed; APK not uploaded'
