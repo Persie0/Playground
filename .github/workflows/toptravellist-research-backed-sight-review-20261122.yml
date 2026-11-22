@@ -1,0 +1,125 @@
+name: TopTravelList evidence-referenced sight reviews
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-research-backed-sight-review-20261122.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toptravellist-research-backed-review-20261122
+  cancel-in-progress: false
+
+jobs:
+  research-reassessment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout TopTravelList research branch through allowed token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: audit/research-backlog-high-priority-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: toptravellist
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install repository requirements
+        working-directory: toptravellist
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile and apply individual research decisions (idempotent)
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/review_sights_individually_2026.py
+          python scripts/review_sights_individually_2026.py --apply
+
+      - name: Run worldwide schema and city/sight benchmark checks
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+
+      - name: Regenerate all ranked Markdown files and GPS URLs
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+
+      - name: Verify every decision, complete audit and safety constraints
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/review_sights_individually_2026.py --check
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import yaml
+          root=Path.cwd()
+          baseline=json.loads((root/'methodology/sight-review-2026-baseline.json').read_text())
+          stats=json.loads((root/'methodology/sight-review-2026-stats.json').read_text())
+          assert len(baseline)==1913
+          assert stats['records']==1913
+          assert stats['targeted']==258, stats
+          assert stats['screened_only']==1655
+          assert stats['source_referenced']==109
+          assert stats['changed']>=149
+          assert len(set(stats['by_country']))==7
+          assert sum(x['total'] for x in stats['by_country'].values())==1913
+          assert sum(1 for _ in (root/'countries').glob('*/cities/*.yaml'))==703
+          source_refs=0
+          for c in ['AT','TH','KR','CN','VN','KH','TW']:
+              file=root/'methodology/sight-review-decisions-2026'/f'{c}.tsv'
+              rows=[r for r in file.read_text().splitlines() if r and not r.startswith('#')]
+              assert len(rows)==stats['by_country'][c]['reviewed']
+              for row in rows:
+                  parts=row.split('|')
+                  assert len(parts)==4
+                  if 'Source: https://' in parts[3]: source_refs+=1
+                  slug=parts[0]
+                  source=root/'countries'/c/'sights'/(slug+'.yaml')
+                  rec=yaml.safe_load(source.read_text(encoding='utf-8'))
+                  assert rec['id']==f'sight-{c.lower()}-{slug}'
+                  assert set(rec['location'])=={'country_code','latitude','longitude'}
+          assert source_refs==109,source_refs
+          report=(root/'methodology/sight-review-2026-full-audit.md').read_text()
+          rows=[x for x in report.splitlines() if x.startswith('| ') and '(../countries/' in x]
+          # Summary + complete register both enumerate the explicitly reviewed sights.
+          assert len(rows)==1913+258, len(rows)
+          print('PASS: 1913 sight files, 258 explicit reviews, 109 new source-linked assessments, no city changes.')
+          PY
+
+      - name: Commit only revised sights and generated review reports
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "toptravellist-research-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add countries/*/sights/*.yaml countries/*/sights.md
+          git add methodology/sight-review-2026-summary.md
+          git add methodology/sight-review-2026-full-audit.md
+          git add methodology/sight-review-2026-stats.json
+          git diff --cached --check
+          git diff --cached --name-only > /tmp/sight-changes.txt
+          test "$(grep -Ec '^countries/(AT|TH|KR|CN|VN|KH|TW)/sights/[a-z0-9-]+[.]yaml$' /tmp/sight-changes.txt)" -ge 40
+          if grep -E '^countries/[A-Z]{2}/cities/' /tmp/sight-changes.txt; then exit 1; fi
+          git commit -m "Individually research 109 additional sights and update global rankings"
+          git push origin HEAD:refs/heads/audit/research-backlog-high-priority-2026
