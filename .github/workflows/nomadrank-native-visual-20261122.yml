@@ -1,0 +1,97 @@
+name: NomadRank native visual smoke (public Playground)
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/nomadrank-native-visual-20261122.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Ensure private checkout credential exists
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout NomadRank UX branch using Playground credentials
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/skratch_clone
+          ref: ux/impeccable-nomadrank-20261122
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Configure Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configure Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Ensure Android SDK platform 37
+        run: sdkmanager "platforms;android-37"
+
+      - name: Enable KVM acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build, launch and capture Android UI
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          cores: 2
+          ram-size: 3072M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: |
+            flutter build apk --debug --no-pub
+            adb install -r build/app/outputs/flutter-apk/app-debug.apk
+            adb shell am start -n at.persie0.nomadrank/.MainActivity
+            sleep 20
+            mkdir -p native-ux-captures
+            adb exec-out screencap -p > native-ux-captures/android-phone-default.png
+            adb shell settings put system font_scale 1.4
+            sleep 3
+            adb exec-out screencap -p > native-ux-captures/android-phone-large-text.png
+            adb shell wm size 1920x1200
+            adb shell wm density 200
+            sleep 5
+            adb exec-out screencap -p > native-ux-captures/android-wide-window.png
+
+      - name: Upload unmodified native screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nomadrank-android-native-screenshots
+          path: native-ux-captures/*.png
+          if-no-files-found: ignore
+
+      - name: Print compressed screenshot previews for visual audit
+        if: success()
+        shell: bash
+        run: |
+          for p in native-ux-captures/*.png; do
+            f="${p%.png}.jpg"
+            ffmpeg -hide_banner -loglevel error -y -i "$p" -vf "scale=440:-2" -frames:v 1 -q:v 8 "$f"
+            printf 'NOMADRANK_VISUAL:%s:' "$(basename "$f")"
+            base64 -w0 "$f"
+            echo
+          done
