@@ -1,5 +1,5 @@
 name: Flow Forge Impeccable Round 11 - Godot 4.7.2 validation
-# UX R11: non-destructive Help replays, honest practice-skip labels, accessible 72px buttons and unlocked guide navigation.
+# UX R11 final pass: safe Help replay, contextual early-level default, truthful unavailable mechanics, large touch buttons and unlocked-topic navigation.
 
 on:
   workflow_dispatch:
@@ -322,8 +322,18 @@ jobs:
                   game._open_level(2, false)
                   assert(game.highest_unlocked >= 60)
                   assert(game._help_tutorials().size() == 10)
-                  game._show_tutorial(game._latest_tutorial(game.highest_unlocked))
+                  game._show_tutorial(game._latest_tutorial(game.level_number))
+                  assert(game.tutorial_kind == "basics")
+                  game.queue_redraw()
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-current-help-on-early-level-compact.png") == OK)
+                  game._cycle_tutorial(-1)
                   assert(game.tutorial_kind == "precision")
+                  assert(not game._feature_available_here())
+                  game._refresh_accessibility()
+                  assert(not game._access_controls["feature_spotlight"].visible)
+                  assert(game._feature_coach_copy()["tip"].contains("LATER LEVEL"))
                   assert(game._tutorial_done_rect().size.y == 72.0)
                   assert(game._tutorial_done_rect().size.y * game._layout_scale() >= 44.0)
                   game.queue_redraw()
