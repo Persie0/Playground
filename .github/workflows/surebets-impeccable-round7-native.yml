@@ -33,8 +33,10 @@ jobs:
           cache: true
       - name: Android 37 compile SDK and NDK
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platforms;android-37" "build-tools;37.0.0" "ndk;29.0.14206865"
+          SDK_MANAGER="/usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager"
+          test -x "$SDK_MANAGER"
+          yes | "$SDK_MANAGER" --licenses > /dev/null || true
+          "$SDK_MANAGER" "platforms;android-37" "build-tools;37.0.0" "ndk;29.0.14206865"
       - name: Resolve dependencies
         run: flutter pub get
       - name: Build unsigned debug APK
