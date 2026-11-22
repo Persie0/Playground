@@ -1,0 +1,154 @@
+name: TopTravelList Cambodia generation and validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-cambodia-generation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toptravellist-cambodia-generation
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Confirm private-repository token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Check out private Cambodia feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: feature/add-cambodia-destinations
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: toptravellist
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install source dependencies
+        working-directory: toptravellist
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile Python tools and validate all destination YAMLs
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/validate.py scripts/rank.py scripts/generate_rankings.py
+          python scripts/validate.py
+
+      - name: Regenerate Cambodia country rankings and root country index
+        working-directory: toptravellist
+        run: python scripts/generate_rankings.py --country KH
+
+      - name: Confirm all 197 country listings are current
+        working-directory: toptravellist
+        run: python scripts/generate_rankings.py --check
+
+      - name: Audit all 332 Cambodia records and Google Maps links
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+          from decimal import Decimal, ROUND_HALF_UP
+          from urllib.parse import quote
+          import yaml
+          from scripts.rank import overall_score
+
+          root = Path.cwd()
+          meta = json.loads((root / "methodology/scoring.json").read_text())
+          assert meta["version"] == 2
+          weights = {k: Decimal(str(v)) for k,v in meta["dimensions"].items()}
+          allowed = set(meta["categories"])
+          folder = root / "countries/KH"
+          count = 0
+          approved = {(category, identifier) for category, ids in meta["global_ten_anchors"].items() for identifier in ids}
+          assert len(approved) == 30, len(approved)
+          kh_tens = set()
+          for kind, expected in (("cities",72),("sights",260)):
+              files = sorted((folder / kind).glob("*.yaml"))
+              assert len(files) == expected, (kind,len(files))
+              markdown = (folder / (kind + ".md")).read_text(encoding="utf-8")
+              rows = [line for line in markdown.splitlines() if line.startswith("| ") and "](" + kind + "/" in line]
+              assert len(rows) == expected, (kind,len(rows))
+              assert markdown.count("https://www.google.com/maps/search/?api=1&query=") == expected
+              assert "Access advisory (checked 22 November 2026)" in markdown
+              for path in files:
+                  data = yaml.safe_load(path.read_text(encoding="utf-8"))
+                  ident = data["id"]
+                  assert ident == ("city" if kind == "cities" else "sight") + "-kh-" + path.stem
+                  assert set(data["location"]) == {"country_code","latitude","longitude"}
+                  assert data["location"]["country_code"] == "KH"
+                  assert set(data["scores"]) == {*weights, "categories"}
+                  core = [data["scores"][k] for k in weights]
+                  assert all(isinstance(v,(int,float)) and 0 <= v <= 10 for v in core), path
+                  cats = data["scores"]["categories"]
+                  assert set(cats).issubset(allowed) and cats
+                  assert all(isinstance(v,(int,float)) and 0 <= v <= 10 for v in cats.values())
+                  for k, v in {**{k:data["scores"][k] for k in weights}, **cats}.items():
+                      if v == 10:
+                          assert (k,ident) in approved, (k,ident)
+                          kh_tens.add((k,ident))
+                  val = overall_score(data,weights)
+                  assert val is not None and val < 100
+                  fmt = str(val.quantize(Decimal(".01"),rounding=ROUND_HALF_UP))
+                  gps = f'{data["location"]["latitude"]},{data["location"]["longitude"]}'
+                  url = "https://www.google.com/maps/search/?api=1&query=" + quote(gps,safe=",")
+                  matches = [line for line in rows if f"]({kind}/{path.name})" in line]
+                  assert len(matches) == 1, (path,len(matches))
+                  assert f"**{fmt}**" in matches[0], (path,fmt)
+                  assert url in matches[0], (path,url)
+                  count += 1
+          assert count == 332, count
+          assert len(kh_tens) == 11, kh_tens
+          assert all(ident in {"sight-kh-angkor-wat","sight-kh-angkor-archaeological-park"} for _,ident in kh_tens)
+          names = ["angkor-wat","angkor-archaeological-park","koh-ker-archaeological-site","preah-vihear-temple","sambor-prei-kuk-temple-zone","cambodian-memorial-sites-unesco"]
+          assert all((folder / "sights" / f"{name}.yaml").exists() for name in names)
+          assert not (folder / "sights/prasat-ta-muen-thom.yaml").exists()
+          assert not (folder / "sights/prasat-ta-krabey.yaml").exists()
+          readme = (root / "README.md").read_text(encoding="utf-8")
+          assert "**6 done · 191 not done · 197 countries total.**" in readme
+          assert "| [Cambodia](countries/KH/) (" + chr(96) + "KH" + chr(96) + ") | 72 | 260 |" in readme
+          assert len(set(re.findall(r"\]\(countries/([A-Z]{2})/\)",readme))) == 197
+          other = {
+              "AT":(45,133),"TH":(69,206),"KR":(82,284),
+              "CN":(231,490),"VN":(140,360)
+          }
+          for code,(c,s) in other.items():
+              assert len(list((root/"countries"/code/"cities").glob("*.yaml"))) == c
+              assert len(list((root/"countries"/code/"sights").glob("*.yaml"))) == s
+          total = sum(c+s for c,s in other.values()) + count
+          assert total == 2372, total
+          print(f"PASS: {count} Cambodian records, all Maps links, YAML references, 11 worldwide ten anchors, 6 done countries, {total} total destinations.")
+          PY
+
+      - name: Commit generated Cambodia Markdown rankings and README only
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "toptravellist-ranking-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add countries/KH/cities.md countries/KH/sights.md README.md
+          git diff --cached --check
+          test "$(git diff --cached --name-only | wc -l)" -eq 3
+          git diff --cached --name-only | grep -Fx 'countries/KH/cities.md'
+          git diff --cached --name-only | grep -Fx 'countries/KH/sights.md'
+          git diff --cached --name-only | grep -Fx 'README.md'
+          git commit -m "Generate Cambodia complete rankings and country directory"
+          git push origin HEAD:refs/heads/feature/add-cambodia-destinations
