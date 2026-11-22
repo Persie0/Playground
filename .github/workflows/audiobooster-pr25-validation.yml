@@ -18,7 +18,7 @@ concurrency:
 jobs:
   android:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - name: Checkout private AudioBooster PR branch
         uses: actions/checkout@v4
@@ -52,11 +52,28 @@ jobs:
           chmod +x gradlew
           ./gradlew --no-daemon --stacktrace :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 
-      - name: Validate supported-app catalog UI on Android emulator
+      - name: Enable KVM acceleration for emulator
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+          if [ -e /dev/kvm ]; then sudo chmod a+rw /dev/kvm; fi
+          ls -l /dev/kvm || true
+
+      - name: Validate UI on emulator with normal and large dark text
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_I_WANT_MY_TCG: "yes"
         with:
           api-level: 35
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.persie0.audiobooster.ui.SupportedAppsScreenTest
+          script: |
+            adb shell settings put system font_scale 1.0
+            adb shell cmd uimode night no
+            ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.persie0.audiobooster.ui
+            adb shell settings put system font_scale 1.3
+            adb shell cmd uimode night yes
+            ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.persie0.audiobooster.ui
