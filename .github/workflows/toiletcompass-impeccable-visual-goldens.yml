@@ -1,0 +1,38 @@
+name: ToiletCompass Impeccable visual golden captures
+on:
+  push:
+    branches:
+      - impeccable/toiletcompass-ux-qa
+    paths:
+      - .github/workflows/toiletcompass-impeccable-visual-goldens.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/toiletcompass
+          ref: impeccable/toiletcompass-ux-40-point-pass
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Capture four real Flutter-rendered UI variants
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter test --update-goldens tool/ux_visual_capture_test.dart
+      - name: Upload Flutter render evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toiletcompass-flutter-visual-goldens
+          path: app/tool/goldens/
+          if-no-files-found: warn
