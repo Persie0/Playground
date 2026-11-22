@@ -1,5 +1,5 @@
 name: NomadRank Impeccable UX validation (public CI)
-# Validate the Material UI import migration on the feature branch.
+# Read-only validation of the private feature branch: never push from this job.
 on:
   push:
     branches: [main]
@@ -26,7 +26,7 @@ jobs:
           repository: Persie0/skratch_clone
           ref: ux/impeccable-nomadrank-20261122
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -55,16 +55,6 @@ jobs:
             lib/screens/quick_add_wizard_screen.dart \
             lib/screens/onboarding_checklist_screen.dart \
             test/bottom_nav_accessibility_test.dart
-
-      - name: Commit only formatting to feature branch
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add lib/nomadrank_app_impl.dart lib/theme/app_theme.dart lib/widgets/bottom_nav.dart lib/widgets/dashboard_globe_card.dart lib/widgets/stat_card.dart lib/screens/dashboard_screen.dart lib/screens/bucket_list_screen.dart lib/screens/settings_screen.dart lib/screens/scratch_map_screen.dart lib/screens/city_intel_compare_screen.dart lib/screens/travel_circles_screen.dart lib/screens/pin_stay_screen.dart lib/screens/quick_add_wizard_screen.dart lib/screens/onboarding_checklist_screen.dart test/bottom_nav_accessibility_test.dart
-          if ! git diff --cached --quiet; then
-            git commit -m 'style(ui): dart format Impeccable changes'
-            git push origin HEAD:refs/heads/ux/impeccable-nomadrank-20261122
-          fi
 
       - name: Analyze changed UI and tests
         run: |
