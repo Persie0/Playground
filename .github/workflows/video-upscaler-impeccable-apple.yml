@@ -1,0 +1,99 @@
+name: Video Upscaler Apple UI validation (public runner)
+
+on:
+  push:
+    branches:
+      - impeccable/apple-upscaler-validation-20261122
+    paths:
+      - .github/workflows/video-upscaler-impeccable-apple.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apple-native-ui:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout private app on public Playground runner
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/video_upscaler
+          ref: impeccable/apple-ui-complete-20261122
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Display Xcode and simulator details
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available
+
+      - name: Check localization catalog
+        working-directory: app
+        run: python3 Scripts/audit_localizations.py
+
+      - name: Compile iOS/iPadOS app (strict concurrency)
+        working-directory: app
+        run: |
+          set -o pipefail
+          xcodebuild -project VideoUpscaler.xcodeproj \
+            -scheme VideoUpscalerIOS \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_STRICT_CONCURRENCY=complete \
+            build 2>&1 | tee ../ios-build.log
+
+      - name: iOS unit and simulator tests
+        working-directory: app
+        run: |
+          set -o pipefail
+          SIM_ID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; data=json.load(sys.stdin)["devices"]; devs=[d for arr in data.values() for d in arr if "iPhone" in d["name"] and d.get("isAvailable",False)]; print(devs[0]["udid"] if devs else "")')"
+          if [[ -z "$SIM_ID" ]]; then echo "No iPhone simulator"; exit 1; fi
+          echo "$SIM_ID" > ../sim-id.txt
+          xcrun simctl boot "$SIM_ID" || true
+          xcodebuild -project VideoUpscaler.xcodeproj \
+            -scheme VideoUpscalerIOS \
+            -destination "platform=iOS Simulator,id=$SIM_ID" \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            test 2>&1 | tee ../ios-tests.log
+
+      - name: Compile and test macOS app
+        working-directory: app
+        run: |
+          set -o pipefail
+          xcodebuild -project VideoUpscaler.xcodeproj \
+            -scheme VideoUpscaler \
+            -destination 'platform=macOS' \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_STRICT_CONCURRENCY=complete \
+            test 2>&1 | tee ../macos-tests.log
+
+      - name: Save iPhone first-launch screenshot
+        if: always()
+        continue-on-error: true
+        run: |
+          SIM_ID="$(cat sim-id.txt)"
+          APP_PATH="$(find app/DerivedData/Build/Products -name VideoUpscalerIOS.app -type d | head -n 1)"
+          xcrun simctl install "$SIM_ID" "$APP_PATH"
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_PATH/Info.plist")"
+          xcrun simctl launch "$SIM_ID" "$BUNDLE_ID"
+          sleep 5
+          xcrun simctl io "$SIM_ID" screenshot ios-first-launch.png
+
+      - name: Upload diagnostics and screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-upscaler-apple-ui-validation
+          path: |
+            ios-build.log
+            ios-tests.log
+            macos-tests.log
+            ios-first-launch.png
+            app/DerivedData/Logs/Test/*.xcresult
+          if-no-files-found: ignore
