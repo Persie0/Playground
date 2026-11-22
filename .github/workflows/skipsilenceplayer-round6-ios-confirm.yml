@@ -1,0 +1,71 @@
+name: SkipSilencePlayer round 6 iOS layout confirmation
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/skipsilenceplayer-round6-ios-confirm.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios:
+    name: iOS simulator compile
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout SkipSilencePlayer
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: be494666ca08f953c49bc021c3d715ed83d4c887
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: app
+      - name: Build unsigned iOS simulator app
+        run: |
+          set -o pipefail
+          xcodebuild -project app/swift-ios/SkipSilencePlayer.xcodeproj \
+            -scheme SkipSilencePlayer -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/SkipDerived" \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Capture iPhone and iPad native UI
+        run: |
+          set -eu
+          APP="$RUNNER_TEMP/SkipDerived/Build/Products/Debug-iphonesimulator/SkipSilencePlayer.app"
+          test -d "$APP"
+          mkdir -p ios-review
+          xcrun simctl list devices available -j | python3 -c '
+          import sys,json
+          d=json.load(sys.stdin)["devices"]
+          for kind in ("iPhone","iPad"):
+              matches=[x["udid"] for group in d.values() for x in group if x.get("isAvailable") and x["name"].startswith(kind)]
+              print(kind+" "+(matches[0] if matches else ""))
+          ' > ios-review/selected-devices.txt
+          while read -r kind udid; do
+            if [ -z "$udid" ]; then
+              echo "No available $kind simulator, skipped"
+              continue
+            fi
+            echo "Booting $kind simulator $udid"
+            xcrun simctl boot "$udid"
+            xcrun simctl bootstatus "$udid" -b
+            xcrun simctl ui "$udid" appearance dark
+            xcrun simctl install "$udid" "$APP"
+            xcrun simctl launch "$udid" at.persie0.SkipSilencePlayer
+            sleep 5
+            xcrun simctl io "$udid" screenshot "ios-review/$kind-home.png"
+            sips -Z 700 -s format jpeg -s formatOptions 50 -o "ios-review/$kind-review.jpg" "ios-review/$kind-home.png" >/dev/null
+            echo "${kind}_SCREENSHOT_START"
+            python3 -c 'import base64,sys; print(base64.b64encode(open(sys.argv[1],"rb").read()).decode())' "ios-review/$kind-review.jpg"
+            echo
+            echo "${kind}_SCREENSHOT_END"
+            xcrun simctl shutdown "$udid"
+          done < ios-review/selected-devices.txt
+      - name: Upload iPhone and iPad screenshot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkipSilencePlayer-round6-confirmed-iOS-review
+          path: ios-review/*-home.png
+          retention-days: 14
+          if-no-files-found: warn
