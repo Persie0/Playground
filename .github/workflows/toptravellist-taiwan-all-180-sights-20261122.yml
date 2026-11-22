@@ -1,0 +1,88 @@
+name: TopTravelList Taiwan complete 180 individual sight assessments
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/toptravellist-taiwan-all-180-sights-20261122.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-taiwan-complete-20261122
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout site-by-site Taiwan review via public Playground authorized token fallback
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: audit/taiwan-remaining-140-individual-sight-review-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: repo
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dependencies
+        working-directory: repo
+        run: python -m pip install -r requirements.txt
+      - name: Apply 140 Taiwan site decisions to YAML and render global audit
+        working-directory: repo
+        run: python scripts/review_sights_individually_2026.py --apply
+      - name: Validate source and global anchors
+        working-directory: repo
+        run: |
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+      - name: Regenerate, then check deterministic worldwide rankings and review
+        working-directory: repo
+        run: |
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/review_sights_individually_2026.py --check
+      - name: Verify all Taiwan sights reviewed by exact set equality
+        working-directory: repo
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=Path.cwd()
+          st=json.loads((r/'methodology/sight-review-2026-stats.json').read_text())
+          assert st['records']==1913
+          assert st['targeted']==641, st
+          assert st['screened_only']==1272
+          assert st['source_referenced']==379
+          assert st['by_country']['AT']['reviewed']==st['by_country']['AT']['total']==133
+          assert st['by_country']['TW']['reviewed']==st['by_country']['TW']['total']==180
+          assert st['changed']>=575
+          tsv=(r/'methodology/sight-review-decisions-2026/TW.tsv').read_text().splitlines()
+          rows=[line for line in tsv if line and not line.startswith('#')]
+          assert len(rows)==180
+          assert len(set(line.split('|',1)[0] for line in rows))==180
+          assert {line.split('|',1)[0] for line in rows}=={f.stem for f in (r/'countries/TW/sights').glob('*.yaml')}
+          assert sum(1 for f in (r/'countries').glob('*/sights/*.yaml'))==1913
+          assert sum(1 for f in (r/'countries').glob('*/cities/*.yaml'))==703
+          print('PASS all 180 Taiwan sights have decisions, 133 Austria complete, 1272 pending elsewhere.')
+          PY
+      - name: Commit revised Taiwan YAMLs and generated reports
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'toptravellist-editorial-bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add countries/TW/sights/*.yaml countries/TW/sights.md
+          git add methodology/sight-review-2026-full-audit.md
+          git add methodology/sight-review-2026-summary.md
+          git add methodology/sight-review-2026-stats.json
+          git diff --cached --check
+          git diff --cached --name-only > /tmp/reviewed.txt
+          test "$(grep -Ec '^countries/TW/sights/[a-z0-9-]+[.]yaml$' /tmp/reviewed.txt)" -ge 100
+          if grep -E '^countries/[^/]+/cities/' /tmp/reviewed.txt; then exit 1; fi
+          git commit -m 'Individually review and score all 140 previously pending Taiwan sights'
+          git push origin HEAD:refs/heads/audit/taiwan-remaining-140-individual-sight-review-2026
