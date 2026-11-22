@@ -1,0 +1,123 @@
+name: TopTravelList worldwide calibration v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-worldwide-calibration-v2.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toptravellist-worldwide-calibration-v2
+  cancel-in-progress: false
+
+jobs:
+  recalibrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Ensure private-repository token is available
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Checkout TopTravelList calibration branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: feature/worldwide-calibration-v2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: toptravellist
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install validation dependencies
+        working-directory: toptravellist
+        run: python -m pip install -r requirements.txt
+
+      - name: Check Python syntax
+        working-directory: toptravellist
+        run: python -m py_compile scripts/calibrate_worldwide.py scripts/validate.py scripts/rank.py
+
+      - name: Simulate migration without changing files
+        working-directory: toptravellist
+        run: python scripts/calibrate_worldwide.py
+
+      - name: Apply v2 ratings for all 1540 existing destinations
+        working-directory: toptravellist
+        run: python scripts/calibrate_worldwide.py --apply
+
+      - name: Validate every source file and the worldwide 10 benchmark whitelist
+        working-directory: toptravellist
+        run: python scripts/validate.py
+
+      - name: Inspect score distribution and cross-country benchmarks
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+          from decimal import Decimal
+          import yaml
+          from scripts.rank import overall_score
+          root = pathlib.Path.cwd()
+          weights = {k: Decimal(str(v)) for k, v in json.loads((root / "methodology/scoring.json").read_text())["dimensions"].items()}
+          data = {}
+          for code in ("AT", "TH", "KR", "CN"):
+              for kind in ("cities", "sights"):
+                  for path in (root / "countries" / code / kind).glob("*.yaml"):
+                      record = yaml.safe_load(path.read_text(encoding="utf-8"))
+                      data[record["id"]] = record
+          assert len(data) == 1540, len(data)
+          def score(ident):
+              return float(overall_score(data[ident], weights))
+          great_wall = score("sight-cn-great-wall-jinshanling")
+          palace = score("sight-at-schoenbrunn-palace")
+          ayutthaya = score("sight-th-ayutthaya-historical-park")
+          forbidden = score("sight-cn-forbidden-city")
+          assert great_wall > palace + 5, (great_wall, palace)
+          assert great_wall > ayutthaya, (great_wall, ayutthaya)
+          assert forbidden > palace + 5, (forbidden, palace)
+          assert max(score(k) for k in data) < 100
+          meta = json.loads((root / "methodology/scoring.json").read_text())
+          assert meta["version"] == 2
+          approved = {(dimension, ident) for dimension, ids in meta["global_ten_anchors"].items() for ident in ids}
+          actual = set()
+          for ident, rec in data.items():
+              scores = rec["scores"]
+              for k, v in scores.items():
+                  if k == "categories":
+                      for c, n in v.items():
+                          if n == 10:
+                              actual.add((c, ident))
+                  elif v == 10:
+                      actual.add((k, ident))
+          assert actual == approved, (actual ^ approved)
+          assert len(actual) < 30, len(actual)
+          assert not any(k.startswith("city-at-") for dim, k in approved)
+          print(f"Worldwide benchmark checks passed: {len(data)} records, {len(actual)} approved field-level tens")
+          for ident in ["sight-cn-great-wall-jinshanling","sight-cn-forbidden-city","sight-cn-terracotta-army","sight-at-schoenbrunn-palace","sight-th-ayutthaya-historical-park","city-cn-beijing","city-at-vienna"]:
+              print(ident, f"{score(ident):.2f}/100")
+          PY
+
+      - name: Publish the calibrated data ONLY to the private feature branch
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "toptravellist-calibration-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add countries/ methodology/scoring.json
+          test "$(git diff --cached --name-only | wc -l)" -eq 1541
+          test "$(git diff --cached --name-only | grep -Ec '^countries/(AT|TH|KR|CN)/(cities|sights)/[^/]+\.yaml$')" -eq 1540
+          git diff --cached --check
+          git commit -m "Recalibrate 1540 destinations with absolute global v2 benchmarks"
+          git push origin HEAD:refs/heads/feature/worldwide-calibration-v2
+          echo "Worldwide recalibration pushed to private feature branch, not main."
