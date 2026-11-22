@@ -1,0 +1,113 @@
+name: NetworkDoctor Impeccable targeted native verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/networkdoctor-impeccable-targeted-20261122.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pixel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout NetworkDoctor private source through public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/NetworkDoctor
+          ref: 50ad5efcffb23cb9ed49721357946bebbf0ac8b8
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: networkdoctor
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK platforms
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-37.0" "platforms;android-35" "platform-tools" "emulator"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Assemble Android debug
+        working-directory: networkdoctor
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+
+      - name: Prepare native capture
+        shell: bash
+        run: |
+          cat > capture-targeted.sh <<'NATIVE_SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          adb wait-for-device
+          mkdir -p screenshots
+          adb install -r networkdoctor/app/build/outputs/apk/debug/app-debug.apk
+          adb shell settings put system font_scale 2.0
+          adb shell wm size 640x1280
+          adb shell wm density 320
+          adb shell am force-stop at.persie0.networkdoctor || true
+          adb shell am start -n at.persie0.networkdoctor/.MainActivity
+          sleep 32
+          adb exec-out screencap -p > screenshots/narrow-320dp-200-font.png
+          adb shell uiautomator dump /sdcard/targeted.xml >/dev/null || true
+          adb pull /sdcard/targeted.xml screenshots/narrow-accessibility.xml >/dev/null || true
+
+          adb shell settings put system font_scale 1.0
+          adb shell wm size reset
+          adb shell wm density reset
+          adb shell am force-stop at.persie0.networkdoctor
+          adb shell am start -n at.persie0.networkdoctor/.MainActivity
+          sleep 30
+          S="$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1)"
+          W="${S%x*}"
+          H="${S#*x}"
+          D="$(adb shell wm density | grep -oE '[0-9]+' | tail -1)"
+          Y=$((H - (64 * D / 160)))
+          adb shell input tap "$((W * 3 / 8))" "$Y"
+          sleep 4
+          adb exec-out screencap -p > screenshots/checks-compact.png
+          adb shell input tap "$((W / 2))" "$((H * 53 / 100))"
+          sleep 3
+          adb exec-out screencap -p > screenshots/checks-expanded.png
+          NATIVE_SCRIPT
+          chmod +x capture-targeted.sh
+
+      - name: Capture targeted Pixel 6 UI
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 4
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash capture-targeted.sh
+
+      - name: Upload native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: networkdoctor-impeccable-targeted-final
+          path: screenshots/
+          if-no-files-found: warn
+          retention-days: 7
