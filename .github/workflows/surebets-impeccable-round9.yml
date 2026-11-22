@@ -1,0 +1,46 @@
+name: Surebets Impeccable round 9 verification
+on:
+  push:
+    branches: [ci/surebets-impeccable-round9-20261122]
+    paths:
+      - .github/workflows/surebets-impeccable-round9.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout private Surebets through public Playground runner
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: fix/impeccable-round9-result-accessibility-20261122
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Format and whitespace check
+        run: |
+          dart format lib/widgets/calculation_overview.dart lib/widgets/free_bet_result_card.dart test/impeccable_round9_results_accessibility_test.dart visual_tests/impeccable_round6_goldens_test.dart
+          git diff --check
+      - name: Flutter static analysis
+        run: flutter analyze --no-fatal-infos
+      - name: Full Flutter regression suite
+        run: timeout 180s flutter test --reporter expanded
+      - name: Capture eleven Flutter-rendered UX states
+        run: timeout 180s flutter test visual_tests/impeccable_round6_goldens_test.dart --update-goldens --reporter expanded
+      - name: Upload UX screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surebets-round9-ui
+          path: visual_tests/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 7
