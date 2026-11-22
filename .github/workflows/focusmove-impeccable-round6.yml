@@ -1,0 +1,90 @@
+name: FocusMove Impeccable round 6 verification
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/focusmove-impeccable-round6.yml'
+      - 'focusmove-impeccable-round6-trigger.txt'
+permissions:
+  contents: read
+jobs:
+  flutter:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: Private FocusMove branch on ephemeral public Playground runner
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=fix/impeccable-focusmove-round6-20261122 https://github.com/Persie0/pomodoroexercise.git source
+          git -C source rev-parse HEAD
+      - name: Format changed Flutter files and commit privately only if needed
+        working-directory: source
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          dart format lib/src/screens/manual_activity_screens.dart test/manual_activity_widget_test.dart
+          if ! git diff --quiet; then
+            git config user.name 'focusmove-public-ci'
+            git config user.email 'actions@users.noreply.github.com'
+            git add lib/src/screens/manual_activity_screens.dart test/manual_activity_widget_test.dart
+            git commit -m 'style: format Impeccable round 6'
+            AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/fix/impeccable-focusmove-round6-20261122
+          fi
+      - name: Fetch Flutter packages
+        working-directory: source
+        run: flutter pub get
+      - name: Flutter static analysis
+        working-directory: source
+        run: flutter analyze
+      - name: Manual activity tests
+        working-directory: source
+        run: flutter test test/manual_activity_widget_test.dart --reporter expanded
+      - name: Entire Flutter suite
+        working-directory: source
+        run: flutter test --reporter expanded
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android debug APK compile
+        working-directory: source
+        run: flutter build apk --debug
+  ios:
+    needs: flutter
+    runs-on: macos-15
+    timeout-minutes: 70
+    steps:
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: Checkout private branch temporarily
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=fix/impeccable-focusmove-round6-20261122 https://github.com/Persie0/pomodoroexercise.git source
+          git -C source rev-parse HEAD
+      - name: iOS simulator build unsigned
+        working-directory: source
+        run: |
+          flutter pub get
+          flutter build ios --simulator --no-codesign
+          test -d build/ios/iphonesimulator/Runner.app
