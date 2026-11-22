@@ -1,0 +1,104 @@
+name: FocusMove round 5 native Android screenshot audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - focusmove-round5-native-audit-trigger.txt
+
+permissions:
+  contents: read
+
+concurrency:
+  group: focusmove-round5-native-audit
+  cancel-in-progress: false
+
+jobs:
+  android-native-captures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: Fetch private audit branch into runner only
+        shell: bash
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=audit/focusmove-round5-native-20261122 https://github.com/Persie0/pomodoroexercise.git source
+          git -C source rev-parse --short HEAD
+      - name: Compile app for Android emulator
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build apk --debug
+          test -s build/app/outputs/flutter-apk/app-debug.apk
+      - name: Enable virtualization
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Capture native phone UI without uploading public artifacts
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            set -euo pipefail
+            adb install -r source/build/app/outputs/flutter-apk/app-debug.apk
+            adb shell wm size 390x844
+            adb shell wm density 160
+            adb shell settings put system font_scale 1.0
+            adb shell cmd uimode night no
+            mkdir -p source/.ux-native/android
+            adb shell am start -n com.persie.pomodoroexercise/.MainActivity
+            sleep 12
+            adb exec-out screencap -p > source/.ux-native/android/01-onboarding-light.png
+            adb shell uiautomator dump /sdcard/focusmove-onboarding.xml || true
+            adb pull /sdcard/focusmove-onboarding.xml source/.ux-native/android/01-onboarding-ui.xml || true
+            adb shell input tap 340 75
+            sleep 6
+            adb exec-out screencap -p > source/.ux-native/android/02-timer-light.png
+            adb shell cmd uimode night yes
+            sleep 4
+            adb exec-out screencap -p > source/.ux-native/android/03-timer-dark.png
+            adb shell settings put system font_scale 2.0
+            sleep 5
+            adb exec-out screencap -p > source/.ux-native/android/04-large-text-dark.png
+            adb shell input tap 160 775
+            sleep 4
+            adb exec-out screencap -p > source/.ux-native/android/05-second-tab-large-text-dark.png
+            for file in source/.ux-native/android/*.png; do
+              base64 -w0 "$file" > "$file.b64.txt"
+            done
+            ls -lh source/.ux-native/android
+      - name: Store captures ONLY in private audit branch
+        shell: bash
+        working-directory: source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name 'focusmove-ux-audit'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -f .ux-native/android
+          git commit -m 'audit: Android emulator UI captures (private branch only)'
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/audit/focusmove-round5-native-20261122
