@@ -1,0 +1,120 @@
+name: TopTravelList individual sight reassessment 2026
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-site-by-site-reassessment-20261122.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toptravellist-sight-audit-20261122
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout selected TopTravelList branch using fallback token
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: audit/individual-sight-review-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: repo
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project requirements
+        working-directory: repo
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile scripts before altering any data
+        working-directory: repo
+        run: |
+          python -m py_compile scripts/review_sights_individually_2026.py scripts/validate.py scripts/generate_rankings.py
+
+      - name: Apply only explicit site-specific decision profiles and generate 1913-item audit
+        working-directory: repo
+        run: |
+          python scripts/review_sights_individually_2026.py --apply
+
+      - name: Validate YAML schemas, field-specific approved tens, and worldwide comparisons
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+
+      - name: Regenerate all 197 countries to prevent stale Markdown or map links
+        working-directory: repo
+        run: python scripts/generate_rankings.py
+
+      - name: Check generated ranking and audit idempotency
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/generate_rankings.py --check
+          python scripts/review_sights_individually_2026.py --check
+
+      - name: Independently verify baseline, all decisions and data boundaries
+        working-directory: repo
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import yaml
+          root=Path.cwd()
+          baseline=json.loads((root/'methodology/sight-review-2026-baseline.json').read_text())
+          stats=json.loads((root/'methodology/sight-review-2026-stats.json').read_text())
+          assert len(baseline)==1913 and stats['records']==1913
+          assert stats['targeted']==149 and stats['screened_only']==1764
+          assert stats['changed']>0 and stats['changed']<=149
+          assert set(stats['by_country'])=={'AT','TH','KR','CN','VN','KH','TW'}
+          reviewed=[]
+          for country in stats['by_country']:
+              count=0
+              for file in (root/'countries'/country/'sights').glob('*.yaml'):
+                  x=yaml.safe_load(file.read_text())
+                  count+=1
+                  assert x['id']=='sight-'+country.lower()+'-'+file.stem
+                  assert set(x['location'])=={'country_code','latitude','longitude'}
+              assert count==stats['by_country'][country]['total']
+              reviewed.append(count)
+          assert sum(reviewed)==1913
+          sem=yaml.safe_load((root/'countries/AT/sights/semmering-railway.yaml').read_text())
+          assert [sem['scores'][x] for x in ('impact','uniqueness','significance','experience','depth')]==[8.2,9.2,9.4,8.2,8.1]
+          assert sum(1 for _ in (root/'countries').glob('*/cities/*.yaml'))==703
+          print('PASS: 1913 sight records accounted for, 149 explicit named reviews, 7 countries, city data unchanged.')
+          PY
+
+      - name: Commit reviewed sight YAML, new reports, regenerated rankings
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "toptravellist-audit-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add countries/*/sights/*.yaml countries/*/sights.md
+          git add methodology/sight-review-2026-baseline.json
+          git add methodology/sight-review-2026-full-audit.md
+          git add methodology/sight-review-2026-summary.md
+          git add methodology/sight-review-2026-stats.json
+          git diff --cached --check
+          git diff --cached --name-only | tee /tmp/toptravel-changed.txt
+          test "$(grep -E -c '^countries/(AT|CN|KH|KR|TH|TW|VN)/sights/[^/]+[.]yaml$' /tmp/toptravel-changed.txt)" -gt 50
+          if grep -E '^countries/[^/]+/cities/' /tmp/toptravel-changed.txt; then exit 1; fi
+          git commit -m "Reassess 149 named sights and register all 1913 global sight diagnostics"
+          git push origin HEAD:refs/heads/audit/individual-sight-review-2026
