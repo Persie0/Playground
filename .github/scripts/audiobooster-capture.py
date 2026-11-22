@@ -84,14 +84,22 @@ def main():
     adb("shell", "cmd", "uimode", "night", "no")
     adb("shell", "am", "start", "-W", "-n",
         "com.persie0.audiobooster/.MainActivity", stdout=subprocess.DEVNULL)
-    time.sleep(12)
+    time.sleep(8)
+    # Android's first-run immersive-mode warning can cover the entire app.
+    # Dismiss the OS prompt before collecting visual evidence.
+    tap_label("Got it")
+    time.sleep(4)
     capture("01-onboarding-light")
 
     # Fresh installs may start with the automatic media guide or directly
     # display the device compatibility result.
     tap_label("Close", "Skip")
     capture("02-compatibility-light")
-    tap_label("Continue", optional=False)
+    if not tap_label("Continue", optional=True):
+        # Conservative fallback for devices whose Compose semantics tree is
+        # temporarily unavailable while the onboarding status animates.
+        adb("shell", "input", "tap", "195", "790")
+        time.sleep(4)
     capture("03-home-light")
 
     tap_label("Settings")
