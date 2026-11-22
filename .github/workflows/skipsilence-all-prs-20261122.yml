@@ -1,0 +1,53 @@
+name: SkipSilencePlayer combined PR integration
+on:
+  push:
+    branches:
+      - validation/skipsilence-all-prs-20261122
+    paths:
+      - .github/workflows/skipsilence-all-prs-20261122.yml
+permissions:
+  contents: read
+jobs:
+  android:
+    name: Android JUnit and APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: 5b548e6bb8fd00bf9bf7da268aa89e7a43887714
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: source
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Test and assemble debug APK
+        working-directory: source/kotlin-android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace --no-daemon
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: SkipSilencePlayer-combined-debug-APK
+          path: source/kotlin-android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+  ios:
+    name: iOS simulator compile
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/SkipSilencePlayer
+          ref: 5b548e6bb8fd00bf9bf7da268aa89e7a43887714
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: source
+      - name: Build iOS simulator app
+        run: |
+          set -o pipefail
+          xcodebuild -project source/swift-ios/SkipSilencePlayer.xcodeproj \
+            -scheme SkipSilencePlayer -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build
