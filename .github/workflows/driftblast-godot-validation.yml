@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           repository: Persie0/DriftBlast
-          ref: c238978a91f5cac0fef29b0530bcda1f284061ba
+          ref: c417e9e766dcadcf92082a03468a424b9529b544
           path: game
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
@@ -90,11 +90,18 @@ jobs:
           	game.precision_aim = true
           	game.selected = 0
           	await _capture("aim-320-insets96", Vector2i(320, 480), 1, Vector2(96, 96))
+          	game._layout()
+          	var review_move: Dictionary = game.level_plan["certificate"][0]
+          	var review_span: Vector2i = game._shape_span(int(review_move["piece"]["shape"]))
+          	var review_target: Vector2 = game.board_rect.position + (
+          		Vector2(review_move["drop"]) + Vector2(review_span) * 0.5) * (game.board_rect.size.x / 8.0)
+          	game._preview_precision_at(review_target)
+          	await _capture("aim-preview-320-insets96", Vector2i(320, 480), 1, Vector2(96, 96))
           	game.precision_aim = false
           	game.selected = -1
           	await _capture("settings-320-insets50", Vector2i(320, 480), 5, Vector2(50, 50))
           	await _capture("settings-320-insets96", Vector2i(320, 480), 5, Vector2(96, 96))
-          	print("Captured ten Godot UI screenshots")
+          	print("Captured eleven Godot UI screenshots")
           	quit()
           
           func _capture(name: String, resolution: Vector2i, screen_id: int, insets: Vector2) -> void:
