@@ -1,0 +1,54 @@
+name: TopTravelList frozen 1568-sight source-evidence verification
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/toptravellist-source-snapshot-verify-20261122.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout source evidence on TopTravelList review branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: audit/research-final-1568-sights-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        working-directory: source
+        run: python -m pip install -r requirements.txt
+      - name: Verify 1568 frozen per-sight source matches, candidate separation and score non-mutation
+        working-directory: source
+        run: |
+          python -m py_compile scripts/source_link_sights_2026.py
+          python scripts/source_link_sights_2026.py --check
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          from collections import Counter
+          root=Path.cwd()
+          o=json.loads((root/'methodology/sight-review-2026-remaining-evidence.json').read_text())
+          rs=o['records']
+          assert len(rs)==1568
+          stats=Counter(x['status'] for x in rs.values())
+          matched=sum(n for k,n in stats.items() if k.startswith('verified_'))
+          assert matched==598, stats
+          assert stats['candidate_needs_review']==48, stats
+          assert stats['unverified']+stats['lookup_error']==922, stats
+          rows=(root/'methodology/sight-review-2026-evidence-report.md').read_text().splitlines()
+          assert sum(1 for x in rows if x.startswith('| [') and '/sights/' in x)==1568
+          assert sum(1 for _ in (root/'countries').glob('*/cities/*.yaml'))==703
+          assert sum(1 for _ in (root/'countries').glob('*/sights/*.yaml'))==1913
+          print('PASS: exact 1568 source checks, 598 matches, 48 candidate, 922 unverified/error. No score changes.')
+          PY
+          python scripts/validate.py
+          python scripts/generate_rankings.py --check
