@@ -1,0 +1,40 @@
+name: Image Enhancer post86 private QA text encoding
+on:
+  push:
+    branches: [image-enhancer-post86-private-qa-encode-20261122]
+    paths:
+      - .github/workflows/image_enhancer_post86_private_qa_encode.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  encode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout private screenshot QA branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: qa/impeccable-post86-widget-captures-20261122
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: image_enhancer
+      - name: Encode screenshots as UTF-8 text in the private QA branch only
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd image_enhancer
+          for png in docs/qa/impeccable-post86/*.png; do
+            test -s "$png"
+            base64 -w0 "$png" > "$png.b64"
+          done
+          git config user.name 'Public Playground QA'
+          git config user.email 'playground-qa@users.noreply.github.com'
+          git add docs/qa/impeccable-post86/*.b64
+          git commit -m 'Store private UI preview encodings for review [skip ci]'
+          BASIC=$(printf 'x-access-token:%s' "$PRIVATE_TOKEN" | base64 -w0)
+          git -c "http.extraheader=AUTHORIZATION: basic $BASIC" push \
+            https://github.com/Persie0/image_enhancer.git \
+            HEAD:refs/heads/qa/impeccable-post86-widget-captures-20261122
