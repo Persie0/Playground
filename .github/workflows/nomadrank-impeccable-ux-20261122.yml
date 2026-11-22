@@ -40,6 +40,7 @@ jobs:
       - name: Format changed UI and tests
         run: |
           dart format \
+            lib/nomadrank_app_impl.dart \
             lib/theme/app_theme.dart \
             lib/widgets/bottom_nav.dart \
             lib/widgets/dashboard_globe_card.dart \
@@ -48,13 +49,18 @@ jobs:
             lib/screens/bucket_list_screen.dart \
             lib/screens/settings_screen.dart \
             lib/screens/scratch_map_screen.dart \
+            lib/screens/city_intel_compare_screen.dart \
+            lib/screens/travel_circles_screen.dart \
+            lib/screens/pin_stay_screen.dart \
+            lib/screens/quick_add_wizard_screen.dart \
+            lib/screens/onboarding_checklist_screen.dart \
             test/bottom_nav_accessibility_test.dart
 
       - name: Commit only formatting to feature branch
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add lib/theme/app_theme.dart lib/widgets/bottom_nav.dart lib/widgets/dashboard_globe_card.dart lib/widgets/stat_card.dart lib/screens/dashboard_screen.dart lib/screens/bucket_list_screen.dart lib/screens/settings_screen.dart lib/screens/scratch_map_screen.dart test/bottom_nav_accessibility_test.dart
+          git add lib/nomadrank_app_impl.dart lib/theme/app_theme.dart lib/widgets/bottom_nav.dart lib/widgets/dashboard_globe_card.dart lib/widgets/stat_card.dart lib/screens/dashboard_screen.dart lib/screens/bucket_list_screen.dart lib/screens/settings_screen.dart lib/screens/scratch_map_screen.dart lib/screens/city_intel_compare_screen.dart lib/screens/travel_circles_screen.dart lib/screens/pin_stay_screen.dart lib/screens/quick_add_wizard_screen.dart lib/screens/onboarding_checklist_screen.dart test/bottom_nav_accessibility_test.dart
           if ! git diff --cached --quiet; then
             git commit -m 'style(ui): dart format Impeccable changes'
             git push origin HEAD:refs/heads/ux/impeccable-nomadrank-20261122
@@ -63,6 +69,7 @@ jobs:
       - name: Analyze changed UI and tests
         run: |
           flutter analyze --no-pub \
+            lib/nomadrank_app_impl.dart \
             lib/theme/app_theme.dart \
             lib/widgets/bottom_nav.dart \
             lib/widgets/dashboard_globe_card.dart \
@@ -71,8 +78,13 @@ jobs:
             lib/screens/bucket_list_screen.dart \
             lib/screens/settings_screen.dart \
             lib/screens/scratch_map_screen.dart \
+            lib/screens/city_intel_compare_screen.dart \
+            lib/screens/travel_circles_screen.dart \
+            lib/screens/pin_stay_screen.dart \
+            lib/screens/quick_add_wizard_screen.dart \
+            lib/screens/onboarding_checklist_screen.dart \
             test/bottom_nav_accessibility_test.dart
 
       - name: Run focused UX widget regression tests
         run: |
-          flutter test --no-pub test/bottom_nav_accessibility_test.dart test/stat_card_world_coverage_test.dart
+          flutter test --no-pub test/bottom_nav_accessibility_test.dart test/stat_card_world_coverage_test.dart test/city_choice_sheet_test.dart test/pin_stay_add_rating_test.dart test/travel_circles_invite_test.dart test/rating_compare_sheet_test.dart
