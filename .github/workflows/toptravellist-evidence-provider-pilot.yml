@@ -1,0 +1,29 @@
+name: TopTravelList evidence provider pilot
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/toptravellist-evidence-provider-pilot.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Probe verifiable public source APIs
+        shell: bash
+        run: |
+          set -eu
+          for URL in \
+           'https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=Gesause%20National%20Park&format=json&srlimit=1' \
+           'https://www.wikidata.org/w/api.php?action=wbsearchentities&search=Gesause%20National%20Park&language=en&format=json&limit=1' \
+           'https://en.wikipedia.org/api/rest_v1/page/summary/Ges%C3%A4use_National_Park' \
+           'https://www.wikidata.org/wiki/Special:EntityData/Q42.json' \
+           'https://whc.unesco.org/en/list/668'
+          do
+           echo "SOURCE: $URL"
+           curl -L -A 'TopTravelListResearchBot/0.1 (destination data audit)' --connect-timeout 15 --max-time 25 -s -o /tmp/out -w 'HTTP=%{http_code}, bytes=%{size_download}\n' "$URL" || true
+           head -c 500 /tmp/out || true
+           echo
+          done
