@@ -1,0 +1,46 @@
+name: Image Enhancer post86 preset choice regression
+on:
+  push:
+    branches: [image-enhancer-post86-preset-choice-validation-20261122]
+    paths:
+      - .github/workflows/image_enhancer_post86_preset_choice.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout private image enhancer
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: impeccable/post86-available-presets-and-visual-qa
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: image_enhancer
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve and generate localized strings
+        working-directory: image_enhancer
+        run: |
+          flutter pub get --enforce-lockfile
+          flutter gen-l10n
+      - name: Focused preset and accessibility tests
+        working-directory: image_enhancer
+        run: |
+          flutter test test/impeccable_post86_preset_availability_test.dart \
+            test/enhancement_presets_test.dart \
+            test/impeccable_post84_model_guidance_test.dart \
+            test/impeccable_p2_layout_test.dart \
+            --timeout 2m --reporter expanded
+      - name: Strict analyzer
+        working-directory: image_enhancer
+        run: flutter analyze
+      - name: Full Flutter suite
+        working-directory: image_enhancer
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
