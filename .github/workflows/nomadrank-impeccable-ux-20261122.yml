@@ -1,5 +1,5 @@
 name: NomadRank Impeccable UX validation (public CI)
-# Read-only validation of the private feature branch; Flutter Material types remain unified.
+# Read-only validation: no private workflow minutes and no branch writes.
 on:
   push:
     branches: [main]
@@ -26,7 +26,7 @@ jobs:
           repository: Persie0/skratch_clone
           ref: ux/impeccable-nomadrank-20261122
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -54,6 +54,10 @@ jobs:
             lib/screens/pin_stay_screen.dart \
             lib/screens/quick_add_wizard_screen.dart \
             lib/screens/onboarding_checklist_screen.dart \
+            lib/screens/city_intel_screen.dart \
+            lib/screens/city_stats_screen.dart \
+            lib/screens/edit_dates_screen.dart \
+            lib/screens/seasonal_screen.dart \
             test/bottom_nav_accessibility_test.dart
 
       - name: Analyze changed UI and tests
@@ -73,6 +77,10 @@ jobs:
             lib/screens/pin_stay_screen.dart \
             lib/screens/quick_add_wizard_screen.dart \
             lib/screens/onboarding_checklist_screen.dart \
+            lib/screens/city_intel_screen.dart \
+            lib/screens/city_stats_screen.dart \
+            lib/screens/edit_dates_screen.dart \
+            lib/screens/seasonal_screen.dart \
             test/bottom_nav_accessibility_test.dart
 
       - name: Run focused UX widget regression tests
@@ -82,13 +90,3 @@ jobs:
       - name: Run full Flutter regression suite
         run: flutter test --no-pub
 
-      - name: Commit verified Dart formatting to the feature branch
-        if: success()
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add lib/nomadrank_app_impl.dart lib/theme/app_theme.dart lib/widgets/bottom_nav.dart lib/widgets/dashboard_globe_card.dart lib/widgets/stat_card.dart lib/screens/dashboard_screen.dart lib/screens/bucket_list_screen.dart lib/screens/settings_screen.dart lib/screens/scratch_map_screen.dart lib/screens/city_intel_compare_screen.dart lib/screens/travel_circles_screen.dart lib/screens/pin_stay_screen.dart lib/screens/quick_add_wizard_screen.dart lib/screens/onboarding_checklist_screen.dart test/bottom_nav_accessibility_test.dart
-          if ! git diff --cached --quiet; then
-            git commit -m 'style(ui): format verified Impeccable UX updates'
-            git push origin HEAD:refs/heads/ux/impeccable-nomadrank-20261122
-          fi
