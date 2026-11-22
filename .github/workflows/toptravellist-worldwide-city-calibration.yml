@@ -1,0 +1,162 @@
+name: TopTravelList worldwide city calibration review
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-worldwide-city-calibration.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toptravellist-worldwide-city-calibration
+  cancel-in-progress: false
+
+jobs:
+  calibrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check private repo access token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$PRIVATE_TOKEN"
+
+      - name: Check out private TopTravelList calibration branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: feature/worldwide-city-calibration-and-methodology
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          path: toptravellist
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dataset dependencies
+        working-directory: toptravellist
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile and dry-run full calibration
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/recalibrate_cities_2026.py scripts/check_city_benchmarks.py scripts/generate_rankings.py scripts/validate.py
+          python scripts/recalibrate_cities_2026.py
+
+      - name: Apply one-time review to all 639 cities and create complete audit
+        working-directory: toptravellist
+        run: python scripts/recalibrate_cities_2026.py --apply
+
+      - name: Verify one-time conversion cannot run twice
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          if python scripts/recalibrate_cities_2026.py --apply; then
+            echo "ERROR: migration unexpectedly allowed second pass"
+            exit 1
+          else
+            echo "PASS: historic calibration refuses second pass"
+          fi
+
+      - name: Validate all 2372 source city/sight records
+        working-directory: toptravellist
+        run: python scripts/validate.py
+
+      - name: Check required cross-country city benchmark comparisons
+        working-directory: toptravellist
+        run: python scripts/check_city_benchmarks.py
+
+      - name: Rebuild all per-country rankings and README country index
+        working-directory: toptravellist
+        run: python scripts/generate_rankings.py
+
+      - name: Check every generated ranking remains current
+        working-directory: toptravellist
+        run: python scripts/generate_rankings.py --check
+
+      - name: Verify all 639 updated cities and global comparison reference totals
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import re
+          import yaml
+          from decimal import Decimal
+          from scripts.rank import overall_score
+          root=Path.cwd()
+          meta=json.loads((root/"methodology/scoring.json").read_text())
+          weights={k:Decimal(str(v)) for k,v in meta["dimensions"].items()}
+          countries={"AT":45,"TH":69,"KR":82,"CN":231,"VN":140,"KH":72}
+          assert sum(countries.values())==639
+          city_count=0
+          for c,n in countries.items():
+              paths=list((root/"countries"/c/"cities").glob("*.yaml"))
+              assert len(paths)==n,(c,len(paths),n)
+              md=(root/"countries"/c/"cities.md").read_text()
+              rows=[x for x in md.splitlines() if re.match(r"^\| \d+ \|",x)]
+              assert len(rows)==n,(c,len(rows),n)
+              assert md.count("https://www.google.com/maps/search/?api=1&query=")==n
+              for p in paths:
+                  d=yaml.safe_load(p.read_text())
+                  assert set(d["location"])=={"country_code","latitude","longitude"}
+                  assert d["location"]["country_code"]==c
+                  for v in [d["scores"][k] for k in weights]:
+                      assert isinstance(v,(int,float)) and 0<=v<=10
+                  score=overall_score(d,weights)
+                  assert score is not None
+                  city_count+=1
+          assert city_count==639
+          expected={
+              ("CN","beijing"):"97.40",
+              ("AT","vienna"):"92.30",
+              ("AT","salzburg"):"88.95",
+              ("KR","gyeongju"):"93.10",
+              ("TH","bangkok"):"91.85",
+              ("VN","hoi-an"):"90.65",
+              ("VN","hanoi"):"88.30",
+              ("KH","siem-reap"):"90.20",
+              ("KH","phnom-penh"):"80.40",
+          }
+          for (c,slug),total in expected.items():
+              d=yaml.safe_load((root/"countries"/c/"cities"/(slug+".yaml")).read_text())
+              val=overall_score(d,weights)
+              assert f"{val:.2f}"==total,(c,slug,val,total)
+          marker=json.loads((root/"methodology/city-calibration-2026.json").read_text())
+          assert marker["cities_reviewed"]==639
+          assert marker["manually_compared_benchmarks"]==104
+          audit=(root/"methodology/city-calibration-audit.md").read_text()
+          assert len(re.findall(r"^\| (?:AT|TH|KR|CN|VN|KH) \| \[",audit,re.M))==639
+          assert len([line for line in (root/"methodology/city-benchmark-profiles.txt").read_text().splitlines() if line and not line.startswith("#")])==104
+          # The 1733 existing sight ratings were untouched, only city YAMLs changed.
+          sight_count=sum(len(list((root/"countries"/c/"sights").glob("*.yaml"))) for c in countries)
+          assert sight_count==1733,sight_count
+          print("PASS: all 639 calibrated cities; 104 named benchmarks; 9 cross-country totals; 1733 unchanged sights; 639 complete audit rows.")
+          PY
+
+      - name: Commit exactly 639 city YAMLs, six updated rankings and 2 audit files
+        working-directory: toptravellist
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "toptravellist-calibration-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add countries/AT/cities/*.yaml countries/TH/cities/*.yaml countries/KR/cities/*.yaml countries/CN/cities/*.yaml countries/VN/cities/*.yaml countries/KH/cities/*.yaml
+          git add countries/AT/cities.md countries/TH/cities.md countries/KR/cities.md countries/CN/cities.md countries/VN/cities.md countries/KH/cities.md
+          git add methodology/city-calibration-2026.json methodology/city-calibration-audit.md
+          git diff --cached --check
+          git diff --cached --name-only
+          actual_cities="$(git diff --cached --name-only | grep -Ec '^countries/(AT|TH|KR|CN|VN|KH)/cities/[a-z0-9-]+\.yaml$')"
+          test "$actual_cities" -eq 639
+          test "$(git diff --cached --name-only | wc -l)" -eq 647
+          test -z "$(git diff --name-only -- countries/AT/sights countries/TH/sights countries/KR/sights countries/CN/sights countries/VN/sights countries/KH/sights)"
+          git commit -m "Recalibrate all 639 cities across six countries and generate full audit"
+          git push origin HEAD:refs/heads/feature/worldwide-city-calibration-and-methodology
+          echo "SUCCESS: Public Playground validated and committed private feature branch."
