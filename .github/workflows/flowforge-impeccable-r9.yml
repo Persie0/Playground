@@ -1,5 +1,5 @@
 name: Flow Forge Impeccable Round 9 - Godot 4.7.2 validation
-# UX R9: persistent Haptics toggle, Pause action sizing, truthful native store busy and semantic states.
+# UX R9 final: compact destructive confirmation, separate Restore captions, independent Haptics.
 
 on:
   workflow_dispatch:
@@ -190,6 +190,8 @@ jobs:
                   assert(root.get_texture().get_image().save_png("res://ui-pause-haptics-off-compact.png") == OK)
                   game._session_choose(1)
                   assert(game.restart_confirm)
+                  assert(game._session_panel_rect().size.y == 320.0)
+                  assert(game._session_panel_rect().encloses(game._session_action_rect(1)))
                   game.queue_redraw()
                   await RenderingServer.frame_post_draw
                   await RenderingServer.frame_post_draw
@@ -204,6 +206,7 @@ jobs:
                   game._open_shop()
                   game._refresh_accessibility()
                   assert(game._shop_pro_value() == "PURCHASING")
+                  assert(game._shop_restore_caption() == "Wait for the native store purchase")
                   game.queue_redraw()
                   await RenderingServer.frame_post_draw
                   await RenderingServer.frame_post_draw
