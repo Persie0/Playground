@@ -38,11 +38,15 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Install required Android SDK packages
+      - name: Prepare screenshot-only Android build configuration
         shell: bash
         run: |
-          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "ndk;29.0.14206865" > /tmp/sdk-install.log 2>&1 || { tail -n 60 /tmp/sdk-install.log; exit 1; }
+          # The runner cannot obtain platform android-37. Use stable API 36
+          # only in this disposable CI checkout; production sources remain unchanged.
+          sed -i 's/compileSdk = 37/compileSdk = 36/' app/android/app/build.gradle.kts
+          sed -i 's/targetSdk = 37/targetSdk = 36/' app/android/app/build.gradle.kts
+          sed -i 's/ndkVersion = "29.0.14206865"/ndkVersion = flutter.ndkVersion/' app/android/app/build.gradle.kts
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" > /tmp/sdk-install.log 2>&1 || { tail -n 60 /tmp/sdk-install.log; exit 1; }
 
       - name: Build native Android debug APK
         working-directory: app
