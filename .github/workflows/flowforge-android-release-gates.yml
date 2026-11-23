@@ -93,7 +93,10 @@ jobs:
           mkdir -p "$HOME/.local/share/godot/export_templates/4.7.2.stable"
           unzip -j -o /tmp/godot-export.tpz 'templates/android_debug.apk' \
             -d "$HOME/.local/share/godot/export_templates/4.7.2.stable"
+          unzip -j -o /tmp/godot-export.tpz 'templates/android_source.zip' \
+            -d "$HOME/.local/share/godot/export_templates/4.7.2.stable"
           test -s "$HOME/.local/share/godot/export_templates/4.7.2.stable/android_debug.apk"
+          test -s "$HOME/.local/share/godot/export_templates/4.7.2.stable/android_source.zip"
 
       - name: Run seeded calibration and geometry/CPU regression gates
         id: unit
@@ -149,6 +152,10 @@ jobs:
           export/android/debug_keystore_pass = "android"
           EOF
           done
+          echo 'Installing Godot Android Gradle source project for API36 exports'
+          "$GODOT_BIN" --headless --path source --install-android-build-template 2>&1 | tee qa-output/gradle-template.log
+          test -f source/android/build/gradlew || \
+            { echo "Godot Android Gradle template was not installed"; exit 1; }
           export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$HOME/.android/debug.keystore"
           export GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey
           export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android
@@ -225,7 +232,7 @@ jobs:
             else
               echo "Result: failure/incomplete"
             fi
-            for file in qa-output/import.log qa-output/calibration.log qa-output/geometry-and-cpu.log qa-output/apk-export.log qa-output/sdk.log qa-output/sdk-install.log; do
+            for file in qa-output/import.log qa-output/calibration.log qa-output/geometry-and-cpu.log qa-output/apk-export.log qa-output/gradle-template.log qa-output/sdk.log qa-output/sdk-install.log; do
               if test -f "$file"; then
                 echo
                 echo "## $(basename "$file")"
