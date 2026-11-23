@@ -70,8 +70,9 @@ jobs:
           git add ios/Podfile.lock
           git commit -m "fix(ios): synchronize RevenueCat CocoaPods dependencies with purchases_flutter"
           AUTH="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\r\n')"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" fetch origin impeccable/hanzihero-ux-40-20261122
-          git rebase FETCH_HEAD
+          # A normal fast-forward push is safe when the remote has not moved.
+          # Flutter may change generated files; avoid rebasing a dirty checkout.
+          # If the remote moved concurrently, Git rejects this push safely.
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/impeccable/hanzihero-ux-40-20261122
 
       - name: Capture iPhone and iPad interface in light and dark appearance
