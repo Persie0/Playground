@@ -1,27 +1,16 @@
 # FlowForge Android release gates
 
-FlowForge commit: e9bd0714a5a179aca9c77d28ce0c94ec4f255281
-Playground commit: 7ae98bc4c6f231a16439f8525bb595d8c5f9c631
+FlowForge commit: 26d8b3f0af771edb17bf3756ab0b8043419521d3
+Playground commit: fa466d8160aa7b55930240b0e49078cf106d5161
 Private checkout: success
 JDK setup: success
 Android SDK setup: success
 Godot binary/export template: success
 Headless unit and calibration: success
-Android emulator x86_64 APK export: success
-Android ARM64/ARMv7 phone APK export: success
-Android emulator interaction: success
-Phone APK size (bytes): 164706103
-Phone APK SHA-256: 1c56372c9dbe5ce86b757a1c51050f342355d2db22ac5d4d67b8bffd9420e12f
-DOWNLOAD FOR ANDROID PHONE (debug-signed APK ZIP): https://github.com/Persie0/Playground/actions/runs/45227635815/artifacts/14844782636
-Phone artifact ID: 14844782636
-APK size (bytes): 86256298
-APK SHA-256: d4d366a222df80d5508449f2794547d027aaeeb6e234ec2a4cad200911205f08
-Download APK (GitHub Actions artifact ZIP): https://github.com/Persie0/Playground/actions/runs/45227635815/artifacts/14844982503
-Artifact ID: 14844982503
-Run: https://github.com/Persie0/Playground/actions/runs/45227635815
-This is a debug-signed emulator build with x86_64 native libraries; it is not an ARM phone/Play Store release APK.
+Android debug APK export: cancelled
+Android emulator interaction: skipped
 
-Result: success (emulator only; not a physical-device or human-playtest pass)
+Result: failure/incomplete
 
 ## import.log
 
@@ -34,104 +23,9 @@ CALIBRATION_PROFILE {"flow_rate":0.691532258064516,"frustration_rate":0.05483870
 CALIBRATION_RESULT {"failures":[],"model":"independent logistic with seeded noise","profiles":5,"status":"pass"}
 
 ## geometry-and-cpu.log
-LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":2.26,"layout_cases":36,"status":"pass","trace_p95_ms":0.17}
+LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":3.03,"layout_cases":36,"status":"pass","trace_p95_ms":0.25}
 
-## apk-export.log
-    android.suppressUnsupportedCompileSdk=36
-to this project's gradle.properties.
-
-> Task :validateJavaVersion UP-TO-DATE
-> Task :clean UP-TO-DATE
-> Task :assetPackInstallTime:clean UP-TO-DATE
-> Task :preBuild UP-TO-DATE
-> Task :preStandardDebugBuild UP-TO-DATE
-> Task :mergeStandardDebugNativeDebugMetadata NO-SOURCE
-> Task :checkKotlinGradlePluginConfigurationErrors SKIPPED
-> Task :generateStandardDebugBuildConfig
-> Task :generateStandardDebugResValues
-> Task :checkStandardDebugAarMetadata
-> Task :mapStandardDebugSourceSetPaths
-> Task :generateStandardDebugResources
-> Task :packageStandardDebugResources
-> Task :mergeStandardDebugResources
-> Task :createStandardDebugCompatibleScreenManifests
-> Task :extractDeepLinksStandardDebug
-> Task :parseStandardDebugLocalResources
-
-> Task :processStandardDebugMainManifest
-[long-value-redacted].xml:22:9-124 Warning:
-	meta-data#org.godotengine.rendering.method was tagged at AndroidManifest.xml:22 to replace another declaration but no other declaration present
-[long-value-redacted].xml:23:9-118 Warning:
-	meta-data#org.godotengine.editor.version was tagged at AndroidManifest.xml:23 to replace another declaration but no other declaration present
-
-> Task :processStandardDebugManifest
-> Task :javaPreCompileStandardDebug
-> Task :mergeStandardDebugShaders
-> Task :compileStandardDebugShaders NO-SOURCE
-> Task :generateStandardDebugAssets UP-TO-DATE
-> Task :mergeStandardDebugAssets
-> Task :compressStandardDebugAssets
-> Task :processStandardDebugManifestForPackage
-> Task :checkStandardDebugDuplicateClasses
-> Task :mergeLibDexStandardDebug
-> Task :mergeStandardDebugJniLibFolders
-> Task :processStandardDebugResources
-> Task :compileStandardDebugKotlin NO-SOURCE
-> Task :mergeStandardDebugNativeLibs
-> Task :desugarStandardDebugFileDependencies
-> Task :compileStandardDebugJavaWithJavac
-> Task :dexBuilderStandardDebug
-> Task :mergeProjectDexStandardDebug
-> Task :mergeStandardDebugGlobalSynthetics
-> Task :processStandardDebugJavaRes NO-SOURCE
-> Task :validateSigningStandardDebug
-> Task :writeStandardDebugAppMetadata
-> Task :writeStandardDebugSigningConfigVersions
-> Task :mergeStandardDebugJavaResource
-> Task :mergeExtDexStandardDebug
-> Task :stripStandardDebugDebugSymbols
-> Task :packageStandardDebug
-> Task :createStandardDebugApkListingFileRedirect
-> Task :assembleStandardDebug
-
-BUILD SUCCESSFUL in 1m 13s
-37 actionable tasks: 35 executed, 2 up-to-date
-
-Copying Android binary using gradle command: 
-[long-value-redacted] copyAndRenameBinary -p [long-value-redacted] -Pexport_edition=standard -Pexport_build_type=debug -Pexport_format=apk -Pexport_path=file:/home/runner/work/Playground/Playground/qa-output -Pexport_filename=flowforge-qa-debug.apk
-Thread exit status: 0
-
-> Configure project :
-WARNING: The option setting 'android.overridePathCheck=true' is experimental.
-The current default is 'false'.
-
-> Task :copyAndRenameBinary
-
-BUILD SUCCESSFUL in 862ms
-1 actionable task: 1 executed
-
-Successfully completed Android gradle build.
-[92m[ DONE ][39m [1mexport[22m
-[0m
-WARNING: Scan thread aborted...
-     at: _notification (editor/file_system/editor_file_system.cpp:1757)
-Script docs haven't been properly loaded or regenerated, so don't save them to disk.
-cannot connect to daemon at tcp:5037: Connection refused
-EditorSettings: Save OK!
-WARNING: 1 ObjectDB instance was leaked at exit (run with `--verbose` for details).
-   at: cleanup (core/object/object.cpp:2536)
-XR: Clearing primary interface
-XR: Removed interface "Native mobile"
-XR: Removed interface "OpenXR"
-Leaked instance: EditorFileSystemDirectory:1482015446722
-Hint: Leaked instances typically happen when nodes are removed from the scene tree (with `remove_child()`) but not freed (with `free()` or `queue_free()`).
-Orphan StringName: Node (static: 3, total: 4)
-StringName: 1 unclaimed string names at exit.
-
-## phone-apk-export.log
-[   0% ] [90m[1mexport[22m | Started Exporting for Android (105 steps)[39m[0m
-
-## playtest-parser.log
+## gradle-template.log
 
 ## sdk.log
 
