@@ -1,0 +1,54 @@
+name: Image Enhancer Impeccable post-88 validation
+
+on:
+  push:
+    branches:
+      - validate/image-enhancer-impeccable-post88
+    paths:
+      - .github/workflows/image-enhancer-impeccable-post88.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out private Image Enhancer review branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: impeccable/post88-download-batch-polish
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: image_enhancer
+          fetch-depth: 1
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: image_enhancer
+        run: flutter pub get
+
+      - name: Regenerate localization source
+        working-directory: image_enhancer
+        run: flutter gen-l10n
+
+      - name: Focused UX regression suite
+        working-directory: image_enhancer
+        run: |
+          flutter test test/impeccable_post88_ux_test.dart test/impeccable_post85_model_selection_truth_test.dart test/impeccable_live_batch_queue_test.dart --reporter expanded
+
+      - name: Complete Flutter regression suite
+        working-directory: image_enhancer
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
+
+      - name: Strict Dart/Flutter analysis
+        working-directory: image_enhancer
+        run: flutter analyze
