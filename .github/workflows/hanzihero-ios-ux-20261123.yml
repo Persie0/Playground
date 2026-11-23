@@ -53,27 +53,13 @@ jobs:
           flutter build ios --simulator --debug --no-codesign > /tmp/hanzi-ios-build.log 2>&1 || { tail -n 110 /tmp/hanzi-ios-build.log; exit 1; }
           echo "iOS simulator app built"
 
-      - name: Commit regenerated CocoaPods lockfile to UX feature branch
-        shell: bash
-        env:
-          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          cd app
-          if git diff --quiet -- ios/Podfile.lock; then
-            echo 'Podfile.lock already synchronized'
-            exit 0
-          fi
-          test -n "$TOKEN"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add ios/Podfile.lock
-          git commit -m "fix(ios): synchronize RevenueCat CocoaPods dependencies with purchases_flutter"
-          AUTH="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\r\n')"
-          # A normal fast-forward push is safe when the remote has not moved.
-          # Flutter may change generated files; avoid rebasing a dirty checkout.
-          # If the remote moved concurrently, Git rejects this push safely.
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:refs/heads/impeccable/hanzihero-ux-40-20261122
+      - name: Upload resolved CocoaPods lock for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: hanzihero-ios-resolved-podfile-lock
+          path: app/ios/Podfile.lock
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Capture iPhone and iPad interface in light and dark appearance
         shell: bash
