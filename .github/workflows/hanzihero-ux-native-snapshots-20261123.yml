@@ -46,6 +46,9 @@ jobs:
           sed -i 's/compileSdk = 37/compileSdk = 36/' app/android/app/build.gradle.kts
           sed -i 's/targetSdk = 37/targetSdk = 36/' app/android/app/build.gradle.kts
           sed -i 's/ndkVersion = "29.0.14206865"/ndkVersion = flutter.ndkVersion/' app/android/app/build.gradle.kts
+          # Screenshot-only dependency substitution: API 37 is not offered
+          # by this public runner's SDK manager. Never commit this override.
+          printf 'dependency_overrides:\n  permission_handler_android: 13.0.1\n' > app/pubspec_overrides.yaml
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" > /tmp/sdk-install.log 2>&1 || { tail -n 60 /tmp/sdk-install.log; exit 1; }
 
       - name: Build native Android debug APK
