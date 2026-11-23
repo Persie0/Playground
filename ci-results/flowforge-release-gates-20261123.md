@@ -1,7 +1,11 @@
 # FlowForge Android release gates
 
-FlowForge commit: bb6573960b93c9357f544becfce3a194d999f675
-Playground commit: 75a31c7ad7b45de22eae4d80917c0778c7799b93
+FlowForge commit: 04b2f24a317364c766de543439f091e86bfc0b21
+Playground commit: 306b2d704acfca702d17e194b9b395c227c6bc2b
+Private checkout: success
+JDK setup: success
+Android SDK setup: failure
+Godot binary/export template: skipped
 Headless unit and calibration: skipped
 Android debug APK export: skipped
 Android emulator interaction: skipped
