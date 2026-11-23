@@ -1,0 +1,47 @@
+name: Image Enhancer post93 result and batch UX
+
+on:
+  push:
+    branches: [validate/image-enhancer-post93-result-batch]
+    paths: [.github/workflows/image-enhancer-post93-result-batch.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout pinned Image Enhancer review commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: eac4b415e6279c0d50ab272c84b8cbb1494cfd51
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Get dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Generate l10n
+        working-directory: app
+        run: flutter gen-l10n
+      - name: Focused batch/result widget tests
+        working-directory: app
+        run: flutter test test/impeccable_post93_batch_result_test.dart test/result_comparison_page_test.dart test/impeccable_live_batch_queue_test.dart --reporter expanded
+      - name: Full Flutter regression tests
+        working-directory: app
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
+      - name: Strict Flutter analyzer
+        working-directory: app
+        run: flutter analyze
+      - name: Compile Android debug APK
+        working-directory: app
+        run: flutter build apk --debug --no-pub
