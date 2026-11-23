@@ -23,7 +23,7 @@ jobs:
           test -n "$REPO_TOKEN" || { echo "Missing token with access to Persie0/flowforge"; exit 1; }
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
-            clone --depth=1 --branch=main https://github.com/Persie0/flowforge.git source
+            clone --depth=1 --branch=feature/flowforge-hints-and-level-variety-20261123 https://github.com/Persie0/flowforge.git source
           echo "FLOWFORGE_SHA=$(git -C source rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Download official stable Godot 4.7.2
@@ -62,12 +62,12 @@ jobs:
               root.add_child(game)
               game.tutorial_seen.clear()
               if OS.get_environment("FLOW_TALL") == "1":
-                  game._open_level(60)
+                  game._open_level(120)
                   await RenderingServer.frame_post_draw
                   await RenderingServer.frame_post_draw
                   print("TALL_ROOT ", root.size, " CONTROL ", game.size)
                   assert(game._layout_height() > 1100.0, "Height did not expand")
-                  assert(root.get_texture().get_image().save_png("res://ui-level-60-tall.png") == OK)
+                  assert(root.get_texture().get_image().save_png("res://ui-level-120-tall.png") == OK)
                   game.shop_open = true
                   await RenderingServer.frame_post_draw
                   await RenderingServer.frame_post_draw
@@ -85,7 +85,7 @@ jobs:
                   assert(root.get_texture().get_image().save_png("res://ui-win-tall.png") == OK)
                   print("UI_CAPTURE_TALL_OK")
               else:
-                  for number in [4, 25, 60]:
+                  for number in [4, 25, 120]:
                       game._open_level(number)
                       game.selected_index = -1
                       await RenderingServer.frame_post_draw
