@@ -1,0 +1,140 @@
+name: Resistor Scanner Round 4 Native UX QA
+
+on:
+  push:
+    branches: [ci/resistor-scanner-round4-20261123]
+    paths: [.github/workflows/resistor-scanner-round4-qa.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SCANNER_REF: 9391365df92dc525c1c29bd81114ce13b8f0ccb8
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout scanner PR commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: ${{ env.SCANNER_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android platform
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
+          test -x "$SDKMANAGER"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
+      - name: Compile, unit-test, lint and assemble
+        shell: bash
+        working-directory: app
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --stacktrace
+
+  native-screen-smoke:
+    needs: validate
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - name: Checkout same scanner revision
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: ${{ env.SCANNER_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install compile SDK on macOS
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
+          test -x "$SDKMANAGER"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
+      - name: Android phone orientation and large-type visual smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: |
+            set -euo pipefail
+            mkdir -p qa
+            cd app
+            chmod +x gradlew
+            ./gradlew --no-daemon :app:assembleDebug
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell pm clear at.austriao.resistor_scanner
+            adb shell pm grant at.austriao.resistor_scanner android.permission.CAMERA
+            adb shell am start -n at.austriao.resistor_scanner/at.austriao.resistorscanner.MainActivity
+            sleep 8
+            adb shell pidof at.austriao.resistor_scanner
+            adb exec-out screencap -p > ../qa/intro-portrait.png
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null
+            adb shell cat /sdcard/window.xml > ../qa/intro-portrait.xml
+            python3 - <<'PY'
+            import re, subprocess, xml.etree.ElementTree as ET
+            root = ET.parse('../qa/intro-portrait.xml').getroot()
+            skip = next((node for node in root.iter('node') if node.attrib.get('text') == 'Skip'), None)
+            if skip is None:
+                raise SystemExit('First-run Skip control was not found')
+            x1, y1, x2, y2 = [int(v) for v in re.findall(r'\d+', skip.attrib['bounds'])]
+            subprocess.run(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)],check=True)
+            PY
+            sleep 10
+            adb shell pidof at.austriao.resistor_scanner
+            adb exec-out screencap -p > ../qa/scanner-portrait.png
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null
+            adb shell cat /sdcard/window.xml > ../qa/scanner-portrait.xml
+            adb shell settings put system font_scale 1.3
+            adb shell cmd uimode night yes
+            adb shell settings put system accelerometer_rotation 0
+            adb shell settings put system user_rotation 1
+            adb shell am force-stop at.austriao.resistor_scanner
+            adb shell am start -n at.austriao.resistor_scanner/at.austriao.resistorscanner.MainActivity
+            sleep 8
+            adb shell pidof at.austriao.resistor_scanner
+            adb exec-out screencap -p > ../qa/scanner-landscape-dark-large-type.png
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null
+            adb shell cat /sdcard/window.xml > ../qa/scanner-landscape-dark-large-type.xml
+            adb shell dumpsys window > ../qa/window-state.txt
+            adb logcat -d -s AndroidRuntime:E > ../qa/runtime-crashes.log || true
+      - name: Preserve screenshots and accessibility hierarchy
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-scanner-round4-native-ui
+          path: qa/
+          if-no-files-found: warn
