@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p captures
-          DEVICE=$(xcrun simctl list devices available | sed -nE 's/.*iPhone[^()]*\\(([0-9A-F-]{36})\\).*/\\1/p' | head -n1)
+          DEVICE=$(xcrun simctl list devices available | grep 'iPhone' | head -n1 | grep -oE '[0-9A-F-]{36}')
           if [ -z "$DEVICE" ]; then
             echo "No iPhone simulator available"
             exit 1
