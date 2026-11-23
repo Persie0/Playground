@@ -111,12 +111,33 @@ jobs:
             ./gradlew --no-daemon :app:assembleDebug
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb shell pm clear at.austriao.resistor_scanner
+            adb shell pm grant at.austriao.resistor_scanner android.permission.CAMERA
             adb shell am start -n at.austriao.resistor_scanner/at.austriao.resistorscanner.MainActivity
             sleep 5
             adb shell pidof at.austriao.resistor_scanner
             adb exec-out screencap -p > ../qa/intro-portrait.png
             adb shell uiautomator dump /sdcard/window.xml >/dev/null || true
             adb shell cat /sdcard/window.xml > ../qa/intro-portrait.xml || true
+            # Find the real native Skip button by bounds rather than hard-coded
+            # screen coordinates, then inspect the scanner itself.
+            python3 - <<'PY'
+            import re
+            import subprocess
+            from xml.etree import ElementTree as ET
+            root = ET.parse("../qa/intro-portrait.xml").getroot()
+            target = next((n for n in root.iter("node") if n.attrib.get("text") == "Skip"), None)
+            if target is None:
+                raise SystemExit("Could not locate the first-run Skip button")
+            bounds = [int(v) for v in re.findall(r"\d+", target.attrib["bounds"])]
+            if len(bounds) != 4:
+                raise SystemExit(f"Invalid Skip bounds: {target.attrib['bounds']}")
+            subprocess.run(["adb", "shell", "input", "tap", str((bounds[0]+bounds[2])//2), str((bounds[1]+bounds[3])//2)], check=True)
+            PY
+            sleep 12
+            adb shell pidof at.austriao.resistor_scanner
+            adb exec-out screencap -p > ../qa/scanner-portrait.png
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null || true
+            adb shell cat /sdcard/window.xml > ../qa/scanner-portrait.xml || true
             adb shell settings put system font_scale 1.3
             adb shell cmd uimode night yes
             adb shell settings put system accelerometer_rotation 0
@@ -125,10 +146,11 @@ jobs:
             adb shell am start -n at.austriao.resistor_scanner/at.austriao.resistorscanner.MainActivity
             sleep 5
             adb shell pidof at.austriao.resistor_scanner
-            adb exec-out screencap -p > ../qa/intro-landscape-dark-large-text.png
+            adb exec-out screencap -p > ../qa/scanner-landscape-dark-large-text.png
             adb shell uiautomator dump /sdcard/window.xml >/dev/null || true
-            adb shell cat /sdcard/window.xml > ../qa/intro-landscape-dark-large-text.xml || true
-            adb shell dumpsys window > ../qa/window-state.txt
+            adb shell cat /sdcard/window.xml > ../qa/scanner-landscape-dark-large-text.xml || true
+                        adb shell dumpsys window > ../qa/window-state.txt
+            adb logcat -d -s AndroidRuntime:E > ../qa/runtime-errors.log || true
 
       - name: Preserve emulator screenshots and accessibility tree
         if: always()
