@@ -40,16 +40,44 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Confirm GitHub-hosted Android SDK tools
+      - name: Bootstrap Android SDK command-line tools
         id: sdk
         run: |
           set -euo pipefail
-          echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
-          command -v adb
-          command -v sdkmanager
-          sdkmanager --version
-          test -d "${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          mkdir -p qa-output
+          {
+            SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+            if test ! -d "$SDK_ROOT"; then SDK_ROOT="$RUNNER_TEMP/android-sdk"; fi
+            mkdir -p "$SDK_ROOT"
+            echo "SDK_ROOT=$SDK_ROOT"
+            echo "JAVA_HOME=$JAVA_HOME"
+            if test ! -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"; then
+              if command -v sdkmanager >/dev/null 2>&1; then
+                echo "Hosted sdkmanager detected: $(command -v sdkmanager)"
+                mkdir -p "$SDK_ROOT/cmdline-tools/latest/bin"
+                # Use the hosted executable directly; no root directory write.
+                SDKMANAGER="$(command -v sdkmanager)"
+              else
+                echo 'Installing verified official Android command-line tools archive'
+                wget --quiet --show-progress --progress=dot:giga \
+                  https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip \
+                  -O /tmp/android-cmdtools.zip
+                unzip -q /tmp/android-cmdtools.zip -d /tmp/android-cmdtools
+                mkdir -p "$SDK_ROOT/cmdline-tools/latest"
+                cp -a /tmp/android-cmdtools/cmdline-tools/. "$SDK_ROOT/cmdline-tools/latest/"
+                SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+              fi
+            else
+              SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+            fi
+            echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+            echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+            echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+            echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+            echo "SDKMANAGER_PATH=$SDKMANAGER" >> "$GITHUB_ENV"
+            "$SDKMANAGER" --version
+            echo 'ANDROID_SDK_TOOLS_PASS'
+          } 2>&1 | tee qa-output/sdk.log
 
       - name: Download Godot 4.7.2 and matching Android export template
         id: templates
@@ -89,8 +117,9 @@ jobs:
         run: |
           set -euo pipefail
           export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
-          sdkmanager --sdk_root="$ANDROID_SDK_ROOT" \
-            "platform-tools" "build-tools;35.0.1" "platforms;android-36" >/dev/null
+          "$SDKMANAGER_PATH" --sdk_root="$ANDROID_SDK_ROOT" \
+            "platform-tools" "build-tools;35.0.1" "platforms;android-36" >qa-output/sdk-install.log 2>&1 || \
+            { tail -80 qa-output/sdk-install.log; exit 1; }
           python3 - <<'PY'
           from pathlib import Path
           p = Path('source/export_presets.cfg')
@@ -196,7 +225,7 @@ jobs:
             else
               echo "Result: failure/incomplete"
             fi
-            for file in qa-output/import.log qa-output/calibration.log qa-output/geometry-and-cpu.log qa-output/apk-export.log; do
+            for file in qa-output/import.log qa-output/calibration.log qa-output/geometry-and-cpu.log qa-output/apk-export.log qa-output/sdk.log qa-output/sdk-install.log; do
               if test -f "$file"; then
                 echo
                 echo "## $(basename "$file")"
