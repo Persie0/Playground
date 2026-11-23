@@ -1,5 +1,5 @@
 name: Image Enhancer macOS build and notarization
-# Validation target: image_enhancer feat/macos-desktop-release edc6a9b79ea66f9cd86e2d928acd24ab6a087c73
+# Validation target: image_enhancer feature/macos-persistent-output-folder
 
 on:
   workflow_dispatch:
@@ -8,14 +8,14 @@ on:
         description: Private image_enhancer branch, tag or SHA
         type: string
         required: false
-        default: feat/macos-desktop-release
+        default: feature/macos-persistent-output-folder
       sign_notarize:
         description: Sign with Developer ID and notarize (requires configured Apple secrets)
         type: boolean
         required: false
         default: false
   push:
-    branches: [main]
+    branches: [ci/image-enhancer-macos-output-folder]
     paths: [.github/workflows/image-enhancer-macos-release.yml]
 
 permissions:
@@ -26,7 +26,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 100
     env:
-      APP_REF: ${{ inputs.ref || 'feat/macos-desktop-release' }}
+      APP_REF: ${{ inputs.ref || 'feature/macos-persistent-output-folder' }}
     steps:
       - name: Validate private repository token
         env:
