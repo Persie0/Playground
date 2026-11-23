@@ -42,6 +42,11 @@ jobs:
         run: |
           # MapLibre/location/Sentry require SwiftPM; use macOS 26 and
           # its newer Xcode instead of the crashing Xcode 16.4 resolver.
+          # CI-only experiment: both nested and workspace Package.resolved
+          # were committed with the same pins; an Xcode package graph mismatch
+          # can crash while inserting dependency file references.
+          rm -f ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          rm -f ios/Runner.xcworkspace/xcshareddata/swiftpm/Package.resolved
           flutter config --enable-swift-package-manager
           flutter pub get
           flutter build ios --debug --simulator --no-codesign
