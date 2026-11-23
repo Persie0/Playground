@@ -69,48 +69,71 @@ jobs:
           adb install -r app/build/app/outputs/flutter-apk/app-debug.apk
           adb shell am start -n at.persie0.noise_remover/.MainActivity
           sleep 12
-          adb exec-out screencap -p > "$GITHUB_WORKSPACE/ux-captures/home_dark.png"
-          adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
-          adb pull /sdcard/window.xml "$GITHUB_WORKSPACE/ux-captures/accessibility-home.xml" >/dev/null 2>&1 || true
           python3 - <<'PY'
           import os, re, subprocess, time, xml.etree.ElementTree as ET
-          out = os.environ['GITHUB_WORKSPACE'] + '/ux-captures'
+          from pathlib import Path
+          out = Path(os.environ['GITHUB_WORKSPACE']) / 'ux-captures'
+          pkg = 'at.persie0.noise_remover'
+          def adb(*args, **kwargs):
+              return subprocess.run(['adb', *args], check=True, **kwargs)
+          def dump():
+              adb('shell','uiautomator','dump','/sdcard/window.xml', stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              adb('pull','/sdcard/window.xml','/tmp/noise-ux-window.xml', stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              return ET.parse('/tmp/noise-ux-window.xml')
           def tap_label(label):
-              subprocess.run(['adb','shell','uiautomator','dump','/sdcard/window.xml'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-              subprocess.run(['adb','pull','/sdcard/window.xml','/tmp/noise-ux-window.xml'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-              try:
-                  nodes = list(ET.parse('/tmp/noise-ux-window.xml').iter('node'))
-              except Exception:
-                  return False
-              for node in nodes:
-                  title = (node.attrib.get('text','') + ' ' + node.attrib.get('content-desc','')).lower()
-                  if label.lower() not in title:
+              for node in dump().iter('node'):
+                  desc = (node.attrib.get('text','') + ' ' + node.attrib.get('content-desc','')).lower()
+                  if label.lower() not in desc:
                       continue
-                  match = re.search(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', node.attrib.get('bounds',''))
-                  if match:
-                      x1,y1,x2,y2 = map(int, match.groups())
-                      subprocess.run(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)], check=True)
-                      return True
+                  coords = re.findall(r'\d+',node.attrib.get('bounds',''))
+                  if len(coords) != 4:
+                      continue
+                  x1,y1,x2,y2 = map(int,coords)
+                  if x2 <= x1 or y2 <= y1:
+                      continue
+                  adb('shell','input','tap',str((x1+x2)//2),str((y1+y2)//2))
+                  time.sleep(1)
+                  return True
               return False
-          for label, stem in [('Processing','processing_dark'),('Result','result_dark'),('Batch','batch_dark')]:
-              if tap_label(label):
-                  time.sleep(6)
-                  with open(f'{out}/{stem}.png','wb') as f:
-                      subprocess.run(['adb','exec-out','screencap','-p'], stdout=f, check=True)
-              else:
-                  print(f'VISUAL_COVERAGE_MISSING: {label} toolbar target not found')
-          if tap_label('Light Mode'):
-              time.sleep(3)
-              with open(f'{out}/selected_light.png','wb') as f:
-                  subprocess.run(['adb','exec-out','screencap','-p'], stdout=f, check=True)
+          def choose(label):
+              if not tap_label(label):
+                  raise RuntimeError('Screenshot navigation is unreachable: '+label)
+          def capture(name):
+              choose('Hide Toolbar')
+              time.sleep(1)
+              if name == 'home_dark':
+                  dump().write(str(out/'accessibility-home.xml'),encoding='utf-8')
+              with open(out/(name+'.png'),'wb') as file:
+                  adb('exec-out','screencap','-p',stdout=file)
+              choose('Show Toolbar')
+          capture('home_dark')
+          for label,name in [('Processing','processing_dark'),('Result','result_dark'),('Batch','batch_dark')]:
+              choose(label)
+              time.sleep(5)
+              capture(name)
+              if label == 'Result':
+                  text = ' '.join((n.attrib.get('text','')+' '+n.attrib.get('content-desc','')) for n in dump().iter('node'))
+                  if 'file not found' in text.lower():
+                      print('VISUAL_FIXTURE_WARNING: Result capture is a missing-file state')
+          choose('Home')
+          choose('Light Mode')
+          time.sleep(2)
+          capture('home_light')
+          choose('Batch')
+          time.sleep(2)
+          capture('batch_light')
+          adb('shell','settings','put','system','font_scale','1.3')
+          adb('shell','am','force-stop',pkg)
+          adb('shell','am','start','-n',pkg+'/.MainActivity')
+          time.sleep(10)
+          capture('home_large_text')
+          adb('shell','settings','put','system','font_scale','1.0')
+          for name in ('home_dark','processing_dark','result_dark','batch_dark','home_light','batch_light','home_large_text'):
+              item = out/(name+'.png')
+              if not item.exists() or item.stat().st_size < 10000:
+                  raise RuntimeError('Missing or empty screenshot: '+name)
+          print('VISUAL_CAPTURE_COMPLETE:', ','.join(p.name for p in sorted(out.glob('*.png'))))
           PY
-          adb shell settings put system font_scale 1.3
-          adb shell am force-stop at.persie0.noise_remover
-          adb shell am start -n at.persie0.noise_remover/.MainActivity
-          sleep 10
-          adb exec-out screencap -p > "$GITHUB_WORKSPACE/ux-captures/home_large_text.png"
-          test "$(stat -c%s "$GITHUB_WORKSPACE/ux-captures/home_dark.png")" -gt 10000
-          adb shell settings put system font_scale 1.0
           adb logcat -d -s flutter:D Flutter:D AndroidRuntime:E > "$GITHUB_WORKSPACE/ux-captures/android-logcat.txt" || true
           SCRIPT
           chmod +x "$RUNNER_TEMP/noise-visual.sh"
