@@ -110,6 +110,7 @@ jobs:
           timeout 150s "$GODOT_BIN" --headless --path source \
             --script res://tests/release_layout_performance.gd 2>&1 | tee qa-output/geometry-and-cpu.log
           grep -q 'LAYOUT_PERF_RESULT' qa-output/geometry-and-cpu.log
+          python3 -m unittest discover -s source/tests -p 'test_playtest_feedback.py' -v 2>&1 | tee qa-output/playtest-parser.log
           if grep -Ei 'SCRIPT ERROR|Parse Error|CALIBRATION FAIL|LAYOUT_PERF_FAIL' qa-output/*.log; then
             exit 1
           fi
@@ -232,7 +233,7 @@ jobs:
             else
               echo "Result: failure/incomplete"
             fi
-            for file in qa-output/import.log qa-output/calibration.log qa-output/geometry-and-cpu.log qa-output/apk-export.log qa-output/gradle-template.log qa-output/sdk.log qa-output/sdk-install.log; do
+            for file in qa-output/import.log qa-output/calibration.log qa-output/geometry-and-cpu.log qa-output/apk-export.log qa-output/gradle-template.log qa-output/playtest-parser.log qa-output/sdk.log qa-output/sdk-install.log; do
               if test -f "$file"; then
                 echo
                 echo "## $(basename "$file")"
