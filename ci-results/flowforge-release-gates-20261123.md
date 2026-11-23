@@ -1,7 +1,7 @@
 # FlowForge Android release gates
 
 FlowForge commit: b0969e04f0b25d1919970af8fccfa3519bc7af4d
-Playground commit: efc04d45ff8f368a57d01b9a89e6d555d738db52
+Playground commit: 5c6cc567e011fa05763d3ace2a8cb5a34159442b
 Private checkout: success
 JDK setup: success
 Android SDK setup: success
@@ -23,7 +23,7 @@ CALIBRATION_PROFILE {"flow_rate":0.691532258064516,"frustration_rate":0.05483870
 CALIBRATION_RESULT {"failures":[],"model":"independent logistic with seeded noise","profiles":5,"status":"pass"}
 
 ## geometry-and-cpu.log
-LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":3.08,"layout_cases":36,"status":"pass","trace_p95_ms":0.25}
+LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":3.06,"layout_cases":36,"status":"pass","trace_p95_ms":0.26}
 
 ## apk-export.log
     android.suppressUnsupportedCompileSdk=36
@@ -54,12 +54,12 @@ to this project's gradle.properties.
 	meta-data#org.godotengine.editor.version was tagged at AndroidManifest.xml:23 to replace another declaration but no other declaration present
 
 > Task :processStandardDebugManifest
-> Task :processStandardDebugManifestForPackage
 > Task :javaPreCompileStandardDebug
 > Task :mergeStandardDebugShaders
 > Task :compileStandardDebugShaders NO-SOURCE
 > Task :generateStandardDebugAssets UP-TO-DATE
 > Task :mergeStandardDebugAssets
+> Task :processStandardDebugManifestForPackage
 > Task :compressStandardDebugAssets
 > Task :processStandardDebugResources
 > Task :compileStandardDebugKotlin NO-SOURCE
@@ -75,15 +75,15 @@ to this project's gradle.properties.
 > Task :writeStandardDebugSigningConfigVersions
 > Task :mergeStandardDebugJavaResource
 > Task :mergeStandardDebugNativeLibs
-> Task :desugarStandardDebugFileDependencies
 > Task :stripStandardDebugDebugSymbols
+> Task :desugarStandardDebugFileDependencies
 > Task :mergeStandardDebugGlobalSynthetics
 > Task :mergeExtDexStandardDebug
 > Task :packageStandardDebug
 > Task :createStandardDebugApkListingFileRedirect
 > Task :assembleStandardDebug
 
-BUILD SUCCESSFUL in 1m 27s
+BUILD SUCCESSFUL in 1m 13s
 37 actionable tasks: 35 executed, 2 up-to-date
 
 Copying Android binary using gradle command: 
@@ -112,7 +112,7 @@ WARNING: 1 ObjectDB instance was leaked at exit (run with `--verbose` for detail
 XR: Clearing primary interface
 XR: Removed interface "Native mobile"
 XR: Removed interface "OpenXR"
-Leaked instance: EditorFileSystemDirectory:1481948337860
+Leaked instance: EditorFileSystemDirectory:1481948337859
 Hint: Leaked instances typically happen when nodes are removed from the scene tree (with `remove_child()`) but not freed (with `free()` or `queue_free()`).
 Orphan StringName: Node (static: 3, total: 4)
 StringName: 1 unclaimed string names at exit.
