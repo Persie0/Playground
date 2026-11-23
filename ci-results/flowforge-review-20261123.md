@@ -1,8 +1,8 @@
 # FlowForge generator and hint branch - public validation
 
-Result: failure
-Target SHA: 75708268c71bc4f8df9190563b64c346e203336e
-Workflow commit: 81796c8b3be43b55f06308723bb9a95688915d4a
+Result: success
+Target SHA: cac18c228e2a83534815f3af7b242a37a7593e95
+Workflow commit: e7a564676d72fde304690f3335d2284433decf3b
 
 ## import.log
 
@@ -10,5 +10,10 @@ Workflow commit: 81796c8b3be43b55f06308723bb9a95688915d4a
 Flow Forge: 1000 generated levels validated
 
 ## gameplay.log
-SCRIPT ERROR: Assertion failed: Compact touch target width must be at least 48
+Flow Forge: gameplay interactions and 60 level completions validated
+
+## economy.log
+Flow Forge: wallet, RevenueCat entitlement and fail-closed IAP tests validated
+
+## smoke.log
 
