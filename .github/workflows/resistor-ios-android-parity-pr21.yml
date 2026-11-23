@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/resistor-scanner-ios
-          ref: a02413194e5ada80fe75d4597b28386091475811
+          ref: 91c9604443cdec3abe190dc82ddb6a701ce01804
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           submodules: recursive
           persist-credentials: false
@@ -31,6 +31,13 @@ jobs:
           set -euo pipefail
           cd source
           swift test 2>&1 | tee "$RUNNER_TEMP/resistor-parity-swift-test.log"
+
+      - name: Parse all native Swift app source files without package resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          find source/ResistorScanner -name '*.swift' -print0 | xargs -0 swiftc -frontend -parse
+          echo 'Native Swift source syntax OK'
 
       - name: Compile iOS simulator app without signing
         shell: bash
