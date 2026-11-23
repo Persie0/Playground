@@ -1,4 +1,5 @@
 name: NomadRank authenticated shell UX screenshots (public Playground)
+# Tenth review: verify fresh empty Map, contributor dialog and large-font composition.
 on:
   push:
     branches: [main]
@@ -84,6 +85,18 @@ jobs:
           adb shell input tap 405 2220
           sleep 12
           adb exec-out screencap -p > native-ux-preview/02-map-phone.png
+          # The contributors button is positioned at the upper right of the
+          # expanded Map on the standard 1080x2400 / 440dpi preview.
+          adb shell input tap 940 395
+          sleep 3
+          adb exec-out screencap -p > native-ux-preview/02b-map-contributors.png
+          adb shell input keyevent 4
+          sleep 2
+          adb shell settings put system font_scale 1.6
+          sleep 5
+          adb exec-out screencap -p > native-ux-preview/02c-map-large-type.png
+          adb shell settings put system font_scale 1.0
+          sleep 2
           adb shell input tap 675 2220
           sleep 10
           adb exec-out screencap -p > native-ux-preview/03-intel-phone.png
