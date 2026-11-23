@@ -40,9 +40,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
+      - name: Confirm GitHub-hosted Android SDK tools
         id: sdk
-        uses: android-actions/setup-android@v3
+        run: |
+          set -euo pipefail
+          echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+          command -v adb
+          command -v sdkmanager
+          sdkmanager --version
+          test -d "${ANDROID_HOME:-/usr/local/lib/android/sdk}"
 
       - name: Download Godot 4.7.2 and matching Android export template
         id: templates
