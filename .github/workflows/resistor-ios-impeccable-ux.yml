@@ -1,0 +1,81 @@
+name: Resistor Scanner iOS Impeccable UX validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-ios-impeccable-ux.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-26
+    timeout-minutes: 65
+    steps:
+      - name: Checkout private iOS UI branch through public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-ios
+          ref: 0c01979efe6f1ad52b7adc91e3bfdaf6727081a7
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          submodules: recursive
+          persist-credentials: false
+          path: source
+
+      - name: Run all Swift core tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          swift test 2>&1 | tee "$RUNNER_TEMP/resistor-ux-swift-test.log"
+
+      - name: Parse all native Swift app source files without package resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          find source/ResistorScanner -name '*.swift' -print0 | xargs -0 swiftc -frontend -parse
+          echo 'Native Swift source syntax OK'
+
+      # Microsoft temporarily removed its SPM repository in November 2026.
+      # Use a verified immutable mirror of Microsoft's original release commit
+      # ONLY on the public CI runner; keep the app's upstream dependency intact.
+      - name: Verify and route original ONNX Runtime 1.24.2 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mirror='https://github.com/masicai/onnxruntime-swift-package-manager'
+          original_commit='b7fb7f7dea8a2469e6335d95a61b8f36d0dc83b2'
+          actual="$(git ls-remote "$mirror" refs/tags/1.24.2 | awk '{print $1}')"
+          test "$actual" = "$original_commit"
+          git config --global url."$mirror".insteadOf \
+            'https://github.com/microsoft/onnxruntime-swift-package-manager'
+          echo 'Verified original ONNX Runtime release commit and configured runner-only mirror.'
+
+      - name: Compile iOS simulator app without signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          xcodebuild -project ResistorScanner.xcodeproj -scheme ResistorScanner \
+            -configuration Debug -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" CODE_SIGNING_ALLOWED=NO build \
+            > "$RUNNER_TEMP/resistor-ux-xcodebuild.log" 2>&1 || {
+              grep -nE 'error:|fatal error:|BUILD FAILED' "$RUNNER_TEMP/resistor-ux-xcodebuild.log" | tail -100 || true
+              tail -70 "$RUNNER_TEMP/resistor-ux-xcodebuild.log"
+              exit 1
+            }
+          grep 'BUILD SUCCEEDED' "$RUNNER_TEMP/resistor-ux-xcodebuild.log"
+
+      - name: Upload test and build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-ios-impeccable-ux
+          retention-days: 3
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/resistor-ux-swift-test.log
+            ${{ runner.temp }}/resistor-ux-xcodebuild.log
