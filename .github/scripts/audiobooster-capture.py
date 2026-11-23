@@ -85,15 +85,24 @@ def main():
     adb("shell", "am", "start", "-W", "-n",
         "com.persie0.audiobooster/.MainActivity", stdout=subprocess.DEVNULL)
     time.sleep(8)
-    # Android's first-run immersive-mode warning can cover the entire app.
-    # Dismiss the OS prompt before collecting visual evidence.
-    tap_label("Got it")
+    # Only dismiss an actual Android system prompt. A failed label search
+    # otherwise swipes the app and would contaminate native screenshot evidence.
+    tree, _ = dump_tree()
+    if tree is not None and any(
+        node.attrib.get("text") == "Viewing full screen"
+        for node in tree.iter("node")
+    ):
+        tap_label("Got it", optional=False)
     time.sleep(4)
     capture("01-onboarding-light")
 
-    # Fresh installs may start with the automatic media guide or directly
-    # display the device compatibility result.
-    tap_label("Close", "Skip")
+    # Fresh installs may start with the optional media-app guide.
+    tree, _ = dump_tree()
+    if tree is not None and any(
+        node.attrib.get("text") == "Skip"
+        for node in tree.iter("node")
+    ):
+        tap_label("Skip")
     capture("02-compatibility-light")
     if not tap_label("Continue", optional=True):
         # Conservative fallback for devices whose Compose semantics tree is
@@ -104,6 +113,11 @@ def main():
 
     tap_label("Settings")
     capture("04-advanced-light")
+    if tap_label("Watch the animated setup guide"):
+        capture("04b-media-guide-step-1")
+        if tap_label("Next"):
+            capture("04c-media-guide-step-2")
+        tap_label("Back")
     tap_label("Back")
     tap_label("View supported apps")
     capture("05-supported-apps-light")
