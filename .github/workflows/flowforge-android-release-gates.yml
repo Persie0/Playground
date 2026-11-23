@@ -164,6 +164,14 @@ jobs:
             "$PWD/qa-output/flowforge-qa-debug.apk" 2>&1 | tee qa-output/apk-export.log
           test -s qa-output/flowforge-qa-debug.apk
           ls -lh qa-output/flowforge-qa-debug.apk
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging \
+            qa-output/flowforge-qa-debug.apk | tee qa-output/apk-manifest.txt
+          grep -q "targetSdkVersion:'36'" qa-output/apk-manifest.txt || \
+            { echo "APK was not built for required target SDK 36"; exit 1; }
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose \
+            qa-output/flowforge-qa-debug.apk | tee qa-output/apk-signature.txt
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/zipalign" -c -P 16 -v 4 \
+            qa-output/flowforge-qa-debug.apk | tee qa-output/page-alignment.txt
           unzip -l qa-output/flowforge-qa-debug.apk | grep -E 'lib/x86_64/libgodot_android.so|lib/x86_64/libgodot.so' || \
             { echo 'No x86_64 native library in debug APK'; exit 1; }
           echo 'ANDROID_DEBUG_EXPORT_PASS'
