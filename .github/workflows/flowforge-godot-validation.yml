@@ -8,7 +8,7 @@ on:
       - '.github/workflows/flowforge-godot-validation.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   check:
@@ -157,3 +157,28 @@ jobs:
             *.log
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Write bounded public validation summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          {
+            echo '# FlowForge generator and hint branch - public validation'
+            echo
+            echo "Result: $OUTCOME"
+            echo "Target SHA: ${FLOWFORGE_SHA:-clone failed}"
+            echo "Workflow commit: $GITHUB_SHA"
+            echo
+            for file in import.log levels.log gameplay.log economy.log smoke.log; do
+              if test -f "$file"; then
+                echo "## $file"
+                grep -E 'validated|ERROR:|SCRIPT ERROR|Parse Error|Assertion|FATAL|failed' "$file" | tail -25 || true
+                echo
+              fi
+            done
+          } > /tmp/flowforge-ci-summary.md
+          ENCODED="$(base64 -w0 /tmp/flowforge-ci-summary.md)"
+          gh api -X PUT repos/Persie0/Playground/contents/ci-results/flowforge-review-20261123.md             -f message='ci: publish FlowForge review validation result'             -f content="$ENCODED" -f branch=main --silent
