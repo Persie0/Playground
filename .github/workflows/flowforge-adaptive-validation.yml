@@ -1,5 +1,5 @@
 name: Flow Forge - adaptive endless integration (public Playground)
-# Review pass 5: compile corrected historical UX tests and verify adaptive migration.
+# Final visual gate: high-difficulty four-channel layout, backup migration and director simulation.
 
 on:
   workflow_dispatch:
@@ -64,8 +64,17 @@ jobs:
                   "rotate": true, "larger_board": true, "third_route": true,
                   "four_piece": true, "precision": true, "neutral": true,
                   "orbit": true, "bridge": true, "blocked": true, "decoy": true}
+              # The current install begins with low skill. Force a high-skill
+              # user solely for native layout QA; don't change production saves.
+              game.director.skill = 55.0
+              game.director.player_seed = 4242
+              game.director.taught = {"neutral": true, "orbit": true,
+                  "blocked": true, "bridge": true, "decoy": true}
               if OS.get_environment("FLOW_TALL") == "1":
                   game._open_level(120)
+                  print("QA_TALL_LANES ", game.level["lanes"], " TRAY ", game.level["pieces"].size())
+                  assert(game.level["lanes"] == 4, "High skill layout must use 4 channels")
+                  assert(game.level["pieces"].size() >= 8, "High skill layout should be challenging")
                   await RenderingServer.frame_post_draw
                   await RenderingServer.frame_post_draw
                   print("TALL_ROOT ", root.size, " CONTROL ", game.size)
@@ -90,6 +99,10 @@ jobs:
               else:
                   for number in [4, 25, 120]:
                       game._open_level(number)
+                      if number == 120:
+                          print("QA_LANES ", game.level["lanes"], " TRAY ", game.level["pieces"].size())
+                          assert(game.level["lanes"] == 4, "High skill layout must use 4 channels")
+                          assert(game.level["pieces"].size() >= 8, "High skill layout should be challenging")
                       game.selected_index = -1
                       await RenderingServer.frame_post_draw
                       await RenderingServer.frame_post_draw
@@ -158,6 +171,13 @@ jobs:
           grep -q 'legacy save migration validated' migration.log
           if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' migration.log; then exit 1; fi
 
+      - name: Synthetic adaptive director calibration (not a human playtest)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          timeout 100s /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/director_sim.gd 2>&1 | tee director_sim.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' director_sim.log; then exit 1; fi
+
       - name: Game scene smoke test
         continue-on-error: true
         run: |
@@ -186,13 +206,13 @@ jobs:
             echo '# FlowForge adaptive integration - public validation'
             echo
             BAD=0
-            for f in import.log levels.log gameplay.log economy.log endless.log adaptive_gameplay.log migration.log smoke.log; do
+            for f in import.log levels.log gameplay.log economy.log endless.log adaptive_gameplay.log migration.log director_sim.log smoke.log capture.log; do
               if ! test -f "$f" || grep -Eiq '(SCRIPT ERROR|Parse Error|ERROR:|Assertion failed)' "$f"; then
                 echo "FAILED: $f"
                 BAD=1
               fi
             done
-            for pair in 'levels.log|levels validated' 'gameplay.log|gameplay interactions' 'economy.log|fail-closed IAP tests validated' 'adaptive_gameplay.log|adaptive endless gameplay validated' 'migration.log|legacy save migration validated'; do
+            for pair in 'capture.log|UI_CAPTURE_TALL_OK' 'levels.log|levels validated' 'gameplay.log|gameplay interactions' 'economy.log|fail-closed IAP tests validated' 'adaptive_gameplay.log|adaptive endless gameplay validated' 'migration.log|legacy save migration validated'; do
               f="${pair%%|*}"
               needle="${pair#*|}"
               if ! grep -q "$needle" "$f" 2>/dev/null; then BAD=1; fi
@@ -200,7 +220,7 @@ jobs:
             if test "$BAD" = 0; then echo 'Result: success'; else echo 'Result: failure'; fi
             echo "Target SHA: ${FLOWFORGE_SHA:-clone failed}"
             echo "Workflow commit: $GITHUB_SHA"
-            for f in import.log levels.log gameplay.log economy.log endless.log adaptive_gameplay.log migration.log smoke.log capture.log; do
+            for f in import.log levels.log gameplay.log economy.log endless.log adaptive_gameplay.log migration.log director_sim.log smoke.log capture.log; do
               if test -f "$f"; then
                 echo "## $f"
                 grep -E 'validated|SCRIPT ERROR|Parse Error|ERROR:|Assertion|failed|SUCCESS|FATAL' "$f" | tail -35 || true
