@@ -1,0 +1,99 @@
+name: TopTravelList India 430 reviews and rankings
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-india-430-20261123.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-india-430-20261123
+  cancel-in-progress: false
+jobs:
+  india-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Verify Playground secret for cross-repository push
+        env:
+          SOURCE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$SOURCE_TOKEN"
+      - name: Checkout India feature branch using Playground secret
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/india-worldwide-v2-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: repo
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install project requirements
+        working-directory: repo
+        run: python -m pip install -r requirements.txt
+      - name: Validate schema, scores, global benchmark guards and review coverage
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/validate.py scripts/generate_rankings.py scripts/check_new_country_reviews.py
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country IN
+      - name: Generate Indian city/sight ranked lists and worldwide directory
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/generate_rankings.py --country IN
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+      - name: Assert exact India coverage and source links in generated lists
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          root=Path.cwd()
+          expected={"cities":97,"sights":333}
+          for kind,count in expected.items():
+              folder=root/"countries"/"IN"/kind
+              paths=sorted(folder.glob("*.yaml"))
+              assert len(paths)==count, (kind,len(paths))
+              md=(root/"countries"/"IN"/f"{kind}.md").read_text(encoding="utf-8")
+              assert md.count("https://www.google.com/maps/search/?api=1&query=")==count,kind
+              for file in paths:
+                  rec=yaml.safe_load(file.read_text(encoding="utf-8"))
+                  assert rec["id"]==("city" if kind=="cities" else "sight")+"-in-"+file.stem
+                  for dim in ("impact","uniqueness","significance","experience","depth"):
+                      assert 0<=rec["scores"][dim]<10,(file,dim)
+                  assert f']({kind}/{file.name})' in md,file
+          readme=(root/"README.md").read_text(encoding="utf-8")
+          assert "| [India](countries/IN/)" in readme
+          assert "| 97 | 333 |" in readme
+          print("PASS: 97 city/333 sight YAML sources and generated markdown links.")
+          PY
+      - name: Commit generated India rankings and README country index to feature branch
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md countries/IN/cities.md countries/IN/sights.md
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Nothing to commit"
+          else
+            test "$(git diff --cached --name-only | wc -l)" -le 3
+            git commit -m 'Generate ranked India overviews and update worldwide directory'
+            git push origin HEAD:refs/heads/data/india-worldwide-v2-2026
+          fi
