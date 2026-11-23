@@ -108,6 +108,22 @@ jobs:
                       await RenderingServer.frame_post_draw
                       assert(root.get_texture().get_image().save_png(
                           "res://ui-level-%d.png" % number) == OK)
+                      if number == 120:
+                          # Synthetic extra spares exercise the complete 12-slot
+                          # layout even if this seed only generated 11.
+                          while game.level["pieces"].size() < 12:
+                              var spare: Dictionary = game.level["pieces"][0].duplicate(true)
+                              spare["decoy"] = true
+                              spare["neutral"] = true
+                              spare["origin"] = Vector2i(-1000, -1000)
+                              game.level["pieces"].append(spare)
+                          assert(game.level["pieces"].size() == 12)
+                          game._refresh_accessibility()
+                          await RenderingServer.frame_post_draw
+                          await RenderingServer.frame_post_draw
+                          assert(root.get_texture().get_image().save_png(
+                              "res://ui-level-120-12-slots.png") == OK)
+                          print("UI_CAPTURE_12_SLOTS_OK")
                       print("UI_CAPTURE_OK ", number)
               quit()
           GDSCRIPT
@@ -212,7 +228,7 @@ jobs:
                 BAD=1
               fi
             done
-            for pair in 'capture.log|UI_CAPTURE_TALL_OK' 'levels.log|levels validated' 'gameplay.log|gameplay interactions' 'economy.log|fail-closed IAP tests validated' 'adaptive_gameplay.log|adaptive endless gameplay validated' 'migration.log|legacy save migration validated'; do
+            for pair in 'capture.log|UI_CAPTURE_TALL_OK' 'levels.log|levels validated' 'gameplay.log|gameplay interactions' 'economy.log|fail-closed IAP tests validated' 'adaptive_gameplay.log|adaptive endless gameplay validated' 'migration.log|legacy save migration validated' 'capture.log|UI_CAPTURE_12_SLOTS_OK'; do
               f="${pair%%|*}"
               needle="${pair#*|}"
               if ! grep -q "$needle" "$f" 2>/dev/null; then BAD=1; fi
@@ -253,3 +269,16 @@ jobs:
           # but do not mark this public check green unless the full set passed.
           test -f /tmp/adaptive-ci.md
           grep -q '^Result: success' /tmp/adaptive-ci.md
+
+          if test -f source/ui-level-120-12-slots.png; then
+            IMAGE_PATH="ci-results/flowforge-adaptive-12-slot-review.png"
+            IMAGE="$(base64 -w0 source/ui-level-120-12-slots.png)"
+            OLD_IMAGE="$(gh api "repos/Persie0/Playground/contents/$IMAGE_PATH" --jq .sha 2>/dev/null || true)"
+            if test -n "$OLD_IMAGE"; then
+              gh api -X PUT "repos/Persie0/Playground/contents/$IMAGE_PATH" \
+                -f message='ci: update adaptive 12-slot touch layout' -f content="$IMAGE" -f sha="$OLD_IMAGE" -f branch=main --silent
+            else
+              gh api -X PUT "repos/Persie0/Playground/contents/$IMAGE_PATH" \
+                -f message='ci: capture adaptive 12-slot touch layout' -f content="$IMAGE" -f branch=main --silent
+            fi
+          fi
