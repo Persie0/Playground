@@ -1,16 +1,16 @@
 # FlowForge Android release gates
 
-FlowForge commit: 2f99e72b29f684e4857bb956c5f4f80dd38cb56d
-Playground commit: f1bc3e56bc4573c0e284930083bfcbc31842b3bb
+FlowForge commit: b0969e04f0b25d1919970af8fccfa3519bc7af4d
+Playground commit: efc04d45ff8f368a57d01b9a89e6d555d738db52
 Private checkout: success
 JDK setup: success
 Android SDK setup: success
 Godot binary/export template: success
 Headless unit and calibration: success
-Android debug APK export: failure
-Android emulator interaction: skipped
+Android debug APK export: success
+Android emulator interaction: success
 
-Result: failure/incomplete
+Result: success (emulator only; not a physical-device or human-playtest pass)
 
 ## import.log
 
@@ -23,54 +23,101 @@ CALIBRATION_PROFILE {"flow_rate":0.691532258064516,"frustration_rate":0.05483870
 CALIBRATION_RESULT {"failures":[],"model":"independent logistic with seeded noise","profiles":5,"status":"pass"}
 
 ## geometry-and-cpu.log
-LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":2.43,"layout_cases":36,"status":"pass","trace_p95_ms":0.18}
+LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":3.08,"layout_cases":36,"status":"pass","trace_p95_ms":0.25}
 
 ## apk-export.log
-WorkerThreadPool: 4 threads, 3 max low-priority.
-Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
-TextServer: Added interface "Dummy"
-TextServer: Added interface "ICU / HarfBuzz / Graphite (Built-in)"
-SDL: Init OK!
-Using "default" pen tablet driver...
+    android.suppressUnsupportedCompileSdk=36
+to this project's gradle.properties.
 
-TextServer: Primary interface set to: "ICU / HarfBuzz / Graphite (Built-in)".
-CORE API HASH: 2004498165
-EDITOR API HASH: 1696660745
-SceneTreeFTI: traversal method DEFAULT
-Loading resource: /home/runner/.config/godot/editor_settings-4.7.tres remapped: /home/runner/.config/godot/editor_settings-4.7.tres
-Completed load for: '/home/runner/.config/godot/editor_settings-4.7.tres' remapped '/home/runner/.config/godot/editor_settings-4.7.tres' at thread -1
-EditorSettings: Load OK!
-EditorTheme: Generating new theme for the config '3810048042'.
-EditorTheme: Generating new icons.
-EditorTheme: Generating new fonts.
-EditorTheme: Generating new styles.
-Loading resource: /home/runner/.cache/godot/editor_doc_cache-4.7.res remapped: /home/runner/.cache/godot/editor_doc_cache-4.7.res
-Loaded system CA certificates
-Completed load for: '/home/runner/.cache/godot/editor_doc_cache-4.7.res' remapped '/home/runner/.cache/godot/editor_doc_cache-4.7.res' at thread -1
-[   0% ] [90m[1mfirst_scan_filesystem[22m | Started Project initialization (5 steps)[39m[0m
-[   0% ] [90m[1mfirst_scan_filesystem[22m | Scanning file structure...[39m[0m
-[  16% ] [90m[1mfirst_scan_filesystem[22m | Loading global class names...[39m[0m
-[  33% ] [90m[1mfirst_scan_filesystem[22m | Verifying GDExtensions...[39m[0m
-[  50% ] [90m[1mfirst_scan_filesystem[22m | Creating autoload scripts...[39m[0m
-[  66% ] [90m[1mfirst_scan_filesystem[22m | Initializing plugins...[39m[0m
-[  83% ] [90m[1mfirst_scan_filesystem[22m | Starting file scan...[39m[0m
-[92m[ DONE ][39m [1mfirst_scan_filesystem[22m
+> Task :validateJavaVersion UP-TO-DATE
+> Task :clean UP-TO-DATE
+> Task :assetPackInstallTime:clean UP-TO-DATE
+> Task :preBuild UP-TO-DATE
+> Task :preStandardDebugBuild UP-TO-DATE
+> Task :mergeStandardDebugNativeDebugMetadata NO-SOURCE
+> Task :checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :generateStandardDebugBuildConfig
+> Task :generateStandardDebugResValues
+> Task :checkStandardDebugAarMetadata
+> Task :mapStandardDebugSourceSetPaths
+> Task :generateStandardDebugResources
+> Task :packageStandardDebugResources
+> Task :mergeStandardDebugResources
+> Task :createStandardDebugCompatibleScreenManifests
+> Task :extractDeepLinksStandardDebug
+> Task :parseStandardDebugLocalResources
+
+> Task :processStandardDebugMainManifest
+[long-value-redacted].xml:22:9-124 Warning:
+	meta-data#org.godotengine.rendering.method was tagged at AndroidManifest.xml:22 to replace another declaration but no other declaration present
+[long-value-redacted].xml:23:9-118 Warning:
+	meta-data#org.godotengine.editor.version was tagged at AndroidManifest.xml:23 to replace another declaration but no other declaration present
+
+> Task :processStandardDebugManifest
+> Task :processStandardDebugManifestForPackage
+> Task :javaPreCompileStandardDebug
+> Task :mergeStandardDebugShaders
+> Task :compileStandardDebugShaders NO-SOURCE
+> Task :generateStandardDebugAssets UP-TO-DATE
+> Task :mergeStandardDebugAssets
+> Task :compressStandardDebugAssets
+> Task :processStandardDebugResources
+> Task :compileStandardDebugKotlin NO-SOURCE
+> Task :checkStandardDebugDuplicateClasses
+> Task :compileStandardDebugJavaWithJavac
+> Task :mergeLibDexStandardDebug
+> Task :dexBuilderStandardDebug
+> Task :processStandardDebugJavaRes NO-SOURCE
+> Task :mergeProjectDexStandardDebug
+> Task :mergeStandardDebugJniLibFolders
+> Task :validateSigningStandardDebug
+> Task :writeStandardDebugAppMetadata
+> Task :writeStandardDebugSigningConfigVersions
+> Task :mergeStandardDebugJavaResource
+> Task :mergeStandardDebugNativeLibs
+> Task :desugarStandardDebugFileDependencies
+> Task :stripStandardDebugDebugSymbols
+> Task :mergeStandardDebugGlobalSynthetics
+> Task :mergeExtDexStandardDebug
+> Task :packageStandardDebug
+> Task :createStandardDebugApkListingFileRedirect
+> Task :assembleStandardDebug
+
+BUILD SUCCESSFUL in 1m 27s
+37 actionable tasks: 35 executed, 2 up-to-date
+
+Copying Android binary using gradle command: 
+[long-value-redacted] copyAndRenameBinary -p [long-value-redacted] -Pexport_edition=standard -Pexport_build_type=debug -Pexport_format=apk -Pexport_path=file:/home/runner/work/Playground/Playground/qa-output -Pexport_filename=flowforge-qa-debug.apk
+Thread exit status: 0
+
+> Configure project :
+WARNING: The option setting 'android.overridePathCheck=true' is experimental.
+The current default is 'false'.
+
+> Task :copyAndRenameBinary
+
+BUILD SUCCESSFUL in 1s
+1 actionable task: 1 executed
+
+Successfully completed Android gradle build.
+[92m[ DONE ][39m [1mexport[22m
 [0m
-ERROR: Cannot export project with preset "Android" due to configuration errors:
-"Min SDK" can only be overridden when "Use Gradle Build" is enabled.
-"Target SDK" can only be overridden when "Use Gradle Build" is enabled.
-
-   at: _fs_changed (editor/editor_node.cpp:1401)
-ERROR: Project export for preset "Android" failed.
-   at: _fs_changed (editor/editor_node.cpp:1417)
+WARNING: Scan thread aborted...
+     at: _notification (editor/file_system/editor_file_system.cpp:1757)
 Script docs haven't been properly loaded or regenerated, so don't save them to disk.
 cannot connect to daemon at tcp:5037: Connection refused
 EditorSettings: Save OK!
+WARNING: 1 ObjectDB instance was leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
 XR: Clearing primary interface
 XR: Removed interface "Native mobile"
 XR: Removed interface "OpenXR"
+Leaked instance: EditorFileSystemDirectory:1481948337860
+Hint: Leaked instances typically happen when nodes are removed from the scene tree (with `remove_child()`) but not freed (with `free()` or `queue_free()`).
 Orphan StringName: Node (static: 3, total: 4)
 StringName: 1 unclaimed string names at exit.
+
+## playtest-parser.log
 
 ## sdk.log
 
