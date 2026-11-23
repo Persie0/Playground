@@ -53,29 +53,43 @@ jobs:
         with:
           api-level: 35
           arch: x86_64
-          target: google_apis
+          target: google_atd
           profile: pixel_6
           cores: 2
-          ram-size: 3072M
+          ram-size: 4096M
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           script: |
             flutter build apk --debug --no-pub
             adb install -r build/app/outputs/flutter-apk/app-debug.apk
+            adb shell wm dismiss-keyguard || true
             adb shell am start -n at.persie0.nomadrank/.MainActivity
-            sleep 20
+            sleep 15
+            # Fail rather than certify screenshots obscured by an Android ANR.
+            verify_visible_app() {
+              if timeout 25s adb shell uiautomator dump /sdcard/nomadrank-ui.xml >/dev/null 2>&1; then
+                if adb shell cat /sdcard/nomadrank-ui.xml | grep -Eqi "Launcher.*responding|System UI.*responding|isn.t responding|Application Not Responding"; then
+                  echo "::error::An Android system not-responding dialog obscures the app."
+                  exit 1
+                fi
+              fi
+            }
+            verify_visible_app
             mkdir -p native-ux-captures
             adb exec-out screencap -p > native-ux-captures/android-phone-default.png
             adb shell cmd uimode night yes
             sleep 4
+            verify_visible_app
             adb exec-out screencap -p > native-ux-captures/android-phone-dark.png
             adb shell cmd uimode night no
             sleep 4
             adb shell settings put system font_scale 1.4
             sleep 3
+            verify_visible_app
             adb exec-out screencap -p > native-ux-captures/android-phone-large-text.png
             adb shell wm size 1920x1200
             adb shell wm density 200
             sleep 5
+            verify_visible_app
             adb exec-out screencap -p > native-ux-captures/android-wide-window.png
 
       - name: Upload unmodified native screenshots
@@ -86,14 +100,6 @@ jobs:
           path: native-ux-captures/*.png
           if-no-files-found: ignore
 
-      - name: Print compressed screenshot previews for visual audit
+      - name: List screenshot sizes for audit
         if: success()
-        shell: bash
-        run: |
-          for p in native-ux-captures/*.png; do
-            f="${p%.png}.jpg"
-            ffmpeg -hide_banner -loglevel error -y -i "$p" -vf "scale=440:-2" -frames:v 1 -q:v 8 "$f"
-            printf 'NOMADRANK_VISUAL:%s:' "$(basename "$f")"
-            base64 -w0 "$f"
-            echo
-          done
+        run: ls -lh native-ux-captures/*.png
