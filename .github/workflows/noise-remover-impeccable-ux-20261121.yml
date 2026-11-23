@@ -50,6 +50,35 @@ jobs:
         working-directory: app
         run: flutter gen-l10n
 
+      - name: Align changed UI files with Material UI migration
+        working-directory: app
+        run: |
+          for file in \
+            lib/screens/about_legal_page.dart \
+            lib/screens/audio_recording_screen.dart \
+            lib/screens/bulk_processing_screen.dart \
+            lib/screens/general_settings_page.dart \
+            lib/screens/help_screen.dart \
+            lib/screens/home_screen.dart \
+            lib/screens/paywall_screen.dart \
+            lib/screens/processing_screen.dart \
+            lib/screens/processing_settings_page.dart \
+            lib/screens/result_screen.dart \
+            lib/screens/settings_screen.dart \
+            lib/screens/storage_settings_page.dart \
+            lib/widgets/audio_waveform_preview.dart \
+            lib/widgets/language_picker_sheet.dart \
+            lib/widgets/model_option_widget.dart \
+            lib/widgets/paywall_package_choice.dart \
+            lib/widgets/paywall_unavailable_panel.dart \
+            lib/widgets/pro_status_badge.dart \
+            lib/widgets/processing_estimate_dialog.dart \
+            lib/widgets/result_error_panel.dart \
+            lib/widgets/result_source_selector.dart \
+            lib/widgets/storage_usage_indicator.dart; do
+            sed -i 's#package:flutter/material.dart#package:material_ui/material_ui.dart#g' "$file"
+          done
+
       - name: Format touched Dart files
         working-directory: app
         run: |
@@ -88,7 +117,9 @@ jobs:
             lib/widgets/paywall_unavailable_panel.dart \
             test/impeccable_tenth_pass_test.dart \
             lib/screens/about_legal_page.dart \
-            test/impeccable_eleventh_pass_test.dart
+            test/impeccable_eleventh_pass_test.dart \
+            lib/widgets/storage_usage_indicator.dart \
+            test/impeccable_twelfth_pass_test.dart
           git diff --check
 
       - name: Analyze changed source and tests
@@ -129,7 +160,9 @@ jobs:
             lib/widgets/paywall_unavailable_panel.dart \
             test/impeccable_tenth_pass_test.dart \
             lib/screens/about_legal_page.dart \
-            test/impeccable_eleventh_pass_test.dart
+            test/impeccable_eleventh_pass_test.dart \
+            lib/widgets/storage_usage_indicator.dart \
+            test/impeccable_twelfth_pass_test.dart
 
       - name: Run Flutter test suite
         working-directory: app
@@ -176,7 +209,9 @@ jobs:
             lib/widgets/paywall_unavailable_panel.dart \
             test/impeccable_tenth_pass_test.dart \
             lib/screens/about_legal_page.dart \
-            test/impeccable_eleventh_pass_test.dart
+            test/impeccable_eleventh_pass_test.dart \
+            lib/widgets/storage_usage_indicator.dart \
+            test/impeccable_twelfth_pass_test.dart
           if ! git diff --cached --quiet; then
             git -c user.name='Playground UI validation' \
               -c user.email='github-actions[bot]@users.noreply.github.com' \
