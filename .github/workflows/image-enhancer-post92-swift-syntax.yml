@@ -1,0 +1,28 @@
+name: Image Enhancer macOS Swift syntax check
+
+on:
+  push:
+    branches: [validate/image-enhancer-post92-macos-i18n]
+    paths: [.github/workflows/image-enhancer-post92-swift-syntax.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  swift-syntax:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout pinned private Image Enhancer review commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: 8e28dfff3970cd5a2145685c7736191cd9806f72
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Validate Swift parser without network or CocoaPods
+        run: |
+          xcrun swiftc -frontend -parse app/macos/Runner/MainFlutterWindow.swift
+          echo "Swift syntax parse passed. This does not substitute for linking or native integration testing."
