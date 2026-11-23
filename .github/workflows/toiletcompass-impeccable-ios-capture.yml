@@ -1,0 +1,76 @@
+name: ToiletCompass Impeccable iOS simulator capture
+
+on:
+  push:
+    branches:
+      - impeccable/toiletcompass-ux-qa
+    paths:
+      - .github/workflows/toiletcompass-impeccable-ios-capture.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-native-ui:
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - name: Checkout private app through public Playground secrets
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/toiletcompass
+          ref: impeccable/toiletcompass-ux-40-point-pass
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - name: Flutter stable toolchain
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Inspect Apple toolchain
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available
+          pod --version
+
+      - name: Build iOS simulator app without code signing
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build ios --debug --simulator --no-codesign
+
+      - name: Capture iPhone UI in both appearances
+        run: |
+          set -euo pipefail
+          mkdir -p captures
+          DEVICE=$(xcrun simctl list devices available | sed -nE 's/.*iPhone[^()]*\\(([0-9A-F-]{36})\\).*/\\1/p' | head -n1)
+          if [ -z "$DEVICE" ]; then
+            echo "No iPhone simulator available"
+            exit 1
+          fi
+          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" app/build/ios/iphonesimulator/Runner.app
+          xcrun simctl ui "$DEVICE" appearance light
+          xcrun simctl launch "$DEVICE" at.persie0.toiletcompass
+          sleep 16
+          xcrun simctl io "$DEVICE" screenshot captures/iphone-light.png
+          xcrun simctl ui "$DEVICE" appearance dark
+          sleep 4
+          xcrun simctl io "$DEVICE" screenshot captures/iphone-dark.png
+          xcrun simctl ui "$DEVICE" content_size XXXL || true
+          sleep 4
+          xcrun simctl io "$DEVICE" screenshot captures/iphone-dark-large-text.png
+          xcrun simctl shutdown "$DEVICE" || true
+
+      - name: Upload screenshots, not private application source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toiletcompass-ios-device-captures
+          path: captures/*.png
+          if-no-files-found: warn
