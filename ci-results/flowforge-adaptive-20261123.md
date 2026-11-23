@@ -2,13 +2,13 @@
 
 FAILED: gameplay.log
 Result: failure
-Target SHA: 4fed172b7b92594d1f494a8c82dbf965804e3343
-Workflow commit: 765b77a17b65afd505b67f652f4130e69ae69a13
+Target SHA: 9cd0533f8e5d06fad1ebc30575fbebde5c1dcae9
+Workflow commit: c893e9f914ab850a4404fd23d1f195c6dc785527
 ## import.log
 ## levels.log
 Flow Forge: 1000 generated levels validated (60 distinct crossing layouts)
 ## gameplay.log
-SCRIPT ERROR: Assertion failed: Help button should replay current mechanic
+SCRIPT ERROR: Assertion failed: First relevant puzzle must show larger_board
 ## economy.log
 Flow Forge: wallet, RevenueCat entitlement and fail-closed IAP tests validated
 ## endless.log
