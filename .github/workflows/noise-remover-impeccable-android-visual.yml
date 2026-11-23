@@ -1,0 +1,126 @@
+name: Noise Remover Impeccable Android visual smoke
+
+on:
+  push:
+    branches:
+      - validation/noise-remover-impeccable-ux-20261121
+    paths:
+      - .github/workflows/noise-remover-impeccable-android-visual.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-visual:
+    name: Pixel emulator screenshots and accessibility snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out the private app on a public runner
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/noise_remover
+          ref: feature/impeccable-noise-remover-ux
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Configure private Git dependency access
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          test -n "$PRIVATE_TOKEN"
+          git config --global url."https://x-access-token:${PRIVATE_TOKEN}@github.com/".insteadOf "https://github.com/"
+      - name: Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install Flutter packages and generate translations
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter gen-l10n
+      - name: Install app Android SDK/NDK versions
+        run: |
+          echo "ANDROID_SDK_ROOT=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install 'platforms;android-37' 'build-tools;37.0.0' 'ndk;29.0.14206865'
+      - name: Enable accelerated Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+      - name: Render actual Android Flutter UI on Pixel 6
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
+          script: |
+            set -euo pipefail
+            mkdir -p "$GITHUB_WORKSPACE/ux-captures"
+            cd app
+            flutter build apk --debug --target lib/screenshot_harness.dart
+            adb install -r build/app/outputs/flutter-apk/app-debug.apk
+            adb shell am start -n at.persie0.noise_remover/.MainActivity
+            sleep 12
+            adb exec-out screencap -p > "$GITHUB_WORKSPACE/ux-captures/home_dark.png"
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+            adb pull /sdcard/window.xml "$GITHUB_WORKSPACE/ux-captures/accessibility-home.xml" >/dev/null 2>&1 || true
+            python3 - <<'PY'
+            import os, re, subprocess, time, xml.etree.ElementTree as ET
+            out = os.environ['GITHUB_WORKSPACE'] + '/ux-captures'
+            def tap_label(label):
+                subprocess.run(['adb','shell','uiautomator','dump','/sdcard/window.xml'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(['adb','pull','/sdcard/window.xml','/tmp/noise-ux-window.xml'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                try:
+                    nodes = list(ET.parse('/tmp/noise-ux-window.xml').iter('node'))
+                except Exception:
+                    return False
+                for node in nodes:
+                    title = (node.attrib.get('text','') + ' ' + node.attrib.get('content-desc','')).lower()
+                    if label.lower() not in title:
+                        continue
+                    match = re.search(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', node.attrib.get('bounds',''))
+                    if match:
+                        x1,y1,x2,y2 = map(int, match.groups())
+                        subprocess.run(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)], check=True)
+                        return True
+                return False
+            for label, stem in [('Processing','processing_dark'),('Result','result_dark'),('Batch','batch_dark')]:
+                if tap_label(label):
+                    time.sleep(6)
+                    with open(f'{out}/{stem}.png','wb') as f:
+                        subprocess.run(['adb','exec-out','screencap','-p'], stdout=f, check=True)
+                else:
+                    print(f'VISUAL_COVERAGE_MISSING: {label} toolbar target not found')
+            if tap_label('Light Mode'):
+                time.sleep(3)
+                with open(f'{out}/selected_light.png','wb') as f:
+                    subprocess.run(['adb','exec-out','screencap','-p'], stdout=f, check=True)
+            PY
+            adb shell settings put system font_scale 1.3
+            adb shell am force-stop at.persie0.noise_remover
+            adb shell am start -n at.persie0.noise_remover/.MainActivity
+            sleep 10
+            adb exec-out screencap -p > "$GITHUB_WORKSPACE/ux-captures/home_large_text.png"
+            test "$(stat -c%s "$GITHUB_WORKSPACE/ux-captures/home_dark.png")" -gt 10000
+            adb shell settings put system font_scale 1.0
+            adb logcat -d -s flutter:D Flutter:D AndroidRuntime:E > "$GITHUB_WORKSPACE/ux-captures/android-logcat.txt" || true
+      - name: Upload captured UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noise-remover-impeccable-android-visual
+          path: ux-captures/
+          if-no-files-found: warn
+          retention-days: 7
