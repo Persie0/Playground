@@ -112,6 +112,7 @@ jobs:
           retention-days: 3
 
       - name: Validate generated levels
+        continue-on-error: true
         run: |
           set -euo pipefail
           timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/level_tests.gd --quit-after 500 2>&1 | tee levels.log
@@ -119,6 +120,7 @@ jobs:
           if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' levels.log; then exit 1; fi
 
       - name: Gameplay interaction regression tests
+        continue-on-error: true
         run: |
           set -euo pipefail
           timeout 100s /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/gameplay_tests.gd 2>&1 | tee gameplay.log
@@ -126,6 +128,7 @@ jobs:
           if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' gameplay.log; then exit 1; fi
 
       - name: Coins and RevenueCat contract tests
+        continue-on-error: true
         run: |
           set -euo pipefail
           /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/economy_tests.gd 2>&1 | tee economy.log
@@ -133,12 +136,14 @@ jobs:
           if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' economy.log; then exit 1; fi
 
       - name: Adaptive director and generator stress tests
+        continue-on-error: true
         run: |
           set -euo pipefail
           timeout 300s /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/endless_tests.gd 2>&1 | tee endless.log
           if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' endless.log; then exit 1; fi
 
       - name: Adaptive real-input and replay tests
+        continue-on-error: true
         run: |
           set -euo pipefail
           timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/endless_gameplay_tests.gd 2>&1 | tee adaptive_gameplay.log
@@ -146,6 +151,7 @@ jobs:
           if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' adaptive_gameplay.log; then exit 1; fi
 
       - name: Save and reward migration tests
+        continue-on-error: true
         run: |
           set -euo pipefail
           timeout 90s /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/migration_tests.gd 2>&1 | tee migration.log
@@ -153,6 +159,7 @@ jobs:
           if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' migration.log; then exit 1; fi
 
       - name: Game scene smoke test
+        continue-on-error: true
         run: |
           set -euo pipefail
           /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --quit-after 100 2>&1 | tee smoke.log
@@ -178,7 +185,19 @@ jobs:
           {
             echo '# FlowForge adaptive integration - public validation'
             echo
-            echo "Result: $OUTCOME"
+            BAD=0
+            for f in import.log levels.log gameplay.log economy.log endless.log adaptive_gameplay.log migration.log smoke.log; do
+              if ! test -f "$f" || grep -Eiq '(SCRIPT ERROR|Parse Error|ERROR:|Assertion failed)' "$f"; then
+                echo "FAILED: $f"
+                BAD=1
+              fi
+            done
+            for pair in 'levels.log|levels validated' 'gameplay.log|gameplay interactions' 'economy.log|fail-closed IAP tests validated' 'adaptive_gameplay.log|adaptive endless gameplay validated' 'migration.log|legacy save migration validated'; do
+              f="${pair%%|*}"
+              needle="${pair#*|}"
+              if ! grep -q "$needle" "$f" 2>/dev/null; then BAD=1; fi
+            done
+            if test "$BAD" = 0; then echo 'Result: success'; else echo 'Result: failure'; fi
             echo "Target SHA: ${FLOWFORGE_SHA:-clone failed}"
             echo "Workflow commit: $GITHUB_SHA"
             for f in import.log levels.log gameplay.log economy.log endless.log adaptive_gameplay.log migration.log smoke.log capture.log; do
@@ -210,3 +229,7 @@ jobs:
                 -f message='ci: capture adaptive tray screenshot' -f content="$IMAGE" -f branch=main --silent
             fi
           fi
+          # Continue earlier failed suites to collect every regression in one run,
+          # but do not mark this public check green unless the full set passed.
+          test -f /tmp/adaptive-ci.md
+          grep -q '^Result: success' /tmp/adaptive-ci.md
