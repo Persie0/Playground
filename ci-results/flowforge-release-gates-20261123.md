@@ -1,7 +1,7 @@
 # FlowForge Android release gates
 
 FlowForge commit: b0969e04f0b25d1919970af8fccfa3519bc7af4d
-Playground commit: 5c6cc567e011fa05763d3ace2a8cb5a34159442b
+Playground commit: d4f7299422fb3b5c5710f3a179ee75497a5d7e55
 Private checkout: success
 JDK setup: success
 Android SDK setup: success
@@ -9,6 +9,12 @@ Godot binary/export template: success
 Headless unit and calibration: success
 Android debug APK export: success
 Android emulator interaction: success
+APK size (bytes): 86256302
+APK SHA-256: f15fc25b144e63b37e76ab08600132efaf13c09037726b6df3754c026d5dc2a1
+Download APK (GitHub Actions artifact ZIP): https://github.com/Persie0/Playground/actions/runs/45226026095/artifacts/14845140823
+Artifact ID: 14845140823
+Run: https://github.com/Persie0/Playground/actions/runs/45226026095
+This is a debug-signed emulator build with x86_64 native libraries; it is not an ARM phone/Play Store release APK.
 
 Result: success (emulator only; not a physical-device or human-playtest pass)
 
@@ -23,7 +29,7 @@ CALIBRATION_PROFILE {"flow_rate":0.691532258064516,"frustration_rate":0.05483870
 CALIBRATION_RESULT {"failures":[],"model":"independent logistic with seeded noise","profiles":5,"status":"pass"}
 
 ## geometry-and-cpu.log
-LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":3.06,"layout_cases":36,"status":"pass","trace_p95_ms":0.26}
+LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":2.41,"layout_cases":36,"status":"pass","trace_p95_ms":0.19}
 
 ## apk-export.log
     android.suppressUnsupportedCompileSdk=36
@@ -59,31 +65,31 @@ to this project's gradle.properties.
 > Task :compileStandardDebugShaders NO-SOURCE
 > Task :generateStandardDebugAssets UP-TO-DATE
 > Task :mergeStandardDebugAssets
-> Task :processStandardDebugManifestForPackage
 > Task :compressStandardDebugAssets
+> Task :processStandardDebugManifestForPackage
+> Task :checkStandardDebugDuplicateClasses
+> Task :mergeLibDexStandardDebug
+> Task :mergeStandardDebugJniLibFolders
 > Task :processStandardDebugResources
 > Task :compileStandardDebugKotlin NO-SOURCE
-> Task :checkStandardDebugDuplicateClasses
+> Task :mergeStandardDebugNativeLibs
+> Task :desugarStandardDebugFileDependencies
 > Task :compileStandardDebugJavaWithJavac
-> Task :mergeLibDexStandardDebug
 > Task :dexBuilderStandardDebug
-> Task :processStandardDebugJavaRes NO-SOURCE
 > Task :mergeProjectDexStandardDebug
-> Task :mergeStandardDebugJniLibFolders
+> Task :processStandardDebugJavaRes NO-SOURCE
+> Task :mergeStandardDebugGlobalSynthetics
 > Task :validateSigningStandardDebug
 > Task :writeStandardDebugAppMetadata
 > Task :writeStandardDebugSigningConfigVersions
 > Task :mergeStandardDebugJavaResource
-> Task :mergeStandardDebugNativeLibs
 > Task :stripStandardDebugDebugSymbols
-> Task :desugarStandardDebugFileDependencies
-> Task :mergeStandardDebugGlobalSynthetics
 > Task :mergeExtDexStandardDebug
 > Task :packageStandardDebug
 > Task :createStandardDebugApkListingFileRedirect
 > Task :assembleStandardDebug
 
-BUILD SUCCESSFUL in 1m 13s
+BUILD SUCCESSFUL in 1m 31s
 37 actionable tasks: 35 executed, 2 up-to-date
 
 Copying Android binary using gradle command: 
@@ -96,7 +102,7 @@ The current default is 'false'.
 
 > Task :copyAndRenameBinary
 
-BUILD SUCCESSFUL in 1s
+BUILD SUCCESSFUL in 982ms
 1 actionable task: 1 executed
 
 Successfully completed Android gradle build.
@@ -112,7 +118,7 @@ WARNING: 1 ObjectDB instance was leaked at exit (run with `--verbose` for detail
 XR: Clearing primary interface
 XR: Removed interface "Native mobile"
 XR: Removed interface "OpenXR"
-Leaked instance: EditorFileSystemDirectory:1481948337859
+Leaked instance: EditorFileSystemDirectory:1481965115076
 Hint: Leaked instances typically happen when nodes are removed from the scene tree (with `remove_child()`) but not freed (with `free()` or `queue_free()`).
 Orphan StringName: Node (static: 3, total: 4)
 StringName: 1 unclaimed string names at exit.
