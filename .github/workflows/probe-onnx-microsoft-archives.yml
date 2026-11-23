@@ -1,0 +1,22 @@
+name: Verify official ONNX Runtime Azure archive fallback
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/probe-onnx-microsoft-archives.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Check Microsoft Azure-hosted archives without disabling TLS
+        shell: bash
+        run: |
+          set -uo pipefail
+          host='https://onnxruntimepackages.z14.web.core.windows.net'
+          for archive in pod-archive-onnxruntime-c-1.24.2.zip pod-archive-onnxruntime-extensions-c-0.13.0.zip; do
+            echo "Checking $archive"
+            curl --head --location --show-error --silent --fail --max-time 20 "$host/$archive" || true
+          done
