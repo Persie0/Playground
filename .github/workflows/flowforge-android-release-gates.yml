@@ -174,7 +174,19 @@ jobs:
             qa-output/flowforge-qa-debug.apk | tee qa-output/page-alignment.txt
           unzip -l qa-output/flowforge-qa-debug.apk | grep -E 'lib/x86_64/libgodot_android.so|lib/x86_64/libgodot.so' || \
             { echo 'No x86_64 native library in debug APK'; exit 1; }
+          sha256sum qa-output/flowforge-qa-debug.apk | tee qa-output/apk-sha256.txt
           echo 'ANDROID_DEBUG_EXPORT_PASS'
+
+      - name: Upload installable FlowForge Android debug APK
+        id: apk_upload
+        if: steps.apk.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowforge-android-debug-apk-${{ github.run_id }}
+          path: qa-output/flowforge-qa-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
 
       - name: Enable KVM for Android emulator
         run: |
@@ -221,6 +233,8 @@ jobs:
           JAVA_OUTCOME: ${{ steps.java.outcome }}
           SDK_OUTCOME: ${{ steps.sdk.outcome }}
           TEMPLATE_OUTCOME: ${{ steps.templates.outcome }}
+          APK_ARTIFACT_URL: ${{ steps.apk_upload.outputs.artifact-url }}
+          APK_ARTIFACT_ID: ${{ steps.apk_upload.outputs.artifact-id }}
         run: |
           set -euo pipefail
           {
@@ -235,6 +249,16 @@ jobs:
             echo "Headless unit and calibration: $UNIT_OUTCOME"
             echo "Android debug APK export: $APK_OUTCOME"
             echo "Android emulator interaction: $EMULATOR_OUTCOME"
+            if test -s qa-output/flowforge-qa-debug.apk; then
+              echo "APK size (bytes): $(stat -c%s qa-output/flowforge-qa-debug.apk)"
+              echo "APK SHA-256: $(sha256sum qa-output/flowforge-qa-debug.apk | cut -d' ' -f1)"
+            fi
+            if [[ -n "$APK_ARTIFACT_URL" ]]; then
+              echo "Download APK (GitHub Actions artifact ZIP): $APK_ARTIFACT_URL"
+              echo "Artifact ID: $APK_ARTIFACT_ID"
+              echo "Run: https://github.com/Persie0/Playground/actions/runs/$GITHUB_RUN_ID"
+              echo "This is a debug-signed emulator build with x86_64 native libraries; it is not an ARM phone/Play Store release APK."
+            fi
             echo
             if [[ "$UNIT_OUTCOME" == "success" && "$APK_OUTCOME" == "success" && "$EMULATOR_OUTCOME" == "success" ]]; then
               echo "Result: success (emulator only; not a physical-device or human-playtest pass)"
