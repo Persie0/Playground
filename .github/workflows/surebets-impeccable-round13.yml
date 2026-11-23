@@ -1,0 +1,51 @@
+name: Surebets Impeccable round 13 settings accessibility
+on:
+  push:
+    branches: [ci/surebets-impeccable-round13-20261123]
+    paths:
+      - .github/workflows/surebets-impeccable-round13.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout private Surebets source from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: fix/impeccable-round13-settings-a11y-20261123
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Format changed code and verify patch hygiene
+        run: |
+          dart format lib/settings_page.dart lib/bet_history_screen.dart test/impeccable_round13_settings_accessibility_test.dart visual_tests/impeccable_round6_goldens_test.dart
+          git diff --check
+          git --no-pager diff --stat
+          git --no-pager diff -- lib/settings_page.dart lib/bet_history_screen.dart test/impeccable_round13_settings_accessibility_test.dart visual_tests/impeccable_round6_goldens_test.dart
+      - name: Flutter static analysis
+        run: flutter analyze --no-fatal-infos
+      - name: Full Flutter unit and widget regression suite
+        run: timeout 220s flutter test --reporter expanded
+      - name: Generate 17 full-font UI screenshot diagnostics
+        if: always()
+        run: timeout 200s flutter test visual_tests/impeccable_round6_goldens_test.dart --update-goldens --reporter expanded
+      - name: Upload Flutter screenshot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surebets-round13-settings-ui
+          path: visual_tests/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 7
