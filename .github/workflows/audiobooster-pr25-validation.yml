@@ -1,5 +1,5 @@
 name: AudioBooster PR25 Android validation
-# Diagnose any failing AudioBooster Compose instrumentation case with XML evidence on the public runner.
+# Report actual Android test failures in single-line commands supported by android-emulator-runner.
 # Public-only validation for private AudioBooster UX changes (no private Actions minutes).
 
 on:
@@ -72,22 +72,15 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            run_ui_tests() {
-              if ! ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.persie0.audiobooster.ui; then
-                echo "=== Instrumentation failure detail (private test source, no screenshots) ==="
-                find app/build/outputs/androidTest-results/connected -type f -name '*.xml' -print || true
-                grep -R -n -A 14 -E '<failure|<error' app/build/outputs/androidTest-results/connected || true
-                return 1
-              fi
-            }
+
             adb shell settings put system font_scale 1.0
             adb shell cmd uimode night no
-            run_ui_tests
+            ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.persie0.audiobooster.ui || { echo '=== Android test failures ==='; find app/build/outputs/androidTest-results/connected -type f -name '*.xml' -print; grep -R -n -A 14 -E '<failure|<error' app/build/outputs/androidTest-results/connected || true; exit 1; }
             adb shell settings put system font_scale 1.3
             adb shell cmd uimode night yes
-            run_ui_tests
+            ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.persie0.audiobooster.ui || { echo '=== Android test failures ==='; find app/build/outputs/androidTest-results/connected -type f -name '*.xml' -print; grep -R -n -A 14 -E '<failure|<error' app/build/outputs/androidTest-results/connected || true; exit 1; }
             adb shell wm size 900x1800
             adb shell settings put system font_scale 1.6
-            run_ui_tests
+            ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.persie0.audiobooster.ui || { echo '=== Android test failures ==='; find app/build/outputs/androidTest-results/connected -type f -name '*.xml' -print; grep -R -n -A 14 -E '<failure|<error' app/build/outputs/androidTest-results/connected || true; exit 1; }
             adb shell wm size reset
             adb shell settings put system font_scale 1.0
