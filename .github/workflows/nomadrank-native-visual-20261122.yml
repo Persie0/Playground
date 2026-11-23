@@ -48,6 +48,48 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Prepare Android capture script
+        shell: bash
+        run: |
+          cat > nomadrank-capture.sh <<'CAPTURE'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          flutter build apk --debug --no-pub
+          adb install -r build/app/outputs/flutter-apk/app-debug.apk
+          adb shell wm dismiss-keyguard || true
+          adb shell am start -n at.persie0.nomadrank/.MainActivity
+          sleep 15
+
+          verify_visible_app() {
+            if timeout 20s adb shell uiautomator dump /sdcard/nomadrank-ui.xml >/dev/null 2>&1; then
+              if adb shell cat /sdcard/nomadrank-ui.xml | grep -Eqi "Launcher.*responding|System UI.*responding|isn.t responding|Application Not Responding"; then
+                echo "::error::Android system ANR dialog covers NomadRank"
+                return 1
+              fi
+            fi
+          }
+
+          mkdir -p native-ux-captures
+          verify_visible_app
+          adb exec-out screencap -p > native-ux-captures/android-phone-default.png
+          adb shell cmd uimode night yes
+          sleep 3
+          verify_visible_app
+          adb exec-out screencap -p > native-ux-captures/android-phone-system-dark.png
+          adb shell cmd uimode night no
+          adb shell settings put system font_scale 1.4
+          sleep 3
+          verify_visible_app
+          adb exec-out screencap -p > native-ux-captures/android-phone-large-text.png
+          adb shell settings put system font_scale 1.0
+          adb shell wm size 1920x1200
+          adb shell wm density 200
+          sleep 4
+          verify_visible_app
+          adb exec-out screencap -p > native-ux-captures/android-wide-window.png
+          CAPTURE
+          chmod +x nomadrank-capture.sh
+
       - name: Build, launch and capture Android UI
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -58,39 +100,7 @@ jobs:
           cores: 2
           ram-size: 4096M
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
-          script: |
-            flutter build apk --debug --no-pub
-            adb install -r build/app/outputs/flutter-apk/app-debug.apk
-            adb shell wm dismiss-keyguard || true
-            adb shell am start -n at.persie0.nomadrank/.MainActivity
-            sleep 15
-            # Fail rather than certify screenshots obscured by an Android ANR.
-            verify_visible_app() {
-              if timeout 25s adb shell uiautomator dump /sdcard/nomadrank-ui.xml >/dev/null 2>&1; then
-                if adb shell cat /sdcard/nomadrank-ui.xml | grep -Eqi "Launcher.*responding|System UI.*responding|isn.t responding|Application Not Responding"; then
-                  echo "::error::An Android system not-responding dialog obscures the app."
-                  exit 1
-                fi
-              fi
-            }
-            verify_visible_app
-            mkdir -p native-ux-captures
-            adb exec-out screencap -p > native-ux-captures/android-phone-default.png
-            adb shell cmd uimode night yes
-            sleep 4
-            verify_visible_app
-            adb exec-out screencap -p > native-ux-captures/android-phone-dark.png
-            adb shell cmd uimode night no
-            sleep 4
-            adb shell settings put system font_scale 1.4
-            sleep 3
-            verify_visible_app
-            adb exec-out screencap -p > native-ux-captures/android-phone-large-text.png
-            adb shell wm size 1920x1200
-            adb shell wm density 200
-            sleep 5
-            verify_visible_app
-            adb exec-out screencap -p > native-ux-captures/android-wide-window.png
+          script: bash nomadrank-capture.sh
 
       - name: Upload unmodified native screenshots
         if: always()
