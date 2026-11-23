@@ -1,0 +1,59 @@
+name: Resistor Scanner iOS Android parity PR21 validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-ios-android-parity-pr21.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-26
+    timeout-minutes: 65
+    steps:
+      - name: Checkout private iOS parity PR through public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-ios
+          ref: e68519e7a2749b0e67bdb012dde187cfa6719d8b
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          submodules: recursive
+          persist-credentials: false
+          path: source
+
+      - name: Run all Swift core tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          swift test 2>&1 | tee "$RUNNER_TEMP/resistor-parity-swift-test.log"
+
+      - name: Compile iOS simulator app without signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          xcodebuild -project ResistorScanner.xcodeproj -scheme ResistorScanner \
+            -configuration Debug -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" CODE_SIGNING_ALLOWED=NO build \
+            > "$RUNNER_TEMP/resistor-parity-xcodebuild.log" 2>&1 || {
+              grep -nE 'error:|fatal error:|BUILD FAILED' "$RUNNER_TEMP/resistor-parity-xcodebuild.log" | tail -100 || true
+              tail -70 "$RUNNER_TEMP/resistor-parity-xcodebuild.log"
+              exit 1
+            }
+          grep 'BUILD SUCCEEDED' "$RUNNER_TEMP/resistor-parity-xcodebuild.log"
+
+      - name: Upload test and build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-ios-android-parity-pr21
+          retention-days: 3
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/resistor-parity-swift-test.log
+            ${{ runner.temp }}/resistor-parity-xcodebuild.log
