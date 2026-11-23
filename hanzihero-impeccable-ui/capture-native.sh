@@ -27,9 +27,9 @@ try:
     for element in root.iter():
         attrs = element.attrib
         label = (attrs.get('text', '') + ' ' + attrs.get('content-desc', '')).lower()
-        if sys.argv[1].lower() in label:
+        if sys.argv[1].lower() in label and attrs.get('clickable') == 'true':
             coords = list(map(int, re.findall(r'\d+', attrs.get('bounds', ''))))
-            if len(coords) == 4:
+            if len(coords) == 4 and coords[2] > coords[0] and coords[3] > coords[1]:
                 print((coords[0] + coords[2]) // 2, (coords[1] + coords[3]) // 2)
                 sys.exit(0)
 except Exception:
