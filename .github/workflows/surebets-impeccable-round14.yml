@@ -1,0 +1,51 @@
+name: Surebets Impeccable round 14 onboarding and Pro tools
+on:
+  push:
+    branches: [ci/surebets-impeccable-round14-20261123]
+    paths:
+      - .github/workflows/surebets-impeccable-round14.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout private Surebets from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: fix/impeccable-round14-first-run-advanced-20261123
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Format changed files and check whitespace
+        run: |
+          dart format lib/advanced_screen.dart lib/onboarding_screen.dart lib/odds_converter_screen.dart test/impeccable_round14_flow_accessibility_test.dart visual_tests/impeccable_round6_goldens_test.dart
+          git diff --check
+          git --no-pager diff --stat
+          git --no-pager diff -- lib/advanced_screen.dart lib/onboarding_screen.dart lib/odds_converter_screen.dart test/impeccable_round14_flow_accessibility_test.dart visual_tests/impeccable_round6_goldens_test.dart
+      - name: Flutter static analysis
+        run: flutter analyze --no-fatal-infos
+      - name: Full Flutter unit and widget suite
+        run: timeout 240s flutter test --reporter expanded
+      - name: Generate 19 full-font UI screenshots
+        if: always()
+        run: timeout 180s flutter test visual_tests/impeccable_round6_goldens_test.dart --update-goldens --reporter expanded
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surebets-round14-ui
+          path: visual_tests/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 7
