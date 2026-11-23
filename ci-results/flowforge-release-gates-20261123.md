@@ -1,7 +1,7 @@
 # FlowForge Android release gates
 
-FlowForge commit: 401b593acc7752fb46fc565c4fd7dd4b3eed1a1e
-Playground commit: 9d4e9d5372f3670da51389f6f647bf0838b2f0b1
+FlowForge commit: 2f99e72b29f684e4857bb956c5f4f80dd38cb56d
+Playground commit: f1bc3e56bc4573c0e284930083bfcbc31842b3bb
 Private checkout: success
 JDK setup: success
 Android SDK setup: success
@@ -23,7 +23,7 @@ CALIBRATION_PROFILE {"flow_rate":0.691532258064516,"frustration_rate":0.05483870
 CALIBRATION_RESULT {"failures":[],"model":"independent logistic with seeded noise","profiles":5,"status":"pass"}
 
 ## geometry-and-cpu.log
-LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":2.29,"layout_cases":36,"status":"pass","trace_p95_ms":0.19}
+LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":2.43,"layout_cases":36,"status":"pass","trace_p95_ms":0.18}
 
 ## apk-export.log
 WorkerThreadPool: 4 threads, 3 max low-priority.
@@ -59,7 +59,6 @@ Completed load for: '/home/runner/.cache/godot/editor_doc_cache-4.7.res' remappe
 ERROR: Cannot export project with preset "Android" due to configuration errors:
 "Min SDK" can only be overridden when "Use Gradle Build" is enabled.
 "Target SDK" can only be overridden when "Use Gradle Build" is enabled.
-ETC2/ASTC texture compression is required for Android export. In Project Settings, search for 'ETC2' in the search field, or enable 'Advanced Settings' and go to Rendering > Textures > VRAM Compression to enable 'Import ETC2 ASTC'.
 
    at: _fs_changed (editor/editor_node.cpp:1401)
 ERROR: Project export for preset "Android" failed.
