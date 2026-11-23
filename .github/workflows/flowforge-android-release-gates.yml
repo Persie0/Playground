@@ -152,7 +152,7 @@ jobs:
           export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$HOME/.android/debug.keystore"
           export GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey
           export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android
-          "$GODOT_BIN" --headless --path source --export-debug Android \
+          "$GODOT_BIN" --headless --verbose --path source --export-debug Android \
             "$PWD/qa-output/flowforge-qa-debug.apk" 2>&1 | tee qa-output/apk-export.log
           test -s qa-output/flowforge-qa-debug.apk
           ls -lh qa-output/flowforge-qa-debug.apk
@@ -229,7 +229,11 @@ jobs:
               if test -f "$file"; then
                 echo
                 echo "## $(basename "$file")"
-                grep -E 'CALIBRATION_|LAYOUT_PERF_|ERROR|Failed|failed|Error|Export|ERROR:' "$file" | tail -35 || true
+                if [[ "$file" == "qa-output/apk-export.log" ]]; then
+                  tail -90 "$file" | sed -E 's/[A-Za-z0-9_\\/=+]{50,}/[long-value-redacted]/g' || true
+                else
+                  grep -E 'CALIBRATION_|LAYOUT_PERF_|ERROR|Failed|failed|Error|Export|ERROR:' "$file" | tail -35 || true
+                fi
               fi
             done
             echo
