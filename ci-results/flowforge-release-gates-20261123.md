@@ -1,7 +1,7 @@
 # FlowForge Android release gates
 
-FlowForge commit: b0969e04f0b25d1919970af8fccfa3519bc7af4d
-Playground commit: 1d48c3ace7c0b8fca41c9b01602e57aeb9cc18e1
+FlowForge commit: e9bd0714a5a179aca9c77d28ce0c94ec4f255281
+Playground commit: 7ae98bc4c6f231a16439f8525bb595d8c5f9c631
 Private checkout: success
 JDK setup: success
 Android SDK setup: success
@@ -11,14 +11,14 @@ Android emulator x86_64 APK export: success
 Android ARM64/ARMv7 phone APK export: success
 Android emulator interaction: success
 Phone APK size (bytes): 164706103
-Phone APK SHA-256: 96dbcc4f620abef0703b5bb84970c4ca3780cfbe087ae8e824691f5f699e1091
-DOWNLOAD FOR ANDROID PHONE (debug-signed APK ZIP): https://github.com/Persie0/Playground/actions/runs/45226188750/artifacts/14844110798
-Phone artifact ID: 14844110798
+Phone APK SHA-256: 1c56372c9dbe5ce86b757a1c51050f342355d2db22ac5d4d67b8bffd9420e12f
+DOWNLOAD FOR ANDROID PHONE (debug-signed APK ZIP): https://github.com/Persie0/Playground/actions/runs/45227635815/artifacts/14844782636
+Phone artifact ID: 14844782636
 APK size (bytes): 86256298
-APK SHA-256: ff58c7c8978a5ad387ee6eaa95f842154608ee271f049ef3cb530d7afefe4cd8
-Download APK (GitHub Actions artifact ZIP): https://github.com/Persie0/Playground/actions/runs/45226188750/artifacts/14844410157
-Artifact ID: 14844410157
-Run: https://github.com/Persie0/Playground/actions/runs/45226188750
+APK SHA-256: d4d366a222df80d5508449f2794547d027aaeeb6e234ec2a4cad200911205f08
+Download APK (GitHub Actions artifact ZIP): https://github.com/Persie0/Playground/actions/runs/45227635815/artifacts/14844982503
+Artifact ID: 14844982503
+Run: https://github.com/Persie0/Playground/actions/runs/45227635815
 This is a debug-signed emulator build with x86_64 native libraries; it is not an ARM phone/Play Store release APK.
 
 Result: success (emulator only; not a physical-device or human-playtest pass)
@@ -34,7 +34,7 @@ CALIBRATION_PROFILE {"flow_rate":0.691532258064516,"frustration_rate":0.05483870
 CALIBRATION_RESULT {"failures":[],"model":"independent logistic with seeded noise","profiles":5,"status":"pass"}
 
 ## geometry-and-cpu.log
-LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":3.04,"layout_cases":36,"status":"pass","trace_p95_ms":0.26}
+LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":2.26,"layout_cases":36,"status":"pass","trace_p95_ms":0.17}
 
 ## apk-export.log
     android.suppressUnsupportedCompileSdk=36
@@ -52,8 +52,8 @@ to this project's gradle.properties.
 > Task :checkStandardDebugAarMetadata
 > Task :mapStandardDebugSourceSetPaths
 > Task :generateStandardDebugResources
-> Task :mergeStandardDebugResources
 > Task :packageStandardDebugResources
+> Task :mergeStandardDebugResources
 > Task :createStandardDebugCompatibleScreenManifests
 > Task :extractDeepLinksStandardDebug
 > Task :parseStandardDebugLocalResources
@@ -65,36 +65,36 @@ to this project's gradle.properties.
 	meta-data#org.godotengine.editor.version was tagged at AndroidManifest.xml:23 to replace another declaration but no other declaration present
 
 > Task :processStandardDebugManifest
-> Task :processStandardDebugManifestForPackage
 > Task :javaPreCompileStandardDebug
 > Task :mergeStandardDebugShaders
 > Task :compileStandardDebugShaders NO-SOURCE
 > Task :generateStandardDebugAssets UP-TO-DATE
 > Task :mergeStandardDebugAssets
-> Task :processStandardDebugResources
 > Task :compressStandardDebugAssets
-> Task :compileStandardDebugKotlin NO-SOURCE
+> Task :processStandardDebugManifestForPackage
 > Task :checkStandardDebugDuplicateClasses
-> Task :compileStandardDebugJavaWithJavac
 > Task :mergeLibDexStandardDebug
-> Task :dexBuilderStandardDebug
-> Task :processStandardDebugJavaRes NO-SOURCE
-> Task :mergeProjectDexStandardDebug
 > Task :mergeStandardDebugJniLibFolders
+> Task :processStandardDebugResources
+> Task :compileStandardDebugKotlin NO-SOURCE
+> Task :mergeStandardDebugNativeLibs
+> Task :desugarStandardDebugFileDependencies
+> Task :compileStandardDebugJavaWithJavac
+> Task :dexBuilderStandardDebug
+> Task :mergeProjectDexStandardDebug
+> Task :mergeStandardDebugGlobalSynthetics
+> Task :processStandardDebugJavaRes NO-SOURCE
 > Task :validateSigningStandardDebug
 > Task :writeStandardDebugAppMetadata
 > Task :writeStandardDebugSigningConfigVersions
 > Task :mergeStandardDebugJavaResource
-> Task :mergeStandardDebugNativeLibs
-> Task :desugarStandardDebugFileDependencies
-> Task :stripStandardDebugDebugSymbols
-> Task :mergeStandardDebugGlobalSynthetics
 > Task :mergeExtDexStandardDebug
+> Task :stripStandardDebugDebugSymbols
 > Task :packageStandardDebug
 > Task :createStandardDebugApkListingFileRedirect
 > Task :assembleStandardDebug
 
-BUILD SUCCESSFUL in 1m 43s
+BUILD SUCCESSFUL in 1m 13s
 37 actionable tasks: 35 executed, 2 up-to-date
 
 Copying Android binary using gradle command: 
@@ -107,7 +107,7 @@ The current default is 'false'.
 
 > Task :copyAndRenameBinary
 
-BUILD SUCCESSFUL in 1s
+BUILD SUCCESSFUL in 862ms
 1 actionable task: 1 executed
 
 Successfully completed Android gradle build.
@@ -123,7 +123,7 @@ WARNING: 1 ObjectDB instance was leaked at exit (run with `--verbose` for detail
 XR: Clearing primary interface
 XR: Removed interface "Native mobile"
 XR: Removed interface "OpenXR"
-Leaked instance: EditorFileSystemDirectory:1481998669508
+Leaked instance: EditorFileSystemDirectory:1482015446722
 Hint: Leaked instances typically happen when nodes are removed from the scene tree (with `remove_child()`) but not freed (with `free()` or `queue_free()`).
 Orphan StringName: Node (static: 3, total: 4)
 StringName: 1 unclaimed string names at exit.
