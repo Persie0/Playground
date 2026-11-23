@@ -1,0 +1,212 @@
+name: Flow Forge - adaptive endless integration (public Playground)
+# Post-merge validation of Flow Forge main: chapter map, boost controls and keyboard placement.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/flowforge-adaptive-validation.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fetch Flow Forge adaptive feature branch
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN" || { echo "Missing token with access to Persie0/flowforge"; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            clone --depth=1 --branch=feature/endless-adaptive-flow-20261123 https://github.com/Persie0/flowforge.git source
+          echo "FLOWFORGE_SHA=$(git -C source rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Download official stable Godot 4.7.2
+        run: |
+          set -euo pipefail
+          wget --quiet --show-progress --progress=dot:giga \
+            'https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip' \
+            -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --version
+
+      - name: Validate pinned RevenueCat installer syntax
+        run: bash -n source/tools/install-revenuecat.sh
+
+      - name: Import project and compile GDScript
+        run: |
+          set -euo pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --editor --path source --quit 2>&1 | tee import.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' import.log; then exit 1; fi
+
+      - name: Render bounded native screenshots at 540x960 and 540x1200
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cat > source/tests/ci_ui_capture.gd <<'GDSCRIPT'
+          extends SceneTree
+
+          const MainScene = preload("res://scenes/main.tscn")
+
+          func _initialize() -> void:
+              call_deferred("_capture")
+
+          func _capture() -> void:
+              var game: Control = MainScene.instantiate()
+              root.add_child(game)
+              game.tutorial_seen = {"basics": true, "two_routes": true,
+                  "rotate": true, "larger_board": true, "third_route": true,
+                  "four_piece": true, "precision": true, "neutral": true,
+                  "orbit": true, "bridge": true, "blocked": true, "decoy": true}
+              if OS.get_environment("FLOW_TALL") == "1":
+                  game._open_level(120)
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  print("TALL_ROOT ", root.size, " CONTROL ", game.size)
+                  assert(game._layout_height() > 1100.0, "Height did not expand")
+                  assert(root.get_texture().get_image().save_png("res://ui-level-120-tall.png") == OK)
+                  game.shop_open = true
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-shop-tall.png") == OK)
+                  game.shop_open = false
+                  game._open_map()
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-chapter-map-tall.png") == OK)
+                  game.map_open = false
+                  game.shop_open = false
+                  game.phase = "won"
+                  await RenderingServer.frame_post_draw
+                  await RenderingServer.frame_post_draw
+                  assert(root.get_texture().get_image().save_png("res://ui-win-tall.png") == OK)
+                  print("UI_CAPTURE_TALL_OK")
+              else:
+                  for number in [4, 25, 120]:
+                      game._open_level(number)
+                      game.selected_index = -1
+                      await RenderingServer.frame_post_draw
+                      await RenderingServer.frame_post_draw
+                      assert(root.get_texture().get_image().save_png(
+                          "res://ui-level-%d.png" % number) == OK)
+                      print("UI_CAPTURE_OK ", number)
+              quit()
+          GDSCRIPT
+          timeout 35s xvfb-run -a -s '-screen 0 1080x1920x24' /tmp/Godot_v4.7.2-stable_linux.x86_64 --audio-driver Dummy --path source --script res://tests/ci_ui_capture.gd --resolution 540x960 2>&1 | tee capture.log
+          FLOW_TALL=1 timeout 35s xvfb-run -a -s '-screen 0 1080x1920x24' /tmp/Godot_v4.7.2-stable_linux.x86_64 --audio-driver Dummy --path source --script res://tests/ci_ui_capture.gd --resolution 540x1200 2>&1 | tee -a capture.log
+          grep -q 'UI_CAPTURE_TALL_OK' capture.log
+
+      - name: Upload visual screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowforge-ui-captures
+          path: source/ui-*.png
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Validate generated levels
+        run: |
+          set -euo pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/level_tests.gd --quit-after 500 2>&1 | tee levels.log
+          grep -q 'levels validated' levels.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' levels.log; then exit 1; fi
+
+      - name: Gameplay interaction regression tests
+        run: |
+          set -euo pipefail
+          timeout 100s /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/gameplay_tests.gd 2>&1 | tee gameplay.log
+          grep -q 'gameplay interactions and 60 level completions validated' gameplay.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' gameplay.log; then exit 1; fi
+
+      - name: Coins and RevenueCat contract tests
+        run: |
+          set -euo pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/economy_tests.gd 2>&1 | tee economy.log
+          grep -q 'fail-closed IAP tests validated' economy.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' economy.log; then exit 1; fi
+
+      - name: Adaptive director and generator stress tests
+        run: |
+          set -euo pipefail
+          timeout 300s /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/endless_tests.gd 2>&1 | tee endless.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' endless.log; then exit 1; fi
+
+      - name: Adaptive real-input and replay tests
+        run: |
+          set -euo pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/endless_gameplay_tests.gd 2>&1 | tee adaptive_gameplay.log
+          grep -q 'adaptive endless gameplay validated' adaptive_gameplay.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' adaptive_gameplay.log; then exit 1; fi
+
+      - name: Save and reward migration tests
+        run: |
+          set -euo pipefail
+          timeout 90s /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --script res://tests/migration_tests.gd 2>&1 | tee migration.log
+          grep -q 'legacy save migration validated' migration.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' migration.log; then exit 1; fi
+
+      - name: Game scene smoke test
+        run: |
+          set -euo pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path source --quit-after 100 2>&1 | tee smoke.log
+          if grep -Ei '(SCRIPT ERROR|Parse Error|ERROR:)' smoke.log; then exit 1; fi
+
+      - name: Validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowforge-godot-validation-logs
+          path: |
+            *.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish bounded validation status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          {
+            echo '# FlowForge adaptive integration - public validation'
+            echo
+            echo "Result: $OUTCOME"
+            echo "Target SHA: ${FLOWFORGE_SHA:-clone failed}"
+            echo "Workflow commit: $GITHUB_SHA"
+            for f in import.log levels.log gameplay.log economy.log endless.log adaptive_gameplay.log migration.log smoke.log capture.log; do
+              if test -f "$f"; then
+                echo "## $f"
+                grep -E 'validated|SCRIPT ERROR|Parse Error|ERROR:|Assertion|failed|SUCCESS|FATAL' "$f" | tail -35 || true
+              fi
+            done
+          } > /tmp/adaptive-ci.md
+          export REPORT_PATH="ci-results/flowforge-adaptive-20261123.md"
+          ENCODED="$(base64 -w0 /tmp/adaptive-ci.md)"
+          OLD="$(gh api "repos/Persie0/Playground/contents/$REPORT_PATH" --jq .sha 2>/dev/null || true)"
+          if test -n "$OLD"; then
+            gh api -X PUT "repos/Persie0/Playground/contents/$REPORT_PATH" \
+              -f message='ci: update FlowForge adaptive QA' -f content="$ENCODED" -f sha="$OLD" -f branch=main --silent
+          else
+            gh api -X PUT "repos/Persie0/Playground/contents/$REPORT_PATH" \
+              -f message='ci: publish FlowForge adaptive QA' -f content="$ENCODED" -f branch=main --silent
+          fi
+          if test -f source/ui-level-120.png; then
+            export IMAGE_PATH="ci-results/flowforge-adaptive-level-120.png"
+            IMAGE="$(base64 -w0 source/ui-level-120.png)"
+            OLD_IMAGE="$(gh api "repos/Persie0/Playground/contents/$IMAGE_PATH" --jq .sha 2>/dev/null || true)"
+            if test -n "$OLD_IMAGE"; then
+              gh api -X PUT "repos/Persie0/Playground/contents/$IMAGE_PATH" \
+                -f message='ci: update adaptive tray screenshot' -f content="$IMAGE" -f sha="$OLD_IMAGE" -f branch=main --silent
+            else
+              gh api -X PUT "repos/Persie0/Playground/contents/$IMAGE_PATH" \
+                -f message='ci: capture adaptive tray screenshot' -f content="$IMAGE" -f branch=main --silent
+            fi
+          fi
