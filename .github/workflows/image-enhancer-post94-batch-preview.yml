@@ -1,0 +1,47 @@
+name: Image Enhancer post94 batch and preview UX
+
+on:
+  push:
+    branches: [validate/image-enhancer-post94-batch-preview]
+    paths: [.github/workflows/image-enhancer-post94-batch-preview.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout pinned private Image Enhancer UX commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: c7adbf4573491435ca24ca30e7375ab45e663dd2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Generate localization bindings
+        working-directory: app
+        run: flutter gen-l10n
+      - name: Run focused UX regression tests
+        working-directory: app
+        run: flutter test test/impeccable_post94_batch_preview_test.dart test/impeccable_post93_batch_result_test.dart test/impeccable_live_batch_queue_test.dart --reporter expanded
+      - name: Run all Flutter tests
+        working-directory: app
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
+      - name: Analyze app
+        working-directory: app
+        run: flutter analyze
+      - name: Build Android debug APK
+        working-directory: app
+        run: flutter build apk --debug --no-pub
