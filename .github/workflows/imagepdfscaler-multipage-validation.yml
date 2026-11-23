@@ -1,0 +1,46 @@
+name: ImagePdfScaler multipage PR validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/imagepdfscaler-multipage-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Confirm token
+        env:
+          APP_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: test -n "$APP_TOKEN"
+      - name: Checkout ImagePdfScaler multipage source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/ImagePdfScaler
+          ref: 1d5a9898d40421e3c04ae0ad72ef692b12103419
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Analyze strictly
+        working-directory: app
+        run: flutter analyze --no-pub --fatal-infos
+      - name: Multipage focused regression tests
+        working-directory: app
+        run: flutter test --no-pub --reporter expanded test/project_storage_service_test.dart test/pdf_services_test.dart test/project_home_page_test.dart
+      - name: Complete Flutter test suite
+        working-directory: app
+        run: flutter test --no-pub
