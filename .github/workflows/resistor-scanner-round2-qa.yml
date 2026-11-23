@@ -1,0 +1,133 @@
+name: Resistor Scanner Impeccable Round 2
+
+on:
+  push:
+    branches: [ci/resistor-scanner-round2-20261123]
+    paths:
+      - .github/workflows/resistor-scanner-round2-qa.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SCANNER_REF: 2731a78a1a8ba8b7ea7726ca6c2d6b205f89153f
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout scanner PR head
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: ${{ env.SCANNER_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Prepare hosted Android SDK
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -perm -u+x 2>/dev/null | sort -V | tail -n 1)"
+          test -x "$SDKMANAGER"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-37' 'build-tools;36.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
+
+      - name: Compile, unit tests, Android lint and debug APK
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --stacktrace
+
+  emulator:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout same scanner commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-android
+          ref: ${{ env.SCANNER_REF }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android compile platform
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -perm -u+x 2>/dev/null | sort -V | tail -n 1)"
+          test -x "$SDKMANAGER"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-37' 'build-tools;36.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
+
+      - name: Capture native tutorial and orientation smoke screenshots
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            mkdir -p qa
+            cd app
+            chmod +x gradlew
+            ./gradlew --no-daemon :app:assembleDebug
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell pm clear at.austriao.resistor_scanner
+            adb shell am start -n at.austriao.resistor_scanner/at.austriao.resistorscanner.MainActivity
+            sleep 5
+            adb shell pidof at.austriao.resistor_scanner
+            adb exec-out screencap -p > ../qa/intro-portrait.png
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null || true
+            adb shell cat /sdcard/window.xml > ../qa/intro-portrait.xml || true
+            adb shell settings put system font_scale 1.3
+            adb shell cmd uimode night yes
+            adb shell settings put system accelerometer_rotation 0
+            adb shell settings put system user_rotation 1
+            adb shell am force-stop at.austriao.resistor_scanner
+            adb shell am start -n at.austriao.resistor_scanner/at.austriao.resistorscanner.MainActivity
+            sleep 5
+            adb shell pidof at.austriao.resistor_scanner
+            adb exec-out screencap -p > ../qa/intro-landscape-dark-large-text.png
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null || true
+            adb shell cat /sdcard/window.xml > ../qa/intro-landscape-dark-large-text.xml || true
+            adb shell dumpsys window > ../qa/window-state.txt
+
+      - name: Preserve emulator screenshots and accessibility tree
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-scanner-round2-emulator
+          path: qa/
+          if-no-files-found: warn
