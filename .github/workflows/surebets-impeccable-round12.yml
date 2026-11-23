@@ -1,0 +1,51 @@
+name: Surebets Impeccable round 12 accessibility validation
+on:
+  push:
+    branches: [ci/surebets-impeccable-round12-20261123]
+    paths:
+      - .github/workflows/surebets-impeccable-round12.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout private Surebets source from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: fix/impeccable-round12-accessibility-20261123
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Dependencies
+        run: flutter pub get
+      - name: Format changed files and check whitespace
+        run: |
+          dart format lib/widgets/calculation_overview.dart lib/calculator_screen.dart test/impeccable_round10_cash_commission_test.dart
+          git diff --check
+          git --no-pager diff --stat
+          git --no-pager diff -- lib/widgets/calculation_overview.dart lib/calculator_screen.dart test/impeccable_round10_cash_commission_test.dart
+      - name: Static analysis
+        run: flutter analyze --no-fatal-infos
+      - name: Full Flutter test suite
+        run: timeout 200s flutter test --reporter expanded
+      - name: Confirm all Flutter diagnostic screenshots
+        if: always()
+        run: timeout 180s flutter test visual_tests/impeccable_round6_goldens_test.dart --update-goldens --reporter expanded
+      - name: Upload UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surebets-round12-ui
+          path: visual_tests/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 7
