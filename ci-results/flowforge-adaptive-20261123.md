@@ -1,8 +1,8 @@
 # FlowForge adaptive integration - public validation
 
 Result: success
-Target SHA: d1b090b1e5b12d03daa0d7b2708ed2d64b41bd73
-Workflow commit: a9611bad2c591d507e2bd456ed004429e73f85e3
+Target SHA: 145ba13aa52a38020fef8f6e87283e405abf52a9
+Workflow commit: bedf4a2e355612d02bf8478714256d0a26db0065
 ## import.log
 ## levels.log
 Flow Forge: 1000 generated levels validated (60 distinct crossing layouts)
@@ -15,5 +15,6 @@ Flow Forge: wallet, RevenueCat entitlement and fail-closed IAP tests validated
 Flow Forge: adaptive endless gameplay validated
 ## migration.log
 Flow Forge: legacy save migration validated
+## director_sim.log
 ## smoke.log
 ## capture.log
