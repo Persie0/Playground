@@ -1,0 +1,139 @@
+name: Photo Sphere debug ZIP export APK
+run-name: Build Photo Sphere ZIP export APK (3e56458f9906)
+on:
+  push:
+    branches:
+      - build/photosphere-debug-export-20261123
+    paths:
+      - .github/workflows/photosphere-debug-export-apk.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-debug-export-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      SOURCE_SHA: 3e56458f99067b416cd137a96be672603a67be1d
+    steps:
+      - name: Checkout public Playground scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: playground
+
+      - name: Checkout pinned private Photo Sphere PR source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: 3e56458f99067b416cd137a96be672603a67be1d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: engine
+
+      - name: Verify exact PR commit
+        run: test "$(git -C engine rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Set up Rust for native JNI libraries
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+          cache-disabled: true
+
+      - name: Locate Android SDK and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="$ANDROID_HOME"
+          test -d "$SDK"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          NDK_DIR="$(find "$SDK/ndk" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -1 || true)"
+          SDKMANAGER="$(find "$SDK/cmdline-tools" -name sdkmanager -type f | head -1)"
+          if [[ -z "$NDK_DIR" ]]; then
+            for attempt in 1 2 3; do
+              if "$SDKMANAGER" "ndk;27.2.12479018"; then break; fi
+              sleep 8
+            done
+            NDK_DIR="$SDK/ndk/27.2.12479018"
+          fi
+          test -x "$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang"
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          if [[ ! -f "$SDK/platforms/android-35/android.jar" || ! -d "$SDK/build-tools/35.0.0" ]]; then
+            "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+          fi
+
+      - name: Configure existing Maven mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.gradle/init.d"
+          cp playground/scripts/photosphere-maven-mirror.init.gradle "$HOME/.gradle/init.d/photosphere-maven-mirror.gradle"
+
+      - name: Check Android JVM unit tests and lint
+        working-directory: engine/android
+        run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
+
+      - name: Rebuild Rust libraries for arm64-v8a and x86_64
+        working-directory: engine
+        run: python3 tools/build_android.py
+
+      - name: Assemble Android debug APK
+        working-directory: engine/android
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify native libraries and APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s engine/android/app/src/main/jniLibs/arm64-v8a/libphotosphere.so
+          test -s engine/android/app/src/main/jniLibs/x86_64/libphotosphere.so
+          test -s engine/android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -tq engine/android/app/build/outputs/apk/debug/app-debug.apk
+          mkdir -p out
+          cp engine/android/app/build/outputs/apk/debug/app-debug.apk out/PhotoSphere-debug-export.apk
+          sha256sum out/PhotoSphere-debug-export.apk
+
+      - name: Upload installable APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoSphere-debug-zip-export-3e56458
+          path: out/PhotoSphere-debug-export.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish private debug APK release for easy download
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          TAG=debug-zip-export-3e56458
+          if gh release view "$TAG" --repo Persie0/PhotosphereCleanroom >/dev/null 2>&1; then
+            gh release upload "$TAG" out/PhotoSphere-debug-export.apk --clobber --repo Persie0/PhotosphereCleanroom
+          else
+            gh release create "$TAG" out/PhotoSphere-debug-export.apk --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --prerelease --title "Photo Sphere debug ZIP export APK" --notes "Debug-signed APK for PR #208, commit $SOURCE_SHA. Native JNI libraries rebuilt for arm64-v8a and x86_64."
+          fi
+
+      - name: Build summary
+        shell: bash
+        run: |
+          echo "## Photo Sphere debugging ZIP APK" >> "$GITHUB_STEP_SUMMARY"
+          echo "Built from private PhotosphereCleanroom PR #208 commit $SOURCE_SHA." >> "$GITHUB_STEP_SUMMARY"
+          echo "Public workflow compiled the Rust Android libraries, ran Android JVM tests and lint, and verified the installable APK." >> "$GITHUB_STEP_SUMMARY"
+          echo "Download the PhotoSphere-debug-zip-export-3e56458 artifact from this run or use the matching private prerelease." >> "$GITHUB_STEP_SUMMARY"
