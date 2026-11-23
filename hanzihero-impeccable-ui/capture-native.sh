@@ -61,11 +61,8 @@ capture() {
   adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | head -n 4 || true
 }
 
+# Keep startup and text-scale captures on a fresh onboarding screen.
 capture android-phone-light
-if tap_by_label "Get Started"; then
-  sleep 5
-  capture android-script-selection-light
-fi
 adb shell settings put system font_scale 1.3
 adb shell am force-stop "$APP"
 adb shell am start -n "$APP/.MainActivity"
@@ -83,8 +80,58 @@ adb shell am force-stop "$APP"
 adb shell am start -n "$APP/.MainActivity"
 sleep 8
 capture android-tablet-size-dark
+
+# Return to compact/light configuration for the complete onboarding journey.
 adb shell cmd uimode night no
 adb shell settings put system font_scale 1.0
 adb shell wm size reset
 adb shell wm density reset
+adb shell am force-stop "$APP"
+adb shell am start -n "$APP/.MainActivity"
+sleep 8
 
+if tap_by_label "Get Started"; then
+  sleep 3
+  capture android-script-selection-light
+  if tap_by_label "Simplified Chinese"; then
+    sleep 4
+    capture android-goal-selection-light
+    if tap_by_label "Set Goal"; then
+      sleep 12
+      capture android-after-goal-light
+      # Accept the EULA only within this disposable emulator instance.
+      if tap_by_label "I have read and agree"; then
+        sleep 2
+        if tap_by_label "Continue"; then
+          sleep 10
+        fi
+      fi
+      capture android-onboarding-completed-light
+
+      if tap_by_label "Dictionary"; then
+        sleep 5
+        capture android-dictionary-light
+      fi
+      if tap_by_label "Settings"; then
+        sleep 3
+        capture android-settings-general-light
+        if tap_by_label "Study Experience"; then
+          sleep 3
+          capture android-settings-study-light
+        fi
+        if tap_by_label "Audio Preferences"; then
+          sleep 3
+          capture android-settings-audio-light
+        fi
+      fi
+      if tap_by_label "Home"; then
+        sleep 3
+        capture android-home-light
+        if tap_by_label "Start Learning"; then
+          sleep 6
+          capture android-learning-entry-light
+        fi
+      fi
+    fi
+  fi
+fi
