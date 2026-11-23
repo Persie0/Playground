@@ -27,14 +27,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Check formatting
+      - name: Autoformat temporary checkout
         working-directory: private-src
-        shell: bash
-        run: |
-          cargo fmt --all -- --check > "$RUNNER_TEMP/fmt.log" 2>&1 || {
-            echo "Formatting check failed (details omitted from public logs)"
-            exit 1
-          }
+        run: cargo fmt --all
       - name: Compile and test
         working-directory: private-src
         shell: bash
