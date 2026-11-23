@@ -40,6 +40,9 @@ jobs:
       - name: Build iOS simulator app without code signing
         working-directory: app
         run: |
+          # Xcode 16.4 can crash in SPM package-graph synchronization when
+          # resolving MapLibre and Sentry; run this CI capture via CocoaPods.
+          flutter config --no-enable-swift-package-manager
           flutter pub get
           flutter build ios --debug --simulator --no-codesign
 
