@@ -1,7 +1,7 @@
 # FlowForge Android release gates
 
 FlowForge commit: 8701fdbb9c382cef286f0a9d46dddbac4e519556
-Playground commit: d5cb352073c6913504bac077c1314017055a8704
+Playground commit: 9f4153832a388e583c98b1a0da2a8eeea51fbb21
 Private checkout: success
 JDK setup: success
 Android SDK setup: success
@@ -23,7 +23,7 @@ CALIBRATION_PROFILE {"flow_rate":0.691532258064516,"frustration_rate":0.05483870
 CALIBRATION_RESULT {"failures":[],"model":"independent logistic with seeded noise","profiles":5,"status":"pass"}
 
 ## geometry-and-cpu.log
-LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":2.34,"layout_cases":36,"status":"pass","trace_p95_ms":0.19}
+LAYOUT_PERF_RESULT {"errors":[],"gate":"headless CPU/geometry only","generated":140,"generator_p95_ms":3.01,"layout_cases":36,"status":"pass","trace_p95_ms":0.26}
 
 ## gradle-template.log
 
