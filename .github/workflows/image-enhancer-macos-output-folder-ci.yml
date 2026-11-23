@@ -1,0 +1,59 @@
+name: Image Enhancer macOS persistent output folder CI
+# Public runner; private repository checkout uses the user's configured token.
+# Verification target: Persie0/image_enhancer 3629195b5aa104fe2ee0eb351d67cfc09baa3327
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/image-enhancer-macos-output-folder-ci.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-enhancer-macos-output-folder
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Validate private checkout token
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          test -n "$PRIVATE_TOKEN" || { echo "::error::Missing private repository checkout token"; exit 1; }
+
+      - name: Checkout Image Enhancer
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: 3629195b5aa104fe2ee0eb351d67cfc09baa3327
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get dependencies and test
+        working-directory: app
+        run: |
+          flutter config --enable-macos-desktop
+          flutter pub get
+          flutter test test/desktop_file_export_test.dart
+          flutter test
+          flutter analyze
+
+      - name: Build macOS debug and release
+        working-directory: app
+        run: |
+          bash macos/scripts/generate-icons.sh
+          flutter build macos --debug --no-pub
+          flutter build macos --release --no-pub
+          test -d build/macos/Build/Products/Release/ImageEnhancer.app
