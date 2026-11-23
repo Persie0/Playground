@@ -153,15 +153,14 @@ jobs:
           export/android/debug_keystore_pass = "android"
           EOF
           done
-          echo 'Installing Godot Android Gradle source project for API36 exports'
-          "$GODOT_BIN" --headless --path source --install-android-build-template 2>&1 | tee qa-output/gradle-template.log
-          test -f source/android/build/gradlew || \
-            { echo "Godot Android Gradle template was not installed"; exit 1; }
+          echo 'Install Android Gradle build template during export (Godot 4.7 CLI)'
           export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$HOME/.android/debug.keystore"
           export GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey
           export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android
-          "$GODOT_BIN" --headless --verbose --path source --export-debug Android \
-            "$PWD/qa-output/flowforge-qa-debug.apk" 2>&1 | tee qa-output/apk-export.log
+          "$GODOT_BIN" --headless --verbose --path source --install-android-build-template \
+            --export-debug Android "$PWD/qa-output/flowforge-qa-debug.apk" 2>&1 | tee qa-output/apk-export.log
+          test -f source/android/build/gradlew || \
+            { echo "Godot Android Gradle template was not installed"; exit 1; }
           test -s qa-output/flowforge-qa-debug.apk
           ls -lh qa-output/flowforge-qa-debug.apk
           "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging \
