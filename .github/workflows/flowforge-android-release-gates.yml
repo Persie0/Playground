@@ -1,0 +1,201 @@
+name: FlowForge - Android emulator and difficulty gates (public Playground)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/flowforge-android-release-gates.yml'
+      - 'scripts/flowforge_emulator_smoke.sh'
+
+permissions:
+  contents: write
+
+jobs:
+  android-release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 48
+    env:
+      GODOT_BIN: /tmp/Godot_v4.7.2-stable_linux.x86_64
+    steps:
+      - name: Checkout public Playground QA scripts
+        uses: actions/checkout@v4
+
+      - name: Fetch FlowForge feature branch using configured token
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN" || { echo 'No token available to clone FlowForge'; exit 1; }
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            clone --depth=1 --branch=feature/android-emulator-and-difficulty-release-gates-20261123 \
+              https://github.com/Persie0/flowforge.git source
+          echo "FLOWFORGE_SHA=$(git -C source rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Setup JDK 17 and Android command-line SDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Download Godot 4.7.2 and matching Android export template
+        run: |
+          set -euo pipefail
+          wget --quiet --show-progress --progress=dot:giga \
+            'https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip' -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x "$GODOT_BIN"
+          "$GODOT_BIN" --headless --version
+          wget --quiet --show-progress --progress=dot:giga \
+            'https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz' -O /tmp/godot-export.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.7.2.stable"
+          unzip -j -o /tmp/godot-export.tpz 'templates/android_debug.apk' \
+            -d "$HOME/.local/share/godot/export_templates/4.7.2.stable"
+          test -s "$HOME/.local/share/godot/export_templates/4.7.2.stable/android_debug.apk"
+
+      - name: Run seeded calibration and geometry/CPU regression gates
+        id: unit
+        run: |
+          set -euo pipefail
+          mkdir -p qa-output
+          "$GODOT_BIN" --headless --editor --path source --quit 2>&1 | tee qa-output/import.log
+          timeout 150s "$GODOT_BIN" --headless --path source \
+            --script res://tests/difficulty_calibration_gate.gd 2>&1 | tee qa-output/calibration.log
+          grep -q 'CALIBRATION_RESULT' qa-output/calibration.log
+          timeout 150s "$GODOT_BIN" --headless --path source \
+            --script res://tests/release_layout_performance.gd 2>&1 | tee qa-output/geometry-and-cpu.log
+          grep -q 'LAYOUT_PERF_RESULT' qa-output/geometry-and-cpu.log
+          if grep -Ei 'SCRIPT ERROR|Parse Error|CALIBRATION FAIL|LAYOUT_PERF_FAIL' qa-output/*.log; then
+            exit 1
+          fi
+          echo 'HEADLESS_RELEASE_GATES_PASS'
+
+      - name: Prepare isolated emulator-only debug export
+        id: apk
+        run: |
+          set -euo pipefail
+          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager --sdk_root="$ANDROID_SDK_ROOT" \
+            "platform-tools" "build-tools;35.0.1" "platforms;android-35" >/dev/null
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('source/export_presets.cfg')
+          text = p.read_text()
+          for old, new in [
+              ('architectures/arm64-v8a=true', 'architectures/arm64-v8a=false'),
+              ('architectures/armeabi-v7a=true', 'architectures/armeabi-v7a=false'),
+              ('architectures/x86_64=false', 'architectures/x86_64=true'),
+          ]:
+              assert old in text, f"Missing export preset marker: {old}"
+              text = text.replace(old, new)
+          p.write_text(text)
+          PY
+          mkdir -p "$HOME/.android" "$HOME/.config/godot"
+          keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android -dname "CN=Android Debug,O=Android,C=US" >/dev/null
+          for settings_file in "$HOME/.config/godot/editor_settings-4.7.tres" "$HOME/.config/godot/editor_settings-4.tres"; do
+            cat > "$settings_file" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_SDK_ROOT"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          done
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$HOME/.android/debug.keystore"
+          export GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android
+          "$GODOT_BIN" --headless --path source --export-debug Android \
+            "$PWD/qa-output/flowforge-qa-debug.apk" 2>&1 | tee qa-output/apk-export.log
+          test -s qa-output/flowforge-qa-debug.apk
+          ls -lh qa-output/flowforge-qa-debug.apk
+          unzip -l qa-output/flowforge-qa-debug.apk | grep -E 'lib/x86_64/libgodot_android.so|lib/x86_64/libgodot.so' || \
+            { echo 'No x86_64 native library in debug APK'; exit 1; }
+          echo 'ANDROID_DEBUG_EXPORT_PASS'
+
+      - name: Enable KVM for Android emulator
+        run: |
+          sudo tee /etc/udev/rules.d/99-kvm4all.rules <<<'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"'
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Execute device-like startup, touch, relaunch and display checks
+        id: emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 2048M
+          heap-size: 512M
+          disk-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save -camera-back none
+          disable-animations: true
+          script: bash scripts/flowforge_emulator_smoke.sh
+
+      - name: Retain bounded emulator diagnostics and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowforge-android-release-gate
+          path: |
+            qa-output/*.txt
+            qa-output/*.log
+            qa-output/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish public, SHA-specific release gate verdict
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UNIT_OUTCOME: ${{ steps.unit.outcome }}
+          APK_OUTCOME: ${{ steps.apk.outcome }}
+          EMULATOR_OUTCOME: ${{ steps.emulator.outcome }}
+        run: |
+          set -euo pipefail
+          {
+            echo "# FlowForge Android release gates"
+            echo
+            echo "FlowForge commit: ${FLOWFORGE_SHA:-clone-failed}"
+            echo "Playground commit: $GITHUB_SHA"
+            echo "Headless unit and calibration: $UNIT_OUTCOME"
+            echo "Android debug APK export: $APK_OUTCOME"
+            echo "Android emulator interaction: $EMULATOR_OUTCOME"
+            echo
+            if [[ "$UNIT_OUTCOME" == "success" && "$APK_OUTCOME" == "success" && "$EMULATOR_OUTCOME" == "success" ]]; then
+              echo "Result: success (emulator only; not a physical-device or human-playtest pass)"
+            else
+              echo "Result: failure/incomplete"
+            fi
+            for file in qa-output/import.log qa-output/calibration.log qa-output/geometry-and-cpu.log qa-output/apk-export.log; do
+              if test -f "$file"; then
+                echo
+                echo "## $(basename "$file")"
+                grep -E 'CALIBRATION_|LAYOUT_PERF_|ERROR|Failed|failed|Error|Export|ERROR:' "$file" | tail -35 || true
+              fi
+            done
+            echo
+            echo "Screenshots and raw emulator diagnostics remain in the 7-day workflow artifact."
+          } > /tmp/flowforge-release-gate.md
+          REPORT_PATH="ci-results/flowforge-release-gates-20261123.md"
+          ENCODED="$(base64 -w0 /tmp/flowforge-release-gate.md)"
+          OLD="$(gh api "repos/Persie0/Playground/contents/$REPORT_PATH" --jq .sha 2>/dev/null || true)"
+          if test -n "$OLD"; then
+            gh api -X PUT "repos/Persie0/Playground/contents/$REPORT_PATH" \
+              -f message='ci: update FlowForge Android release gate verdict' \
+              -f content="$ENCODED" -f sha="$OLD" -f branch=main --silent
+          else
+            gh api -X PUT "repos/Persie0/Playground/contents/$REPORT_PATH" \
+              -f message='ci: publish FlowForge Android release gate verdict' \
+              -f content="$ENCODED" -f branch=main --silent
+          fi
