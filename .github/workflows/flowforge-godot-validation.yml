@@ -181,4 +181,29 @@ jobs:
             done
           } > /tmp/flowforge-ci-summary.md
           ENCODED="$(base64 -w0 /tmp/flowforge-ci-summary.md)"
-          gh api -X PUT repos/Persie0/Playground/contents/ci-results/flowforge-review-20261123.md             -f message='ci: publish FlowForge review validation result'             -f content="$ENCODED" -f branch=main --silent
+          REPORT_PATH="ci-results/flowforge-review-20261123.md"
+          PREVIOUS_SHA="$(gh api "repos/Persie0/Playground/contents/$REPORT_PATH" --jq .sha 2>/dev/null || true)"
+          if test -n "$PREVIOUS_SHA"; then
+            gh api -X PUT "repos/Persie0/Playground/contents/$REPORT_PATH" \
+              -f message='ci: update FlowForge review validation result' \
+              -f content="$ENCODED" -f branch=main -f sha="$PREVIOUS_SHA" --silent
+          else
+            gh api -X PUT "repos/Persie0/Playground/contents/$REPORT_PATH" \
+              -f message='ci: publish FlowForge review validation result' \
+              -f content="$ENCODED" -f branch=main --silent
+          fi
+          # Screenshot data is public app UI, not a private repo artifact.
+          if test -f source/ui-level-120.png; then
+            IMAGE="$(base64 -w0 source/ui-level-120.png)"
+            IMAGE_PATH="ci-results/flowforge-level-120-review.png"
+            OLD_IMAGE_SHA="$(gh api "repos/Persie0/Playground/contents/$IMAGE_PATH" --jq .sha 2>/dev/null || true)"
+            if test -n "$OLD_IMAGE_SHA"; then
+              gh api -X PUT "repos/Persie0/Playground/contents/$IMAGE_PATH" \
+                -f message='ci: update FlowForge late-level screenshot' \
+                -f content="$IMAGE" -f sha="$OLD_IMAGE_SHA" -f branch=main --silent
+            else
+              gh api -X PUT "repos/Persie0/Playground/contents/$IMAGE_PATH" \
+                -f message='ci: capture FlowForge late-level tray' \
+                -f content="$IMAGE" -f branch=main --silent
+            fi
+          fi
