@@ -1,0 +1,48 @@
+name: Image Enhancer post89 native UX checks
+
+on:
+  push:
+    branches: [validate/image-enhancer-post89-ux]
+    paths: [.github/workflows/image-enhancer-post89-ux.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private Image Enhancer review commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: 840efce6106b39e645630a89c2702c107a98dea2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install locked dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Generate localization bindings
+        working-directory: app
+        run: flutter gen-l10n
+      - name: Focused keyboard and responsive widget tests
+        working-directory: app
+        run: |
+          flutter test test/impeccable_post89_result_language_test.dart test/result_comparison_page_test.dart test/impeccable_p2_layout_test.dart --reporter expanded
+      - name: Full regression suite
+        working-directory: app
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
+      - name: Strict source analysis
+        working-directory: app
+        run: flutter analyze
+      - name: Android debug compilation
+        working-directory: app
+        run: flutter build apk --debug --no-pub
