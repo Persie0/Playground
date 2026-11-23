@@ -1,0 +1,56 @@
+name: PhotoSphere V3 Rust validation (public runner)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/photosphere-v3-rust.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout private PhotoSphere branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/photosphereV3
+          ref: feature/cleanroom-rust-photosphere
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: private-src
+      - name: Prepare Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Check formatting
+        working-directory: private-src
+        shell: bash
+        run: |
+          cargo fmt --all -- --check > "$RUNNER_TEMP/fmt.log" 2>&1 || {
+            echo "Formatting check failed (details omitted from public logs)"
+            exit 1
+          }
+      - name: Compile and test
+        working-directory: private-src
+        shell: bash
+        run: |
+          cargo test --all-targets > "$RUNNER_TEMP/test.log" 2>&1 || {
+            echo "Rust build/tests failed; sanitized diagnostics:"
+            grep -E '^(error(\[[^]]+\])?:| *--> | *::: |[[:space:]]*test result:|[[:space:]]*FAILED|[[:space:]]*running [0-9]+ tests)' "$RUNNER_TEMP/test.log" | tail -n 60 || true
+            exit 1
+          }
+          grep -E '^test result:' "$RUNNER_TEMP/test.log" | tail -n 12 || true
+      - name: Clippy
+        working-directory: private-src
+        shell: bash
+        run: |
+          cargo clippy --all-targets -- -D warnings > "$RUNNER_TEMP/clippy.log" 2>&1 || {
+            echo "Clippy failed; sanitized diagnostics:"
+            grep -E '^(error(\[[^]]+\])?:| *--> | *::: )' "$RUNNER_TEMP/clippy.log" | tail -n 60 || true
+            exit 1
+          }
