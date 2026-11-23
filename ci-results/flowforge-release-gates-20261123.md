@@ -1,7 +1,7 @@
 # FlowForge Android release gates
 
-FlowForge commit: 04b2f24a317364c766de543439f091e86bfc0b21
-Playground commit: 306b2d704acfca702d17e194b9b395c227c6bc2b
+FlowForge commit: e60bf4306590ec804d2bde06d87ffd581ef8779d
+Playground commit: 204519b08cbd0b53f042e8b06c7e95a8d7dd8cdf
 Private checkout: success
 JDK setup: success
 Android SDK setup: failure
