@@ -20,7 +20,7 @@ jobs:
       - name: Checkout public Playground QA scripts
         uses: actions/checkout@v4
 
-      - name: Fetch FlowForge feature branch using configured token
+      - name: Fetch merged FlowForge main using configured token
         id: clone
         env:
           REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
@@ -29,7 +29,7 @@ jobs:
           test -n "$REPO_TOKEN" || { echo 'No token available to clone FlowForge'; exit 1; }
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
-            clone --depth=1 --branch=feature/android-emulator-and-difficulty-release-gates-20261123 \
+            clone --depth=1 --branch=main \
               https://github.com/Persie0/flowforge.git source
           echo "FLOWFORGE_SHA=$(git -C source rev-parse HEAD)" >> "$GITHUB_ENV"
 
