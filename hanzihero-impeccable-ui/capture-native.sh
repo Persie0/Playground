@@ -135,3 +135,29 @@ if tap_by_label "Get Started"; then
     fi
   fi
 fi
+
+# One confirmation pass on the completed app, not just the onboarding UI.
+# Capture at expanded and landscape sizes after all first-run preferences exist.
+adb shell am force-stop "$APP"
+adb shell wm size 1200x1920
+adb shell wm density 200
+adb shell am start -n "$APP/.MainActivity"
+sleep 8
+capture android-tablet-home-after-onboarding
+if tap_by_label "Settings"; then
+  sleep 4
+  capture android-tablet-settings-after-onboarding
+fi
+
+adb shell am force-stop "$APP"
+adb shell wm size 1920x1080
+adb shell wm density 220
+adb shell am start -n "$APP/.MainActivity"
+sleep 8
+capture android-landscape-home-after-onboarding
+if tap_by_label "Settings"; then
+  sleep 4
+  capture android-landscape-settings-after-onboarding
+fi
+adb shell wm size reset
+adb shell wm density reset
