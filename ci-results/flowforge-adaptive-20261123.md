@@ -1,8 +1,8 @@
 # FlowForge adaptive integration - public validation
 
 Result: success
-Target SHA: 75cd2d423f84dcfaee29f9129d2fa3d07a931671
-Workflow commit: 6bf7deec0617a2317028f05887a09afe90689442
+Target SHA: 0dd755b19573807ed9dfb546572476d6d245bf8c
+Workflow commit: a69d95f23e8bb52e3f38da52e1ea3adb43e9d2ae
 ## import.log
 ## levels.log
 Flow Forge: 1000 generated levels validated (60 distinct crossing layouts)
