@@ -130,6 +130,28 @@ if tap_by_label "Get Started"; then
         if tap_by_label "Start Learning"; then
           sleep 6
           capture android-learning-entry-light
+          # Follow the actual lesson to inspect the newly repaired audio
+          # controls and both answer stages on an Android-native surface.
+          if tap_by_label "Start Lesson"; then
+            sleep 8
+            capture android-learning-audio-light
+            if tap_by_label "Continue"; then
+              sleep 5
+              capture android-learning-pinyin-question-light
+              if tap_by_label "Skip"; then
+                sleep 4
+                capture android-learning-pinyin-reveal-light
+                if tap_by_label "Continue"; then
+                  sleep 5
+                  capture android-learning-meaning-audio-controls-light
+                  if tap_by_label "Skip"; then
+                    sleep 4
+                    capture android-learning-character-choices-light
+                  fi
+                fi
+              fi
+            fi
+          fi
         fi
       fi
     fi
