@@ -1,0 +1,74 @@
+name: Image Enhancer post92 macOS save localization
+
+on:
+  push:
+    branches: [validate/image-enhancer-post92-macos-i18n]
+    paths: [.github/workflows/image-enhancer-post92-macos-i18n.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    name: Flutter localization and regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout pinned private Image Enhancer review commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: 7ec2ac6ba8c04c0691bf073b04eae999b0eac79a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Generate localized bindings
+        working-directory: app
+        run: flutter gen-l10n
+      - name: Validate macOS language UX and saved-folder semantics
+        working-directory: app
+        run: flutter test test/impeccable_post92_macos_save_i18n_test.dart test/desktop_file_export_test.dart --reporter expanded
+      - name: Full Flutter regression suite
+        working-directory: app
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
+      - name: Strict Dart and Flutter analysis
+        working-directory: app
+        run: flutter analyze
+
+  macos:
+    name: macOS debug build and Swift compilation
+    needs: flutter
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout pinned private Image Enhancer review commit
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: 7ec2ac6ba8c04c0691bf073b04eae999b0eac79a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Generate localized bindings
+        working-directory: app
+        run: flutter gen-l10n
+      - name: Compile macOS app
+        working-directory: app
+        run: flutter build macos --debug --no-pub
