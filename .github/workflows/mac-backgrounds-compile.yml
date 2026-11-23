@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/mac-backgrounds
-          ref: main
+          ref: 4d8a5c533750a77b1631eb016eb84bbb2be8fdda
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Install XcodeGen
@@ -38,6 +38,14 @@ jobs:
       - name: Run deterministic scene and window-visibility tests
         run: |
           xcodebuild -project LivingDesktop.xcodeproj -scheme LivingDesktop -configuration Debug -destination 'platform=macOS' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO test
+      - name: Upload native UI snapshots for visual inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Living-Desktop-Wallpaper-UX-Review
+          path: /tmp/living-desktop-ux-snapshots/*.png
+          retention-days: 7
+          if-no-files-found: warn
       - name: Build optimized Release app and validate bundle resources
         run: |
           set -euo pipefail
