@@ -1,0 +1,104 @@
+name: HanziHero native UX screenshots
+
+on:
+  push:
+    branches:
+      - impeccable/hanzihero-ui-ci-20261122
+    paths:
+      - .github/workflows/hanzihero-ux-native-snapshots-20261123.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-native-screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout private HanziHero UX branch
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=impeccable/hanzihero-ux-40-20261122 https://github.com/Persie0/hanzi_hero.git app
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install required Android SDK packages
+        shell: bash
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "ndk;29.0.14206865" > /tmp/sdk-install.log 2>&1 || { tail -n 60 /tmp/sdk-install.log; exit 1; }
+
+      - name: Build native Android debug APK
+        working-directory: app
+        shell: bash
+        run: |
+          flutter pub get
+          flutter build apk --debug > /tmp/build-apk.log 2>&1 || { tail -n 110 /tmp/build-apk.log; exit 1; }
+
+      - name: Enable hardware acceleration
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+
+      - name: Capture real Android emulator UI
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: |
+            set -e
+            mkdir -p ux-screenshots
+            adb install -r app/build/app/outputs/flutter-apk/app-debug.apk
+            adb shell am start -n at.persie0.hanziHero/.MainActivity
+            sleep 15
+            adb exec-out screencap -p > ux-screenshots/android-phone-light.png
+            adb shell settings put system font_scale 1.3
+            adb shell am force-stop at.persie0.hanziHero
+            adb shell am start -n at.persie0.hanziHero/.MainActivity
+            sleep 6
+            adb exec-out screencap -p > ux-screenshots/android-phone-large-text.png
+            adb shell cmd uimode night yes
+            adb shell am force-stop at.persie0.hanziHero
+            adb shell am start -n at.persie0.hanziHero/.MainActivity
+            sleep 6
+            adb exec-out screencap -p > ux-screenshots/android-phone-dark-large-text.png
+            adb shell settings put system font_scale 1.0
+            adb shell wm size 1200x1920
+            adb shell wm density 200
+            adb shell am force-stop at.persie0.hanziHero
+            adb shell am start -n at.persie0.hanziHero/.MainActivity
+            sleep 6
+            adb exec-out screencap -p > ux-screenshots/android-tablet-size-dark.png
+            adb shell cmd uimode night no
+            adb shell settings put system font_scale 1.0
+            adb shell wm size reset
+            adb shell wm density reset
+
+      - name: Upload native screen captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hanzihero-native-ux-android
+          path: ux-screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 7
