@@ -141,7 +141,7 @@ if tap_by_label "Get Started"; then
               if tap_by_label "Skip"; then
                 sleep 4
                 capture android-learning-pinyin-reveal-light
-                if tap_by_label "Continue"; then
+                if tap_by_label "Next: Meaning"; then
                   sleep 5
                   capture android-learning-meaning-audio-controls-light
                   if tap_by_label "Skip"; then
