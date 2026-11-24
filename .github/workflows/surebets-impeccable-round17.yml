@@ -1,0 +1,146 @@
+name: Surebets Impeccable round 17 native accessibility
+on:
+  push:
+    branches: [ci/surebets-impeccable-round17]
+    paths:
+      - .github/workflows/surebets-impeccable-round17.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: 6d29ec9c553100120fe6834948b79fec876640b3
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Check changed files
+        run: |
+          dart format lib/main.dart lib/onboarding_screen.dart lib/calculator_screen.dart lib/adbanner.dart lib/legal_page.dart lib/services/legal_load_deadline.dart lib/widgets/calculator_guide_dialog.dart test/impeccable_round17_startup_accessibility_test.dart visual_tests/impeccable_round6_goldens_test.dart
+          git diff --check
+      - run: flutter analyze --no-fatal-infos
+      - run: timeout 240s flutter test --reporter expanded
+      - name: Generate diagnostic screenshots
+        if: always()
+        run: timeout 180s flutter test visual_tests/impeccable_round6_goldens_test.dart --update-goldens --reporter expanded
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: surebets-round17-ui
+          path: visual_tests/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 7
+  android-smoke:
+    needs: flutter
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: 6d29ec9c553100120fe6834948b79fec876640b3
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install Android SDK and NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865"
+      - run: flutter pub get
+      - name: Build debug emulator APK
+        run: flutter build apk --debug --target-platform android-x64
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Create native smoke script
+        run: |
+          cat > /tmp/surebets-smoke.sh <<'SH'
+          set -euo pipefail
+          mkdir -p native-smoke
+          trap 'adb logcat -d -t 2000 > native-smoke/logcat.txt || true' EXIT
+          package=at.persie0.surebets_calculator
+          adb install -r build/app/outputs/flutter-apk/app-debug.apk
+          adb shell settings put system font_scale 2.0
+          adb shell wm size 720x1280
+          adb shell wm density 360
+          adb shell am force-stop "$package"
+          adb shell monkey -p "$package" -c android.intent.category.LAUNCHER 1
+          dump() {
+            adb shell uiautomator dump /sdcard/surebets.xml >/dev/null 2>&1 &&
+            adb pull /sdcard/surebets.xml native-smoke/current.xml >/dev/null 2>&1
+          }
+          find_button() {
+            python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          import re
+          root = ET.parse("native-smoke/current.xml")
+          for node in root.iter("node"):
+              labels = [node.get("text", ""), node.get("content-desc", "")]
+              if any(x.strip().casefold() == "get started" for x in labels):
+                  bounds = list(map(int, re.findall(r"\d+", node.get("bounds", ""))))
+                  if len(bounds) == 4:
+                      print((bounds[0] + bounds[2]) // 2, (bounds[1] + bounds[3]) // 2)
+                      break
+          PY
+          }
+          button=""
+          for i in $(seq 1 24); do
+            if dump; then button=$(find_button || true); fi
+            if [ -n "$button" ]; then break; fi
+            sleep 3
+          done
+          test -n "$button"
+          cp native-smoke/current.xml native-smoke/onboarding.xml
+          adb exec-out screencap -p > native-smoke/onboarding.png
+          adb shell input tap $button
+          found=false
+          for i in $(seq 1 20); do
+            if dump && grep -qi 'Understanding Arbitrage Betting' native-smoke/current.xml; then found=true; break; fi
+            sleep 2
+          done
+          test "$found" = true
+          cp native-smoke/current.xml native-smoke/guide.xml
+          adb exec-out screencap -p > native-smoke/guide.png
+          adb shell input keyevent KEYCODE_BACK
+          sleep 3
+          adb shell pidof "$package" > native-smoke/process.txt
+          adb exec-out screencap -p > native-smoke/after-guide.png
+          echo 'Native launch, onboarding, accessible guide and dismissal passed'
+          SH
+      - name: Android native first-run smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swangle -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: bash /tmp/surebets-smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: surebets-round17-native-smoke
+          path: native-smoke/
+          if-no-files-found: warn
+          retention-days: 7
