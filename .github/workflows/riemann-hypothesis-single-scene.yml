@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/manimVideos
-          ref: 18c6021130284d8e6f0d0dda941dc8a7b66cc021
+          ref: 5ec190ada82f6d4cc12556b606ad7411170a5e44
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: source
           persist-credentials: false
@@ -31,7 +31,7 @@ jobs:
       - name: Test mathematics
         working-directory: source/riemann-hypothesis
         run: |
-          python -m compileall -q scene.py math_data.py observatory_data.py subtitle_timeline.py
+          python -m compileall -q scene.py math_data.py observatory_data.py subtitle_timeline.py zeta_explainer_data.py
           python -m unittest discover -s tests -v
       - name: Render one continuous scene
         working-directory: source/riemann-hypothesis
@@ -47,12 +47,12 @@ jobs:
           d=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-of','json',p]))
           v=next(s for s in d['streams'] if s['codec_type']=='video')
           assert (v['width'],v['height'],v['r_frame_rate'])==(1920,1080,'30/1'),v
-          assert abs(float(d['format']['duration'])-192)<0.15,d['format']
+          assert abs(float(d['format']['duration'])-295)<0.15,d['format']
           print(d['format']['duration'])
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: Prime-Observatory-Clean-1080p30
+          name: Prime-Observatory-Zeta-Explained-1080p30
           path: |
             source/riemann-hypothesis/output/RiemannHypothesis_1080p30.mp4
             source/riemann-hypothesis/output/RiemannHypothesis.en.srt
