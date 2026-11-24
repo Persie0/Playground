@@ -38,11 +38,11 @@ jobs:
         run: |
           set -euo pipefail
           cd source
-          blender -b -P assets-source/create_fairy.py -- assets-source/Fairy.blend > /tmp/toothfairy-blender.log 2>&1 || { echo "Blender generator failed"; exit 1; }
+          blender -b --python-exit-code 1 -P assets-source/create_fairy.py -- assets-source/Fairy.blend > /tmp/toothfairy-blender.log 2>&1 || { grep -E 'File ".*create_fairy.py", line [0-9]+|^[A-Za-z]+Error:' /tmp/toothfairy-blender.log | sed -E 's/^.*line ([0-9]+),.*$/Source line \1/; s/^([A-Za-z]+Error):.*$/\1/' | tail -6; echo "Blender generator failed"; exit 1; }
           mkdir -p mobile/Assets/Toothfairy/Resources/Fairy
           cp assets-source/Fairy.fbx mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx
-          python tools/build_voice.py > /tmp/toothfairy-voice.log 2>&1 || { echo "Voice generation failed"; exit 1; }
-          python tools/validate_generated.py > /tmp/toothfairy-assets.log 2>&1 || { echo "Generated asset validation failed"; exit 1; }
+          python tools/build_voice.py > /tmp/toothfairy-voice.log 2>&1 || { grep -E 'File ".*build_voice.py", line [0-9]+|^[A-Za-z]+Error:' /tmp/toothfairy-voice.log | sed -E 's/^.*line ([0-9]+),.*$/Source line \1/; s/^([A-Za-z]+Error):.*$/\1/' | tail -6; echo "Voice generation failed"; exit 1; }
+          python tools/validate_generated.py > /tmp/toothfairy-assets.log 2>&1 || { grep -E 'File ".*validate_generated.py", line [0-9]+|^[A-Za-z]+Error:' /tmp/toothfairy-assets.log | sed -E 's/^.*line ([0-9]+),.*$/Source line \1/; s/^([A-Za-z]+Error):.*$/\1/' | tail -6; echo "Generated asset validation failed"; exit 1; }
           echo "Original Blender/FBX and 40 bilingual audio/viseme pairs validated."
       - name: Commit generated assets privately
         env:
