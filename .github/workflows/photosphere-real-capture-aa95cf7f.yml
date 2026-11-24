@@ -1,0 +1,111 @@
+name: Photosphere real capture quality replay
+on:
+  push:
+    branches: [diagnostics/photosphere-aa95cf7f]
+    paths: [.github/workflows/photosphere-real-capture-aa95cf7f.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Download and inspect capture (numeric summaries only)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/capture"
+          curl --fail --location --retry 3 'https://github.com/Persie0/Playground/releases/download/photosphere/photosphere-debug-aa95cf7f-c3d6-4c96-a7c7-d044ea879y305.zip' -o "$RUNNER_TEMP/capture.zip"
+          python3 - "$RUNNER_TEMP" <<'PY'
+          import json, pathlib, zipfile, sys, hashlib
+          root = pathlib.Path(sys.argv[1])
+          with zipfile.ZipFile(root/'capture.zip') as z:
+              allowed = {'session.json','orientations.txt','panorama.jpg','session.meta'}
+              names = [i.filename for i in z.infolist()]
+              assert len(names)==len(set(names))
+              assert all(n in allowed or (n.endswith('.jpg') and n[:-4].isdigit()) for n in names)
+              assert sum(i.file_size for i in z.infolist()) < 800_000_000
+              z.extractall(root/'capture')
+          d = json.loads((root/'capture/session.json').read_text())
+          print('archive_sha256',hashlib.file_digest(open(root/'capture.zip','rb'),'sha256').hexdigest())
+          print('sources',len(d['sources']),'source_dimensions',d.get('width'),d.get('height'),'status',d.get('status'))
+          print('config',json.dumps(d['config'],sort_keys=True))
+          print('saved_report',json.dumps(d.get('report',{}),sort_keys=True))
+          print('pose_fov_ranges',[(min(s['pose'][k] for s in d['sources']),max(s['pose'][k] for s in d['sources'])) for k in ('horizontal_fov_deg','vertical_fov_deg')])
+          print('orientation_rows',len((root/'capture/orientations.txt').read_text().splitlines()))
+          PY
+      - name: Independent source sharpness and overlap diagnostics
+        run: |
+          python -m pip install --quiet opencv-python-headless
+          python - "$RUNNER_TEMP/capture" <<'PY'
+          import cv2, numpy as np, pathlib, json, sys, itertools
+          root=pathlib.Path(sys.argv[1]); d=json.loads((root/'session.json').read_text())
+          sift=cv2.SIFT_create(nfeatures=2500)
+          features=[]
+          for i,s in enumerate(d['sources']):
+              g=cv2.imread(str(root/f'{i}.jpg'),cv2.IMREAD_GRAYSCALE)
+              assert g is not None
+              scale=min(1,1200/max(g.shape)); g=cv2.resize(g,None,fx=scale,fy=scale,interpolation=cv2.INTER_AREA)
+              k,v=sift.detectAndCompute(g,None)
+              features.append((k,v,np.array(s['pose']['quaternion_wxyz'],float),s['pose'],g.shape))
+              print('frame',i,'sharpness',round(cv2.Laplacian(g,cv2.CV_32F).var(),2),'median_luma',float(np.median(g)),'features',len(k))
+          def rot(q):
+              w,x,y,z=q/np.linalg.norm(q);return np.array([[1-2*(y*y+z*z),2*(x*y-w*z),2*(x*z+w*y)],[2*(x*y+w*z),1-2*(x*x+z*z),2*(y*z-w*x)],[2*(x*z-w*y),2*(y*z+w*x),1-2*(x*x+y*y)]])
+          bf=cv2.BFMatcher()
+          for i,j in itertools.combinations(range(len(features)),2):
+              a,da,qa,pa,sa=features[i];b,db,qb,pb,sb=features[j]
+              ra,rb=rot(qa),rot(qb)
+              if np.dot(ra[:,2],rb[:,2])<np.cos(np.deg2rad(85)) or da is None or db is None or len(da)<2 or len(db)<2: continue
+              fwd={m.queryIdx:m.trainIdx for pair in bf.knnMatch(da,db,k=2) if len(pair)==2 for m,n in [pair] if m.distance<.75*n.distance}
+              rev={m.queryIdx:m.trainIdx for pair in bf.knnMatch(db,da,k=2) if len(pair)==2 for m,n in [pair] if m.distance<.75*n.distance}
+              pairs=[(a[x].pt,b[y].pt) for x,y in fwd.items() if rev.get(y)==x]
+              if len(pairs)<12: continue
+              p,q=np.asarray(pairs,dtype=np.float32).transpose(1,0,2)
+              def K(pose,shape):
+                  h,w=shape;return np.array([[w/(2*np.tan(np.deg2rad(pose['horizontal_fov_deg']/2))),0,(w-1)/2],[0,h/(2*np.tan(np.deg2rad(pose['vertical_fov_deg']/2))),(h-1)/2],[0,0,1]])
+              flip=np.diag([1,-1,1]); h=K(pb,sb)@flip@rb.T@ra@flip@np.linalg.inv(K(pa,sa))
+              pred=cv2.perspectiveTransform(p[None],h)[0]; err=np.linalg.norm(pred-q,axis=1)
+              H,mask=cv2.findHomography(p,q,cv2.USAC_MAGSAC,3)
+              if H is None: continue
+              good=mask.ravel().astype(bool)
+              if good.sum()<8: continue
+              fiterr=np.linalg.norm(cv2.perspectiveTransform(p[None],H)[0]-q,axis=1)
+              # An independently fitted homography is not a ground-truth rotation.
+              print('pair',i,j,'mutual',len(p),'homography_inliers',int(good.sum()),'sensor_px_median',round(float(np.median(err[good])),2),'homography_px_p90',round(float(np.percentile(fiterr[good],90)),2))
+          PY
+      - name: Checkout pinned private source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: a60efdb6ed367befb6c123dab29acc37cf6a60f5
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: engine
+      - name: Replay recorded registration and compare render variants
+        working-directory: engine
+        run: |
+          cat > examples/replay_capture_diagnostic.rs <<'RS'
+          use photosphere::{PhotoSphereSessionManifest, PhotoSphereSession, OutputResolutionPreset, WarpMode, stitch_to_jpeg};
+          fn main() -> Result<(), Box<dyn std::error::Error>> {
+              let root = std::path::PathBuf::from(std::env::var("RUNNER_TEMP")?).join("capture");
+              let mut json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join("session.json"))?)?;
+              for (i, s) in json["sources"].as_array_mut().ok_or("missing sources")?.iter_mut().enumerate() {
+                  s["path"] = serde_json::json!(root.join(format!("{i}.jpg")));
+              }
+              let mut manifest = PhotoSphereSessionManifest::from_json(&json.to_string())?;
+              manifest.config.residual_exposure_gain = true;
+              manifest.config.resolution_preset = OutputResolutionPreset::Manual;
+              manifest.config.output_width = 4096;
+              let session = PhotoSphereSession::from_manifest(manifest.clone())?;
+              let report = session.stitch_to_jpeg(root.join("replay-baseline.jpg"))?;
+              println!("baseline {}",serde_json::to_string(&report)?);
+              let mut exact = manifest.config.clone();
+              exact.warp_mode = WarpMode::Exact;
+              exact.multiband_feather_start_level = 4.min(exact.multiband_levels);
+              exact.multiband_contrast_match = false;
+              let report = stitch_to_jpeg(&manifest.sources,root.join("replay-exact.jpg"),&exact)?;
+              println!("exact_narrow_detail {}",serde_json::to_string(&report)?);
+              Ok(())
+          }
+          RS
+          cargo run --locked --release --example replay_capture_diagnostic
