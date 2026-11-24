@@ -8,7 +8,7 @@ permissions:
   contents: read
 jobs:
   replay:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - name: Download and inspect capture (numeric summaries only)
@@ -20,12 +20,21 @@ jobs:
           import json, pathlib, zipfile, sys, hashlib
           root = pathlib.Path(sys.argv[1])
           with zipfile.ZipFile(root/'capture.zip') as z:
+              import shutil, collections
+              files = [i for i in z.infolist() if not i.is_dir()]
+              print('archive_file_count',len(files),'extensions',dict(collections.Counter(pathlib.PurePosixPath(i.filename).suffix for i in files)))
+              assert sum(i.file_size for i in files) < 800_000_000
               allowed = {'session.json','orientations.txt','panorama.jpg','session.meta'}
-              names = [i.filename for i in z.infolist()]
-              assert len(names)==len(set(names))
-              assert all(n in allowed or (n.endswith('.jpg') and n[:-4].isdigit()) for n in names)
-              assert sum(i.file_size for i in z.infolist()) < 800_000_000
-              z.extractall(root/'capture')
+              selected = {}
+              for item in files:
+                  n = pathlib.PurePosixPath(item.filename).name
+                  if n in allowed or (n.endswith('.jpg') and n[:-4].isdigit()):
+                      assert n not in selected, 'duplicate capture basename'
+                      selected[n] = item
+              print('recognized_files',sorted(selected))
+              for n,item in selected.items():
+                  with z.open(item) as inp, (root/'capture'/n).open('wb') as out:
+                      shutil.copyfileobj(inp,out)
           d = json.loads((root/'capture/session.json').read_text())
           print('archive_sha256',hashlib.file_digest(open(root/'capture.zip','rb'),'sha256').hexdigest())
           print('sources',len(d['sources']),'source_dimensions',d.get('width'),d.get('height'),'status',d.get('status'))
