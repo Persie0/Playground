@@ -1,0 +1,49 @@
+name: Toothfairy soundtrack private validation
+on:
+  push:
+    branches: [toothfairy-private-validation]
+    paths: ['.github/workflows/toothfairy-visit-sound.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  soundtrack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Fetch pinned private source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          echo "::add-mask::$AUTH"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feature/01-mobile-foundation https://github.com/Persie0/Toothfairy.git source
+          test "$(git -C source rev-parse HEAD)" = 8cf820605d1a4a6344ee4ffe353a4af88ba94f51
+      - name: Generate and validate original audio
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/tmp/tf-install.log 2>&1; fi
+          cd source
+          python -m unittest discover -s tools -p test_visit_sound.py > /tmp/tf-sound.log 2>&1 || { echo "Sound validation failed; private logs withheld"; exit 1; }
+          echo "Two soundtrack tests passed."
+          ffmpeg -v error -y -f lavfi -i color=c=black:s=360x640:r=30:d=15 -c:v libx264 -pix_fmt yuv420p /tmp/tf-input.mp4
+          ffmpeg -v error -y -i /tmp/tf-input.mp4 -i mobile/Assets/Toothfairy/Resources/Visit/score.bytes -map 0:v -map 1:a -c copy -shortest /tmp/tf-mux.mp4
+          ffprobe -v error -show_entries stream=codec_name,duration -of compact /tmp/tf-mux.mp4
+          echo "Reference compressed remux validated (not native phone mux)."
+      - name: Commit generated audio privately
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd source
+          git add mobile/Assets/Toothfairy/Resources/Visit/score.bytes
+          git -c user.name=toothfairy-validation -c user.email=toothfairy-validation@users.noreply.github.com commit -qm "assets: bundle validated original fairy visit soundtrack"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          echo "::add-mask::$AUTH"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push --quiet origin HEAD:refs/heads/feature/01-mobile-foundation
+          echo "Soundtrack committed privately."
+      - name: Cleanup
+        if: always()
+        run: rm -rf source /tmp/tf-sound.log /tmp/tf-install.log /tmp/tf-input.mp4 /tmp/tf-mux.mp4
