@@ -1,0 +1,34 @@
+name: Toothfairy wallet recovery tests
+on:
+  push:
+    branches: [toothfairy-private-validation]
+    paths: ['.github/workflows/toothfairy-wallet-recovery.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Fetch pinned private source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          echo "::add-mask::$AUTH"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feature/01-mobile-foundation https://github.com/Persie0/Toothfairy.git source
+          test "$(git -C source rev-parse HEAD)" = 724d380f00da0a93c1c9fc7cee4989b193304149
+      - name: Test private wallet
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/tf-wallet-venv
+          /tmp/tf-wallet-venv/bin/pip install -q -r source/backend/requirements-dev.txt >/tmp/tf-wallet-install.log 2>&1 || { echo "Dependency install failed"; exit 1; }
+          cd source/backend
+          /tmp/tf-wallet-venv/bin/python -m pytest -q >/tmp/tf-wallet-test.log 2>&1 || { grep -E '^FAILED [a-z_]+\.py::[a-zA-Z0-9_]+' /tmp/tf-wallet-test.log | sed -E 's/ - .*//' | head -15; echo "Tests failed; private diagnostics withheld"; exit 1; }
+          grep -E '[0-9]+ passed' /tmp/tf-wallet-test.log | tail -1
+      - name: Cleanup
+        if: always()
+        run: rm -rf source /tmp/tf-wallet-venv /tmp/tf-wallet-install.log /tmp/tf-wallet-test.log
