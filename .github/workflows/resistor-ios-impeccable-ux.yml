@@ -19,9 +19,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/resistor-scanner-ios
-          ref: 46254074a410316b80496a22185308c59a5020e8
+          ref: 582b65b4ec4b025a8018551bbc4904a514610fc5
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-          submodules: recursive
+          submodules: false
           persist-credentials: false
           path: source
 
@@ -61,20 +61,14 @@ jobs:
             source/ResistorScanner/UI/ScannerOverlay.swift
           echo 'Independent native SwiftUI components passed iOS SDK type-checking.'
 
-      # Microsoft temporarily removed its SPM repository in November 2026.
-      # Use a verified immutable mirror of Microsoft's original release commit
-      # ONLY on the public CI runner; keep the app's upstream dependency intact.
-      - name: Verify and route original ONNX Runtime 1.24.2 release
+      - name: Check for obsolete ONNX dependencies
         shell: bash
         run: |
           set -euo pipefail
-          mirror='https://github.com/masicai/onnxruntime-swift-package-manager'
-          original_commit='b7fb7f7dea8a2469e6335d95a61b8f36d0dc83b2'
-          actual="$(git ls-remote "$mirror" refs/tags/1.24.2 | awk '{print $1}')"
-          test "$actual" = "$original_commit"
-          git config --global url."$mirror".insteadOf \
-            'https://github.com/microsoft/onnxruntime-swift-package-manager'
-          echo 'Verified original ONNX Runtime release commit and configured runner-only mirror.'
+          if grep -REn 'OnnxRuntimeBindings|OrtSessionFactory|OrtBandNet|onnxruntime-swift-package-manager|onnxruntime in Frameworks' source/ResistorScanner source/ResistorScanner.xcodeproj; then
+            echo 'Unexpected ONNX runtime reference'
+            exit 1
+          fi
 
       - name: Compile iOS simulator app without signing
         shell: bash
@@ -90,6 +84,16 @@ jobs:
               exit 1
             }
           grep 'BUILD SUCCEEDED' "$RUNNER_TEMP/resistor-ux-xcodebuild.log"
+          app="$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphonesimulator/ResistorScanner.app"
+          test -s "$app/Models/resistor_bandnet.tflite.enc"
+          test -s "$app/Models/resistor_bandnet.outputs.json"
+          test -s "$app/Models/resistor_segmenter_ppliteseg.tflite.enc"
+          if find "$app" -iname '*onnx*' -print | grep -q .; then
+            echo 'Unexpected ONNX artifact packaged'
+            exit 1
+          fi
+          echo 'Both encrypted TFLite models present; no ONNX artifacts packaged.'
+
 
       - name: Upload test and build logs
         if: always()
