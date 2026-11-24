@@ -1,0 +1,42 @@
+name: Image Enhancer post95 accessible store
+on:
+  push:
+    branches: [validate/image-enhancer-post95-store]
+    paths: [.github/workflows/image-enhancer-post95-store.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: f8642e7b994e3612a1d5a8a3f6ba53ab4bbd0c5d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Generate localizations
+        working-directory: app
+        run: flutter gen-l10n
+      - name: Store regression tests
+        working-directory: app
+        run: flutter test test/impeccable_post95_store_test.dart test/store_offerings_retry_regression_test.dart --reporter expanded
+      - name: Full Flutter tests
+        working-directory: app
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
+      - name: Flutter analyzer
+        working-directory: app
+        run: flutter analyze
+      - name: Android debug build
+        working-directory: app
+        run: flutter build apk --debug --no-pub
