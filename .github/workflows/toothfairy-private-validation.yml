@@ -1,0 +1,62 @@
+name: Toothfairy private source validation
+on:
+  push:
+    branches: [toothfairy-private-validation]
+    paths: ['.github/workflows/toothfairy-private-validation.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fetch pinned private source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          echo "::add-mask::$AUTH"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feature/01-mobile-foundation https://github.com/Persie0/Toothfairy.git source
+          test "$(git -C source rev-parse HEAD)" = 409939141256b7c0bb8f4675c31abcf77120ec09
+      - name: Install open-source validation dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq blender libespeak-ng1 espeak-ng-data > /tmp/toothfairy-install.log 2>&1 || { echo "Dependency install failed"; exit 1; }
+          python -m venv /tmp/toothfairy-venv
+          /tmp/toothfairy-venv/bin/pip install -q -r source/backend/requirements-dev.txt > /tmp/toothfairy-pip.log 2>&1 || { echo "Python dependency install failed"; exit 1; }
+      - name: Test private backend
+        run: |
+          set -euo pipefail
+          cd source/backend
+          /tmp/toothfairy-venv/bin/python -m pytest -q > /tmp/toothfairy-tests.log 2>&1 || { echo "Backend tests failed; no private log published"; exit 1; }
+          grep -E '^[0-9]+ passed' /tmp/toothfairy-tests.log | tail -1
+      - name: Generate and validate original assets
+        run: |
+          set -euo pipefail
+          cd source
+          blender -b -P assets-source/create_fairy.py -- assets-source/Fairy.blend > /tmp/toothfairy-blender.log 2>&1 || { echo "Blender generator failed"; exit 1; }
+          mkdir -p mobile/Assets/Toothfairy/Resources/Fairy
+          cp assets-source/Fairy.fbx mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx
+          python tools/build_voice.py > /tmp/toothfairy-voice.log 2>&1 || { echo "Voice generation failed"; exit 1; }
+          python tools/validate_generated.py > /tmp/toothfairy-assets.log 2>&1 || { echo "Generated asset validation failed"; exit 1; }
+          echo "Original Blender/FBX and 40 bilingual audio/viseme pairs validated."
+      - name: Commit generated assets privately
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd source
+          git add assets-source/Fairy.blend mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx mobile/Assets/Toothfairy/Resources/Voice/
+          git -c user.name=toothfairy-validation -c user.email=toothfairy-validation@users.noreply.github.com commit -qm "assets: generate validated original fairy and offline voice tracks"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          echo "::add-mask::$AUTH"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push --quiet origin HEAD:refs/heads/feature/01-mobile-foundation
+          echo "Generated assets committed only to private Toothfairy branch."
+      - name: Cleanup private source and logs
+        if: always()
+        run: |
+          rm -rf source /tmp/toothfairy-*.log /tmp/toothfairy-venv
