@@ -25,7 +25,16 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq blender libespeak-ng1 espeak-ng-data > /tmp/toothfairy-install.log 2>&1 || { echo "Dependency install failed"; exit 1; }
+          sudo apt-get install -y -qq libespeak-ng1 espeak-ng-data > /tmp/toothfairy-install.log 2>&1 || { echo "Dependency install failed"; exit 1; }
+          BLENDER_FILE=blender-4.2.23-linux-x64.tar.xz
+          BLENDER_URL=https://download.blender.org/release/Blender4.2
+          cd /tmp
+          curl --fail --silent --show-error --location --retry 3 --max-time 180 "$BLENDER_URL/$BLENDER_FILE" -o "$BLENDER_FILE"
+          curl --fail --silent --show-error --location --retry 3 "$BLENDER_URL/blender-4.2.23.sha256" -o toothfairy-blender.sha256
+          grep -E "[[:space:]]\*?$BLENDER_FILE$" toothfairy-blender.sha256 | sha256sum -c -
+          tar -xf "$BLENDER_FILE"
+          echo "/tmp/blender-4.2.23-linux-x64" >> "$GITHUB_PATH"
+          cd "$GITHUB_WORKSPACE"
           python -m venv /tmp/toothfairy-venv
           /tmp/toothfairy-venv/bin/pip install -q -r source/backend/requirements-dev.txt > /tmp/toothfairy-pip.log 2>&1 || { echo "Python dependency install failed"; exit 1; }
       - name: Test private backend
@@ -38,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           cd source
-          blender -b --python-exit-code 1 -P assets-source/create_fairy.py -- assets-source/Fairy.blend > /tmp/toothfairy-blender.log 2>&1 || { grep -E 'File ".*create_fairy.py", line [0-9]+|^[A-Za-z]+Error:' /tmp/toothfairy-blender.log | sed -E 's/^.*line ([0-9]+),.*$/Source line \1/; s/^([A-Za-z]+Error):.*$/\1/' | tail -6; echo "Blender generator failed"; exit 1; }
+          blender -b --factory-startup --python-exit-code 1 -P assets-source/create_fairy.py -- assets-source/Fairy.blend > /tmp/toothfairy-blender.log 2>&1 || { grep -E 'File ".*create_fairy.py", line [0-9]+|^[A-Za-z]+Error:' /tmp/toothfairy-blender.log | sed -E 's/^.*line ([0-9]+),.*$/Source line \1/; s/^([A-Za-z]+Error):.*$/\1/' | tail -6; echo "Blender generator failed"; exit 1; }
           mkdir -p mobile/Assets/Toothfairy/Resources/Fairy
           cp assets-source/Fairy.fbx mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx
           python tools/build_voice.py > /tmp/toothfairy-voice.log 2>&1 || { grep -E 'File ".*build_voice.py", line [0-9]+|^[A-Za-z]+Error:' /tmp/toothfairy-voice.log | sed -E 's/^.*line ([0-9]+),.*$/Source line \1/; s/^([A-Za-z]+Error):.*$/\1/' | tail -6; echo "Voice generation failed"; exit 1; }
