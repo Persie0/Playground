@@ -1,0 +1,35 @@
+name: Toothfairy media reference validation
+on:
+  push:
+    branches: [toothfairy-private-validation]
+    paths: ['.github/workflows/toothfairy-media-reference.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  media:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Fetch pinned private source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          echo "::add-mask::$AUTH"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feature/01-mobile-foundation https://github.com/Persie0/Toothfairy.git source
+          test "$(git -C source rev-parse HEAD)" = 7847fcf006b6d76a53b37b37a457584ec9ca6877
+      - name: Reference encoding and pixel checks
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/tmp/tf-install.log 2>&1; fi
+          cd source
+          python tools/benchmark_media.py >/tmp/tf-media.log 2>&1 || { echo "Media checks failed; private logs withheld"; exit 1; }
+          grep -E '^Pixel conversion equivalence:|^Reference Vorbis:' /tmp/tf-media.log
+          python tools/validate_generated.py >/tmp/tf-assets.log 2>&1 || { echo "Asset validation failed"; exit 1; }
+          echo "Existing assets validated."
+      - name: Cleanup
+        if: always()
+        run: rm -rf source /tmp/tf-media.log /tmp/tf-install.log /tmp/tf-assets.log
