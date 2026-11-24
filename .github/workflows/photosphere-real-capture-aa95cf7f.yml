@@ -29,7 +29,7 @@ jobs:
           d = json.loads((root/'capture/session.json').read_text())
           print('archive_sha256',hashlib.file_digest(open(root/'capture.zip','rb'),'sha256').hexdigest())
           print('sources',len(d['sources']),'source_dimensions',d.get('width'),d.get('height'),'status',d.get('status'))
-          print('config',json.dumps(d['config'],sort_keys=True))
+          print('config',json.dumps({k:v for k,v in d['config'].items() if k!='gpano_metadata'},sort_keys=True))
           print('saved_report',json.dumps(d.get('report',{}),sort_keys=True))
           print('pose_fov_ranges',[(min(s['pose'][k] for s in d['sources']),max(s['pose'][k] for s in d['sources'])) for k in ('horizontal_fov_deg','vertical_fov_deg')])
           print('orientation_rows',len((root/'capture/orientations.txt').read_text().splitlines()))
@@ -77,7 +77,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: a60efdb6ed367befb6c123dab29acc37cf6a60f5
+          ref: c0dfc3f4562a54dc77520b832faf0586d6fa8a62
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: engine
@@ -98,7 +98,7 @@ jobs:
               manifest.config.output_width = 4096;
               let session = PhotoSphereSession::from_manifest(manifest.clone())?;
               let report = session.stitch_to_jpeg(root.join("replay-baseline.jpg"))?;
-              println!("baseline {}",serde_json::to_string(&report)?);
+              println!("patched_recorded_settings {}",serde_json::to_string(&report)?);
               let mut exact = manifest.config.clone();
               exact.warp_mode = WarpMode::Exact;
               exact.multiband_feather_start_level = 4.min(exact.multiband_levels);
