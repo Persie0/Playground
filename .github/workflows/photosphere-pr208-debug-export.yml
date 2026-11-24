@@ -1,0 +1,89 @@
+name: Photo Sphere PR 208 debug archive verification
+run-name: Verify Photo Sphere PR 208 (273c379)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/photosphere-pr208-debug-export.yml
+
+permissions:
+  contents: read
+
+jobs:
+  android-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: 273c379ee2e6acd73133e78901434d14a4295189
+    steps:
+      - name: Checkout Playground build helpers
+        uses: actions/checkout@v4
+        with:
+          path: playground
+          persist-credentials: false
+
+      - name: Checkout private Photo Sphere source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/PhotosphereCleanroom
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: engine
+
+      - name: Verify pinned source
+        run: test "$(git -C engine rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Install Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+          cache-disabled: true
+
+      - name: Use preinstalled Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          test -d "$SDK"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          ls -ld "$SDK/ndk/"* || true
+
+      - name: Ensure Android 35 platform and build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)"
+          if [[ ! -f "$ANDROID_HOME/platforms/android-35/android.jar" || ! -d "$ANDROID_HOME/build-tools/35.0.0" ]]; then
+            "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+          fi
+
+      - name: Configure Maven Central mirror
+        run: |
+          mkdir -p "$GRADLE_USER_HOME/init.d"
+          cp playground/scripts/photosphere-maven-mirror.init.gradle "$GRADLE_USER_HOME/init.d/photosphere-maven-mirror.gradle"
+
+      - name: Android JVM unit tests and lint
+        working-directory: engine/android
+        run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
+
+      - name: Confirm debug archive regressions executed
+        working-directory: engine/android
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          p = Path("app/build/test-results/testDebugUnitTest/TEST-at.persie0.photosphere.DebugArchiveTest.xml")
+          suite = ET.parse(p).getroot()
+          assert int(suite.attrib["tests"]) == 7, suite.attrib
+          assert int(suite.attrib["failures"]) == 0 and int(suite.attrib["errors"]) == 0 and int(suite.attrib["skipped"]) == 0, suite.attrib
+          print("DebugArchiveTest: 7/7 passed")
+          PY
