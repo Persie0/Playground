@@ -1,0 +1,49 @@
+name: Surebets Impeccable round 15 purchase and legal flows
+on:
+  push:
+    branches: [ci/surebets-impeccable-round15-20261124]
+    paths:
+      - .github/workflows/surebets-impeccable-round15.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout private Surebets from public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: fix/impeccable-round15-purchase-legal-20261124
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Format changed files and verify whitespace
+        run: |
+          dart format lib/widgets/paywall_plan_option.dart lib/paywall_screen.dart lib/legal_page.dart lib/info_page.dart test/impeccable_round15_purchase_legal_test.dart visual_tests/impeccable_round6_goldens_test.dart
+          git diff --check
+      - name: Flutter static analysis
+        run: flutter analyze --no-fatal-infos
+      - name: Full Flutter unit and widget suite
+        run: timeout 240s flutter test --reporter expanded
+      - name: Generate 21 full-font UI screenshots
+        if: always()
+        run: timeout 180s flutter test visual_tests/impeccable_round6_goldens_test.dart --update-goldens --reporter expanded
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surebets-round15-ui
+          path: visual_tests/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 7
