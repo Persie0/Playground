@@ -1,0 +1,76 @@
+name: Toothfairy isolated deployment validation
+on:
+  push:
+    branches: [toothfairy-private-validation]
+    paths: ['.github/workflows/toothfairy-deployment-validation.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deployment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Fetch pinned private source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          echo "::add-mask::$AUTH"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feature/01-mobile-foundation https://github.com/Persie0/Toothfairy.git source
+          test "$(git -C source rev-parse HEAD)" = 4a14b07c7c7b77f6027c6716bd8250afe96c2e7a
+      - name: Resolve and audit production dependencies
+        run: |
+          set -euo pipefail
+          python3.12 -m venv /tmp/tf-prod
+          /tmp/tf-prod/bin/pip install -q -r source/backend/requirements.txt >/tmp/tf-deps.log 2>&1 || { echo "Dependency resolution failed"; exit 1; }
+          /tmp/tf-prod/bin/pip check
+          /tmp/tf-prod/bin/pip freeze > source/backend/requirements-lock.txt
+          python3.12 -m venv /tmp/tf-audit
+          /tmp/tf-audit/bin/pip install -q pip-audit >/tmp/tf-audit-install.log 2>&1
+          /tmp/tf-audit/bin/pip-audit --requirement source/backend/requirements-lock.txt --no-deps --disable-pip --format json --output /tmp/tf-audit.json >/tmp/tf-audit.log 2>&1 || { echo "Dependency audit failed (vulnerabilities or unavailable database)"; python -c 'import json; from pathlib import Path; p=Path("/tmp/tf-audit.json"); d=json.loads(p.read_text()) if p.exists() else {}; print([(x["name"], x["version"], [v["id"] for v in x.get("vulns",[])]) for x in d.get("dependencies",[]) if x.get("vulns")])'; exit 1; }
+          python -c 'import json; d=json.load(open("/tmp/tf-audit.json")); print("Audited production packages:",len(d["dependencies"])); assert not any(x.get("vulns") or x.get("skip_reason") for x in d["dependencies"])'
+      - name: Run wallet and online backup regression
+        run: |
+          set -euo pipefail
+          /tmp/tf-prod/bin/pip install -q -c source/backend/requirements-lock.txt -r source/backend/requirements-dev.txt >/tmp/tf-dev.log 2>&1
+          cd source/backend
+          /tmp/tf-prod/bin/python -m pytest -q >/tmp/tf-tests.log 2>&1 || { grep -E '^FAILED [a-z_]+\.py::[a-zA-Z0-9_]+' /tmp/tf-tests.log | sed -E 's/ - .*//' | head -20; exit 1; }
+          grep -E '[0-9]+ passed' /tmp/tf-tests.log | tail -1
+      - name: Build isolated container and verify restored wallet
+        run: |
+          set -euo pipefail
+          cd source/infra
+          cp .env.example .env
+          docker compose -p tf-ci config --quiet
+          docker compose -p tf-ci up --build -d --wait --wait-timeout 120 >/tmp/tf-docker.log 2>&1 || { echo "Docker build or health check failed"; exit 1; }
+          python smoke_test.py http://127.0.0.1:8002 create /tmp/tf-smoke-account.json
+          docker compose -p tf-ci exec -T toothfairy python backup.py /data/wallet.db /data/snapshot.db
+          IMAGE="$(docker compose -p tf-ci images -q toothfairy)"
+          test -n "$IMAGE"
+          docker volume create tf-ci-restore >/dev/null
+          docker run --rm --user 0 -v tf-ci_wallet:/source:ro -v tf-ci-restore:/data --entrypoint python "$IMAGE" -c 'import shutil,os; shutil.copyfile("/source/snapshot.db","/data/wallet.db"); os.chown("/data/wallet.db",10001,0); os.chmod("/data/wallet.db",0o600); os.chown("/data",10001,0)'
+          docker run -d --name tf-ci-restored --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges --memory 384m --pids-limit 96 -p 127.0.0.1:18002:8000 -v tf-ci-restore:/data "$IMAGE" >/dev/null
+          python smoke_test.py http://127.0.0.1:18002 restore /tmp/tf-smoke-account.json
+          docker exec tf-ci-restored python -c 'import os; assert os.getuid()==10001'
+          echo "Non-root isolated Docker deployment and separate restored wallet passed."
+      - name: Commit audited dependency lock privately
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd source
+          git add backend/requirements-lock.txt
+          git -c user.name=toothfairy-validation -c user.email=toothfairy-validation@users.noreply.github.com commit -qm "build: pin audited backend production dependencies"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          echo "::add-mask::$AUTH"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push --quiet origin HEAD:refs/heads/feature/01-mobile-foundation
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f tf-ci-restored >/dev/null 2>&1 || true
+          docker volume rm tf-ci-restore >/dev/null 2>&1 || true
+          if [ -f source/infra/.env ]; then (cd source/infra && docker compose -p tf-ci down -v >/dev/null 2>&1) || true; fi
+          rm -rf source /tmp/tf-prod /tmp/tf-audit /tmp/tf-smoke-account.json /tmp/tf-deps.log /tmp/tf-audit-install.log /tmp/tf-audit.json /tmp/tf-audit.log /tmp/tf-dev.log /tmp/tf-tests.log /tmp/tf-docker.log
