@@ -1,0 +1,49 @@
+name: Surebets PR 22 legal gate and consent regression
+on:
+  push:
+    branches: [ci/surebets-pr22-20261124]
+    paths:
+      - .github/workflows/surebets-pr22.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout private Surebets
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/surebets_calculator
+          ref: b10668a7e8de501e1212c8a7d80f94656b73549a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Format changed files and verify whitespace
+        run: |
+          dart format lib/main.dart lib/onboarding_screen.dart lib/calculator_screen.dart lib/settings_page.dart lib/paywall_screen.dart lib/legal_page.dart lib/settings_provider.dart test/impeccable_round15_purchase_legal_test.dart test/apple_store_licensing_test.dart test/paywall_restore_regression_test.dart visual_tests/impeccable_round6_goldens_test.dart
+          git diff --check
+      - name: Flutter static analysis
+        run: flutter analyze --no-fatal-infos
+      - name: Full Flutter unit and widget suite
+        run: timeout 240s flutter test --reporter expanded
+      - name: Generate 21 UI screenshots
+        if: always()
+        run: timeout 180s flutter test visual_tests/impeccable_round6_goldens_test.dart --update-goldens --reporter expanded
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surebets-pr22-ui
+          path: visual_tests/goldens/*.png
+          if-no-files-found: warn
+          retention-days: 7
