@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/resistor-scanner-ios
-          ref: 582b65b4ec4b025a8018551bbc4904a514610fc5
+          ref: 63a0ea50c17d593239fbc301fb0ed8ba6c35e07a
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           submodules: false
           persist-credentials: false
@@ -94,6 +94,23 @@ jobs:
           fi
           echo 'Both encrypted TFLite models present; no ONNX artifacts packaged.'
 
+
+      - name: Launch actual iOS app and capture native screenshot matrix
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphonesimulator/ResistorScanner.app"
+          bash source/Scripts/capture_simulator_ui.sh "$app" "$RUNNER_TEMP/resistor-native-qa"
+
+      - name: Upload native screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resistor-native-screenshot-matrix
+          retention-days: 3
+          if-no-files-found: warn
+          path: ${{ runner.temp }}/resistor-native-qa/*.png
 
       - name: Upload test and build logs
         if: always()
