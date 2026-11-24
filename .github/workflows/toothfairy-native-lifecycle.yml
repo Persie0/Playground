@@ -1,0 +1,95 @@
+name: Toothfairy native lifecycle regression
+on:
+  push:
+    branches: [toothfairy-private-validation]
+    paths: ['.github/workflows/toothfairy-native-lifecycle.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Fetch pinned private source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          echo "::add-mask::$AUTH"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feature/01-mobile-foundation https://github.com/Persie0/Toothfairy.git source
+          test "$(git -C source rev-parse HEAD)" = c9dea6d5019f1d426f2d59598aa83c7163b52013
+      - name: Check build tooling and assets
+        run: |
+          set -euo pipefail
+          cd source
+          bash -n tools/unity_development.sh
+          python -m unittest discover -s tools -p test_build_results.py >/tmp/tf-build-parser.log 2>&1
+          python tools/validate_generated.py >/tmp/tf-build-assets.log 2>&1
+          echo "Build-result parser and existing asset checks passed."
+      - name: Compile Android native bridge sources against Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -n "$SDK"
+          JAR="$(find "$SDK/platforms" -name android.jar | sort -V | tail -1)"
+          test -f "$JAR"
+          mkdir -p /tmp/tf-java/com/unity3d/player /tmp/tf-java-classes
+          cat > /tmp/tf-java/com/unity3d/player/UnityPlayer.java <<'JAVA'
+          package com.unity3d.player;
+          public class UnityPlayer {
+              public static android.app.Activity currentActivity;
+              public static void UnitySendMessage(String obj,String method,String value) {}
+          }
+          JAVA
+          javac -source 11 -target 11 -classpath "$JAR" -d /tmp/tf-java-classes /tmp/tf-java/com/unity3d/player/UnityPlayer.java source/mobile/Assets/Plugins/Android/*.java >/tmp/tf-java.log 2>&1 || { echo "Android Java compilation failed; private source diagnostics withheld"; grep -E 'error:|[0-9]+ errors?' /tmp/tf-java.log | sed -E 's/^.*error:/error:/' | head -8; exit 1; }
+          echo "All five Android Java bridges compiled against Android SDK (UnityPlayer stub)."
+      - name: Run backend regression with audited lock
+        run: |
+          set -euo pipefail
+          python3.12 -m venv /tmp/tf-native-venv
+          /tmp/tf-native-venv/bin/pip install -q -c source/backend/requirements-lock.txt -r source/backend/requirements-dev.txt >/tmp/tf-native-deps.log 2>&1
+          cd source/backend
+          /tmp/tf-native-venv/bin/python -m pytest -q >/tmp/tf-native-tests.log 2>&1 || { grep -E '^FAILED [a-z_]+\.py::[a-zA-Z0-9_]+' /tmp/tf-native-tests.log | sed -E 's/ - .*//' | head -15; exit 1; }
+          grep -E '[0-9]+ passed' /tmp/tf-native-tests.log | tail -1
+      - name: Unity activation readiness
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        run: |
+          if [ -n "$UNITY_LICENSE" ] || [ -n "$UNITY_SERIAL" ]; then
+            echo "Unity activation material configured; actual activation and editor build not attempted by this preflight."
+          else
+            echo "::notice::No UNITY_LICENSE or UNITY_SERIAL configured. Full Unity CI build blocked; use an activated local editor or configure licensed CI."
+          fi
+      - name: Cleanup
+        if: always()
+        run: rm -rf /tmp/tf-native-venv /tmp/tf-native-tests.log /tmp/tf-native-deps.log source /tmp/tf-java /tmp/tf-java-classes /tmp/tf-java.log /tmp/tf-build-parser.log /tmp/tf-build-assets.log
+  ios-native:
+    needs: preflight
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Fetch pinned private source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64)"
+          echo "::add-mask::$AUTH"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feature/01-mobile-foundation https://github.com/Persie0/Toothfairy.git source
+          test "$(git -C source rev-parse HEAD)" = c9dea6d5019f1d426f2d59598aa83c7163b52013
+      - name: Check Objective-C++ bridges against iOS SDK
+        run: |
+          set -euo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          for f in source/mobile/Assets/Plugins/iOS/*.mm; do
+            xcrun --sdk iphoneos clang++ -target arm64-apple-ios15.0 -isysroot "$SDK" -fobjc-arc -fblocks -std=c++17 -fsyntax-only "$f" >/tmp/tf-ios.log 2>&1 || { echo "iOS native syntax check failed"; grep -E 'error:|[0-9]+ errors? generated' /tmp/tf-ios.log | sed -E 's/^.*error:/error:/' | head -8; exit 1; }
+          done
+          echo "All five iOS Objective-C++ bridges passed SDK syntax checks (no Unity link)."
+      - name: Cleanup
+        if: always()
+        run: rm -rf source /tmp/tf-ios.log
