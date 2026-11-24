@@ -1,0 +1,59 @@
+name: Toothfairy original fairy v2
+on:
+  push:
+    branches: [toothfairy-private-validation]
+    paths: ['.github/workflows/toothfairy-fairy-v2.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  asset:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Fetch pinned private source
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          echo "::add-mask::$AUTH"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feature/01-mobile-foundation https://github.com/Persie0/Toothfairy.git source
+          test "$(git -C source rev-parse HEAD)" = 17cc39e004eed50a86d4c5076336dc22b3b7bb36
+      - name: Install verified Blender
+        run: |
+          set -euo pipefail
+          cd /tmp
+          FILE=blender-4.2.23-linux-x64.tar.xz
+          BASE=https://download.blender.org/release/Blender4.2
+          curl -fsSL --retry 3 --max-time 180 "$BASE/$FILE" -o "$FILE"
+          curl -fsSL --retry 3 "$BASE/blender-4.2.23.sha256" -o blender.sha256
+          grep -E "[[:space:]]\*?$FILE$" blender.sha256 | sha256sum -c -
+          tar -xf "$FILE"
+          echo "/tmp/blender-4.2.23-linux-x64" >> "$GITHUB_PATH"
+      - name: Generate and roundtrip original assets
+        run: |
+          set -euo pipefail
+          cd source
+          blender -b --factory-startup --python-exit-code 1 -P assets-source/create_fairy.py -- assets-source/Fairy.blend >/tmp/tf-v2.log 2>&1 || { grep -E 'File ".*create_fairy.py", line [0-9]+|^[A-Za-z]+Error:' /tmp/tf-v2.log | sed -E 's/^.*line ([0-9]+),.*$/Source line \1/; s/^([A-Za-z]+Error):.*$/\1/' | tail -6; exit 1; }
+          grep -E '^Generated original fairy rig:' /tmp/tf-v2.log
+          blender -b --factory-startup --python-exit-code 1 -P assets-source/verify_fairy.py -- assets-source/Fairy.fbx >/tmp/tf-roundtrip.log 2>&1 || { grep -E 'File ".*verify_fairy.py", line [0-9]+|^[A-Za-z]+Error:' /tmp/tf-roundtrip.log | sed -E 's/^.*line ([0-9]+),.*$/Source line \1/; s/^([A-Za-z]+Error):.*$/\1/' | tail -6; exit 1; }
+          grep -E '^FBX roundtrip passed:' /tmp/tf-roundtrip.log
+          cp assets-source/Fairy.fbx mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx
+          python tools/validate_generated.py >/tmp/tf-validate.log 2>&1 || { echo "Asset validation failed"; exit 1; }
+          echo "Existing voice and model asset checks passed."
+      - name: Commit generated assets privately
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd source
+          git add assets-source/Fairy.blend mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx
+          git -c user.name=toothfairy-validation -c user.email=toothfairy-validation@users.noreply.github.com commit -qm "assets: bundle roundtrip-validated original fairy v2"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          echo "::add-mask::$AUTH"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push --quiet origin HEAD:refs/heads/feature/01-mobile-foundation
+      - name: Cleanup
+        if: always()
+        run: rm -rf source /tmp/tf-v2.log /tmp/tf-roundtrip.log /tmp/tf-validate.log
