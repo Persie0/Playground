@@ -93,6 +93,38 @@ def verify_no_node(label):
     print("Confirmed hidden:", label, flush=True)
 
 
+def wait_for_any(*labels, tries=40):
+    for _ in range(tries):
+        try:
+            root = dump()
+            for label in labels:
+                if find(root, label) is not None:
+                    return label
+            if any(n.attrib.get("text") == "Pixel Launcher isn't responding" for n in root.iter("node")):
+                adb("shell", "am", "force-stop", "com.google.android.apps.nexuslauncher", check=False)
+                adb("shell", "am", "start", "-W", "-n", ACTIVITY)
+        except (ET.ParseError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            print("UI dump retry:", str(exc)[:220], flush=True)
+        time.sleep(2)
+    screenshot("startup-timeout.png")
+    raise RuntimeError(f"None of the expected startup states appeared: {labels}")
+
+
+def capture_startup_diagnostics():
+    # Save the caught model initialization exception as well as native crashes;
+    # the earlier harness only collected the crash buffer (empty for this error).
+    (OUTPUT / "startup-logcat.txt").write_text(adb(
+        "logcat", "-d", "-v", "threadtime", "-s",
+        "ResistorStartup:V", "ResistorLiteRt:V", "AndroidRuntime:E", "*:S",
+        check=False,
+    ))
+    details = adb("shell", "dumpsys", "package", "com.google.android.gms", check=False)
+    (OUTPUT / "play-services-version.txt").write_text("\n".join(
+        line.strip() for line in details.splitlines()
+        if "versionName=" in line or "versionCode=" in line
+    ) + "\n")
+
+
 def launch():
     adb("shell", "am", "start", "-W", "-n", ACTIVITY)
     time.sleep(3)
@@ -121,7 +153,42 @@ def main():
     screen("Choose a plain background", "02-guide-background.png")
     tap("Next")
     screen("Avoid shiny reflections", "03-guide-lighting.png")
+    # A blank compositor output on the ATD image produced identical PNGs
+    # despite different accessibility trees. Reject that as visual evidence.
+    guide_captures = [
+        (OUTPUT / name).read_bytes() for name in [
+            "01-guide-light.png", "02-guide-background.png", "03-guide-lighting.png",
+        ]
+    ]
+    if len(set(guide_captures)) != 3:
+        raise AssertionError("Onboarding screenshot frames are identical")
     tap("Start scanning")
+    state = wait_for_any("Scanner settings", "Scanner could not start", "Continue scanning")
+    if state == "Continue scanning":
+        screen("Not now", "04a-scan-choice.png")
+        tap("Not now")
+        state = wait_for_any("Scanner settings", "Scanner could not start")
+    if state == "Scanner could not start":
+        screenshot("04-startup-error.png")
+        tap("Show technical details")
+        screenshot("04b-startup-technical-details.png")
+        capture_startup_diagnostics()
+        tap("Scan guide")
+        screen("Fill the frame", "04c-recovery-guide.png")
+        tap("Close")
+        wait_for("Scanner could not start")
+        tap("Try again")
+        state = wait_for_any("Loading on-device models…", "Scanner settings", "Scanner could not start")
+        if state == "Loading on-device models…":
+            screenshot("04d-retry-loading.png")
+            state = wait_for_any("Scanner settings", "Scanner could not start", "Continue scanning")
+        if state == "Continue scanning":
+            tap("Not now")
+            state = wait_for_any("Scanner settings", "Scanner could not start")
+        if state == "Scanner could not start":
+            screenshot("04e-retry-error.png")
+            capture_startup_diagnostics()
+            raise RuntimeError("Real scanner initialization still failed after retry; see startup diagnostics")
     screen("Scanner settings", "04-scanner-light.png")
     tap("Scanner settings")
     screen("Scan guide", "05-settings-light.png")
@@ -165,6 +232,7 @@ if __name__ == "__main__":
     try:
         main()
     finally:
+        capture_startup_diagnostics()
         for filename, args in [
             ("runtime-crashes.log", ("logcat", "-d", "-b", "crash")),
             ("window-state.txt", ("shell", "dumpsys", "window")),
