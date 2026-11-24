@@ -8,7 +8,7 @@ permissions:
   contents: read
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Fetch pinned private source
@@ -20,7 +20,7 @@ jobs:
           AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
           echo "::add-mask::$AUTH"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth=1 --branch=feature/01-mobile-foundation https://github.com/Persie0/Toothfairy.git source
-          test "$(git -C source rev-parse HEAD)" = 409939141256b7c0bb8f4675c31abcf77120ec09
+          test "$(git -C source rev-parse HEAD)" = dce0c64674838051dde92db2b6b2206d716bbf01
       - name: Install open-source validation dependencies
         run: |
           set -euo pipefail
