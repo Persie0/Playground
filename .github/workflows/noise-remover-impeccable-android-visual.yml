@@ -118,6 +118,10 @@ jobs:
           choose('Home')
           choose('Light Mode')
           time.sleep(2)
+          # The inverse action proves the theme actually changed.
+          labels = ' '.join(n.attrib.get('text','') + ' ' + n.attrib.get('content-desc','') for n in dump().iter('node'))
+          if 'Dark Mode' not in labels:
+              raise RuntimeError('Theme switch did not expose the Dark Mode action')
           capture('home_light')
           choose('Batch')
           time.sleep(2)
