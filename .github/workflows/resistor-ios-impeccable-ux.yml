@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/resistor-scanner-ios
-          ref: 1d9d63b20b49234517748e83891b2d5bd66d75cb
+          ref: b329a32c8a9d37fea9d61ca15cbb20e972949d18
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           submodules: recursive
           persist-credentials: false
@@ -38,6 +38,28 @@ jobs:
           set -euo pipefail
           find source/ResistorScanner -name '*.swift' -print0 | xargs -0 swiftc -frontend -parse
           echo 'Native Swift source syntax OK'
+
+      # This checks real production UI source against Apple's Simulator SDK.
+      # It does not mock the scanner engine or claim full app compilation.
+      - name: Type-check independent scanner SwiftUI components with iOS SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          target="$(uname -m)-apple-ios17.0-simulator"
+          modules="$RUNNER_TEMP/resistor-ios-modules"
+          mkdir -p "$modules"
+          xcrun --sdk iphonesimulator swiftc -swift-version 6 -sdk "$sdk" -target "$target" \
+            -parse-as-library -module-name ResistorScannerCore -emit-module \
+            -emit-module-path "$modules/ResistorScannerCore.swiftmodule" \
+            source/Sources/ResistorScannerCore/*.swift
+          xcrun --sdk iphonesimulator swiftc -swift-version 6 -sdk "$sdk" -target "$target" \
+            -I "$modules" -typecheck \
+            source/ResistorScanner/UI/BandChip.swift \
+            source/ResistorScanner/UI/ResultCard.swift \
+            source/ResistorScanner/UI/ScannerControls.swift \
+            source/ResistorScanner/UI/ScannerOverlay.swift
+          echo 'Independent native SwiftUI components passed iOS SDK type-checking.'
 
       # Microsoft temporarily removed its SPM repository in November 2026.
       # Use a verified immutable mirror of Microsoft's original release commit
