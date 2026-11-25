@@ -1,0 +1,64 @@
+name: TopTravelList Egypt validation
+on:
+  push:
+    branches: ['ci/toptravellist-eg-v2']
+    paths: ['.github/workflows/toptravellist-eg-v2.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/egypt-worldwide-v2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and generate
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          git merge --no-edit origin/main
+          python -m pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country EG
+          python scripts/generate_rankings.py --country EG
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60 >/tmp/world-cities.txt
+          python scripts/rank.py --kind sights --limit 60 >/tmp/world-sights.txt
+          python - <<'PY'
+          from pathlib import Path
+          from decimal import Decimal
+          import yaml
+          for kind,count in [('cities',10),('sights',35)]:
+              files=list(Path('countries/EG',kind).glob('*.yaml'))
+              assert len(files)==count
+              txt=Path('methodology/reviews/EG',kind+'.md').read_text()
+              for f in files:
+                  d=yaml.safe_load(f.read_text())
+                  section=txt.split('## '+d['id']+' — ',1)[1].split('\n## ',1)[0]
+                  vals=[d['scores'][k] for k in ('impact','uniqueness','significance','experience','depth')]
+                  if None not in vals:
+                      total=sum(Decimal(str(v))*w for v,w in zip(vals,[30,25,20,15,10]))/10
+                      assert f'Overall: {total:.2f}/100.' in section, d['id']
+                  else:
+                      assert 'Overall: unranked.' in section
+              assert Path('countries/EG',kind+'.md').read_text().count('https://www.google.com/maps/search/?api=1&query=')==2*count
+          print('PASS: EG counts, totals and map links')
+          PY
+          git add README.md countries/EG/cities.md countries/EG/sights.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate Egypt ranking pages and country directory'
+          fi
+          git push origin HEAD:refs/heads/data/egypt-worldwide-v2
