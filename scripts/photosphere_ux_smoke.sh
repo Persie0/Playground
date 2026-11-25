@@ -110,7 +110,7 @@ for orientation in ['portrait','landscape','portrait-large-font','landscape-larg
             overlap=max(0,min(a[2],b[2])-max(a[0],b[0]))*max(0,min(a[3],b[3])-max(a[1],b[1]))
             assert overlap==0, f'{orientation}: overlapping actions {name} and {other}'
     print(orientation, 'buttons', buttons)
-for name,required in [('options-menu','How to capture a Photo Sphere'),('help-dialog','Keep the phone')]:
+for name,required in [('options-menu','How to capture a Photo Sphere'),('help-dialog','Tap Start')]:
     root=ET.parse(pathlib.Path('ux-artifacts')/(name+'.xml')).getroot()
     alltext=' '.join(el.get('text','') for el in root.iter('node'))
     assert required in alltext, f'{name}: missing {required}: {alltext[:400]}'
