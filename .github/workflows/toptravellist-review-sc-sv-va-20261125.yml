@@ -1,0 +1,134 @@
+name: Review Seychelles, El Salvador and Vatican City
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-review-sc-sv-va-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Persie0/TopTravelList
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare rating reviewer
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          gh auth setup-git
+          cat > /tmp/reassess.py <<'PY'
+          import json,sys,re
+          from pathlib import Path
+          from decimal import Decimal
+          from collections import Counter
+          import yaml
+          sys.path.insert(0,'scripts')
+          from rank import overall_score
+          code=sys.argv[1]
+          notes=json.loads("{\"SC\":[[\"sights\",\"aldabra-atoll\",{\"depth\":7.6},\"SIF requires advance clearance and live-aboard vessels, and controls landings and wildlife visits. Exceptional intact atoll ecology and giant tortoises justify the high impact, uniqueness, significance and nature/wildlife ratings as conditional authorized visits, but depth must reflect the bounded permitted itinerary, not the entire reserve.\",\"https://sif.sc/aldabra https://sif.sc/sfw/aldacal https://www.sif.sc/categories/tourism-aldabra\",[\"MY/sights/sipadan-island-reefs\",\"JO/sights/aqaba-marine-reserve\",\"TH/sights/tarutao-national-marine-park\",\"BZ/sights/glover-s-reef-marine-reserve\"],[\"World-class underwater experience with greater normal visitor breadth.\",\"More routinely accessible reef visit with distinct conservation value.\",\"Multiple accessible islands and routes.\",\"Atoll visitor scope with broader reef exploration.\"]],[\"sights\",\"anse-source-d-argent\",{},\"Tourism Seychelles confirms sculpted granite formations, fine sand and turquoise water. Strong visual rarity and photography remain justified as editorial judgments; the 7.6 depth prevents importing the entire island. High ratings are not based on tourism popularity alone.\",\"https://www.seychelles.com/blog-details/5130/highlights/top-beaches-seychelles-where-pristine-sands-meet-crystal-clear-waters\",[\"TH/sights/railay-beach\",\"VN/sights/nha-trang-beach\",\"KH/sights/sokha-beach\",\"TH/sights/nai-yang-beach\"],[\"Dramatic limestone setting, broader linked shore experience.\",\"Longer city beach with less singular formations.\",\"More conventional bounded beach.\",\"Ordinary leisure beach, less distinct composition.\"]],[\"sights\",\"anse-lazio\",{},\"Tourism Seychelles describes the broad sand beach framed by granite rocks. Retain high visual/beach quality but lower uniqueness than Anse Source d'Argent and bounded depth. No inference that conditions are always safe.\",\"https://tourism.gov.sc/?p=6887\",[\"TH/sights/railay-beach\",\"VN/sights/nha-trang-beach\",\"KH/sights/sokha-beach\",\"TH/sights/nai-yang-beach\"],[\"Cliff setting offers comparable scenic but different geology.\",\"Broader urban beach, lower natural rarity.\",\"More replaceable beach setting.\",\"Conventional beach with similar bounded scope.\"]],[\"sights\",\"vallee-de-mai-nature-reserve\",{},\"The foundation describes a managed endemic palm forest with visitor paths and interpretation. High rarity and nature scores are plausible; 8.3 depth is limited to that reserve rather than the surrounding Praslin National Park.\",\"https://www.sif.sc/vdm https://whc.unesco.org/en/list/261/\",[\"TH/sights/khao-sok-national-park\",\"JO/sights/dana-biosphere-reserve\",\"JO/sights/azraq-wetland-reserve\",\"BZ/sights/cockscomb-basin-wildlife-sanctuary\"],[\"Larger varied forest landscape has greater depth.\",\"More extensive trails and habitats.\",\"Bounded specialist conservation visit.\",\"Larger forest sanctuary with broader trail system.\"]]],\"SV\":[[\"sights\",\"joya-de-ceren-archaeological-site\",{},\"UNESCO confirms an ash-buried pre-Hispanic farming community with exceptional evidence of daily life. The 9.6 uniqueness, significance and history are justified as editorial judgments; impact and depth remain below monumental ancient cities. No UNESCO bonus or borrowed national heritage.\",\"https://whc.unesco.org/en/list/675/ https://www.cultura.gob.sv/parque-arqueologico-joya-de-ceren/\",[\"PE/sights/chan-chan-archaeological-zone\",\"PE/sights/chavin-archaeological-site\",\"BZ/sights/caracol-archaeological-reserve\",\"JO/sights/pella-archaeological-site\"],[\"More extensive urban ruins; different exceptional preservation.\",\"Rare archaeological evidence with broader monument scope.\",\"More imposing architecture and greater route breadth.\",\"Regional archaeological ensemble with lower global rarity.\"]],[\"sights\",\"santa-ana-volcano-ilamatepec\",{},\"Official tourism confirms a challenging permitted hike. The crater route has higher impact than ordinary viewpoints but lower rarity and depth than Mount Fuji, Ijen and Bromo; scores exclude other volcanoes in the national park.\",\"https://elsalvador.travel/esp/en/volcan-de-santa-ana-ilamatepec/ https://elsalvador.travel/esp/en/parque-recreativo-cerro-verde/\",[\"ID/sights/ijen-crater\",\"ID/sights/mount-bromo\",\"JP/sights/mount-fuji\",\"ID/sights/bromo-tengger-semeru-national-park\"],[\"Rarer sulfur-crater landscape.\",\"Comparable rewarding ascent with stronger volcanic setting.\",\"Greater global cultural and natural significance and depth.\",\"Multi-volcano park has greater breadth.\"]]],\"VA\":[[\"sights\",\"sistine-chapel\",{\"depth\":7.8},\"Official museum material establishes the exceptionally influential fresco ensemble; visitor rules prohibit photos and require silence. Preserve artistic impact, rarity and historical merit, but a single chapel viewed along a museum route must not inherit the depth of a complete cathedral or museum. Photography remains omitted.\",\"https://www.museivaticani.va/content/museivaticani-mobile/en/collezioni/reparti/reparto-arte-XV-XVI.html https://www.museivaticani.va/content/museivaticani/en/organizza-visita/consigli-utili.html\",[\"AT/sights/st-stephens-cathedral\",\"AT/sights/melk-abbey\",\"AT/sights/kunsthistorisches-museum\",\"CZ/sights/st-vitus-cathedral\"],[\"Full cathedral has more architectural exploration.\",\"Whole abbey circuit offers more visitor breadth.\",\"Complete art museum has far greater collection depth.\",\"Large cathedral provides varied spaces.\"]],[\"sights\",\"raphael-rooms\",{\"depth\":8.1},\"Vatican Museums confirms the four rooms of the papal apartment. Retain artistic uniqueness and influence, but reduce exploration depth to the four frescoed rooms, not the museum's full collection.\",\"https://www.museivaticani.va/content/museivaticani/en/collezioni/musei/stanze-di-raffaello.html\",[\"AT/sights/kunsthistorisches-museum\",\"TW/sights/national-palace-museum\",\"AT/sights/schoenbrunn-palace\",\"AT/sights/belvedere-palace\"],[\"Entire museum has greater collection breadth.\",\"Large collection offers a deeper visit.\",\"Palace circuit contains many more spaces.\",\"Broader palace and collection visit.\"]],[\"sights\",\"gallery-of-geographical-maps\",{\"depth\":7.1},\"Official museum description confirms a single 120-metre cartographic corridor, an unusually coherent historical program. Retain uniqueness 9.5 and historical significance but reduce depth for a linear gallery, not a whole museum or palace.\",\"https://www.museivaticani.va/content/museivaticani/en/collezioni/musei/galleria-carte-geografiche.html https://www.museivaticani.va/content/museivaticani-mobile/en/collezioni/reparti/reparto-arte-XV-XVI.html\",[\"AT/sights/kunsthistorisches-museum\",\"TW/sights/national-palace-museum\",\"AT/sights/melk-abbey\",\"AT/sights/belvedere-palace\"],[\"Full museum has much more depth.\",\"Full museum covers a much broader collection.\",\"Multiple rooms and exhibits support longer exploration.\",\"Entire palace visit has broader scope.\"]],[\"sights\",\"vatican-necropolis\",{},\"Basilica operator confirms an authorized guided tour of preserved burial chambers. Historical significance is supported by the specific archaeology, not unrestricted access to Vatican territory. Retain 8.4 depth provisionally for the interpreted underground circuit; distinguish from broader museums.\",\"https://www.basilicasanpietro.va/en/products/the-necropolis https://www.basilicasanpietro.va/en/help/the-necropolis\",[\"PE/sights/chavin-archaeological-site\",\"PE/sights/chan-chan-archaeological-zone\",\"CO/sights/tierradentro-national-archaeological-park\",\"BZ/sights/actun-tunichil-muknal-cave\"],[\"Broader archaeological ensemble.\",\"More expansive ruins.\",\"Comparable interpreted funerary archaeology.\",\"Guided restricted archaeological cave with distinct cultural scope.\"]]]}")
+          weights={k:Decimal(str(v)) for k,v in json.loads(Path('methodology/scoring.json').read_text())['dimensions'].items()}
+          def load(p):return yaml.safe_load(Path(p).read_text())
+          def vector(r):return ' / '.join(str(r['scores'].get(k)) if r['scores'].get(k) is not None else 'null' for k in weights)
+          def total(r):
+           v=overall_score(r,weights)
+           return 'unranked' if v is None else f'{v:.2f}/100'
+          for kind,slug,changes,reason,urls,peers,why in notes[code]:
+           p=Path('countries')/code/kind/(slug+'.yaml');r=load(p);before=vector(r);oldtotal=total(r)
+           if changes:
+            r['scores'].update(changes)
+            p.write_text(yaml.safe_dump(r,sort_keys=False,allow_unicode=True),encoding='utf-8')
+           review=Path('methodology/reviews')/code/(kind+'.md')
+           doc=review.read_text()
+           assert re.search(r'^#{2,3} '+re.escape(r['id'])+r' — ',doc,re.M),r['id']
+           with review.open('a',encoding='utf-8') as f:
+            f.write(f'\n## Follow-up: {r["id"]} — 2026-11-25 (worldwide review)\n\n- [YAML](../../../{p}) · Action: {"rescore" if changes else "fact-check-only"} · **source-linked-unverified**: limited source claims checked; not comprehensive fact-check. Original decision above retained.\n- Sources inspected 2026-11-25: '+', '.join(f'[{u}]({u})' for u in urls.split())+'\n- Decision: '+reason+f'\n- I/U/S/E/D: {before} → {vector(r)}; total {oldtotal} → {total(r)}. Categories unchanged. No new 10 or country multiplier. Representative GPS retained.\n\n| Current worldwide peer | I/U/S/E/D | Overall | Scope comparison |\n| --- | --- | --- | --- |\n')
+            for peer,comparison in zip(peers,why):
+             pp=Path('countries')/(peer+'.yaml');q=load(pp)
+             f.write(f'| [{q["name"]}](../../../{pp}) | {vector(q)} | {total(q)} | {comparison} |\n')
+            f.write('\n')
+           print(r['id'],oldtotal,'->',total(r))
+          for kind in ('cities','sights'):
+           doc=(Path('methodology/reviews')/code/(kind+'.md')).read_text()
+           records=[load(p) for p in sorted((Path('countries')/code/kind).glob('*.yaml'))]; statuses=Counter()
+           for r in records:
+            m=re.search(r'^#{2,3} '+re.escape(r['id'])+r' — .*?(?=^#{2,3} |\Z)',doc,re.M|re.S)
+            assert m,(r['id'],'missing original review')
+            b=m.group(); status=re.search(r'\*\*(source-linked-unverified|editorial-only|fact-checked|unassessed)\*\*',b)
+            if status:statuses[status.group(1)]+=1
+            else:statuses['status-format-needs-review']+=1
+            assert len(set(re.findall(r'\]\(\.\./\.\./\.\./countries/([A-Z]{2}/(?:cities|sights)/[^)]+)\)',b)))>=4,(r['id'],'missing peers')
+            for k in weights: assert re.search(r'^- '+k.capitalize()+r' ',b,re.M),(r['id'],k)
+           print(code,kind,len(records),'original evidence statuses',dict(statuses),'unranked',sum(overall_score(r,weights) is None for r in records))
+          
+          PY
+      - name: Review and merge oldest three in order
+        run: |
+          set -euo pipefail
+          for item in '45 SC data/seychelles-rankings-63 176d0e9dd9ebbfb6017dd578bd858f388d512444' '46 SV data/el-salvador-rankings-78 8f81bbd162e9adfde2725c7bd7db52291d41e0a2' '48 VA data/vatican-worldwide-v2-2026 075ecce0c8750e669f1a28c6291b8ae5e8108e0d'; do
+            read -r n code branch expected <<< "$item"
+            git fetch origin main "$branch"
+            state=$(gh pr view "$n" --repo Persie0/TopTravelList --json state --jq .state)
+            if [ "$state" = MERGED ]; then continue; fi
+            test "$state" = OPEN
+            test "$(git rev-parse origin/$branch)" = "$expected"
+            git switch -C "review-$code" "origin/$branch"
+            git merge --no-commit --no-ff origin/main || {
+              while IFS= read -r f; do
+                case "$f" in README.md|countries/*/cities.md|countries/*/sights.md) git checkout --theirs -- "$f"; git add "$f";;
+                  *) echo "Unexpected conflict: $f"; exit 1;; esac
+              done < <(git diff --name-only --diff-filter=U)
+              test -z "$(git diff --name-only --diff-filter=U)"
+            }
+            git commit -m "Integrate main before $code rating review" || test -z "$(git status --porcelain)"
+            python /tmp/reassess.py "$code"
+            python scripts/generate_rankings.py
+            python scripts/validate.py
+            python scripts/check_city_benchmarks.py
+            python scripts/check_sight_benchmarks.py
+            python scripts/generate_rankings.py --check
+            python - "$code" "$n" <<'PY'
+          import sys
+          from pathlib import Path
+          code,n=sys.argv[1:]
+          p=Path('methodology/reviews/review-progress.md')
+          rows={
+            'SC':('Seychelles',14,49,'Aldabra depth 8.8 → 7.6; three focused retain decisions'),
+            'SV':('El Salvador',24,54,'Joya de Cerén and Santa Ana Volcano retained with closer peers'),
+            'VA':('Vatican City',1,24,'Sistine Chapel, Raphael Rooms and Gallery of Maps depth reduced; Necropolis retained')
+          }
+          name,c,s,decision=rows[code]
+          row=f'| {name} | {code} | {c} | {s} | [#{n}](https://github.com/Persie0/TopTravelList/pull/{n}) | [Pass](https://github.com/Persie0/Playground/actions/runs/'+__import__('os').environ['GITHUB_RUN_ID']+') | '+decision+' | Individual source/GPS and category calibration |'
+          content=p.read_text()
+          content=content.replace('\nAll four merged PRs', '\n'+row+'\n\nAll four merged PRs',1)
+          # Keep ledger row in its table, not separated by blank paragraphs.
+          content=content.replace('\n\n'+row,'\n'+row)
+          content=content.replace(f'{code} #{n}; ','')
+          p.write_text(content)
+          PY
+            git add "countries/$code" "methodology/reviews/$code" README.md methodology/reviews/review-progress.md
+            git commit -m "Review $code ratings and track progress"
+            git diff --name-only origin/main HEAD | while IFS= read -r f; do
+              case "$f" in README.md|countries/"$code"/*|methodology/reviews/"$code"/*|methodology/reviews/review-progress.md) ;; *) echo "Unexpected changed file $f"; exit 1;; esac
+            done
+            git push origin "HEAD:refs/heads/$branch"
+            sha=$(git rev-parse HEAD)
+            git fetch origin main
+            git merge-base --is-ancestor origin/main HEAD
+            if [ "$(gh pr view "$n" --repo Persie0/TopTravelList --json isDraft --jq .isDraft)" = true ]; then
+              gh pr ready "$n" --repo Persie0/TopTravelList
+            fi
+            gh pr merge "$n" --repo Persie0/TopTravelList --merge --match-head-commit "$sha"
+            echo "PR $n merged at reviewed head $sha"
+          done
