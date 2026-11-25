@@ -1,0 +1,252 @@
+name: TopTravelList full atlas integration review
+on:
+  push:
+    branches: ['ci/toptravellist-atlas-review-234']
+    paths: ['.github/workflows/toptravellist-atlas-review-234.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: feature/worldwide-territories-greenland
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and generate
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          if ! git merge --no-edit origin/main; then
+            # Only generated pages are automatically resolved. Any source/code conflict blocks integration.
+            while IFS= read -r file; do
+              case "$file" in
+                README.md|countries/??/cities.md|countries/??/sights.md)
+                  git checkout --ours -- "$file"
+                  git add -- "$file"
+                  ;;
+                *) echo "Manual source conflict: $file"; exit 1 ;;
+              esac
+            done < <(git diff --name-only --diff-filter=U)
+            git commit --no-edit
+          fi
+          python -m pip install -r requirements.txt
+          python - <<'PY'
+          from pathlib import Path
+          import re, yaml
+          old=Path('countries/AU/sights/heard-mcdonald-islands.yaml')
+          new=Path('countries/HM/sights/heard-mcdonald-islands.yaml')
+          au=Path('methodology/reviews/AU/sights.md')
+          hm=Path('methodology/reviews/HM/sights.md')
+          if old.exists():
+              a,b=map(lambda p:yaml.safe_load(p.read_text()), (old,new))
+              assert a['scores']==b['scores'], 'HM migration would alter existing scores'
+              assert a['name']==b['name']
+              text=au.read_text()
+              match=re.search(r'^## sight-au-heard-mcdonald-islands — .*?(?=^## |\Z)',text,re.M|re.S)
+              assert match, 'AU canonical review missing'
+              archive=Path('methodology/reviews/AU/migration-history-HM.md')
+              archive.write_text('# Heard and McDonald Islands — archived AU decision\n\n'+match.group())
+              au.write_text(text[:match.start()]+text[match.end():]+'\n- Heard and McDonald Islands migrated to [HM](../HM/sights.md); [archived prior decision](migration-history-HM.md).\n')
+              old.unlink()
+              h=hm.read_text().replace('The Australian parent record is currently on a separate open PR, not present in this branch. Migration is staged; remove the old active AU YAML and reconcile references/generated pages when integrating PRs #227 and #234.','The former AU record from merged PR #227 has been retired; its full final decision is archived under AU. HM is the sole active record.').replace('migrate (staged from Australia PR #227; numeric scores unchanged)','migrate (from merged Australia PR #227; numeric scores unchanged)').replace('staged migration, preserve all prior numeric values and null fields.','Completed migration; all prior numeric values and null fields preserved.').replace('cross-PR migration completion, ','').replace('migration-history-AU.md), [original','migration-history-AU.md), [final AU review](../AU/migration-history-HM.md), [original')
+              hm.write_text(h)
+              p=Path('methodology/territory-expansion.md')
+              with p.open('a') as f: f.write('\n### HM integration — 2026-11-26\n\nRetired active AU Heard and McDonald Islands YAML and canonical review after merging Australia #227; HM values preserved. [Final AU decision](reviews/AU/migration-history-HM.md).\n')
+          assert not old.exists() and new.exists()
+          PY
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country GL
+          python scripts/check_new_country_reviews.py --country FO
+          python scripts/check_new_country_reviews.py --country PF
+          python scripts/check_new_country_reviews.py --country FR
+          python scripts/check_new_country_reviews.py --country PR
+          python scripts/check_new_country_reviews.py --country US
+          python scripts/check_new_country_reviews.py --country AQ
+          python scripts/check_new_country_reviews.py --country HK
+          python scripts/check_new_country_reviews.py --country MO
+          python scripts/check_new_country_reviews.py --country SJ
+          python scripts/check_new_country_reviews.py --country NO
+          python scripts/check_new_country_reviews.py --country RE
+          python scripts/check_new_country_reviews.py --country NC
+          python scripts/check_new_country_reviews.py --country AX
+          python scripts/check_new_country_reviews.py --country FI
+          # Check all newly catalogued territories, not only the early batches.
+          python - <<'PY'
+          from pathlib import Path
+          import json, subprocess, sys, re, yaml
+          from decimal import Decimal
+          r=json.loads(Path('countries/_registry.json').read_text())
+          codes=[cc for cc in r['territories'] if any(Path('countries',cc).glob('*/*.yaml'))]
+          codes+=['AU','CN','DK','FI','FR','NO','US']
+          failures=[]
+          for cc in sorted(set(codes)):
+              subprocess.run([sys.executable,'scripts/check_new_country_reviews.py','--country',cc],check=True)
+              if cc not in r['territories']: continue
+              for folder in ('cities','sights'):
+                  files=list(Path('countries',cc,folder).glob('*.yaml'))
+                  docs=Path('methodology/reviews',cc)
+                  paths=sorted(docs.glob('sights-*.md')) if folder=='sights' else []
+                  text='\n'.join(p.read_text() for p in (paths or [docs/(folder+'.md')]))
+                  sections={m.group(1):m.group(2) for m in re.finditer(r'^## ((?:city|sight)-[a-z]{2}-[a-z0-9-]+)\s+[—-]\s+(.*?)(?=^## |\Z)',text,re.M|re.S)}
+                  for p in files:
+                      d=yaml.safe_load(p.read_text()); sec=sections[d['id']]
+                      if not re.search(r'https?://',sec): failures.append((d['id'],'no source URL'))
+                      vals=[d['scores'][k] for k in ('impact','uniqueness','significance','experience','depth')]
+                      m=re.search(r'Overall[^\n]*?(\d{1,3}\.\d{2})\s*/\s*100',sec,re.I)
+                      if None not in vals:
+                          total=sum(Decimal(str(v))*w for v,w in zip(vals,[30,25,20,15,10]))/10
+                          if not m or Decimal(m.group(1))!=total: failures.append((d['id'],'review total',str(total),m.group(1) if m else None))
+                      elif m: failures.append((d['id'],'unranked has numeric total'))
+          print('Territory review/source/total audit:',len(codes)-7,'territories')
+          if failures:
+              for f in failures: print('AUDIT ERROR',f)
+              raise SystemExit(1)
+          PY
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60 >/tmp/world-cities.txt
+          python scripts/rank.py --kind sights --limit 60 >/tmp/world-sights.txt
+          python - <<'PY'
+          from pathlib import Path
+          from decimal import Decimal
+          import yaml
+          for kind,count in [('cities',7),('sights',12)]:
+              files=list(Path('countries/GL',kind).glob('*.yaml'))
+              assert len(files)==count
+              txt=Path('methodology/reviews/GL',kind+'.md').read_text()
+              for f in files:
+                  d=yaml.safe_load(f.read_text())
+                  section=txt.split('## '+d['id']+' — ',1)[1].split('\n## ',1)[0]
+                  vals=[d['scores'][k] for k in ('impact','uniqueness','significance','experience','depth')]
+                  if None not in vals:
+                      total=sum(Decimal(str(v))*w for v,w in zip(vals,[30,25,20,15,10]))/10
+                      assert f'Overall: {total:.2f}/100.' in section, d['id']
+                  else:
+                      assert 'Overall: unranked.' in section
+              assert Path('countries/GL',kind+'.md').read_text().count('https://www.google.com/maps/search/?api=1&query=')==2*count
+          print('PASS: GL counts, totals and map links')
+          PY
+          python - <<'PY'
+          import json, sys
+          sys.path.insert(0, 'scripts')
+          from registry import registry_errors, complete
+          from pathlib import Path
+          r=json.loads(Path('countries/_registry.json').read_text())
+          assert len(r['codes'])==250 and not registry_errors(r)
+          assert complete(r, 'AQ', 0, 1) and not complete(r, 'AQ', 0, 0)
+          assert not complete(r, 'GL', 0, 1) and complete(r, 'GL', 1, 1)
+          assert len(list(Path('countries').glob('*/cities.md')))==250
+          assert len(list(Path('countries').glob('*/sights.md')))==250
+          print('PASS: 250 registry entries, all pages, sight-only coverage')
+          PY
+          test ! -f countries/FR/sights/taputapuatea.yaml
+          test ! -f countries/FR/sights/marquesas.yaml
+          test -f countries/PF/sights/taputapuatea.yaml
+          test -f countries/PF/sights/marquesas.yaml
+          test ! -f countries/US/sights/san-juan-national-historic-site.yaml
+          test -f countries/PR/sights/san-juan-national-historic-site.yaml
+          test "$(find countries/AQ -path '*/cities/*.yaml' | wc -l)" -eq 0
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          for folder in ('cities','sights'):
+              for p in Path('countries/HK',folder).glob('*.yaml'):
+                  r=yaml.safe_load(p.read_text())
+                  assert r['location']['country_code']=='HK',p
+                  assert not Path('countries/CN',folder,p.name).exists(),p
+          assert len(list(Path('countries/HK/cities').glob('*.yaml')))==1
+          assert len(list(Path('countries/HK/sights').glob('*.yaml')))==21
+          for folder in ('cities','sights'):
+              for p in Path('countries/MO',folder).glob('*.yaml'):
+                  r=yaml.safe_load(p.read_text())
+                  assert r['location']['country_code']=='MO',p
+                  assert not Path('countries/CN',folder,p.name).exists(),p
+          assert len(list(Path('countries/MO/cities').glob('*.yaml')))==1
+          assert len(list(Path('countries/MO/sights').glob('*.yaml')))==12
+          assert Path('countries/CN/cities/zhuhai.yaml').exists()
+          assert Path('countries/CN/cities/shenzhen.yaml').exists()
+          assert Path('countries/CN/sights/dapeng-fortress.yaml').exists()
+          print('PASS: HK migration, no parent duplicates, mainland records retained')
+          PY
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          for folder,n in [('cities',2),('sights',12)]:
+              paths=list(Path('countries/SJ',folder).glob('*.yaml'))
+              assert len(paths)==n,folder
+              for p in paths:
+                  assert yaml.safe_load(p.read_text())['location']['country_code']=='SJ',p
+                  assert not Path('countries/NO',folder,p.name).exists(),p
+          print('PASS: SJ inventory and no parent duplicates')
+          PY
+          test ! -f countries/FR/sights/reunion-pitons.yaml
+          test ! -f countries/FR/sights/reunion-park.yaml
+          test -f countries/FR/sights/saint-denis.yaml
+          test -f countries/RE/sights/reunion-pitons.yaml
+          test ! -f countries/RE/sights/reunion-park.yaml
+          test ! -f countries/FR/sights/new-caledonia-lagoons.yaml
+          test -f countries/NC/sights/new-caledonia-lagoons.yaml
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          for folder,n in [('cities',3),('sights',10)]:
+              paths=list(Path('countries/AX',folder).glob('*.yaml'))
+              assert len(paths)==n,folder
+              for p in paths:
+                  assert yaml.safe_load(p.read_text())['location']['country_code']=='AX',p
+                  assert not Path('countries/FI',folder,p.name).exists(),p
+          print('PASS: AX inventory and no parent duplicates')
+          PY
+          cd web
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-package-lock; fi
+          npm test
+          npm run build
+          node --input-type=module - <<'JS'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const a=JSON.parse(fs.readFileSync('public/atlas.json','utf8'));
+          assert.equal(Object.keys(a.countries).length,250);
+          assert.equal(a.countries.GL.catalogued,true);
+          assert.equal(a.countries.FO.catalogued,true);
+          assert.equal(a.countries.PF.catalogued,true);
+          assert.equal(a.countries.PR.catalogued,true);
+          assert.equal(a.rows.filter(r=>r.country==='PR').length,16);
+          assert.equal(a.rows.filter(r=>r.country==='PF').length,16);
+          assert.equal(a.rows.filter(r=>r.country==='FO').length,11);
+          assert.equal(a.countries.AQ.settlementsRequired,false);
+          assert.equal(a.countries.AQ.catalogued,true);
+          assert.equal(a.countries.HK.catalogued,true);
+          assert.equal(a.rows.filter(r=>r.country==='HK').length,22);
+          assert.equal(a.countries.MO.catalogued,true);
+          assert.equal(a.countries.SJ.catalogued,true);
+          assert.equal(a.countries.RE.catalogued,true);
+          assert.equal(a.countries.NC.catalogued,true);
+          assert.equal(a.countries.AX.catalogued,true);
+          assert.equal(a.rows.filter(r=>r.country==='AX').length,13);
+          assert.equal(a.rows.filter(r=>r.country==='NC').length,15);
+          assert.equal(a.rows.filter(r=>r.country==='RE').length,15);
+          assert.equal(a.rows.filter(r=>r.country==='SJ').length,14);
+          assert.equal(a.rows.filter(r=>r.country==='MO').length,13);
+          assert.equal(a.rows.filter(r=>r.country==='AQ').length,14);
+          assert.equal(a.rows.filter(r=>r.country==='GL').length,19);
+          console.log('PASS: exported atlas registry and Greenland rows');
+          JS
+          cd ..
+          git add README.md countries methodology
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate Geographic territories ranking pages and country directory'
+          fi
+          git push origin HEAD:refs/heads/feature/worldwide-territories-greenland
