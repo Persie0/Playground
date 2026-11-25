@@ -25,6 +25,7 @@ jobs:
         working-directory: repo
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'f136b6a0a1c4d9390da50a32ffc4105ff8441b35'
           python -m pip install -r requirements.txt
           python scripts/validate.py
           python scripts/check_city_benchmarks.py
@@ -57,7 +58,8 @@ jobs:
               files=list((root/k).glob('*.yaml'))
               assert len(files)==n
               md=(root/f'{k}.md').read_text()
-              assert md.count('https://www.google.com/maps/search/?api=1&query=')==n
+              assert md.count('https://www.google.com/maps/search/?api=1&query=')==2*n
+              assert md.count('[Google Maps](https://www.google.com/maps/search/?api=1&query=')==n
               for f in files:
                   a=yaml.safe_load(f.read_text())
                   assert a['id'] in ids and a['location']['country_code']=='KM'
