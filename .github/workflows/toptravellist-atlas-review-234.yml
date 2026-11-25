@@ -64,6 +64,30 @@ jobs:
               with p.open('a') as f: f.write('\n### HM integration — 2026-11-26\n\nRetired active AU Heard and McDonald Islands YAML and canonical review after merging Australia #227; HM values preserved. [Final AU decision](reviews/AU/migration-history-HM.md).\n')
           assert not old.exists() and new.exists()
           PY
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          mapping=Path('methodology/territory-expansion.md').read_text()
+          pairs=re.findall(r'^\| ((?:city|sight)-[a-z]{2}-[a-z0-9-]+) \| ((?:city|sight)-[a-z]{2}-[a-z0-9-]+)',mapping,re.M)
+          def dest(ident):
+              kind,cc,slug=ident.split('-',2)
+              return f'countries/{cc.upper()}/{"cities" if kind=="city" else "sights"}/{slug}.yaml'
+          changed=0
+          for p in Path('methodology/reviews').glob('*/*.md'):
+              if not (p.name in ('cities.md','sights.md') or p.name.startswith('sights-')): continue
+              text=p.read_text()
+              original=text
+              for a,b in pairs:
+                  old,new=dest(a),dest(b)
+                  if not Path(old).exists() and Path(new).exists():
+                      # Preserve pinned GitHub historical links and prose IDs.
+                      text=text.replace(f'](../../../{old})',f'](../../../{new})')
+              if text!=original:
+                  p.write_text(text)
+                  changed+=1
+                  print('Updated active migrated benchmark links:',p)
+          print('Updated review files:',changed)
+          PY
           python scripts/validate.py
           python scripts/check_city_benchmarks.py
           python scripts/check_sight_benchmarks.py
@@ -89,7 +113,8 @@ jobs:
           from decimal import Decimal
           r=json.loads(Path('countries/_registry.json').read_text())
           codes=[cc for cc in r['territories'] if any(Path('countries',cc).glob('*/*.yaml'))]
-          codes+=['AU','CN','DK','FI','FR','NO','US']
+          codes+=['AU','DK','FI','FR','NO','US']
+          # CN has legacy reviews, not canonical country-level files; covered by explicit HK/MO migration assertions.
           failures=[]
           for cc in sorted(set(codes)):
               subprocess.run([sys.executable,'scripts/check_new_country_reviews.py','--country',cc],check=True)
