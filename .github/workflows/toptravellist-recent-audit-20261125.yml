@@ -100,7 +100,7 @@ jobs:
                           for p in pp:
                               k,raw,pt=p.groups();stats['numeric_peer_refs']+=1
                               if k not in allrecords:stats['missing_peer_path']+=1;issues['missing_peer'].append((ident,k));continue
-                              if [D(x.strip()) for x in raw.split('/')]!=vec(allrecords[k]):stats['stale_peer_vector']+=1;issues['stale_peer'].append((ident,k,raw,[str(x) for x in vec(allrecords[k])]))
+                              if [D(x.strip().rstrip('.')) for x in raw.split('/')]!=vec(allrecords[k]):stats['stale_peer_vector']+=1;issues['stale_peer'].append((ident,k,raw,[str(x) for x in vec(allrecords[k])]))
                               if pt and D(pt)!=total(allrecords[k]):stats['stale_peer_total']+=1;issues['stale_peer_total'].append((ident,k,pt,str(total(allrecords[k]))))
                       urls=set(re.findall(r'https?://[^\s<>\)\]]+',s))
                       if status and status.group(1)=='source-linked-unverified' and not urls: stats['source_status_without_url']+=1;issues['missing_url'].append(ident)
