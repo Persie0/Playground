@@ -1,0 +1,69 @@
+name: Validate oldest reviewed country integrations
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-reviewed-batch-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate consecutive local integrations
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name 'review-validation'
+          git config user.email 'review-validation@example.invalid'
+          python -m pip install -r requirements.txt
+          mkdir -p /tmp/atlas-validation
+          for item in '57 RW 2a67a8eaa1ddd84557e92de3defe9b38d8dab363' '58 TL 98392d6abf43d619a617f26ddf8bbdde21501cb1' '59 CR 22f1188a2f511e6189414cc5a6b4d2e9d8517bd1' '62 PA 1ec7e71f91dcc799ca3273e45c9b5e34f116287c'; do
+            read -r n code expected <<< "$item"
+            git fetch origin "refs/pull/$n/head"
+            test "$(git rev-parse FETCH_HEAD)" = "$expected"
+            base=$(git rev-parse HEAD)
+            echo "PR $n Base $base"
+            git merge --no-commit --no-ff FETCH_HEAD || {
+              while IFS= read -r f; do
+                case "$f" in README.md|countries/*/cities.md|countries/*/sights.md) git checkout --ours -- "$f"; git add "$f";;
+                  *) echo "Unexpected conflict: $f"; exit 1;;
+                esac
+              done < <(git diff --name-only --diff-filter=U)
+              test -z "$(git diff --name-only --diff-filter=U)"
+            }
+            python scripts/generate_rankings.py
+            python scripts/validate.py
+            python scripts/check_city_benchmarks.py
+            python scripts/check_sight_benchmarks.py
+            python scripts/generate_rankings.py --check
+            python scripts/rank.py --kind cities --limit 60
+            python scripts/rank.py --kind sights --limit 60
+            git add README.md countries/"$code" methodology/reviews/"$code"
+            git diff --cached --name-only "$base" | while IFS= read -r f; do
+              case "$f" in README.md|countries/"$code"/*|methodology/reviews/"$code"/*) ;; *) echo "Unexpected file: $f"; exit 1;; esac
+            done
+            mkdir -p "/tmp/atlas-validation/$code"
+            cp README.md "/tmp/atlas-validation/$code/README.md"
+            cp countries/"$code"/cities.md "/tmp/atlas-validation/$code/cities.md"
+            cp countries/"$code"/sights.md "/tmp/atlas-validation/$code/sights.md"
+            git write-tree > "/tmp/atlas-validation/$code/tree.txt"
+            git ls-files -s README.md countries/"$code"/cities.md countries/"$code"/sights.md
+            echo "PR $n VALIDATED TREE $(cat /tmp/atlas-validation/$code/tree.txt)"
+            git commit -m "Local validated integration $code"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validated-country-batch
+          path: /tmp/atlas-validation/
