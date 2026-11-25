@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Persie0/Memory_Palace_Builder
-          ref: b4ea1a3a9dd8f5490f83346fa04a452d1fe07d21
+          ref: fca6aad4e762f68a13db9f06801d4a76db22047e
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-app
@@ -36,7 +36,7 @@ jobs:
       - name: Analyze changed Flutter files
         working-directory: private-app
         run: |
-          if flutter analyze --no-fatal-infos --no-fatal-warnings lib/pages/learn_lists lib/pages/memory_palaces lib/pages/training lib/provider/settings_provider.dart lib/provider/storage_manager.dart lib/settings/options.dart lib/widgets test/widgets test/provider/storage_manager_test.dart > "$RUNNER_TEMP/memory-analyze.log" 2>&1; then
+          if flutter analyze --no-fatal-infos --no-fatal-warnings lib/pages/learn_lists lib/pages/memory_palaces lib/pages/training lib/provider/settings_provider.dart lib/provider/storage_manager.dart lib/provider/palace_save_journal.dart lib/main.dart lib/settings/options.dart lib/widgets test/widgets test/provider/storage_manager_test.dart test/provider/palace_save_journal_test.dart > "$RUNNER_TEMP/memory-analyze.log" 2>&1; then
             echo "Analysis passed"
           else
             python3 -c 'import os,re; p=os.path.join(os.environ["RUNNER_TEMP"],"memory-analyze.log"); print("\n".join(m.group(1)+" "+m.group(2)+" "+m.group(3) for l in open(p) if (m:=re.match(r"\s*(error|warning) • .* • ((?:lib|test)/[^ ]+) • ([a-z_]+)\s*$",l))))'
@@ -47,7 +47,7 @@ jobs:
         working-directory: private-app
         if: success() || failure()
         run: |
-          if flutter test test/widgets test/provider/storage_manager_test.dart > "$RUNNER_TEMP/memory-test.log" 2>&1; then
+          if flutter test test/widgets test/provider/storage_manager_test.dart test/provider/palace_save_journal_test.dart > "$RUNNER_TEMP/memory-test.log" 2>&1; then
             echo "Focused widget tests passed"
           else
             echo "::error::Focused widget tests failed (private output withheld)"
