@@ -1,0 +1,116 @@
+name: TopTravelList sequential PR integration 161
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-sequential-review-161-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-sequential-validated-integration
+  cancel-in-progress: false
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and integrate in oldest-first order
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-review-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python -m pip install -r requirements.txt
+          for spec in '161 BI data/burundi-worldwide-v2-38 38 35 152'; do
+            read -r pr country branch records ranked peers <<< "$spec"
+            export country records ranked peers
+            done_pr=false
+            for attempt in 1 2 3 4 5 6 7 8; do
+              if gh api "repos/Persie0/TopTravelList/pulls/$pr" --jq .merged | grep -qx true; then done_pr=true; break; fi
+              git fetch origin main "$branch"
+              git checkout -B integration origin/main
+              if ! git merge --no-commit --no-ff "origin/$branch"; then
+                test "$(git diff --name-only --diff-filter=U)" = README.md
+              fi
+              git checkout origin/main -- README.md
+              python scripts/validate.py
+              python scripts/check_city_benchmarks.py
+              python scripts/check_sight_benchmarks.py
+              python scripts/check_new_country_reviews.py --country "$country"
+              python - <<'PY'
+          import os,re,yaml
+          from pathlib import Path
+          from collections import Counter
+          from decimal import Decimal
+          country=os.environ['country']
+          weights=dict(zip(('impact','uniqueness','significance','experience','depth'),map(Decimal,('0.30','0.25','0.20','0.15','0.10'))))
+          stats=Counter()
+          for kind in ('cities','sights'):
+              for section in re.split(r'\n## ',Path(f'methodology/reviews/{country}/{kind}.md').read_text())[1:]:
+                  ident=section.split(' — ')[0]
+                  path=Path('countries')/country/kind/(ident.split('-'+country.lower()+'-',1)[1]+'.yaml')
+                  v=yaml.safe_load(path.read_text())['scores']
+                  total=sum(Decimal(str(v[k]))*w*10 for k,w in weights.items()) if all(v.get(k) is not None for k in weights) else None
+                  status=re.search(r'\*\*(source-linked-unverified|unassessed|editorial-only|fact-checked)\*\*',section).group(1)
+                  stats[status]+=1
+                  stats['records']+=1
+                  assert re.search(r'https?://',section),ident
+                  stats['linked']+=1
+                  expected=re.search(r'Overall: (\d+\.\d+)/100',section)
+                  assert (total is None and expected is None) or (expected and abs(total-Decimal(expected.group(1)))<Decimal('0.001')),(ident,total,expected)
+                  if total is not None: stats['ranked']+=1
+                  for field in weights:
+                      m=re.search(r'^- '+field+r' (null|[0-9.]+):',section,re.I|re.M)
+                      assert m and ((v.get(field) is None and m.group(1)=='null') or (m.group(1)!='null' and float(m.group(1))==v.get(field))),(ident,field)
+                  peer_rows=re.findall(r'\]\(\.\./\.\./\.\./(countries/[^)]+\.yaml)\) — ([0-9. /]+) \(',section)
+                  assert len(peer_rows)>=4,(ident,len(peer_rows))
+                  for peer,vec in peer_rows:
+                      pv=yaml.safe_load(Path(peer).read_text())['scores']
+                      assert [float(pv[k]) for k in weights]==list(map(float,vec.split('/'))),(ident,peer,vec)
+                      stats['peer_refs']+=1
+                  if (total is not None and total>=90) or any(x is not None and x>=9.5 for x in [v.get(k) for k in weights]+list(v.get('categories',{}).values())):
+                      assert 'High-score challenge:' in section and 'High-score challenge: Not applicable' not in section,ident
+          print(country,dict(stats))
+          assert stats['records']==int(os.environ['records']) and stats['linked']==stats['records'] and stats['ranked']==int(os.environ['ranked']) and stats['peer_refs']>=int(os.environ['peers']),stats
+          PY
+              python scripts/generate_rankings.py --country "$country"
+              python scripts/generate_rankings.py --check
+              python scripts/rank.py --kind cities --limit 60
+              python scripts/rank.py --kind sights --limit 60
+              git add README.md "countries/$country" "methodology/reviews/$country" scripts/generate_rankings.py
+              git diff --cached --check origin/main
+              git diff --cached --name-only origin/main | grep -vE "^(README\\.md|countries/$country/|methodology/reviews/$country/|scripts/generate_rankings\.py$)" > /tmp/unexpected || true
+              test ! -s /tmp/unexpected
+              if ! git diff --cached --quiet || test -f .git/MERGE_HEAD; then
+                git commit -m "Merge reviewed $country PR #$pr with regenerated rankings"
+              fi
+              git merge-base --is-ancestor origin/main HEAD
+              git merge-base --is-ancestor "origin/$branch" HEAD
+              # Atomic, non-forced fast-forward updates: concurrent main or branch changes
+              # reject both refs instead of applying stale generated rankings.
+              if git push --atomic origin "HEAD:refs/heads/$branch" HEAD:refs/heads/main; then
+                for check in 1 2 3 4 5 6; do
+                  if gh api "repos/Persie0/TopTravelList/pulls/$pr" --jq .merged | grep -qx true; then done_pr=true; break; fi
+                  sleep 2
+                done
+                if [ "$done_pr" = true ]; then break; fi
+                echo "Validated branch integrated into main; PR merged status not confirmed"
+                exit 1
+              fi
+              echo "Atomic update rejected; retrying on fresh refs without force"
+            done
+            test "$done_pr" = true
+          done
+
+# Burundi: review format, links, current peer vectors and totals checked before integration.
