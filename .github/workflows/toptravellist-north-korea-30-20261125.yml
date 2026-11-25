@@ -1,0 +1,73 @@
+name: TopTravelList North Korea validation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-north-korea-30-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/north-korea-worldwide-v2-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: repo
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and generate
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country KP
+          python scripts/generate_rankings.py --country KP
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+      - name: Validate North Korea review counts
+        working-directory: repo
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          from decimal import Decimal
+          for folder, count in [('cities',8),('sights',22)]:
+              files=list(Path('countries/KP',folder).glob('*.yaml'))
+              assert len(files)==count
+              reviews=Path('methodology/reviews/KP',folder+'.md').read_text()
+              md=Path('countries/KP',folder+'.md').read_text()
+              assert md.count('https://www.google.com/maps/search/?api=1&query=')==2*count
+              for file in files:
+                  record=yaml.safe_load(file.read_text())
+                  section=reviews.split('## '+record['id']+' — ',1)[1].split('\n## ',1)[0]
+                  assert section.count('### Worldwide peers')==1
+                  assert all(v is None or v<10 for v in [*(record['scores'][k] for k in ['impact','uniqueness','significance','experience','depth']),*record['scores']['categories'].values()])
+                  vals=[record['scores'][k] for k in ['impact','uniqueness','significance','experience','depth']]
+                  if None in vals: assert 'Overall: unranked.' in section
+                  else:
+                      total=sum(Decimal(str(v))*w for v,w in zip(vals,[30,25,20,15,10]))/10
+                      assert f'Overall: {total:.2f}/100.' in section
+          print('North Korea record counts, GPS links, score totals and review coverage passed.')
+          PY
+      - name: Commit generated rankings
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md countries/KP/cities.md countries/KP/sights.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate North Korea ranking pages and country directory'
+            git push origin HEAD:refs/heads/data/north-korea-worldwide-v2-2026
+          fi
