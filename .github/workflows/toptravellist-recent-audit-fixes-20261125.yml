@@ -1,0 +1,64 @@
+name: Verify recent-country coordinate fixes
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-recent-audit-fixes-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: audit/recent-country-verification-20261125
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and regenerate
+        working-directory: repo
+        run: |
+          pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          for cc in IN JP ID MY SG BN CZ LA BA ME LK AL; do python scripts/check_new_country_reviews.py --country "$cc"; done
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          git diff --check
+      - name: Verify coordinate-only changes
+        working-directory: repo
+        run: |
+          python - <<'PY'
+          import subprocess, yaml, pathlib
+          base='700f8967e7cab196e839503b1e333470f96b16f2'
+          names=subprocess.check_output(['git','diff','--name-only',base],text=True).splitlines()
+          changed=[p for p in names if p.endswith('.yaml')]
+          assert len(changed)==8,changed
+          for p in changed:
+              old=yaml.safe_load(subprocess.check_output(['git','show',f'{base}:{p}'],text=True))
+              new=yaml.safe_load(pathlib.Path(p).read_text())
+              a=old.pop('location'); b=new.pop('location')
+              assert old==new,(p,'non-location change')
+              assert a!=b,p
+              print(p,a,b)
+          allowed={'methodology/recent-country-verification-2026-11-25.md','README.md',*[f'countries/{cc}/sights.md' for cc in ('IN','JP','CZ','LA')]}
+          assert set(names)-set(changed)<=allowed,names
+          print('Eight coordinate-only changes; all scores and other YAML fields preserved.')
+          PY
+      - name: Commit regenerated rankings
+        working-directory: repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add countries/IN/sights.md countries/JP/sights.md countries/CZ/sights.md countries/LA/sights.md README.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Regenerate rankings after verified location corrections"
+            git push origin HEAD:refs/heads/audit/recent-country-verification-20261125
+          fi
