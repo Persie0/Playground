@@ -1,0 +1,80 @@
+name: Root Detector native UX validation 2026-11-25
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/root-detector-native-ux-20261125.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/root_detection_app
+          ref: ea8222177ab598f32e7c15082714f52c39cc83e1
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: root-detector
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+          cache-disabled: true
+      - name: Verify native locale catalogs
+        working-directory: root-detector
+        run: python3 scripts/check-localization.py
+      - name: Install Android SDK
+        run: |
+          set -euo pipefail
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-37' || "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-37.0'
+      - name: Build, unit tests and lint
+        working-directory: root-detector
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gradle --no-daemon --console=plain :app:testDebugUnitTest :app:assembleDebug :app:lintDebug > "$RUNNER_TEMP/root-detector-build.log" 2>&1; then
+            echo "Android validation failed; compiler diagnostics:"
+            grep -E '^(e: |error: |Execution failed for task|> A failure occurred|.* tests completed, .* failed)' "$RUNNER_TEMP/root-detector-build.log" | head -40 || true
+            exit 1
+          fi
+          echo "Debug compile, unit tests and lint succeeded."
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod a+rw /dev/kvm; fi
+      - name: Native launch and configuration smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: |
+            set -euo pipefail
+            adb install root-detector/app/build/outputs/apk/debug/app-debug.apk >/dev/null
+            adb shell svc wifi disable
+            adb shell svc data disable
+            adb shell am start -W -n at.persie0.root_detection_app/.MainActivity >/dev/null
+            sleep 5
+            adb shell pidof at.persie0.root_detection_app >/dev/null
+            adb shell uiautomator dump /sdcard/root-detector-window.xml >/dev/null
+            adb shell cat /sdcard/root-detector-window.xml > "$RUNNER_TEMP/root-detector-window.xml"
+            python3 -c "from pathlib import Path; import os; s=Path(os.environ['RUNNER_TEMP'],'root-detector-window.xml').read_text(); assert 'at.persie0.root_detection_app' in s; assert 'Accept and Continue' not in s"
+            adb shell settings put system font_scale 2.0
+            adb shell cmd uimode night yes
+            adb shell settings put system accelerometer_rotation 0
+            adb shell settings put system user_rotation 1
+            sleep 5
+            adb shell pidof at.persie0.root_detection_app >/dev/null
+            adb shell settings put system user_rotation 0
+            adb shell settings put system font_scale 1.0
+            adb shell cmd uimode night no
+            echo "Cold launch and configuration-change smoke succeeded."
