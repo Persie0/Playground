@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Persie0/Memory_Palace_Builder
-          ref: d6cb566e0ec1d61504836acbb16904f3d26adc10
+          ref: c7ac76eeb39d8923ac4f47d64e668464a6f2667b
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-app
@@ -36,7 +36,7 @@ jobs:
       - name: Analyze changed Flutter files
         working-directory: private-app
         run: |
-          if flutter analyze --no-fatal-infos --no-fatal-warnings lib/pages/learn_lists/lists_start.dart lib/pages/learn_lists/slide_add.dart lib/pages/memory_palaces/add_entry.dart lib/pages/memory_palaces/entries_start.dart lib/pages/memory_palaces/slide_home.dart lib/widgets/app_ui.dart lib/widgets/common_widgets.dart test/widgets/library_interaction_test.dart > "$RUNNER_TEMP/memory-analyze.log" 2>&1; then
+          if flutter analyze --no-fatal-infos --no-fatal-warnings lib/pages/learn_lists lib/pages/memory_palaces lib/pages/training lib/provider/settings_provider.dart lib/provider/storage_manager.dart lib/widgets test/widgets test/provider/storage_manager_test.dart > "$RUNNER_TEMP/memory-analyze.log" 2>&1; then
             echo "Analysis passed"
           else
             echo "::error::Analysis failed (private output withheld)"
@@ -46,7 +46,7 @@ jobs:
         working-directory: private-app
         if: success() || failure()
         run: |
-          if flutter test test/widgets/library_interaction_test.dart > "$RUNNER_TEMP/memory-test.log" 2>&1; then
+          if flutter test test/widgets test/provider/storage_manager_test.dart > "$RUNNER_TEMP/memory-test.log" 2>&1; then
             echo "Focused widget tests passed"
           else
             echo "::error::Focused widget tests failed (private output withheld)"
