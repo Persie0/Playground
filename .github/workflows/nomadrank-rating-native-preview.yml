@@ -1,0 +1,162 @@
+name: NomadRank rating flow native preview (public Playground)
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/nomadrank-rating-native-preview.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout private feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/skratch_clone
+          ref: ux/impeccable-nomadrank-20261122
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Restore dependencies and localizations
+        run: |
+          flutter pub get
+          flutter gen-l10n
+          git rev-parse HEAD
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Create a temporary native preview using the real Pin Stay screen
+        run: |
+          cat > lib/rating_ux_preview_main.dart <<'DART'
+          import 'package:flutter/material.dart';
+          import 'package:intl/date_symbol_data_local.dart';
+          import 'package:nomadrank/l10n/gen_l10n/app_localizations.dart';
+          import 'package:nomadrank/models/trip_stay.dart';
+          import 'package:nomadrank/providers/cities_provider.dart';
+          import 'package:nomadrank/providers/currency_provider.dart';
+          import 'package:nomadrank/providers/settings_provider.dart';
+          import 'package:nomadrank/screens/pin_stay_screen.dart';
+          import 'package:nomadrank/services/currency_service.dart';
+          import 'package:nomadrank/services/prefs_service.dart';
+          import 'package:nomadrank/theme/app_theme.dart';
+          import 'package:provider/provider.dart';
+
+          class PreviewCurrencyService extends CurrencyService {
+            @override
+            Future<Map<String, double>> getRates({bool forceRefresh = false}) async => const {'EUR': 1.0};
+
+            @override
+            Future<DateTime?> getLastUpdated() async => DateTime(2026, 11, 25);
+          }
+
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+            await PrefsService.init();
+            await PrefsService.prefs.setString('quickAddRatingDefault', QuickAddRatingDefault.detailed.name);
+            await initializeDateFormatting(null, null);
+            final stay = TripStay(
+              id: 'ux-preview-only',
+              userId: 'ux-preview-only',
+              country: 'Austria',
+              countryCode: 'AT',
+              latitude: 48.2,
+              longitude: 16.37,
+              startDate: DateTime(2026, 11, 1),
+              endDate: DateTime(2026, 11, 5),
+              userRating: 8,
+              tags: const [],
+              isCountryOnlyRating: true,
+            );
+            runApp(MultiProvider(
+              providers: [
+                ChangeNotifierProvider(create: (_) => SettingsProvider()),
+                ChangeNotifierProvider(create: (_) => CitiesProvider()),
+                ChangeNotifierProvider(create: (_) => CurrencyProvider(service: PreviewCurrencyService())),
+              ],
+              child: MaterialApp(
+                debugShowCheckedModeBanner: false,
+                theme: AppTheme.lightTheme,
+                darkTheme: AppTheme.darkTheme,
+                themeMode: ThemeMode.system,
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+                locale: const Locale('en'),
+                home: PinStayScreen(existingStay: stay),
+              ),
+            ));
+          }
+          DART
+
+          cat > capture-rating-ux.sh <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          flutter build apk --debug --no-pub -t lib/rating_ux_preview_main.dart
+          adb install -r build/app/outputs/flutter-apk/app-debug.apk
+          mkdir -p native-rating-ux
+          adb shell wm size 1080x2400
+          adb shell wm density 440
+          adb shell cmd uimode night no
+          adb shell settings put system font_scale 1.0
+          adb shell am start -n at.persie0.nomadrank/.MainActivity
+          sleep 12
+          adb exec-out screencap -p > native-rating-ux/01-phone-light.png
+          adb shell cmd uimode night yes
+          sleep 4
+          adb exec-out screencap -p > native-rating-ux/02-phone-dark.png
+          adb shell wm size 880x1562
+          adb shell settings put system font_scale 2.0
+          sleep 6
+          adb exec-out screencap -p > native-rating-ux/03-compact-large-text-dark.png
+          adb shell input swipe 440 1250 440 420 700
+          sleep 2
+          adb exec-out screencap -p > native-rating-ux/04-compact-large-text-actions.png
+          adb shell cmd uimode night no
+          sleep 4
+          adb exec-out screencap -p > native-rating-ux/05-compact-large-text-light.png
+          adb shell settings put system font_scale 1.0
+          adb shell wm size 1920x1200
+          adb shell wm density 200
+          sleep 6
+          adb exec-out screencap -p > native-rating-ux/06-wide-light.png
+          adb logcat -d -s flutter > native-rating-ux/flutter-log.txt
+          git rev-parse HEAD > native-rating-ux/commit.txt
+          SCRIPT
+
+      - name: Build and capture Android rating preview
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_atd
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: bash capture-rating-ux.sh
+
+      - name: Upload native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nomadrank-rating-native-ux
+          path: native-rating-ux/
+          if-no-files-found: ignore
