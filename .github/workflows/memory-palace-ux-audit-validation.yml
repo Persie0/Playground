@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Persie0/Memory_Palace_Builder
-          ref: 44cb59c29bc5d892a78adc01ee3acb65598f0b0b
+          ref: b51d86415ed40345ea971a3902f9e121b7768e9d
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-app
@@ -53,7 +53,7 @@ jobs:
               echo "PASS $group"
             else
               echo "::error::FAIL $group (private output withheld)"
-              python3 -c 'import sys,re,json; raw=sys.stdin.read(); allowed=["RenderFlex overflowed","No element","Too many elements","Expected: exactly one matching candidate","Could not find","pumpAndSettle timed out","FileSystemException","FormatException","PlatformException","MissingPluginException","Bad state","Assertion failed","ScrollController","not hit testable","maximum number of scrolls","Expected: null","Actual:","zero widgets","ScrollPosition","Compilation failed","Failed to load","Error:","Error when reading","Dart library","not available on this platform","Test failed","Unable to load","A Timer is still pending","native assets","SIG","Exception","PALACE_CHECK_INITIAL_LAYOUT","PALACE_CHECK_START_PRESENT","PALACE_CHECK_START_DISABLED","PALACE_CHECK_ROW_VISIBLE","PALACE_CHECK_ROW_DISABLED","PALACE_CHECK_SCROLL_LAYOUT"]; print("Categories:",", ".join(x for x in allowed if x.lower() in raw.lower())); print("Compiler positions:",sorted(set(re.findall(r"(?:lib|test)/[a-zA-Z0-9_/]+\\.dart:\\d+:\\d+",raw))))' < "$RUNNER_TEMP/memory-test.log" || true
+              python3 -c 'import sys,re,json; raw=sys.stdin.read(); allowed=["RenderFlex overflowed","No element","Too many elements","Expected: exactly one matching candidate","Could not find","pumpAndSettle timed out","FileSystemException","FormatException","PlatformException","MissingPluginException","Bad state","Assertion failed","ScrollController","not hit testable","maximum number of scrolls","Expected: null","Actual:","zero widgets","ScrollPosition","Compilation failed","Failed to load","Error:","Error when reading","Dart library","not available on this platform","Test failed","Unable to load","A Timer is still pending","native assets","SIG","Exception","PALACE_CHECK_INITIAL_LAYOUT","PALACE_CHECK_START_PRESENT","PALACE_CHECK_START_DISABLED","PALACE_CHECK_ROW_PRESENT","PALACE_CHECK_ROW_VISIBLE","PALACE_CHECK_ROW_DISABLED","PALACE_CHECK_SCROLL_LAYOUT"]; print("Categories:",", ".join(x for x in allowed if x.lower() in raw.lower())); print("Compiler positions:",sorted(set(re.findall(r"(?:lib|test)/[a-zA-Z0-9_/]+\\.dart:\\d+:\\d+",raw))))' < "$RUNNER_TEMP/memory-test.log" || true
               failed=1
             fi
           done
@@ -66,7 +66,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Persie0/Memory_Palace_Builder
-          ref: 44cb59c29bc5d892a78adc01ee3acb65598f0b0b
+          ref: b51d86415ed40345ea971a3902f9e121b7768e9d
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-app
@@ -79,6 +79,8 @@ jobs:
           channel: stable
           cache: true
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
