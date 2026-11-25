@@ -1,0 +1,154 @@
+name: Audit recent TopTravelList additions
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-recent-audit-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: 700f8967e7cab196e839503b1e333470f96b16f2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run all repository checks
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py --check
+          for cc in IN JP ID MY SG BN CZ LA BA ME LK AL; do
+            python scripts/check_new_country_reviews.py --country "$cc"
+          done
+      - name: Audit all new records and editorial evidence
+        working-directory: repo
+        run: |
+          python - <<'PY'
+          import re,json,collections,unicodedata,math
+          from pathlib import Path
+          from decimal import Decimal as D
+          import yaml
+          ccs='IN JP ID MY SG BN CZ LA BA ME LK AL'.split()
+          dims='impact uniqueness significance experience depth'.split()
+          weights=[30,25,20,15,10]
+          allrecords={}
+          for p in Path('countries').glob('*/*/*.yaml'):
+              a=yaml.safe_load(p.read_text())
+              if isinstance(a,dict) and 'id' in a: allrecords[str(p)]=a
+          def vec(a): return [D(str(a['scores'][k])) for k in dims]
+          def total(a): return sum(v*w for v,w in zip(vec(a),weights))/10
+          def norm(s):return re.sub(r'[^a-z0-9]','',unicodedata.normalize('NFKD',s).encode('ascii','ignore').decode().lower())
+          header=re.compile(r'^## ((?:city|sight)-[a-z]{2}-[a-z0-9-]+)\s+[—-]\s+',re.M)
+          pv=re.compile(r'\]\(\.\./\.\./\.\./(countries/[A-Z]{2}/(?:cities|sights)/[^)]+\.yaml)\)\s*(?:[—:-]\s*)?([0-9.]+\s*/\s*[0-9.]+\s*/\s*[0-9.]+\s*/\s*[0-9.]+\s*/\s*[0-9.]+)(?:\s*\(([0-9.]+)/100\))?')
+          box={'IN':(6,37,67,98),'JP':(24,46,122,146),'ID':(-12,7,94,142),'MY':(0,8,99,120),'SG':(1.1,1.5,103.55,104.15),'BN':(4,5.2,114,115.5),'CZ':(48.5,51.2,12,19),'LA':(13.5,23,100,108),'BA':(42.4,45.4,15.5,19.8),'ME':(41.8,43.7,18.3,20.5),'LK':(5.8,10,79.5,82),'AL':(39.5,43,19,21.2)}
+          issues=collections.defaultdict(list)
+          results={}
+          for cc in ccs:
+              stats=collections.Counter()
+              d=Path('methodology/reviews')/cc
+              sections={}
+              docs=[d/'cities.md']+(sorted(d.glob('sights-*.md')) or [d/'sights.md'])
+              for p in docs:
+                  t=p.read_text()
+                  ms=list(header.finditer(t))
+                  for i,m in enumerate(ms):
+                      sections[m.group(1)]=t[m.end():ms[i+1].start() if i+1<len(ms) else len(t)]
+              stats['review_records']=len(sections)
+              for kind in ['cities','sights']:
+                  records={p:a for p,a in allrecords.items() if p.startswith(f'countries/{cc}/{kind}/')}
+                  stats[kind]=len(records)
+                  names=collections.defaultdict(list)
+                  gps=collections.defaultdict(list)
+                  for path,a in records.items():
+                      ident=a['id']; s=sections.get(ident,''); sc=a['scores']; v=vec(a); tt=total(a)
+                      status=re.search(r'\b(source-linked-unverified|editorial-only|fact-checked|unassessed)\b',s)
+                      stats[status.group(1) if status else 'missing_status']+=1
+                      stats['ranked']+=1
+                      high=tt>=90 or any(x>=D('9.5') for x in v+list(map(lambda x:D(str(x)),sc['categories'].values())))
+                      if high:
+                          stats['exceptional']+=1
+                          if not re.search(r'high[- ](?:score|rating)|exceptional|9\.5\+',s,re.I): stats['no_initial_high_challenge']+=1;issues['missing_high'].append(ident)
+                          elif re.search(r'(?:high[- ]score challenge|high rating)\s*:\s*(?:not applicable|none|exceptional fields need|exceptional fields require)',s,re.I):stats['generic_high_challenge']+=1
+                      if any(x==10 for x in v+list(map(lambda x:D(str(x)),sc['categories'].values()))):stats['perfect_ten_records']+=1
+                      matches=[re.search(r'\b'+k+r'\s*\*{0,2}\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)',s,re.I) for k in dims]
+                      if all(matches):
+                          stats['parsed_core_review']+=1
+                          if [D(m.group(1)) for m in matches]!=v:stats['initial_core_mismatch']+=1;issues['initial_core_mismatch'].append(ident)
+                      m=re.search(r'\b(?:overall|total)\s*\*{0,2}\s*:?\s*\*{0,2}\s*([0-9]+(?:\.[0-9]+)?)/100',s,re.I)
+                      if not m:
+                          # early template: own total before peer list, not a peer score
+                          m=re.search(r'\*\*\s*([0-9]+(?:\.[0-9]+)?)/100\s*\*\*|(?:editorial-only|source-linked-unverified)\*\*\s*·\s*([0-9]+(?:\.[0-9]+)?)/100',s)
+                      if m:
+                          val=D(next(x for x in m.groups() if x is not None));stats['parsed_review_total']+=1
+                          if val!=tt:stats['initial_total_mismatch']+=1;issues['initial_total_mismatch'].append((ident,str(val),str(tt)))
+                      pp=list(pv.finditer(s))
+                      if pp:
+                          stats['numeric_peer_records']+=1
+                          if len(set(p.group(1) for p in pp))<4:stats['under_four_numeric_peers']+=1;issues['under_four_numeric'].append(ident)
+                          for p in pp:
+                              k,raw,pt=p.groups();stats['numeric_peer_refs']+=1
+                              if k not in allrecords:stats['missing_peer_path']+=1;issues['missing_peer'].append((ident,k));continue
+                              if [D(x.strip()) for x in raw.split('/')]!=vec(allrecords[k]):stats['stale_peer_vector']+=1;issues['stale_peer'].append((ident,k,raw,[str(x) for x in vec(allrecords[k])]))
+                              if pt and D(pt)!=total(allrecords[k]):stats['stale_peer_total']+=1;issues['stale_peer_total'].append((ident,k,pt,str(total(allrecords[k]))))
+                      urls=set(re.findall(r'https?://[^\s<>\)\]]+',s))
+                      if status and status.group(1)=='source-linked-unverified' and not urls: stats['source_status_without_url']+=1;issues['missing_url'].append(ident)
+                      loc=a['location']; lat=float(loc['latitude']);lon=float(loc['longitude']); lo,hi,left,right=box[cc]
+                      if not (lo<=lat<=hi and left<=lon<=right):stats['outside_broad_bbox']+=1;issues['outside_bbox'].append((ident,lat,lon))
+                      names[norm(a['name'])].append(ident)
+                      gps[(lat,lon)].append(ident)
+                  for v in names.values():
+                      if len(v)>1:stats['duplicate_name_groups']+=1;issues['duplicate_name'].append(v)
+                  for v in gps.values():
+                      if len(v)>1:stats['identical_point_groups']+=1;issues['same_point'].append(v)
+              results[cc]=dict(stats)
+              print('COUNTRY',cc,json.dumps(dict(stats),sort_keys=True))
+          for key,items in issues.items():
+              print('ISSUE',key,len(items),'unique',len(set(str(x) for x in items)))
+              if key in ('stale_peer','stale_peer_total','missing_peer'):
+                  unique={str(x[1:]):x for x in items}
+                  for item in list(unique.values())[:50]:print('DETAIL',key,json.dumps(item,ensure_ascii=False))
+              else:
+                  for item in items[:30]:print('DETAIL',key,json.dumps(item,ensure_ascii=False))
+          print('TOTAL',json.dumps(dict(sum((collections.Counter(x) for x in results.values()),collections.Counter())),sort_keys=True))
+          PY
+      - name: Geospatial boundary screening (Natural Earth)
+        working-directory: repo
+        run: |
+          pip install shapely
+          curl -fsSL --max-time 45 https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_countries.geojson -o /tmp/countries.json
+          python - <<'PY'
+          import json, yaml,collections
+          from pathlib import Path
+          from shapely.geometry import shape,Point
+          from shapely.ops import unary_union
+          ccs='IN JP ID MY SG BN CZ LA BA ME LK AL'.split()
+          feats=json.load(open('/tmp/countries.json'))['features']
+          for cc in ccs:
+              geoms=[shape(f['geometry']) for f in feats if cc in (f['properties'].get('ISO_A2'),f['properties'].get('ISO_A2_EH'))]
+              if not geoms: print('BOUNDARY_MISSING',cc);continue
+              area=unary_union(geoms)
+              counts=collections.Counter()
+              for p in Path('countries',cc).glob('*/*.yaml'):
+                  a=yaml.safe_load(p.read_text()); l=a['location']; point=Point(l['longitude'],l['latitude'])
+                  counts['screened']+=1
+                  dist=area.distance(point)
+                  if dist>0.25:
+                      counts['far_outside']+=1;print('FAR_OUTSIDE',a['id'],l['latitude'],l['longitude'],round(dist,3))
+                  elif dist>0.04:
+                      counts['near_outside']+=1;print('NEAR_OUTSIDE',a['id'],l['latitude'],l['longitude'],round(dist,3))
+                  elif dist>0:counts['coast_border_tolerance']+=1
+                  else:counts['inside']+=1
+              print('BOUNDARY',cc,dict(counts))
+          PY
