@@ -1,0 +1,54 @@
+name: Memory Palace UX validation
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/memory-palace-ux-audit-validation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout private app
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/Memory_Palace_Builder
+          ref: d6cb566e0ec1d61504836acbb16904f3d26adc10
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: private-app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        working-directory: private-app
+        run: |
+          if flutter pub get > "$RUNNER_TEMP/memory-pub.log" 2>&1; then
+            echo "Dependency resolution passed"
+          else
+            echo "::error::Dependency resolution failed (private output withheld)"
+            exit 1
+          fi
+      - name: Analyze changed Flutter files
+        working-directory: private-app
+        run: |
+          if flutter analyze --no-fatal-infos --no-fatal-warnings lib/pages/learn_lists/lists_start.dart lib/pages/learn_lists/slide_add.dart lib/pages/memory_palaces/add_entry.dart lib/pages/memory_palaces/entries_start.dart lib/pages/memory_palaces/slide_home.dart lib/widgets/app_ui.dart lib/widgets/common_widgets.dart test/widgets/library_interaction_test.dart > "$RUNNER_TEMP/memory-analyze.log" 2>&1; then
+            echo "Analysis passed"
+          else
+            echo "::error::Analysis failed (private output withheld)"
+            exit 1
+          fi
+      - name: Run focused widget tests
+        working-directory: private-app
+        if: success() || failure()
+        run: |
+          if flutter test test/widgets/library_interaction_test.dart > "$RUNNER_TEMP/memory-test.log" 2>&1; then
+            echo "Focused widget tests passed"
+          else
+            echo "::error::Focused widget tests failed (private output withheld)"
+            exit 1
+          fi
