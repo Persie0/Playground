@@ -40,7 +40,9 @@ jobs:
           python scripts/rank.py --kind cities --limit 60
           python scripts/rank.py --kind sights --limit 60
           git add README.md countries/CV/cities.md countries/CV/sights.md
-          git diff --cached --check
+          git diff --cached --check origin/main
+          git diff --cached --name-only origin/main | grep -vE '^(README\.md|countries/CV/|methodology/reviews/CV/)' > /tmp/unexpected-paths || true
+          test ! -s /tmp/unexpected-paths
           git commit -m 'Integrate current main and regenerate Cabo Verde reviewed rankings'
           git push origin HEAD:refs/heads/data/cabo-verde-worldwide-20261125
           git rev-parse HEAD
