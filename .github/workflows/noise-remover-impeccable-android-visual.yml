@@ -82,8 +82,8 @@ jobs:
               return ET.parse('/tmp/noise-ux-window.xml')
           def tap_label(label):
               for node in dump().iter('node'):
-                  desc = (node.attrib.get('text','') + ' ' + node.attrib.get('content-desc','')).lower()
-                  if label.lower() not in desc:
+                  labels = [node.attrib.get(key, '').strip().casefold() for key in ('text', 'content-desc')]
+                  if ('qa ' + label).casefold() not in labels:
                       continue
                   coords = re.findall(r'\d+',node.attrib.get('bounds',''))
                   if len(coords) != 4:
@@ -97,7 +97,8 @@ jobs:
               return False
           def choose(label):
               if not tap_label(label):
-                  raise RuntimeError('Screenshot navigation is unreachable: '+label)
+                  dump().write(str(out / 'navigation-failure.xml'), encoding='utf-8')
+                  raise RuntimeError('Screenshot navigation is unreachable: QA '+label)
           def capture(name):
               choose('Hide Toolbar')
               time.sleep(1)
@@ -120,7 +121,7 @@ jobs:
           time.sleep(2)
           # The inverse action proves the theme actually changed.
           labels = ' '.join(n.attrib.get('text','') + ' ' + n.attrib.get('content-desc','') for n in dump().iter('node'))
-          if 'Dark Mode' not in labels:
+          if 'QA Dark Mode' not in labels:
               raise RuntimeError('Theme switch did not expose the Dark Mode action')
           capture('home_light')
           choose('Batch')
