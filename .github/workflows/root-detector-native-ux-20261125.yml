@@ -34,17 +34,50 @@ jobs:
         run: |
           set -euo pipefail
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-37' || "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-37.0'
-      - name: Build, unit tests and lint
+      - name: Compile and run unit tests
         working-directory: root-detector
         shell: bash
         run: |
           set -euo pipefail
-          if ! gradle --no-daemon --console=plain :app:testDebugUnitTest :app:assembleDebug :app:lintDebug > "$RUNNER_TEMP/root-detector-build.log" 2>&1; then
-            echo "Android validation failed; compiler diagnostics:"
+          if ! gradle --no-daemon --console=plain :app:testDebugUnitTest :app:assembleDebug > "$RUNNER_TEMP/root-detector-build.log" 2>&1; then
             grep -E '^(e: |error: |Execution failed for task|> A failure occurred|.* tests completed, .* failed)' "$RUNNER_TEMP/root-detector-build.log" | head -40 || true
             exit 1
           fi
-          echo "Debug compile, unit tests and lint succeeded."
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          totals = dict(tests=0, failures=0, errors=0, skipped=0)
+          for p in Path("app/build/test-results/testDebugUnitTest").glob("TEST-*.xml"):
+              e = ET.parse(p).getroot()
+              for k in totals: totals[k] += int(e.get(k, "0"))
+          print("Unit test totals:", totals)
+          assert totals["tests"] > 0 and not totals["failures"] and not totals["errors"]
+          PY
+      - name: Lint with sanitized diagnostics
+        id: lint
+        continue-on-error: true
+        working-directory: root-detector
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          gradle --no-daemon --console=plain :app:lintDebug > "$RUNNER_TEMP/root-detector-lint.log" 2>&1 || status=$?
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          from collections import Counter
+          reports=list(Path("app/build/reports").glob("lint-results-debug.xml"))
+          if not reports:
+              print("No lint XML report found")
+          for p in reports:
+              issues=ET.parse(p).getroot().findall("issue")
+              print("Lint counts:", dict(Counter((i.get("severity"),i.get("id")) for i in issues)))
+              for i in issues:
+                  if i.get("severity") not in ("Error","Fatal"): continue
+                  for loc in i.findall("location")[:1]:
+                      print(i.get("id"), Path(loc.get("file","")).name, loc.get("line",""))
+          PY
+          exit "$status"
       - name: Enable KVM
         run: |
           if [ -e /dev/kvm ]; then sudo chmod a+rw /dev/kvm; fi
@@ -78,3 +111,6 @@ jobs:
             adb shell settings put system font_scale 1.0
             adb shell cmd uimode night no
             echo "Cold launch and configuration-change smoke succeeded."
+      - name: Enforce lint result
+        if: always()
+        run: test "${{ steps.lint.outcome }}" = success
