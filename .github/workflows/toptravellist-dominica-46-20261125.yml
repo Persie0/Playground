@@ -1,0 +1,101 @@
+name: TopTravelList Dominica validation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-dominica-46-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/dominica-worldwide-20261125
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and regenerate rankings
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country DM
+          python scripts/generate_rankings.py --country DM
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+      - name: Audit country coverage, review arithmetic and existing records
+        working-directory: repo
+        run: |
+          python - <<'PY'
+          import re, subprocess
+          from decimal import Decimal
+          from pathlib import Path
+          import yaml
+          root=Path('countries/DM')
+          d=Path('methodology/reviews/DM')
+          txt='\n'.join((d/p).read_text() for p in ['cities.md','sights.md'])
+          ids=re.findall(r'^## ((?:city|sight)-dm-[a-z0-9-]+) — ',txt,re.M)
+          assert len(ids)==len(set(ids))==46
+          assert txt.count('**source-linked-unverified**')==42
+          assert txt.count('**editorial-only**')==4
+          assert txt.count('**unassessed**')==0
+          dims=['impact','uniqueness','significance','experience','depth']
+          weights=[30,25,20,15,10]
+          high=0; unranked=0
+          for k,n in [('cities',14),('sights',32)]:
+              files=list((root/k).glob('*.yaml'))
+              assert len(files)==n
+              md=(root/f'{k}.md').read_text()
+              assert md.count('https://www.google.com/maps/search/?api=1&query=')==2*n
+              assert md.count('[Google Maps](https://www.google.com/maps/search/?api=1&query=')==n
+              for f in files:
+                  a=yaml.safe_load(f.read_text())
+                  assert a['id'] in ids and a['location']['country_code']=='DM'
+                  vals=[*(a['scores'][x] for x in dims),*a['scores']['categories'].values()]
+                  assert all(v is None or 0<=v<10 for v in vals)
+                  section=txt.split('## '+a['id']+' — ',1)[1].split('\n## ',1)[0]
+                  assert f']({k}/{f.name})' in md
+                  peers=re.findall(r'\]\(\.\./\.\./\.\./countries/([A-Z]{2}/(?:cities|sights)/[^)]+\.yaml)\)',section)
+                  peers=[p for p in peers if not p.startswith('DM/')]
+                  assert len(set(peers))==4, (a['id'], peers)
+                  assert len({p.split('/')[0] for p in peers})>=3
+                  assert all((Path('countries')/p).is_file() for p in peers)
+                  total=None
+                  if any(a['scores'][x] is None for x in dims):
+                      unranked+=1
+                      assert '**unassessed**' in section and 'Overall: unranked.' in section
+                  else:
+                      total=sum(Decimal(str(a['scores'][x]))*w for x,w in zip(dims,weights))/10
+                      assert f'Overall: {total:.2f}/100.' in section
+                  if (total is not None and total>=90) or any(v is not None and v>=9.5 for v in vals):
+                      high+=1
+                      assert 'High-score challenge: Not applicable' not in section
+          assert unranked==0 and high==2
+          changes=subprocess.check_output(['git','diff','--name-only','origin/main...HEAD'],text=True).splitlines()
+          assert all(p=='README.md' or p.startswith(('countries/DM/','methodology/reviews/DM/')) for p in changes)
+          print('PASS: coverage, scores, peer links, GPS links and preservation of earlier records.')
+          print('WORLDWIDE:',len({f.parent.parent.name for f in Path('countries').glob('*/*/*.yaml')}),len(list(Path('countries').glob('*/cities/*.yaml'))),len(list(Path('countries').glob('*/sights/*.yaml'))))
+          PY
+      - name: Commit generated rankings
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md countries/DM/cities.md countries/DM/sights.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate Dominica ranking pages and country directory'
+            git push origin HEAD:refs/heads/data/dominica-worldwide-20261125
+          fi
