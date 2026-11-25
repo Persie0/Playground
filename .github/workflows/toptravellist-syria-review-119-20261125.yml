@@ -22,10 +22,13 @@ jobs:
           python-version: '3.12'
       - name: Integrate main, regenerate and validate
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name toptravellist-review-bot
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
           git fetch origin main
           if ! git merge --no-commit --no-ff origin/main; then
             test "$(git diff --name-only --diff-filter=U)" = README.md
@@ -43,6 +46,12 @@ jobs:
           git diff --cached --check origin/main
           git diff --cached --name-only origin/main | grep -vE '^(README\.md|countries/SY/|methodology/reviews/SY/)' > /tmp/unexpected-paths || true
           test ! -s /tmp/unexpected-paths
-          git commit -m 'Integrate current main and regenerate Syria reviewed rankings (source audit)'
+          if ! git diff --cached --quiet || test -f .git/MERGE_HEAD; then
+            git commit -m 'Integrate current main and regenerate Syria reviewed rankings (source audit)'
+          fi
           git push origin HEAD:refs/heads/data/syria-worldwide-v2-2026
           git rev-parse HEAD
+          if gh api --method PUT repos/Persie0/TopTravelList/pulls/119/merge -f merge_method=merge -f sha="$(git rev-parse HEAD)" --jq '.merged' | grep -qx true; then exit 0; fi
+          if gh api repos/Persie0/TopTravelList/pulls/119 --jq '.merged' | grep -qx true; then exit 0; fi
+          done
+          exit 1
