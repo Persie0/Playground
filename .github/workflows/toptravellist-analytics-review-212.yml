@@ -8,7 +8,7 @@ permissions:
   contents: read
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +46,9 @@ jobs:
           import assert from 'node:assert/strict';
           import fs from 'node:fs';
           const atlas=JSON.parse(fs.readFileSync('public/atlas.json','utf8'));
+          assert.ok(atlas.rows.some(r=>r.country==='AU'&&r.kind==='cities'),'Australia city export missing');
+          assert.ok(atlas.rows.some(r=>r.country==='AU'&&r.kind==='sights'),'Australia sight export missing');
+          console.log('Australia export:',atlas.countries.AU);
           const expected=atlas.rows.filter(r=>r.country==='AT'&&r.kind==='sights'&&r.overall!==null&&r.overall>=85.25);
           assert.ok(expected.length>0);
           const browser=await chromium.launch({headless:true});
