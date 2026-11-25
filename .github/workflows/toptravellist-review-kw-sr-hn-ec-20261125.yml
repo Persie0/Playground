@@ -1,0 +1,154 @@
+name: Review Kuwait Suriname Honduras and Ecuador
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-review-kw-sr-hn-ec-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Persie0/TopTravelList
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare rating reviewer
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          gh auth setup-git
+          cat > /tmp/reassess.py <<'PY'
+          import json,sys,re
+          from pathlib import Path
+          from decimal import Decimal
+          from collections import Counter
+          import yaml
+          sys.path.insert(0,'scripts')
+          from rank import overall_score
+          code=sys.argv[1]
+          notes=json.loads("{\"KW\":[[\"cities\",\"al-zor-village-failaka\",{\"significance\":8,\"experience\":7,\"depth\":6.5},\"The tentative-list submission distinguishes Al-Zor's twentieth-century urban fabric and displacement history from the island's ancient archaeology. Visitors can encounter historic buildings and returning residents, but the island-wide archaeological layers cannot be credited to the town. Reduce significance and visitor breadth; retain distinctive settlement rarity. No claim of unrestricted building access.\",\"https://whc.unesco.org/en/tentativelists/6800/\",[\"BH/cities/muharraq\",\"OM/cities/muscat\",\"BH/cities/awali\",\"LI/cities/schaan\"],[\"Broader historic urban fabric and public routes.\",\"Much wider urban exploration.\",\"Industrial settlement with visitor fields unresolved; similar caution.\",\"Ordinary bounded settlement with less distinctive historical context.\"]],[\"sights\",\"failaka-island-cultural-landscape\",{},\"Tentative-list description establishes the distinct Dilmun, Hellenistic, Islamic and modern layers. Retain the high historical importance of the island ensemble, distinguishing it from the single archaeological component and Al-Zor settlement. Visitor depth remains provisional because the source does not establish access to every component.\",\"https://whc.unesco.org/en/tentativelists/6800/ https://whc.unesco.org/en/tentativelists/5800\",[\"BH/sights/qalat-al-bahrain-archaeological-site\",\"OM/sights/bahla-fort\",\"JO/sights/pella-archaeological-site\",\"SV/sights/joya-de-ceren-archaeological-site\"],[\"More substantial interpreted archaeological site.\",\"Coherent fortified ensemble.\",\"Regional multiperiod archaeology.\",\"Exceptional domestic archaeological preservation with bounded depth.\"]]],\"SR\":[[\"sights\",\"central-suriname-nature-reserve\",{\"depth\":7.8},\"UNESCO describes the connected enormous tropical reserve but specifically notes localized tourism potential. The recognized visitor circuit near Raleighvallen is not equivalent to exploring the full protected area. Preserve significance and nature 9.6 for the intact ecosystem, retain conditional impact and experience; lower depth below the separately scored Raleighvallen route rather than adding inaccessible habitats.\",\"https://whc.unesco.org/en/list/1017/ https://www.heritage.world/sites/central-suriname-nature-reserve/\",[\"BZ/sights/cockscomb-basin-wildlife-sanctuary\",\"TH/sights/khao-sok-national-park\",\"JO/sights/dana-biosphere-reserve\",\"SC/sights/aldabra-atoll\"],[\"Broader established visitor trail network.\",\"Multiple accessible activities and routes.\",\"More accessible interpreted routes.\",\"Comparable protected landscape with strictly limited access.\"]],[\"sights\",\"raleighvallen-and-voltzberg-visitor-area\",{},\"The published reserve description identifies guided access to river rapids, forest and the granite dome. A bounded multi-activity visitor area can have greater actual depth than the enormous parent reserve, without inheriting the parent's scientific importance. Retain current vector provisionally.\",\"https://www.heritage.world/sites/central-suriname-nature-reserve/ https://whc.unesco.org/en/list/1017/\",[\"BZ/sights/cockscomb-basin-wildlife-sanctuary\",\"TH/sights/khao-sok-national-park\",\"JO/sights/dana-biosphere-reserve\",\"SC/sights/vallee-de-mai-nature-reserve\"],[\"More extensive visitor trails.\",\"Broader forest and lake activities.\",\"Broader trail breadth.\",\"Smaller interpreted forest circuit.\"]]],\"HN\":[[\"sights\",\"maya-site-of-copan\",{},\"UNESCO confirms the major ensemble of sculpted monuments, plazas and stairway. Exceptional historical and artistic fields remain justified; retain 9.3 depth for the ensemble, not restricted climbing on the stairway. Compare to other Maya and ancient archaeological sites.\",\"https://whc.unesco.org/en/list/129/\",[\"BZ/sights/caracol-archaeological-reserve\",\"SV/sights/joya-de-ceren-archaeological-site\",\"JO/sights/jerash-archaeological-city\",\"KH/sights/angkor-archaeological-park\"],[\"Impressive Maya urban ensemble, lower distinctive sculpture and inscription merits.\",\"Rare domestic archaeology rather than monumental plazas.\",\"Comparable extensive monumental site.\",\"Much broader world-defining ensemble.\"]],[\"sights\",\"hieroglyphic-stairway-copan\",{\"experience\":7.2},\"UNESCO identifies the stairway as a key attribute of the site and documents its protective canopy; the existing exterior-only scope is correct. Its historic text supports 9.6 rarity, significance and history, but sheltered viewing of one feature is less rewarding than an interpreted whole archaeological site. Retain bounded depth 6.4 and reduce experience slightly. No assumption of permission to climb.\",\"https://whc.unesco.org/en/list/129/ https://whc.unesco.org/en/intassistance/943\",[\"SV/sights/joya-de-ceren-archaeological-site\",\"JO/sights/pella-archaeological-site\",\"BZ/sights/caracol-archaeological-reserve\",\"BH/sights/qalat-al-bahrain-archaeological-site\"],[\"Broader sheltered domestic excavations.\",\"More extensive ruins and exploration.\",\"Full Maya ensemble; greater experience.\",\"Broader interpreted archaeology.\"]],[\"sights\",\"rio-platano-biosphere-reserve\",{},\"UNESCO describes the internationally important large forest reserve and danger-list context. Preserve significance 9.5 and null impact, experience and depth: the source does not establish a normal permitted visit representative of this exact reserve. Do not assign zero or infer access from neighboring trips.\",\"https://whc.unesco.org/en/list/196 https://whc.unesco.org/en/statesparties/hn\",[\"BZ/sights/cockscomb-basin-wildlife-sanctuary\",\"TH/sights/khao-sok-national-park\",\"JO/sights/dana-biosphere-reserve\",\"SC/sights/aldabra-atoll\"],[\"Established specific visitor area.\",\"Large park with known tourist circuits.\",\"Defined trail system.\",\"Conditional controlled visit; unlike Río Plátano, a documented visitor policy was checked.\"]]],\"EC\":[[\"sights\",\"galapagos-islands-world-heritage-property\",{\"depth\":9.3},\"UNESCO confirms exceptional evolutionary ecosystems and controlled access to uninhabited islands; Galápagos Conservancy describes distinct land and cruise itineraries with specific designated guided visitor sites. Preserve world-leading impact, rarity, significance and nature/wildlife. A normal multi-island journey remains very deep, but does not cover the entire World Heritage property; reduce depth from near-global maximum to 9.3. Unlike Belize's separate serial sites, multi-island visits are a coherent normal experience. Other exceptional category judgments remain editorial, not independently measured.\",\"https://whc.unesco.org/en/list/1/ https://www.galapagos.org/travel/planning-a-trip/\",[\"SC/sights/aldabra-atoll\",\"BZ/sights/belize-barrier-reef-reserve-system\",\"TH/sights/tarutao-national-marine-park\",\"MY/sights/sipadan-island-reefs\"],[\"Exceptional island ecology but much narrower authorized visit.\",\"Unranked serial reserve system with no single representative visit.\",\"Coherent accessible marine park with lower global evolutionary importance.\",\"World-class reef destination with narrower geographic scope.\"]],[\"sights\",\"yasuni-national-park\",{\"depth\":8.3},\"The Ecuadorian environment ministry describes exceptional biodiversity and connected protected areas. The visitor information describes bounded authorized activities, not free exploration of the entire park. Preserve high conservation significance, nature and wildlife fields; reduce depth to an actual guided multi-day circuit, not all habitats and inaccessible lands. Current access remains itinerary-dependent.\",\"https://www.ambienteyenergia.gob.ec/daniel-noboa-conecta-y-protege-mas-de-173-000-hectareas-de-la-amazonia-ecuatoriana-con-la-creacion-de-nuevo-corredor-yasuni-limoncocha-cuyabeno/ https://reservabiosferayasuni.org/turismo/\",[\"BZ/sights/cockscomb-basin-wildlife-sanctuary\",\"TH/sights/khao-sok-national-park\",\"JO/sights/dana-biosphere-reserve\",\"SC/sights/aldabra-atoll\"],[\"More readily explored established forest trails.\",\"Broader visitor options and developed circuits.\",\"Defined accessible routes.\",\"Restricted natural reserve with exceptional ecological significance.\"]]]}")
+          weights={k:Decimal(str(v)) for k,v in json.loads(Path('methodology/scoring.json').read_text())['dimensions'].items()}
+          def load(p):return yaml.safe_load(Path(p).read_text())
+          def vector(r):return ' / '.join(str(r['scores'].get(k)) if r['scores'].get(k) is not None else 'null' for k in weights)
+          def total(r):
+           v=overall_score(r,weights)
+           return 'unranked' if v is None else f'{v:.2f}/100'
+          for kind,slug,changes,reason,urls,peers,why in notes[code]:
+           p=Path('countries')/code/kind/(slug+'.yaml');r=load(p);before=vector(r);oldtotal=total(r)
+           if changes:
+            r['scores'].update(changes)
+            p.write_text(yaml.safe_dump(r,sort_keys=False,allow_unicode=True),encoding='utf-8')
+           review=Path('methodology/reviews')/code/(kind+'.md')
+           doc=review.read_text()
+           assert re.search(r'^#{2,3} '+re.escape(r['id'])+r' — ',doc,re.M),r['id']
+           with review.open('a',encoding='utf-8') as f:
+            f.write(f'\n## Follow-up: {r["id"]} — 2026-11-25 (worldwide review)\n\n- [YAML](../../../{p}) · Action: {"rescore" if changes else "fact-check-only"} · **source-linked-unverified**: limited source claims checked; not comprehensive fact-check. Original decision above retained.\n- Sources inspected 2026-11-25: '+', '.join(f'[{u}]({u})' for u in urls.split())+'\n- Decision: '+reason+f'\n- I/U/S/E/D: {before} → {vector(r)}; total {oldtotal} → {total(r)}. Categories unchanged. No new 10 or country multiplier. Representative GPS retained.\n\n| Current worldwide peer | I/U/S/E/D | Overall | Scope comparison |\n| --- | --- | --- | --- |\n')
+            for peer,comparison in zip(peers,why):
+             pp=Path('countries')/(peer+'.yaml');q=load(pp)
+             f.write(f'| [{q["name"]}](../../../{pp}) | {vector(q)} | {total(q)} | {comparison} |\n')
+            f.write('\n')
+           print(r['id'],oldtotal,'->',total(r))
+          for kind in ('cities','sights'):
+           doc=(Path('methodology/reviews')/code/(kind+'.md')).read_text()
+           records=[load(p) for p in sorted((Path('countries')/code/kind).glob('*.yaml'))]; statuses=Counter()
+           for r in records:
+            m=re.search(r'^#{2,3} '+re.escape(r['id'])+r' — .*?(?=^#{2,3} |\Z)',doc,re.M|re.S)
+            assert m,(r['id'],'missing original review')
+            b=m.group(); status=re.search(r'\*\*(source-linked-unverified|editorial-only|fact-checked|unassessed)\*\*',b)
+            if status:statuses[status.group(1)]+=1
+            else:statuses['status-format-needs-review']+=1
+            assert len(set(re.findall(r'\]\(\.\./\.\./\.\./countries/([A-Z]{2}/(?:cities|sights)/[^)]+)\)',b)))>=4,(r['id'],'missing peers')
+            for k in weights: assert re.search(r'^- '+k.capitalize()+r' ',b,re.M),(r['id'],k)
+           print(code,kind,len(records),'original evidence statuses',dict(statuses),'unranked',sum(overall_score(r,weights) is None for r in records))
+          
+          PY
+      - name: Review and merge oldest three in order
+        run: |
+          set -euo pipefail
+          for item in '50 KW data/kuwait-worldwide-v2-2026 ee05e2fbb034d4191220d4b9f2b68ecf23f74190' '49 SR data/suriname-worldwide-v2-2026 3f9c50ec8b5a79d860dd12497af3ff307c183aa7' '53 HN data/honduras-worldwide-v2-90 016c8d7e96b4c315df363d6b82b65fc827e39d96'; do
+            read -r n code branch expected <<< "$item"
+            git fetch origin main "$branch"
+            state=$(gh pr view "$n" --repo Persie0/TopTravelList --json state --jq .state)
+            if [ "$state" = MERGED ]; then continue; fi
+            test "$state" = OPEN
+            test "$(git rev-parse origin/$branch)" = "$expected"
+            git switch -C "review-$code" "origin/$branch"
+            git merge --no-commit --no-ff origin/main || {
+              while IFS= read -r f; do
+                case "$f" in README.md|countries/*/cities.md|countries/*/sights.md) git checkout --theirs -- "$f"; git add "$f";;
+                  *) echo "Unexpected conflict: $f"; exit 1;; esac
+              done < <(git diff --name-only --diff-filter=U)
+              test -z "$(git diff --name-only --diff-filter=U)"
+            }
+            git commit -m "Integrate main before $code rating review" || test -z "$(git status --porcelain)"
+            python /tmp/reassess.py "$code"
+            python scripts/generate_rankings.py
+            python scripts/validate.py
+            python scripts/check_city_benchmarks.py
+            python scripts/check_sight_benchmarks.py
+            python scripts/generate_rankings.py --check
+            python - "$code" "$n" <<'PY'
+          import sys,re
+          from pathlib import Path
+          code,n=sys.argv[1:]
+          p=Path('methodology/reviews/review-progress.md')
+          rows={
+            'KW':('Kuwait',12,43,'Al-Zor settlement revised; Failaka island retained'),
+            'SR':('Suriname',20,37,'Central Suriname reserve depth reduced; Raleighvallen retained'),
+            'HN':('Honduras',31,59,'Copán stairway experience reduced; Copán and Río Plátano retained')
+          }
+          name,c,s,decision=rows[code]
+          row=f'| {name} | {code} | {c} | {s} | [#{n}](https://github.com/Persie0/TopTravelList/pull/{n}) | [Pass](https://github.com/Persie0/Playground/actions/runs/'+__import__('os').environ['GITHUB_RUN_ID']+') | '+decision+' | Individual source/GPS and category calibration |'
+          content=p.read_text()
+          content=re.sub(r'\n\n(All (?:four|listed) merged PRs)',lambda m:'\n'+row+'\n\n'+m.group(1),content,count=1)
+          # Keep ledger row in its table, not separated by blank paragraphs.
+          content=content.replace('\n\n'+row,'\n'+row)
+          content=content.replace(f'{code} #{n}; ','')
+          content=content.replace('All four merged PRs','All listed merged PRs').replace('not comprehensive independent verification of all 267 destinations','not comprehensive independent verification of all destination records').replace('The overall workflow runs reported failure after successful per-country validation (merge/PR operation issues); actual merge status verified separately.','Earlier workflow runs reported merge-operation failures after successful per-country validation; actual merge status was verified separately.')
+          p.write_text(content)
+          PY
+            git add "countries/$code" "methodology/reviews/$code" README.md methodology/reviews/review-progress.md
+            git commit -m "Review $code ratings and track progress"
+            git diff --name-only origin/main HEAD | while IFS= read -r f; do
+              case "$f" in README.md|countries/"$code"/*|methodology/reviews/"$code"/*|methodology/reviews/review-progress.md) ;; *) echo "Unexpected changed file $f"; exit 1;; esac
+            done
+            git push origin "HEAD:refs/heads/$branch"
+            sha=$(git rev-parse HEAD)
+            git fetch origin main
+            git merge-base --is-ancestor origin/main HEAD
+            if [ "$(gh pr view "$n" --repo Persie0/TopTravelList --json isDraft --jq .isDraft)" = true ]; then
+              gh pr ready "$n" --repo Persie0/TopTravelList
+            fi
+            gh pr merge "$n" --repo Persie0/TopTravelList --merge --match-head-commit "$sha"
+            echo "PR $n merged at reviewed head $sha"
+          done
+      - name: Review recently merged Ecuador
+        if: success()
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git switch -C review-ec-ratings origin/main
+          python /tmp/reassess.py EC
+          python scripts/generate_rankings.py
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py --check
+          git add countries/EC methodology/reviews/EC README.md
+          git commit -m "Recalibrate Ecuador protected-area visitor depth"
+          git diff --name-only origin/main HEAD | while IFS= read -r f; do
+            case "$f" in README.md|countries/EC/*|methodology/reviews/EC/*) ;; *) echo "Unexpected changed file $f"; exit 1;; esac
+          done
+          git push origin HEAD:refs/heads/review/ecuador-ratings-20261125
+          echo "Ecuador reviewed branch pushed; open and merge its PR after validation."
