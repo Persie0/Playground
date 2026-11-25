@@ -1,0 +1,103 @@
+name: TopTravelList Bhutan 122 reviews and rankings
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-bhutan-122-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/bhutan-worldwide-v2-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and generate rankings
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country BT
+          python scripts/generate_rankings.py --country BT
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          python scripts/rank.py --kind sights --country BT --limit 20
+      - name: Verify coverage, scores, peer links and unchanged prior records
+        working-directory: repo
+        run: |
+          python - <<'PY'
+          import re, subprocess
+          from decimal import Decimal
+          from pathlib import Path
+          import yaml
+          root=Path('countries/BT')
+          d=Path('methodology/reviews/BT')
+          txt='\n'.join((d/p).read_text() for p in ['cities.md','sights.md'])
+          ids=re.findall(r'^## ((?:city|sight)-bt-[a-z0-9-]+) — ',txt,re.M)
+          assert len(ids)==len(set(ids))==122
+          assert txt.count('**source-linked-unverified**')==93
+          assert txt.count('**editorial-only**')==25
+          assert txt.count('**unassessed**')==4
+          dims=['impact','uniqueness','significance','experience','depth']
+          weights=[30,25,20,15,10]
+          high=[]; unranked=[]
+          for k,n in [('cities',33),('sights',89)]:
+              files=list((root/k).glob('*.yaml'))
+              assert len(files)==n,(k,len(files))
+              md=(root/f'{k}.md').read_text()
+              assert md.count('https://www.google.com/maps/search/?api=1&query=')==n
+              for f in files:
+                  a=yaml.safe_load(f.read_text())
+                  assert a['id'] in ids and a['location']['country_code']=='BT'
+                  vals=[*(a['scores'][x] for x in dims),*a['scores']['categories'].values()]
+                  assert all(v is None or 0<=v<10 for v in vals)
+                  section=txt.split('## '+a['id']+' — ',1)[1].split('\n## ',1)[0]
+                  assert f']({k}/{f.name})' in md
+                  peers=re.findall(r'\]\(\.\./\.\./\.\./countries/([A-Z]{2}/(?:cities|sights)/[^)]+\.yaml)\)',section)
+                  assert len(set(p for p in peers if not p.startswith('BT/')))==4,(a['id'],peers)
+                  assert all((Path('countries')/p).is_file() for p in peers)
+                  total=None
+                  if any(a['scores'][x] is None for x in dims):
+                      unranked.append(a['id'])
+                      assert '**unassessed**' in section and 'Overall: unranked.' in section
+                  else:
+                      total=sum(Decimal(str(a['scores'][x]))*w for x,w in zip(dims,weights))/10
+                      assert f'Overall: {total:.2f}/100.' in section,(a['id'],total)
+                  if (total is not None and total>=90) or any(v is not None and v>=9.5 for v in vals):
+                      high.append(a['id'])
+                      assert 'High-score challenge: Not applicable' not in section,a['id']
+          assert set(unranked)=={'sight-bt-jigme-khesar-strict-nature-reserve','sight-bt-phibsoo-wildlife-sanctuary','sight-bt-jomotsangkha-wildlife-sanctuary','sight-bt-gangkar-puensum-mountain-landscape'},unranked
+          assert len(high)==13,high
+          changes=subprocess.check_output(['git','diff','--name-only','f4dd498505e38b2479f8b7cc9c6317e3de5f8fea','HEAD'],text=True).splitlines()
+          assert all(p=='README.md' or p.startswith(('countries/BT/','methodology/reviews/BT/')) for p in changes),changes
+          cities=len(list(Path('countries').glob('*/cities/*.yaml')))
+          sights=len(list(Path('countries').glob('*/sights/*.yaml')))
+          populated=len({f.parent.parent.name for f in Path('countries').glob('*/*/*.yaml')})
+          print('PASS: 122 named reviews, 118 complete totals, 4 unassessed, 13 threshold cases, peer references exist, other country records unchanged.')
+          print('WORLDWIDE:',populated,cities,sights,cities+sights)
+          PY
+      - name: Commit generated rankings
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md countries/BT/cities.md countries/BT/sights.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate Bhutan ranking pages and country directory'
+            git push origin HEAD:refs/heads/data/bhutan-worldwide-v2-2026
+          fi
