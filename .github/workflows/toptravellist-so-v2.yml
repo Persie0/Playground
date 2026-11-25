@@ -26,7 +26,12 @@ jobs:
           git config user.name toptravellist-editorial-bot
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git fetch origin main
-          git merge --no-edit origin/main
+          if ! git merge --no-edit origin/main; then
+            test "$(git diff --name-only --diff-filter=U)" = "README.md"
+            git checkout --theirs README.md
+            git add README.md
+            git commit --no-edit
+          fi
           python -m pip install -r requirements.txt
           python scripts/validate.py
           python scripts/check_city_benchmarks.py
@@ -54,7 +59,7 @@ jobs:
                   else:
                       assert 'Overall: unranked.' in section
               assert Path('countries/SO',kind+'.md').read_text().count('https://www.google.com/maps/search/?api=1&query=')==2*count
-          print('PASS: SO counts, totals and map links')
+          print('PASS: SO re-review counts, totals and map links')
           PY
           git add README.md countries/SO/cities.md countries/SO/sights.md
           git diff --cached --check
