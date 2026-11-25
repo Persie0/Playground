@@ -1,0 +1,87 @@
+name: TopTravelList Uruguay updated-base validation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-uruguay-final-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/uruguay-worldwide-v2-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate, generate and inspect
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country UY
+          python scripts/generate_rankings.py --country UY
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          python scripts/rank.py --kind sights --country UY --limit 15
+          python - <<'UY'
+          import re, subprocess
+          from pathlib import Path
+          from decimal import Decimal
+          import yaml
+          docs=Path('methodology/reviews/UY')
+          txt='\n'.join((docs/f'{k}.md').read_text() for k in ['cities','sights'])
+          assert len(set(re.findall(r'^## ((?:city|sight)-uy-[a-z0-9-]+) — ',txt,re.M)))==94
+          assert txt.count('**source-linked-unverified**')==59
+          assert txt.count('**editorial-only**')==33
+          assert txt.count('**unassessed**')==2
+          unranked=0
+          high=0
+          for k,n in [('cities',33),('sights',61)]:
+              root=Path('countries/UY')
+              files=list((root/k).glob('*.yaml'))
+              assert len(files)==n
+              md=(root/f'{k}.md').read_text()
+              assert md.count('https://www.google.com/maps/search/?api=1&query=')==2*n
+              assert md.count('[Google Maps](')==n
+              for f in files:
+                  a=yaml.safe_load(f.read_text())
+                  sec=txt.split('## '+a['id']+' — ',1)[1].split('\n## ',1)[0]
+                  peers=re.findall(r'\]\(\.\./\.\./\.\./countries/([A-Z]{2}/(?:cities|sights)/[^)]+\.yaml)\)',sec)
+                  assert len(set(p for p in peers if not p.startswith('UY/')))==4
+                  assert all((Path('countries')/p).is_file() for p in peers)
+                  assert f']({k}/{f.name})' in md
+                  vals=[a['scores'][x] for x in ['impact','uniqueness','significance','experience','depth']]
+                  assert all(x is None or x<10 for x in vals+list(a['scores']['categories'].values()))
+                  if any(x is not None and x>=9.5 for x in vals+list(a['scores']['categories'].values())) or (None not in vals and sum(Decimal(str(v))*w for v,w in zip(vals,[30,25,20,15,10]))/10>=90):
+                      high+=1
+                      assert 'High-score challenge: Not applicable' not in sec
+                  if None in vals:
+                      unranked+=1
+                  else:
+                      total=sum(Decimal(str(v))*w for v,w in zip(vals,[30,25,20,15,10]))/10
+                      assert f'Computed overall: {total:.2f}/100.' in sec
+          assert unranked==2
+          print('Exceptional cases:',high)
+          assert all(p=='README.md' or p.startswith(('countries/UY/','methodology/reviews/UY/')) for p in subprocess.check_output(['git','diff','--name-only','7deb37dc38b28d85d6b6994b6dcf5903a64b6bb4','HEAD'],text=True).splitlines())
+          print('PASS: individual reviews, peer links, scores, GPS links, preservation.')
+          print('WORLDWIDE:',len({f.parent.parent.name for f in Path('countries').glob('*/*/*.yaml')}),len(list(Path('countries').glob('*/cities/*.yaml'))),len(list(Path('countries').glob('*/sights/*.yaml'))))
+          UY
+      - name: Commit generated views
+        run: |
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md countries/UY/cities.md countries/UY/sights.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate Uruguay rankings and country directory'
+            git push origin HEAD:refs/heads/data/uruguay-worldwide-v2-2026
+          fi
