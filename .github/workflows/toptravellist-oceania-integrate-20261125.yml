@@ -1,0 +1,168 @@
+name: TopTravelList Oceania sequential integration
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-oceania-integrate-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-oceania-integration
+  cancel-in-progress: false
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      TARGET_REPO: Persie0/TopTravelList
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch, integrate, regenerate and validate each country sequentially
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          gh auth setup-git
+          git config user.name toptravellist-integration
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python -m pip install -r requirements.txt
+          printf 'PR | Country | Result | Tested commit\n---|---|---|---\n' >> "$GITHUB_STEP_SUMMARY"
+          report() {
+            printf '%s | %s | %s | %s\n' "$pr" "$countries" "$1" "${2:-—}" >> "$GITHUB_STEP_SUMMARY"
+            echo "PR #$pr ($countries): $1 ${2:-}"
+          }
+          check() {
+            local log
+            log=$(mktemp)
+            if "$@" >"$log" 2>&1; then
+              echo "PASS: $*"
+              rm -f "$log"
+              return 0
+            fi
+            echo "::group::Failed: $*"
+            tail -n 40 "$log"
+            echo "::endgroup::"
+            rm -f "$log"
+            return 1
+          }
+          failed=0
+          for item in 235:KI:data/kiribati-evidence-followup 236:NR,TV:data/nauru-tuvalu-evidence-followup 215:WS:data/samoa-worldwide-rankings 217:FM:data/micronesia-worldwide-rankings 219:VU:data/vanuatu-worldwide-rankings 221:SB:data/solomon-islands-worldwide-rankings 222:FJ:data/fiji-worldwide-rankings 224:PG:data/papua-new-guinea-worldwide-rankings 226:NZ:data/new-zealand-worldwide-rankings 227:AU:data/australia-worldwide-rankings; do
+            IFS=: read -r pr countries branch <<< "$item"
+            git reset --hard >/dev/null
+            git clean -fd >/dev/null
+            info=$(gh pr view "$pr" --repo "$TARGET_REPO" --json state,headRefOid,headRefName,baseRefName,isCrossRepository,isDraft)
+            state=$(jq -r .state <<< "$info")
+            if [[ "$state" == MERGED ]]; then report 'Already merged'; continue; fi
+            if [[ "$state" != OPEN || $(jq -r .headRefName <<< "$info") != "$branch" || $(jq -r .baseRefName <<< "$info") != main || $(jq -r .isCrossRepository <<< "$info") != false ]]; then
+              report 'Unexpected PR state or branch; skipped'
+              failed=1
+              continue
+            fi
+            head=$(jq -r .headRefOid <<< "$info")
+            # Explicit fetch each live head, rather than relying on the original clone.
+            if ! git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main" "+refs/pull/$pr/head:refs/remotes/origin/pr-$pr"; then
+              report 'Fetch failed' "$head"; failed=1; continue
+            fi
+            base=$(git rev-parse refs/remotes/origin/main)
+            fetched=$(git rev-parse "refs/remotes/origin/pr-$pr")
+            if [[ "$fetched" != "$head" ]]; then report 'PR changed during fetch; skipped' "$head"; failed=1; continue; fi
+            common=$(git merge-base "$head" "$base")
+            IFS=, read -ra codes <<< "$countries"
+            scope_ok() {
+              local f allowed code
+              while IFS= read -r f; do
+                [[ -z "$f" || "$f" == README.md ]] && continue
+                allowed=false
+                for code in "${codes[@]}"; do
+                  if [[ "$f" == countries/"$code"/* || "$f" == methodology/reviews/"$code"/* ]]; then allowed=true; break; fi
+                done
+                if [[ "$allowed" != true ]]; then echo "Unexpected changed path: $f"; return 1; fi
+              done
+            }
+            if ! git diff --name-only --no-renames "$common" "$head" | scope_ok; then report 'Unexpected PR scope' "$head"; failed=1; continue; fi
+            # Refuse symlinks, submodules, and executable changes before checkout.
+            if git diff --raw --no-renames "$common" "$head" | grep -E '^:([0-9]{6} (120000|160000|100755)|(120000|160000|100755) [0-9]{6}) ' >/dev/null; then
+              report 'Unexpected file mode' "$head"; failed=1; continue
+            fi
+            git checkout --detach "$head" >/dev/null
+            if ! git merge --no-edit --no-ff "$base"; then
+              conflicts=$(git diff --name-only --diff-filter=U)
+              if [[ "$conflicts" != README.md ]]; then
+                printf 'Unresolved conflicts:\n%s\n' "$conflicts"
+                git merge --abort
+                report 'Non-generated merge conflict; untouched' "$head"; failed=1; continue
+              fi
+              # Only discard the branch version of README when its edits are strictly inside the generated directory.
+              if ! python - "$common" "$head" <<'PY'
+          import subprocess, sys
+          def outside(ref):
+              text = subprocess.check_output(["git", "show", ref + ":README.md"], text=True)
+              a, b = "<!-- COUNTRY_DIRECTORY_START -->", "<!-- COUNTRY_DIRECTORY_END -->"
+              if text.count(a) != 1 or text.count(b) != 1:
+                  raise ValueError("README marker mismatch")
+              before, rest = text.split(a, 1)
+              _, after = rest.split(b, 1)
+              return before, after
+          sys.exit(0 if outside(sys.argv[1]) == outside(sys.argv[2]) else 1)
+          PY
+              then
+                git merge --abort
+                report 'README contains manual edits; untouched' "$head"; failed=1; continue
+              fi
+              git checkout --theirs README.md
+              git add README.md
+              git commit --no-edit >/dev/null
+            fi
+            if ! git diff --name-only --no-renames "$base" HEAD | scope_ok; then report 'Integration scope mismatch' "$head"; failed=1; continue; fi
+            ok=true
+            for code in "${codes[@]}"; do
+              check python scripts/generate_rankings.py --country "$code" || ok=false
+              check python scripts/check_new_country_reviews.py --country "$code" || ok=false
+            done
+            check python scripts/validate.py || ok=false
+            check python scripts/check_city_benchmarks.py || ok=false
+            check python scripts/check_sight_benchmarks.py || ok=false
+            check python scripts/generate_rankings.py --check || ok=false
+            check python scripts/rank.py --kind cities --limit 60 || ok=false
+            check python scripts/rank.py --kind sights --limit 60 || ok=false
+            if [[ "$ok" != true ]]; then report 'Canonical checks failed; branch untouched' "$head"; failed=1; continue; fi
+            if ! git diff --name-only | scope_ok; then report 'Generator changed unrelated files' "$head"; failed=1; continue; fi
+            git add -- README.md
+            for code in "${codes[@]}"; do git add -- "countries/$code/cities.md" "countries/$code/sights.md"; done
+            if ! git diff --cached --quiet; then git commit -m 'Regenerate canonical rankings after integration' >/dev/null; fi
+            tested=$(git rev-parse HEAD)
+            # Only publish when the observed main and PR heads are still current.
+            live=$(git ls-remote origin refs/heads/main | cut -f1)
+            livehead=$(gh pr view "$pr" --repo "$TARGET_REPO" --json headRefOid --jq .headRefOid)
+            if [[ "$live" != "$base" || "$livehead" != "$head" ]]; then report 'Concurrent update; no push or merge' "$tested"; failed=1; continue; fi
+            if [[ "$tested" != "$head" ]] && ! git push origin "HEAD:refs/heads/$branch"; then
+              report 'Branch push failed' "$tested"; failed=1; continue
+            fi
+            # Only Kiribati has completed the individual current-YAML peer audit.
+            # Other PRs remain drafts for the next editorial review, even when their scripts pass.
+            if [[ "$pr" == 235 && "$head" == e389c9e6ca697c43911c987c7eac895031d21c53 ]]; then
+              if [[ $(git ls-remote origin refs/heads/main | cut -f1) != "$base" ]]; then report 'Prepared; main advanced before merge' "$tested"; failed=1; continue; fi
+              if [[ $(jq -r .isDraft <<< "$info") == true ]]; then
+                if ! gh pr ready "$pr" --repo "$TARGET_REPO"; then report 'Prepared; ready transition failed' "$tested"; failed=1; continue; fi
+              fi
+              if gh pr merge "$pr" --repo "$TARGET_REPO" --merge --match-head-commit "$tested"; then
+                state=$(gh pr view "$pr" --repo "$TARGET_REPO" --json state --jq .state)
+                if [[ "$state" == MERGED ]]; then report 'Merged after canonical checks' "$tested"; else report 'Merge not yet confirmed' "$tested"; failed=1; fi
+              else report 'Prepared; merge blocked' "$tested"; failed=1; fi
+            else
+              report 'Canonical checks passed; prepared, editorial merge gate retained' "$tested"
+            fi
+          done
+          exit "$failed"
