@@ -53,13 +53,12 @@ jobs:
               echo "PASS $group"
             else
               echo "::error::FAIL $group (private output withheld)"
-              python3 -c 'import sys,json; rows=[]; exec("for line in sys.stdin:\n try:\n  row=json.loads(line)\n  if isinstance(row,dict): rows.append(row)\n except ValueError: pass"); errors="\n".join(str(r.get("error","")) for r in rows if r.get("type")=="error"); allowed=["RenderFlex overflowed","No element","Too many elements","Expected: exactly one matching candidate","Could not find","pumpAndSettle timed out","FileSystemException","FormatException","PlatformException","MissingPluginException","Bad state","Assertion failed","ScrollController","not hit testable","maximum number of scrolls","Expected: null","Actual:","zero widgets","ScrollPosition"]; print("Error categories:",", ".join(x for x in allowed if x.lower() in errors.lower())); print("Checkpoints:",", ".join(x for x in ["PALACE_CHECK_INITIAL_LAYOUT","PALACE_CHECK_START_PRESENT","PALACE_CHECK_START_DISABLED","PALACE_CHECK_ROW_VISIBLE","PALACE_CHECK_ROW_DISABLED","PALACE_CHECK_SCROLL_LAYOUT"] if x in errors)); print("Test failures:",sum(r.get("type")=="testDone" and r.get("result") in ("failure","error") for r in rows))' < "$RUNNER_TEMP/memory-test.log" || true
+              python3 -c 'import sys,re,json; raw=sys.stdin.read(); allowed=["RenderFlex overflowed","No element","Too many elements","Expected: exactly one matching candidate","Could not find","pumpAndSettle timed out","FileSystemException","FormatException","PlatformException","MissingPluginException","Bad state","Assertion failed","ScrollController","not hit testable","maximum number of scrolls","Expected: null","Actual:","zero widgets","ScrollPosition","Compilation failed","Failed to load","Error:","Error when reading","Dart library","not available on this platform","Test failed","Unable to load","A Timer is still pending","native assets","SIG","Exception","PALACE_CHECK_INITIAL_LAYOUT","PALACE_CHECK_START_PRESENT","PALACE_CHECK_START_DISABLED","PALACE_CHECK_ROW_VISIBLE","PALACE_CHECK_ROW_DISABLED","PALACE_CHECK_SCROLL_LAYOUT"]; print("Categories:",", ".join(x for x in allowed if x.lower() in raw.lower())); print("Compiler positions:",sorted(set(re.findall(r"(?:lib|test)/[a-zA-Z0-9_/]+\\.dart:\\d+:\\d+",raw))))' < "$RUNNER_TEMP/memory-test.log" || true
               failed=1
             fi
           done
           exit "$failed"
   android-restart:
-    needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
