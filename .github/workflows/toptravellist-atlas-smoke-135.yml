@@ -1,0 +1,89 @@
+name: TopTravelList atlas full smoke test
+on:
+  push:
+    paths:
+      - '.github/workflows/toptravellist-atlas-smoke-135.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: da8b82a763db8305ddb31c3b2598a01d21ef9795
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Unit tests and production build
+        working-directory: web
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+          npm run build
+      - name: Desktop and mobile browser smoke tests
+        working-directory: web
+        run: |
+          npm install --no-save --package-lock=false playwright
+          npx playwright install --with-deps chromium
+          npx vite preview --host 127.0.0.1 --port 4173 --strictPort > /tmp/atlas-vite.log 2>&1 &
+          node --input-type=module <<'JS'
+          import { chromium } from 'playwright';
+          import assert from 'node:assert/strict';
+          const browser=await chromium.launch({headless:true});
+          try {
+          for(const viewport of [{width:1440,height:900},{width:390,height:844}]){
+            const page=await browser.newPage({viewport});
+            const errors=[];page.on('pageerror',e=>errors.push(e.message));
+            // Isolate external tile service from deterministic application tests.
+            await page.route('https://tile.openstreetmap.org/**',r=>r.fulfill({status:200,contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j6ioAAAAASUVORK5CYII=','base64')}));
+            await page.goto('http://127.0.0.1:4173/?basemap=outline');
+            const L=s=>page.locator(s);
+            await L('#map .leaflet-container, #map.leaflet-container').waitFor();
+            await L('#rows [data-id]').first().waitFor();
+            assert.equal(await L('header, .hero').count(),0);
+            assert.match(await L('footer').innerText(),/catalogued countries/);
+            assert.equal(await L('footer nav a').count(),3);
+            assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'horizontal overflow');
+            await L('#listView').click();assert.equal(await L('#mapframe').isVisible(),false);
+            const first=await L('#rows [data-id]').first().getAttribute('data-id');
+            await L('#more').click();assert.notEqual(await L('#rows [data-id]').first().getAttribute('data-id'),first);
+            await L('#prev').click();assert.equal(await L('#rows [data-id]').first().getAttribute('data-id'),first);
+            await L('#sort').selectOption('name');assert.equal(new URL(page.url()).searchParams.get('sort'),'name');
+            await L('#country').selectOption('AT');await L('#kind').selectOption('sights');
+            await L('#query').fill('Schönbrunn');await page.waitForFunction(()=>document.querySelector('#rows').innerText.includes('Schönbrunn'));
+            await L('#rows [data-id]').first().click();await L('#detailTitle').waitFor();
+            assert.match(await L('#detail .primaryMap').getAttribute('href'),/google.com\/maps\/search/);
+            assert.equal(await L('#detail .detailLinks a').count(),3);
+            await L('#closeDetail').click();assert.equal(await L('#detail').isVisible(),false);
+            await L('#reset').click();await L('#advanced summary').click();
+            await L('#min').fill('90,75');
+            await page.waitForFunction(()=>new URL(location.href).searchParams.get('min')==='90.75');
+            const scores=await L('#rows .score').allTextContents();assert.ok(scores.length>0);assert.ok(scores.every(s=>parseFloat(s)>=90.75));
+            await L('#min').fill('101');assert.equal(await L('#min').getAttribute('aria-invalid'),'true');
+            await L('#min').fill('90.75');assert.equal(await L('#min').getAttribute('aria-invalid'),'false');
+            await page.reload();await L('#min').waitFor();assert.equal(await L('#min').inputValue(),'90.75');
+            await L('#metric').selectOption('impact');assert.equal(await L('#min').inputValue(),'0');
+            await L('#min').fill('8,7');await page.waitForFunction(()=>new URL(location.href).searchParams.get('min')==='8.7');
+            assert.ok((await L('#rows .score').allTextContents()).every(s=>parseFloat(s)>=8.7));
+            await L('#reset').click();await L('#countries').click();await L('#query').fill('Austria');
+            await L('#rows [data-country="AT"]').waitFor();await L('#rows [data-country="AT"]').click();
+            assert.equal(await L('#country').inputValue(),'AT');
+            await L('#mapView').click();await L('#basemap').selectOption('outline');await L('#display').selectOption('density');await L('#fit').click();
+            await page.waitForFunction(()=>document.querySelector('#mapnote').textContent.includes('Bubble size'));
+            await L('#display').selectOption('rank');await L('#basemap').selectOption('street');await L('#basemap').selectOption('outline');
+            await L('#advanced summary').click();await L('#top').selectOption('25');
+            await page.waitForFunction(()=>document.querySelector('#mapnote').textContent.startsWith('25 map destinations'));
+            await L('#query').fill('zzzz-no-destination-zzzz');await L('#emptyReset').waitFor();await L('#emptyReset').click();
+            await L('#rows [data-id]').first().waitFor();
+            assert.deepEqual(errors,[]);
+            console.log('PASS desktop/mobile viewport',viewport);
+            await page.close();
+          }
+          } finally {await browser.close()}
+          JS
