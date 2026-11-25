@@ -48,25 +48,33 @@ capture help-dialog
 adb shell input keyevent 4
 sleep 1
 
+adb shell cmd window set-user-rotation lock 1
 adb shell settings put system user_rotation 1
+adb shell am force-stop at.persie0.photosphere
+adb shell am start -n at.persie0.photosphere/.CaptureActivity
 sleep 7
 capture landscape
 
 # Large-font layout must keep its core actions visible and accessible.
+adb shell cmd window set-user-rotation lock 0
 adb shell settings put system user_rotation 0
 adb shell settings put system font_scale 1.4
 adb shell am force-stop at.persie0.photosphere
 adb shell am start -n at.persie0.photosphere/.CaptureActivity
 sleep 7
 capture portrait-large-font
+adb shell cmd window set-user-rotation lock 1
 adb shell settings put system user_rotation 1
-sleep 5
+adb shell am force-stop at.persie0.photosphere
+adb shell am start -n at.persie0.photosphere/.CaptureActivity
+sleep 7
 capture landscape-large-font
 adb shell settings put system font_scale 1.0
+adb shell cmd window set-user-rotation free
 adb shell settings put system user_rotation 0
 
 python3 - <<'PY'
-import pathlib, re, xml.etree.ElementTree as ET
+import pathlib, re, struct, xml.etree.ElementTree as ET
 
 def bounds(value):
     m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',value or '')
@@ -74,6 +82,11 @@ def bounds(value):
 
 for orientation in ['portrait','landscape','portrait-large-font','landscape-large-font']:
     path=pathlib.Path('ux-artifacts')/(orientation+'.xml')
+    png=path.with_suffix('.png').read_bytes()
+    assert png[:8]==b'\x89PNG\r\n\x1a\n', orientation+': invalid screenshot'
+    width,height=struct.unpack('>II',png[16:24])
+    assert (width>height)==orientation.startswith('landscape'), (
+        f'{orientation}: incorrect device orientation {width}x{height}')
     root=ET.parse(path).getroot()
     buttons=[]
     for el in root.iter('node'):
@@ -84,7 +97,7 @@ for orientation in ['portrait','landscape','portrait-large-font','landscape-larg
             buttons.append((label,box))
     assert buttons, f'{orientation}: expected native accessible buttons'
     labels=[label for label,_ in buttons]
-    expected=['Start'] if 'large-font' in orientation else ['Start','More','Choose panorama']
+    expected=['Start'] if 'large-font' in orientation else ['Start','More','Open photo']
     for value in expected:
         assert any(value.lower() in label.lower() for label in labels), f'{orientation}: missing {value}: {labels}'
     for label,(left,top,right,bottom) in buttons:
