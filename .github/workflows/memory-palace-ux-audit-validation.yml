@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Persie0/Memory_Palace_Builder
-          ref: 72f0bc063572c6263f586c414e0bffee67d94168
+          ref: e93790d47396e6d6750a4d98db8a73fc3c26847e
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-app
@@ -36,7 +36,7 @@ jobs:
       - name: Analyze changed Flutter files
         working-directory: private-app
         run: |
-          if flutter analyze --no-fatal-infos --no-fatal-warnings lib/pages/learn_lists lib/pages/memory_palaces lib/pages/training lib/provider/settings_provider.dart lib/provider/storage_manager.dart lib/provider/palace_save_journal.dart lib/main.dart lib/settings/options.dart lib/widgets test/widgets test/provider/storage_manager_test.dart test/provider/palace_save_journal_test.dart test/pages/palace_selection_accessibility_test.dart > "$RUNNER_TEMP/memory-analyze.log" 2>&1; then
+          if flutter analyze --no-fatal-infos --no-fatal-warnings lib/pages/learn_lists lib/pages/memory_palaces lib/pages/training lib/provider/settings_provider.dart lib/provider/storage_manager.dart lib/provider/palace_save_journal.dart lib/main.dart lib/settings/options.dart lib/widgets test/widgets test/provider/storage_manager_test.dart test/provider/palace_save_journal_test.dart test/pages/palace_selection_accessibility_test.dart test_driver/palace_recovery_probe.dart > "$RUNNER_TEMP/memory-analyze.log" 2>&1; then
             echo "Analysis passed"
           else
             python3 -c 'import os,re; p=os.path.join(os.environ["RUNNER_TEMP"],"memory-analyze.log"); print("\n".join(m.group(1)+" "+m.group(2)+" "+m.group(3) for l in open(p) if (m:=re.match(r"\s*(error|warning) • .* • ((?:lib|test)/[^ ]+) • ([a-z_]+)\s*$",l))))'
@@ -47,9 +47,73 @@ jobs:
         working-directory: private-app
         if: success() || failure()
         run: |
-          if flutter test test/widgets test/provider/storage_manager_test.dart test/provider/palace_save_journal_test.dart test/pages/palace_selection_accessibility_test.dart > "$RUNNER_TEMP/memory-test.log" 2>&1; then
-            echo "Focused widget tests passed"
-          else
-            echo "::error::Focused widget tests failed (private output withheld)"
+          failed=0
+          for group in test/widgets test/provider/storage_manager_test.dart test/provider/palace_save_journal_test.dart test/pages/palace_selection_accessibility_test.dart; do
+            if flutter test --machine "$group" > "$RUNNER_TEMP/memory-test.log" 2>&1; then
+              echo "PASS $group"
+            else
+              echo "::error::FAIL $group (private output withheld)"
+              python3 -c 'import sys,json; rows=[]; exec("for line in sys.stdin:\n try: rows.append(json.loads(line))\n except ValueError: pass"); failed=[r for r in rows if r.get("type")=="testDone" and r.get("result") in ("failure","error")]; print("Failed tests:",len(failed)); errors=[r.get("error","") for r in rows if r.get("type")=="error"]; allowed=["RenderFlex overflowed","No element","Too many elements","Expected: exactly one matching candidate","Could not find","pumpAndSettle timed out","FileSystemException","FormatException","PlatformException","MissingPluginException"]; print("Error categories:",", ".join(x for x in allowed if any(x in e for e in errors)))' < "$RUNNER_TEMP/memory-test.log"
+              failed=1
+            fi
+          done
+          exit "$failed"
+  android-restart:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private app
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/Memory_Palace_Builder
+          ref: e93790d47396e6d6750a4d98db8a73fc3c26847e
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: private-app
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: android-actions/setup-android@v3
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build private recovery probe
+        working-directory: private-app
+        run: |
+          if ! flutter pub get > "$RUNNER_TEMP/memory-device-pub.log" 2>&1; then
+            echo "::error::Device dependency resolution failed"
             exit 1
           fi
+          if ! flutter build apk --debug --target test_driver/palace_recovery_probe.dart --dart-define=PALACE_RECOVERY_PROBE=true > "$RUNNER_TEMP/memory-device-build.log" 2>&1; then
+            echo "::error::Device probe build failed (private output withheld)"
+            exit 1
+          fi
+      - name: Verify real Android process restart
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            adb install -r private-app/build/app/outputs/flutter-apk/app-debug.apk
+            adb shell pm clear com.austriao.memory_palace_builder
+            adb logcat -c
+            adb shell am start -n com.austriao.memory_palace_builder/.MainActivity
+            for i in $(seq 1 90); do if adb logcat -d -s flutter | grep -q PALACE_RECOVERY_PROBE_READY; then break; fi; sleep 2; done
+            adb logcat -d -s flutter | grep -q PALACE_RECOVERY_PROBE_READY
+            echo "Native staged transaction ready"
+            adb shell am force-stop com.austriao.memory_palace_builder
+            adb logcat -c
+            adb shell am start -n com.austriao.memory_palace_builder/.MainActivity
+            for i in $(seq 1 90); do if adb logcat -d -s flutter | grep -q PALACE_RECOVERY_PROBE_PASSED; then break; fi; sleep 2; done
+            adb logcat -d -s flutter | grep -q PALACE_RECOVERY_PROBE_PASSED
+            echo "Native force-stop and relaunch recovery passed"
