@@ -1,0 +1,94 @@
+name: TopTravelList Nepal 172 reviews and rankings
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-nepal-172-20261125.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/nepal-worldwide-v2-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and generate rankings
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country NP
+          python scripts/generate_rankings.py --country NP
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          python scripts/rank.py --kind sights --country NP --limit 20
+      - name: Verify review counts and calculated totals
+        working-directory: repo
+        run: |
+          python - <<'PY'
+          import re, subprocess
+          from decimal import Decimal
+          from pathlib import Path
+          import yaml
+          root=Path('countries/NP')
+          d=Path('methodology/reviews/NP')
+          txt='\n'.join((d/p).read_text() for p in ['cities.md','sights.md'])
+          ids=re.findall(r'^## ((?:city|sight)-np-[a-z0-9-]+) — ',txt,re.M)
+          assert len(ids)==len(set(ids))==172
+          assert txt.count('**source-linked-unverified**')==114
+          assert txt.count('**editorial-only**')==58
+          dims=['impact','uniqueness','significance','experience','depth']
+          weights=[30,25,20,15,10]
+          high=[]
+          for k,n in [('cities',49),('sights',123)]:
+              files=list((root/k).glob('*.yaml'))
+              assert len(files)==n,(k,len(files))
+              md=(root/f'{k}.md').read_text()
+              assert md.count('https://www.google.com/maps/search/?api=1&query=')==n
+              for f in files:
+                  a=yaml.safe_load(f.read_text())
+                  assert a['id'] in ids and a['location']['country_code']=='NP'
+                  vals=[*(a['scores'][x] for x in dims),*a['scores']['categories'].values()]
+                  assert all(v is not None and 0<=v<10 for v in vals)
+                  section=txt.split('## '+a['id']+' — ',1)[1].split('\n## ',1)[0]
+                  assert f']({k}/{f.name})' in md
+                  total=sum(Decimal(str(a['scores'][x]))*w for x,w in zip(dims,weights))/10
+                  assert f'Overall: {total:.2f}/100.' in section,(a['id'],total)
+                  if total>=90 or any(v>=9.5 for v in vals):
+                      high.append(a['id'])
+                      assert 'High-score challenge: Not applicable' not in section,a['id']
+          assert len(high)==42,high
+          changed=subprocess.check_output(['git','diff','--name-only','7c8f8c930b17b4d7d2bcf3fa574f8c0e2fb615ca','HEAD'],text=True).splitlines()
+          assert all(p=='README.md' or p.startswith(('countries/NP/','methodology/reviews/NP/')) for p in changed),changed
+          cities=len(list(Path('countries').glob('*/cities/*.yaml')))
+          sights=len(list(Path('countries').glob('*/sights/*.yaml')))
+          populated=len({f.parent.parent.name for f in Path('countries').glob('*/*/*.yaml')})
+          print('PASS: 172 named reviews, 42 threshold challenges, all scores verified, other countries preserved.')
+          print('WORLDWIDE:',populated,cities,sights,cities+sights)
+          PY
+      - name: Commit generated rankings
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md countries/NP/cities.md countries/NP/sights.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate Nepal ranking pages and country directory'
+            git push origin HEAD:refs/heads/data/nepal-worldwide-v2-2026
+          fi
