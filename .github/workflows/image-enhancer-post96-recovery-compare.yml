@@ -1,0 +1,42 @@
+name: Image Enhancer post96 recovery compare
+on:
+  push:
+    branches: [validate/image-enhancer-post96-recovery-compare]
+    paths: [.github/workflows/image-enhancer-post96-recovery-compare.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/image_enhancer
+          ref: 1f3ee2099858062cd82304f7756de6edc00fb077
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Generate localizations
+        working-directory: app
+        run: flutter gen-l10n
+      - name: Focused regression tests
+        working-directory: app
+        run: flutter test test/impeccable_post96_recovery_compare_test.dart test/store_offerings_retry_regression_test.dart test/subscription_service_revenuecat_test.dart test/result_comparison_page_test.dart test/impeccable_post95_store_test.dart --reporter expanded
+      - name: Full Flutter tests
+        working-directory: app
+        run: flutter test --concurrency=2 --timeout 2m --reporter compact
+      - name: Flutter analyzer
+        working-directory: app
+        run: flutter analyze
+      - name: Android debug build
+        working-directory: app
+        run: flutter build apk --debug --no-pub
