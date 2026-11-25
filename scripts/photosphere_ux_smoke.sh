@@ -23,9 +23,47 @@ capture() {
 }
 capture portrait
 
+# Verify that the secondary menu exposes contextual help without extra
+# first-screen buttons. No fixed screen-coordinate assumptions.
+button_center() {
+    python3 - "$1" "$2" <<'PY'
+import re,sys,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+for node in root.iter('node'):
+    if node.get('text')==sys.argv[2]:
+        m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',node.get('bounds',''))
+        if m:
+            a,b,c,d=map(int,m.groups())
+            print((a+c)//2,(b+d)//2)
+            sys.exit(0)
+raise SystemExit('Missing visible UI control: '+sys.argv[2])
+PY
+}
+adb shell input tap $(button_center ux-artifacts/portrait.xml More)
+sleep 2
+capture options-menu
+adb shell input tap $(button_center ux-artifacts/options-menu.xml 'How to capture a Photo Sphere')
+sleep 2
+capture help-dialog
+adb shell input keyevent 4
+sleep 1
+
 adb shell settings put system user_rotation 1
 sleep 7
 capture landscape
+
+# Large-font layout must keep its core actions visible and accessible.
+adb shell settings put system user_rotation 0
+adb shell settings put system font_scale 1.4
+adb shell am force-stop at.persie0.photosphere
+adb shell am start -n at.persie0.photosphere/.CaptureActivity
+sleep 7
+capture portrait-large-font
+adb shell settings put system user_rotation 1
+sleep 5
+capture landscape-large-font
+adb shell settings put system font_scale 1.0
+adb shell settings put system user_rotation 0
 
 python3 - <<'PY'
 import pathlib, re, xml.etree.ElementTree as ET
@@ -34,7 +72,7 @@ def bounds(value):
     m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',value or '')
     return tuple(map(int,m.groups())) if m else None
 
-for orientation in ['portrait','landscape']:
+for orientation in ['portrait','landscape','portrait-large-font','landscape-large-font']:
     path=pathlib.Path('ux-artifacts')/(orientation+'.xml')
     root=ET.parse(path).getroot()
     buttons=[]
@@ -46,8 +84,9 @@ for orientation in ['portrait','landscape']:
             buttons.append((label,box))
     assert buttons, f'{orientation}: expected native accessible buttons'
     labels=[label for label,_ in buttons]
-    for expected in ['More','View 360']:
-        assert any(expected in label for label in labels), f'{orientation}: missing {expected}: {labels}'
+    expected=['Start'] if 'large-font' in orientation else ['Start','More','Choose panorama']
+    for value in expected:
+        assert any(value.lower() in label.lower() for label in labels), f'{orientation}: missing {value}: {labels}'
     for label,(left,top,right,bottom) in buttons:
         assert right>left and bottom>top, f'{orientation}: empty button {label}'
         assert right-left>=75 and bottom-top>=75, (
@@ -58,5 +97,9 @@ for orientation in ['portrait','landscape']:
             overlap=max(0,min(a[2],b[2])-max(a[0],b[0]))*max(0,min(a[3],b[3])-max(a[1],b[1]))
             assert overlap==0, f'{orientation}: overlapping actions {name} and {other}'
     print(orientation, 'buttons', buttons)
-print('PASS: portrait and landscape actions are discoverable, sized and non-overlapping')
+for name,required in [('options-menu','How to capture a Photo Sphere'),('help-dialog','Keep the phone')]:
+    root=ET.parse(pathlib.Path('ux-artifacts')/(name+'.xml')).getroot()
+    alltext=' '.join(el.get('text','') for el in root.iter('node'))
+    assert required in alltext, f'{name}: missing {required}: {alltext[:400]}'
+print('PASS: portrait, landscape, large-font and in-app help actions are discoverable, sized and non-overlapping')
 PY
