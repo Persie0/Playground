@@ -40,6 +40,8 @@ jobs:
           python scripts/check_new_country_reviews.py --country FO
           python scripts/check_new_country_reviews.py --country PF
           python scripts/check_new_country_reviews.py --country FR
+          python scripts/check_new_country_reviews.py --country PR
+          python scripts/check_new_country_reviews.py --country US
           python scripts/generate_rankings.py
           python scripts/generate_rankings.py --check
           python scripts/rank.py --kind cities --limit 60 >/tmp/world-cities.txt
@@ -81,6 +83,8 @@ jobs:
           test ! -f countries/FR/sights/marquesas.yaml
           test -f countries/PF/sights/taputapuatea.yaml
           test -f countries/PF/sights/marquesas.yaml
+          test ! -f countries/US/sights/san-juan-national-historic-site.yaml
+          test -f countries/PR/sights/san-juan-national-historic-site.yaml
           cd web
           if [ -f package-lock.json ]; then npm ci; else npm install --no-package-lock; fi
           npm test
@@ -93,6 +97,8 @@ jobs:
           assert.equal(a.countries.GL.catalogued,true);
           assert.equal(a.countries.FO.catalogued,true);
           assert.equal(a.countries.PF.catalogued,true);
+          assert.equal(a.countries.PR.catalogued,true);
+          assert.equal(a.rows.filter(r=>r.country==='PR').length,16);
           assert.equal(a.rows.filter(r=>r.country==='PF').length,16);
           assert.equal(a.rows.filter(r=>r.country==='FO').length,11);
           assert.equal(a.countries.AQ.settlementsRequired,false);
