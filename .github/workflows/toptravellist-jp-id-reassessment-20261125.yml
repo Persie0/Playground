@@ -1,0 +1,124 @@
+name: TopTravelList Japan and Indonesia worldwide recalibration
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-jp-id-reassessment-20261125.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-jp-id-reassessment-20261125
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout audit branch using public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: audit/jp-id-worldwide-v2-followup
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install requirements
+        working-directory: repo
+        run: python -m pip install -r requirements.txt
+      - name: Independently check old and new YAML coverage, score-only changes and threshold reviews
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import re, subprocess
+          from decimal import Decimal
+          from pathlib import Path
+          import yaml
+          BASE='d6c1615c0173f332360fa18e849385402d6eb061'
+          DIMS=('impact','uniqueness','significance','experience','depth')
+          W=(30,25,20,15,10)
+          def git(*args):
+              return subprocess.check_output(['git',*args],text=True)
+          def flat(obj):
+              s=obj['scores']
+              return {**{k:s[k] for k in DIMS},**s['categories']}
+          def total(obj):
+              return sum(Decimal(str(obj['scores'][d]))*w for d,w in zip(DIMS,W))/10
+          def flagged(obj):
+              return total(obj)>=90 or any(v is not None and v>=9.5 for v in flat(obj).values())
+          changed_files=git('diff','--name-only',BASE,'HEAD').splitlines()
+          assert all(p.startswith(('countries/JP/','countries/ID/','methodology/reviews/JP/','methodology/reviews/ID/')) for p in changed_files),changed_files
+          for code,cities,sights,expected_reviews,expected_changed,expected_fields in [('JP',87,347,99,55,66),('ID',79,343,115,54,70)]:
+              root=Path('countries')/code
+              docs=Path('methodology/reviews')/code
+              files=sorted(root.glob('cities/*.yaml'))+sorted(root.glob('sights/*.yaml'))
+              assert len(files)==cities+sights
+              assert len(list(root.glob('cities/*.yaml')))==cities
+              assert len(list(root.glob('sights/*.yaml')))==sights
+              original=set(git('ls-tree','-r','--name-only',BASE,str(root)).splitlines())
+              assert {str(p) for p in files}=={p for p in original if p.endswith('.yaml')}
+              doc=(docs/'worldwide-reassessment-2026-11-25.md').read_text()
+              headers=re.findall(r'^## ((?:city|sight)-[a-z]{2}-[a-z0-9-]+) — ',doc,re.M)
+              assert len(headers)==len(set(headers))==expected_reviews,(code,len(headers),expected_reviews)
+              before_flags=set()
+              after_flags=set()
+              changed=fields=0
+              ids=set()
+              for f in files:
+                  a=yaml.safe_load(git('show',f'{BASE}:{f}'))
+                  b=yaml.safe_load(f.read_text())
+                  assert a['id']==b['id'] and a['name']==b['name'] and a['location']==b['location'],f
+                  assert set(flat(a))==set(flat(b)),f
+                  ids.add(a['id'])
+                  if flagged(a): before_flags.add(a['id'])
+                  if flagged(b): after_flags.add(b['id'])
+                  keys=[k for k in flat(a) if flat(a)[k]!=flat(b)[k]]
+                  if keys:
+                      changed+=1
+                      fields+=len(keys)
+                      assert b['id'] in headers,f
+                  assert all(v is None or 0<=v<10 for v in flat(b).values()),f
+              assert before_flags<=set(headers) and after_flags<=set(headers),(code,before_flags-set(headers),after_flags-set(headers))
+              assert set(headers)<=ids
+              assert changed==expected_changed and fields==expected_fields,(code,changed,fields)
+              screen=(docs/'worldwide-screening-2026-11-25.md').read_text()
+              assert len(re.findall(r'^\| (?:city|sight)-[a-z]{2}-',screen,re.M))==len(files)
+              print(f'{code}: {len(files)} records; {len(before_flags)} original threshold flags; {len(headers)} individual challenges; {changed} score records and {fields} fields changed. All IDs, names and coordinates unchanged.')
+          PY
+      - name: Worldwide validator, both benchmark checkers and original review coverage
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country JP
+          python scripts/check_new_country_reviews.py --country ID
+      - name: Regenerate and check ranking Markdown
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python scripts/generate_rankings.py --country JP
+          python scripts/generate_rankings.py --country ID
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          python scripts/rank.py --kind sights --country JP --limit 15
+          python scripts/rank.py --kind sights --country ID --limit 15
+      - name: Commit only generated rank pages
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add countries/JP/cities.md countries/JP/sights.md countries/ID/cities.md countries/ID/sights.md README.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Regenerate Japan and Indonesia worldwide rankings'
+            git push origin HEAD:refs/heads/audit/jp-id-worldwide-v2-followup
+          fi
