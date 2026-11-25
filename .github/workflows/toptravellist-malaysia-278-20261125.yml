@@ -1,0 +1,96 @@
+name: TopTravelList Malaysia 278 reviews and rankings
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-malaysia-278-20261125.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/malaysia-worldwide-v2-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install requirements
+        working-directory: repo
+        run: python -m pip install -r requirements.txt
+      - name: Validate schemas benchmarks and review coverage
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country MY
+      - name: Generate rankings and inspect worldwide leaders
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python scripts/generate_rankings.py --country MY
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          python scripts/rank.py --kind sights --country MY --limit 20
+      - name: Check exact coverage score thresholds and links
+        working-directory: repo
+        run: |
+          python - <<'PY'
+          import re
+          from decimal import Decimal
+          from pathlib import Path
+          import yaml
+          r=Path('countries/MY')
+          d=Path('methodology/reviews/MY')
+          notes=[d/'cities.md',d/'sights-peninsular.md',d/'sights-borneo.md']
+          txt='\n'.join(p.read_text() for p in notes)
+          ids=re.findall(r'^## ((?:city|sight)-my-[a-z0-9-]+) — ',txt,re.M)
+          assert len(ids)==len(set(ids))==278
+          assert txt.count('**source-linked-unverified**')==28
+          assert txt.count('**editorial-only**')==250
+          dims=['impact','uniqueness','significance','experience','depth']
+          weights=[30,25,20,15,10]
+          high=0
+          for k,n in [('cities',65),('sights',213)]:
+              files=list((r/k).glob('*.yaml'))
+              assert len(files)==n
+              md=(r/f'{k}.md').read_text()
+              assert md.count('https://www.google.com/maps/search/?api=1&query=')==n
+              for f in files:
+                  a=yaml.safe_load(f.read_text())
+                  assert a['id'] in ids
+                  assert a['location']['country_code']=='MY'
+                  assert all(0<=v<10 for v in [*(a['scores'][x] for x in dims),*a['scores']['categories'].values()])
+                  assert f']({k}/{f.name})' in md
+                  total=sum(Decimal(str(a['scores'][x]))*w for x,w in zip(dims,weights))/10
+                  if total>=90: high+=1
+                  section=txt.split('## '+a['id']+' — ',1)[1].split('\n## ',1)[0]
+                  if any(v>=9.5 for v in [*(a['scores'][x] for x in dims),*a['scores']['categories'].values()]):
+                      assert 'High-score challenge: Not applicable' not in section,a['id']
+          assert high==16,high
+          assert len(list(Path('countries').glob('*/cities/*.yaml')))==1031
+          assert len(list(Path('countries').glob('*/sights/*.yaml')))==3149
+          print('PASS: 278 named reviews, 16 totals >=90, 28 source-linked, 250 editorial-only, 4180 worldwide destinations.')
+          PY
+      - name: Commit only generated rankings
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md countries/MY/cities.md countries/MY/sights.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate Malaysia ranking pages and country directory'
+            git push origin HEAD:refs/heads/data/malaysia-worldwide-v2-2026
+          fi
