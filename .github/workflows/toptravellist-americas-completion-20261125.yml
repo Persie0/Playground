@@ -1,0 +1,111 @@
+name: TopTravelList Americas completion
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-americas-completion-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-americas-sequential-merge
+  cancel-in-progress: false
+jobs:
+  validate-and-merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          ref: main
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Revalidate and merge each country sequentially with bounded retry
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python -m pip install -r requirements.txt
+          cat >/tmp/country-audit.py <<'PY'
+          import os,re
+          from pathlib import Path
+          from decimal import Decimal
+          import yaml
+          cc=os.environ['COUNTRY']
+          counts={}
+          for kind in ('cities','sights'):
+              text=Path(f'methodology/reviews/{cc}/{kind}.md').read_text()
+              records=list(Path(f'countries/{cc}/{kind}').glob('*.yaml'))
+              counts[kind]=len(records)
+              for path in records:
+                  data=yaml.safe_load(path.read_text())
+                  matches=list(re.finditer(r'^## '+re.escape(data['id'])+r' — ',text,re.M))
+                  assert len(matches)==1,data['id']
+                  section=text[matches[0].start():].split('\n## ',1)[0]
+                  peers=set(re.findall(r'\]\(\.\./\.\./\.\./countries/([A-Z]{2}/(?:cities|sights)/[^)]+\.yaml)\)',section))
+                  peers={p for p in peers if not p.startswith(cc+'/')}
+                  assert len(peers)>=4 and len({p.split('/')[0] for p in peers})>=3,(data['id'],peers)
+                  assert all((Path('countries')/p).is_file() for p in peers),(data['id'],peers)
+                  vals=[data['scores'][d] for d in ['impact','uniqueness','significance','experience','depth']]
+                  if None not in vals:
+                      total=sum(Decimal(str(v))*w for v,w in zip(vals,[30,25,20,15,10]))/10
+                      assert f'{total:.2f}/100' in section,(data['id'],total)
+                      if total>=90: assert 'High-score challenge: Not applicable' not in section,data['id']
+                  if any(v is not None and v>=9.5 for v in vals+list(data['scores'].get('categories',{}).values())):
+                      assert 'High-score challenge: Not applicable' not in section,data['id']
+          print('Record arithmetic, review coverage and peer checks passed:',cc,counts)
+          PY
+          failures=()
+          for pair in 162:BS 168:HT 170:JM 172:NI 174:DO 175:CU 177:GT 179:CA 180:MX 182:US; do
+            pr=${pair%:*}; country=${pair#*:}
+            echo "=== PR #$pr ($country) ==="
+            state=$(gh pr view "$pr" --repo Persie0/TopTravelList --json state --jq .state)
+            if [[ "$state" == MERGED ]]; then echo "Already merged"; continue; fi
+            if [[ "$state" != OPEN ]]; then failures+=("$pr:not open"); continue; fi
+            branch=$(gh pr view "$pr" --repo Persie0/TopTravelList --json headRefName --jq .headRefName)
+            merged=0
+            for attempt in 1 2 3; do
+              git fetch origin main "$branch"
+              git checkout -B "verify-$country" "origin/$branch"
+              if ! git merge --no-edit origin/main; then
+                if [[ "$(git diff --name-only --diff-filter=U)" != README.md ]]; then
+                  git merge --abort
+                  echo "Non-README conflict; requires review"
+                  break
+                fi
+                git checkout --theirs README.md
+                git add README.md
+                git commit --no-edit
+              fi
+              if ! (python scripts/validate.py && python scripts/check_city_benchmarks.py && python scripts/check_sight_benchmarks.py && python scripts/check_new_country_reviews.py --country "$country" && python scripts/generate_rankings.py --country "$country" && python scripts/generate_rankings.py --check && python scripts/rank.py --kind cities --limit 60 >/tmp/city-leaders.txt && python scripts/rank.py --kind sights --limit 60 >/tmp/sight-leaders.txt && COUNTRY="$country" python /tmp/country-audit.py); then
+                echo "Validation failure for $country"
+                git reset --hard HEAD
+                break
+              fi
+              git add README.md "countries/$country/cities.md" "countries/$country/sights.md"
+              git diff --cached --check
+              if ! git diff --cached --quiet; then git commit -m "Regenerate $country rankings on current main"; fi
+              if ! git push origin "HEAD:refs/heads/$branch"; then sleep 3; continue; fi
+              sleep 3
+              if gh api -X PUT "repos/Persie0/TopTravelList/pulls/$pr/merge" -f merge_method=squash -f sha="$(git rev-parse HEAD)" --jq '.merged' | grep -qx true; then
+                echo "MERGED #$pr ($country)"
+                merged=1
+                break
+              fi
+              if [[ "$(gh pr view "$pr" --repo Persie0/TopTravelList --json state --jq .state)" == MERGED ]]; then merged=1; break; fi
+              echo "Merge attempt $attempt failed; refreshing main"
+              sleep 3
+            done
+            if [[ "$merged" != 1 ]]; then failures+=("$pr:$country"); fi
+          done
+          echo "Unmerged: ${failures[*]:-none}"
+          printf 'Unmerged: %s\n' "${failures[*]:-none}" >>"$GITHUB_STEP_SUMMARY"
+          test "${#failures[@]}" -eq 0
