@@ -53,6 +53,10 @@ jobs:
           header=re.compile(r'^## ((?:city|sight)-[a-z]{2}-[a-z0-9-]+)\s+[—-]\s+',re.M)
           pv=re.compile(r'\]\(\.\./\.\./\.\./(countries/[A-Z]{2}/(?:cities|sights)/[^)]+\.yaml)\)\s*(?:[—:-]\s*)?([0-9.]+\s*/\s*[0-9.]+\s*/\s*[0-9.]+\s*/\s*[0-9.]+\s*/\s*[0-9.]+)(?:\s*\(([0-9.]+)/100\))?')
           box={'IN':(6,37,67,98),'JP':(24,46,122,146),'ID':(-12,7,94,142),'MY':(0,8,99,120),'SG':(1.1,1.5,103.55,104.15),'BN':(4,5.2,114,115.5),'CZ':(48.5,51.2,12,19),'LA':(13.5,23,100,108),'BA':(42.4,45.4,15.5,19.8),'ME':(41.8,43.7,18.3,20.5),'LK':(5.8,10,79.5,82),'AL':(39.5,43,19,21.2)}
+          nameindex=collections.defaultdict(list)
+          for k,a in allrecords.items():
+              parts=k.split('/');nameindex[(parts[1],parts[2],norm(a['name']))].append(k)
+          nv=re.compile(r'([^;:\\n]+?)\\s+\\(([A-Z]{2})\\)\\s+([0-9.]+\\s*/\\s*[0-9.]+\\s*/\\s*[0-9.]+\\s*/\\s*[0-9.]+\\s*/\\s*[0-9.]+)')
           issues=collections.defaultdict(list)
           results={}
           for cc in ccs:
@@ -72,7 +76,10 @@ jobs:
                   names=collections.defaultdict(list)
                   gps=collections.defaultdict(list)
                   for path,a in records.items():
-                      ident=a['id']; s=sections.get(ident,''); sc=a['scores']; v=vec(a); tt=total(a)
+                      ident=a['id']; s=sections.get(ident,''); sc=a['scores'];
+                      if any(sc[k] is None for k in dims) or any(x is None for x in sc['categories'].values()):
+                          stats['incomplete_scores']+=1;issues['incomplete_scores'].append((ident,sc));continue
+                      v=vec(a); tt=total(a)
                       status=re.search(r'\b(source-linked-unverified|editorial-only|fact-checked|unassessed)\b',s)
                       stats[status.group(1) if status else 'missing_status']+=1
                       stats['ranked']+=1
@@ -100,8 +107,18 @@ jobs:
                           for p in pp:
                               k,raw,pt=p.groups();stats['numeric_peer_refs']+=1
                               if k not in allrecords:stats['missing_peer_path']+=1;issues['missing_peer'].append((ident,k));continue
+                              if any(allrecords[k]['scores'][d] is None for d in dims):stats['unranked_peer']+=1;issues['unranked_peer'].append((ident,k));continue
                               if [D(x.strip().rstrip('.')) for x in raw.split('/')]!=vec(allrecords[k]):stats['stale_peer_vector']+=1;issues['stale_peer'].append((ident,k,raw,[str(x) for x in vec(allrecords[k])]))
                               if pt and D(pt)!=total(allrecords[k]):stats['stale_peer_total']+=1;issues['stale_peer_total'].append((ident,k,pt,str(total(allrecords[k]))))
+                      if not pp:
+                          for ln in s.splitlines():
+                              if 'worldwide peer' not in ln.lower():continue
+                              for nm,country,raw in nv.findall(ln.split(':',1)[-1]):
+                                  keys=nameindex.get((country,kind,norm(nm)),[])
+                                  if len(keys)!=1:stats['unresolved_named_numeric_peer']+=1;issues['unresolved_named_numeric_peer'].append((ident,nm,country));continue
+                                  k=keys[0];stats['named_numeric_peer_refs']+=1
+                                  if any(allrecords[k]['scores'][d] is None for d in dims):stats['unranked_peer']+=1;issues['unranked_peer'].append((ident,k));continue
+                                  if [D(x.strip().rstrip('.')) for x in raw.split('/')]!=vec(allrecords[k]):stats['stale_peer_vector']+=1;issues['stale_peer'].append((ident,k,raw,[str(x) for x in vec(allrecords[k])]))
                       urls=set(re.findall(r'https?://[^\s<>\)\]]+',s))
                       if status and status.group(1)=='source-linked-unverified' and not urls: stats['source_status_without_url']+=1;issues['missing_url'].append(ident)
                       loc=a['location']; lat=float(loc['latitude']);lon=float(loc['longitude']); lo,hi,left,right=box[cc]
