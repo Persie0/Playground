@@ -1,0 +1,52 @@
+name: Photo Sphere UX emulator layout smoke
+run-name: Check Photo Sphere UX portrait + landscape (30e7cd1)
+on:
+  push:
+    branches: [build/photosphere-debug-export-20261123]
+    paths:
+      - .github/workflows/photosphere-ux-emulator-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  emulator-ux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout public UX harness
+        uses: actions/checkout@v4
+        with:
+          path: playground
+          persist-credentials: false
+
+      - name: Download the verified private-source APK
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          gh release download debug-ux-30e7cd1 --repo Persie0/PhotosphereCleanroom --pattern PhotoSphere-UX-debug.apk --dir .
+          test -s PhotoSphere-UX-debug.apk
+
+      - name: Enable emulator acceleration
+        run: sudo chmod 666 /dev/kvm
+
+      - name: Inspect initial camera screen in portrait and landscape
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -memory 3072
+          script: bash playground/scripts/photosphere_ux_smoke.sh
+
+      - name: Upload emulator screenshots and accessibility bounds
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoSphere-UX-portrait-landscape-30e7cd1
+          path: ux-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
