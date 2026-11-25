@@ -1,0 +1,108 @@
+name: TopTravelList Guatemala validation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-guatemala-40-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/guatemala-worldwide-20261125
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Synchronize and validate
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'd0edc3fea4a2753d892e3385564b198e9b037ac6'
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          if ! git merge --no-edit origin/main; then
+            test "$(git diff --name-only --diff-filter=U)" = README.md
+            git checkout --theirs README.md
+            git add README.md
+            git commit --no-edit
+          fi
+          python -m pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country GT
+          python scripts/generate_rankings.py --country GT
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60 >/tmp/city-leaders.txt
+          python scripts/rank.py --kind sights --limit 60 >/tmp/sight-leaders.txt
+      - name: Audit country records and review calculations
+        working-directory: repo
+        run: |
+          python - <<'PY'
+          import re, subprocess
+          from decimal import Decimal
+          from pathlib import Path
+          import yaml
+          root=Path('countries/GT')
+          notes=Path('methodology/reviews/GT')
+          dims=['impact','uniqueness','significance','experience','depth']
+          weights=[30,25,20,15,10]
+          unranked=0
+          high=0
+          for kind,n in [('cities',12),('sights',28)]:
+              txt=(notes/f'{kind}.md').read_text()
+              ids=re.findall(r'^## ((?:city|sight)-gt-[a-z0-9-]+) — ',txt,re.M)
+              files=list((root/kind).glob('*.yaml'))
+              assert len(files)==len(ids)==len(set(ids))==n
+              md=(root/f'{kind}.md').read_text()
+              for f in files:
+                  a=yaml.safe_load(f.read_text())
+                  assert a['id'] in ids
+                  assert a['location']['country_code']=='GT'
+                  assert 13<a['location']['latitude']<18 and -93<a['location']['longitude']<-88
+                  section=txt.split('## '+a['id']+' — ',1)[1].split('\n## ',1)[0]
+                  peers=re.findall(r'\]\(\.\./\.\./\.\./countries/([A-Z]{2}/(?:cities|sights)/[^)]+\.yaml)\)',section)
+                  peers=[p for p in peers if not p.startswith('GT/')]
+                  assert len(set(peers))==4 and len({p.split('/')[0] for p in peers})>=3,(a['id'],peers)
+                  assert all((Path('countries')/p).is_file() for p in peers),(a['id'],peers)
+                  vals=[a['scores'][x] for x in dims]
+                  assert all(v is None or 0<=v<10 for v in vals+list(a['scores']['categories'].values()))
+                  if any(v is not None and v>=9.5 for v in vals+list(a['scores']['categories'].values())):
+                      assert a['id']=='sight-gt-tikal-national-park'
+                      assert 'High-score challenge: Not applicable' not in section
+                  if None in vals:
+                      unranked+=1
+                      assert '**unassessed**' in section and 'Overall: unranked.' in section
+                  else:
+                      total=sum(Decimal(str(v))*w for v,w in zip(vals,weights))/10
+                      assert f'Overall: {total:.2f}/100.' in section
+                      assert '**source-linked-unverified**' in section or '**editorial-only**' in section
+                      if total>=90:
+                          high+=1
+                          assert 'High-score challenge: Not applicable' not in section
+                  assert f']({kind}/{f.name})' in md
+          assert unranked==4 and high==4
+          changes=subprocess.check_output(['git','diff','--name-only','origin/main...HEAD'],text=True).splitlines()
+          assert all(p=='README.md' or p.startswith(('countries/GT/','methodology/reviews/GT/')) for p in changes)
+          print('PASS: 40 records, review arithmetic, four valid peer links each and country scope.')
+          print('WORLDWIDE:',len({f.parent.parent.name for f in Path('countries').glob('*/*/*.yaml')}),len(list(Path('countries').glob('*/cities/*.yaml'))),len(list(Path('countries').glob('*/sights/*.yaml'))))
+          PY
+      - name: Commit generated ranking pages
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          git add README.md countries/GT/cities.md countries/GT/sights.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate Guatemala ranking pages and country directory'
+          fi
+          git push origin HEAD:refs/heads/data/guatemala-worldwide-20261125
