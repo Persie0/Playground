@@ -1,0 +1,180 @@
+name: Review oldest travel PRs and screen today's additions
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-review-oldest-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Persie0/TopTravelList
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare reviewer
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          gh auth setup-git
+          cat > /tmp/reassess.py <<'PY'
+          import sys,json,re
+          from pathlib import Path
+          from decimal import Decimal
+          from collections import Counter
+          import yaml
+          sys.path.insert(0,'scripts')
+          from rank import overall_score
+          code=sys.argv[1]
+          weights={k:Decimal(str(v)) for k,v in json.loads(Path('methodology/scoring.json').read_text())['dimensions'].items()}
+          dims=list(weights)
+          def load(p):return yaml.safe_load(Path(p).read_text())
+          def vector(r):return ' / '.join(str(r['scores'].get(k)) if r['scores'].get(k) is not None else 'null' for k in dims)
+          def total(r):
+           v=overall_score(r,weights)
+           return 'unranked' if v is None else f'{v:.2f}/100'
+          changes={
+          'SM':[
+          ('sights','witches-pass',{'impact':8.4,'uniqueness':8.1,'significance':7.2,'experience':8.4,'depth':6.5},{'architecture':8.0,'nature':8.4,'photography':9.0},'Visit San Marino identifies the passage as the link between Guaita and Cesta. Rate its own ridge walk and outlook rather than either fortress. Strong scenic impact and photography remain; comparable cliff walks reduce global rarity. Historical importance is contextual, the route is rewarding but short, and exploration is bounded.','https://visitsanmarino.com/pub2/VisitSM/en/luogo/Arte-e-cultura/Seconda-Torre.html',[('AT/sights/hallstatt-skywalk','Bounded scenic overlook'),('LI/sights/gaflei-lookout-tower','Focused lookout rather than entire landscape'),('BA/sights/srebrenik-fortress','Full hilltop fort has greater architectural scope'),('ME/sights/stari-bar-fortress-and-ruins','Broader fortification ensemble')]),
+          ('sights','montale-third-tower-exterior',{'impact':7.9,'uniqueness':8.1,'significance':8.0,'experience':7.2,'depth':6.0},{'photography':8.7,'history':8.4},'Visit San Marino confirms the isolated pentagonal tower, historical defensive lookout and exterior-only visitor scope. The visual effect and distinctive form deserve strong scores, but not the impact or rarity of entire forts. Historical merit remains substantial locally; no interior prison visit or full fortress circuit is credited.','https://www.visitsanmarino.com/pub1/VisitSM/en/luogo/Arte-e-cultura/Terza-Torre-Montale.html',[('AT/sights/hohensalzburg-fortress','Much deeper full fortress'),('BA/sights/srebrenik-fortress','Larger defensive ensemble'),('ME/sights/st-george-island-perast','Exterior-focused scenic heritage'),('LI/sights/gaflei-lookout-tower','Focused lookout with less independent historical significance')]),
+          ('sights','monte-cerreto-path',{'impact':6.7,'uniqueness':6.6,'significance':6.7,'experience':7.3,'depth':6.5},{'nature':7.5,'family':7.7},'The official trail description specifies approximately 1.91 km, 30 minutes and 71 m elevation change, with historical remains and views. A pleasant short woodland outing has moderate visual and rarity merits, a useful local history component, and rewarding but limited exploration. Do not borrow the adjacent adventure park or larger trail network.','https://www.visitsanmarino.com/pub2/VisitSM/en/luogo/ITINERARI-NATURALISTICI/Sentiero-Monte-Cerreto.html',[('LI/sights/furstensteig-drei-schwestern-trail','Much stronger relief and route complexity'),('LI/sights/walser-legend-trail','More developed themed trail'),('AT/sights/hohe-wand-nature-park','Broader landscape and exploration'),('JO/sights/al-hussein-public-parks','Ordinary recreational comparator')])],
+          'BH':[
+          ('cities','awali',{'experience':None,'depth':None},{},'The UNESCO tentative listing describes a historically gated oil-company settlement, still inhabited, with diverse buildings and community facilities. The existing impact, uniqueness and significance judgments describe the urban fabric and industrial history; normal public visitor exploration is not established. Experience and depth must remain unassessed rather than infer a public route from resident facilities.','https://whc.unesco.org/en/tentativelists/6397',[('AT/cities/linz','Industrial heritage with broad public urban experience'),('LI/cities/schaan','Ordinary modern settlement'),('JO/cities/amman','Broad historical urban exploration'),('MY/cities/ipoh','Historic trading and industrial urban fabric')])]}
+          for kind,slug,core,cats,reason,url,peers in changes[code]:
+           p=Path('countries')/code/kind/(slug+'.yaml');r=load(p);before=vector(r);oldtotal=total(r);oldcats=dict(r['scores'].get('categories',{}))
+           r['scores'].update(core);r['scores']['categories'].update(cats)
+           p.write_text(yaml.safe_dump(r,sort_keys=False,allow_unicode=True),encoding='utf-8')
+           review=Path('methodology/reviews')/code/(kind+'.md')
+           with review.open('a',encoding='utf-8') as f:
+            f.write(f'\n## Reassessment: {r["id"]} — 2026-11-25 (oldest-PR review)\n\n')
+            f.write(f'- [YAML](../../../{p}) · Action: rescore · **source-linked-unverified** (specific scope claim checked; other claims and coordinates not fully checked).\n- Earlier decision: [original entry](#{r["id"]}-{re.sub(r"[^\\w -]","",r["name"].lower()).replace(" ","-")}-2026-11-25) above.\n- Source reviewed 2026-11-25: [{url}]({url}). {reason}\n- Core I/U/S/E/D: {before} → {vector(r)}. Total: {oldtotal} → {total(r)}.\n- Category changes: {oldcats} → {r["scores"]["categories"]}.\n- No new 9.5+ or perfect tens. Coordinates retained as approximate.\n\n')
+            f.write('| Current worldwide peer | I/U/S/E/D | Overall | Comparison |\n| --- | --- | --- | --- |\n')
+            for peer,why in peers:
+             pp=Path('countries')/(peer+'.yaml');q=load(pp)
+             f.write(f'| [{q["name"]}] (../../../{pp}) | {vector(q)} | {total(q)} | {why} |\n'.replace('] (',']('))
+            f.write('\n')
+           print(r['id'],oldtotal,'->',total(r))
+          # Verify the original named reviews and their explicit evidence status; revision entries are separate.
+          for kind in ('cities','sights'):
+           root=Path('countries')/code/kind; records=[load(p) for p in sorted(root.glob('*.yaml'))]; doc=(Path('methodology/reviews')/code/(kind+'.md')).read_text()
+           statuses=Counter()
+           for r in records:
+            m=re.search(r'^## '+re.escape(r['id'])+r' — .+?(?=^## |\Z)',doc,re.M|re.S)
+            assert m,(r['id'],'missing original review')
+            b=m.group(); status=re.search(r'\*\*(source-linked-unverified|editorial-only|fact-checked|unassessed)\*\*',b)
+            assert status,(r['id'],'missing status')
+            statuses[status.group(1)]+=1
+            assert len(set(re.findall(r'\]\(\.\./\.\./\.\./countries/([A-Z]{2}/(?:cities|sights)/[^)]+)\)',b))- {str(Path(code)/kind/(r['id'].split('-',2)[2]+'.yaml'))})>=4,(r['id'],'missing peers')
+            for k in dims: assert re.search(r'^- '+k.capitalize()+r' ',b,re.M),(r['id'],k)
+           print(code,kind,len(records),'original evidence statuses',dict(statuses),'currently unranked',sum(overall_score(r,weights) is None for r in records))
+          
+          PY
+          cat > /tmp/screen.py <<'PY'
+          import json,re,sys,statistics
+          from pathlib import Path
+          from decimal import Decimal
+          from collections import Counter
+          import yaml
+          sys.path.insert(0,'scripts')
+          from rank import overall_score
+          root=Path('countries')
+          meta=json.loads(Path('methodology/scoring.json').read_text())
+          w={k:Decimal(str(v)) for k,v in meta['dimensions'].items()}
+          codes='JP ID MY SG BN CZ LA BA ME LK AL NP BT LI JO SM BH MU PY ST EC LS OM PE DJ CL BW CO TG AR MW AM BR BJ'.split()
+          allrows={}
+          for kind in ('cities','sights'):
+           allrows[kind]=[]
+           for p in root.glob(f'*/{kind}/*.yaml'):
+            r=yaml.safe_load(p.read_text());allrows[kind].append((p,r,overall_score(r,w)))
+           print('GLOBAL',kind,len(allrows[kind]),'ranked',sum(x[2] is not None for x in allrows[kind]))
+          report=['# 2026-11-25 country-addition screening','', 'Automated screening of the listed recently added countries against current global YAML, not independent individual fact-checking. High-score flags are review priorities, not proof of inflation; no automatic score adjustments.','', '| Country | Kind | Records | Unranked | 90+ totals | 9.5+ fields | Median overall | Top destination |','| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |']
+          flags=[]
+          for code in codes:
+           for kind,rows in allrows.items():
+            rr=[x for x in rows if x[0].parts[1]==code]; scored=[x for x in rr if x[2] is not None]
+            highs=[];exception=[]
+            for p,r,s in rr:
+             scores=r['scores']; fields={**{k:scores.get(k) for k in w},**scores.get('categories',{})}
+             high=[(k,v) for k,v in fields.items() if v is not None and v>=9.5]
+             if high: highs.extend(high)
+             if high or s is not None and s>=90:
+              flags.append(f'- {r["id"]}: {s if s is not None else "unranked"}; '+', '.join(f'{k}={v}' for k,v in high))
+            if not rr:continue
+            best=max(scored,key=lambda x:x[2]) if scored else None
+            median=f'{statistics.median(x[2] for x in scored):.2f}' if scored else '—'
+            report.append(f'| {code} | {kind} | {len(rr)} | {len(rr)-len(scored)} | {sum(x[2]>=90 for x in scored)} | {len(highs)} | {median} | {best[1]["name"]+" "+str(best[2]) if best else "—"} |')
+            names=Counter(r['name'].casefold() for _,r,_ in rr)
+            for name,n in names.items():
+             if n>1:flags.append(f'- Duplicate-name flag: {code} {kind} {name} ({n})')
+          report+=['','## Individual high-score / duplicate-name flags','']+flags
+          Path('today-screening.md').write_text('\n'.join(report)+'\n')
+          print('\n'.join(report[:len(codes)*2+6]))
+          print('Screening flags',len(flags))
+          
+          PY
+      - name: Validate and merge oldest two in order
+        run: |
+          set -euo pipefail
+          for item in '41 SM data/san-marino-worldwide-v2-2026 9429f3355389203d67c5c1ff038da13b10b2bdfc' '42 BH data/bahrain-worldwide-v2-2026 5f47ba5a18ef5ed3e4b1f5dbcfec6c075d7a63f7'; do
+            read -r n code branch expected <<< "$item"
+            git fetch origin main "$branch"
+            state=$(gh pr view "$n" --repo Persie0/TopTravelList --json state --jq .state)
+            if [ "$state" = MERGED ]; then echo "PR $n already merged"; continue; fi
+            test "$state" = OPEN
+            test "$(git rev-parse origin/$branch)" = "$expected"
+            git switch -C "review-$code" "origin/$branch"
+            # Retain both histories. Resolve only generated-file conflicts from main, then regenerate.
+            git merge --no-commit --no-ff origin/main || {
+              for f in $(git diff --name-only --diff-filter=U); do
+                case "$f" in README.md|countries/*/cities.md|countries/*/sights.md) git checkout --theirs -- "$f"; git add "$f";;
+                  *) echo "Unexpected conflict: $f"; exit 1;; esac
+              done
+              test -z "$(git diff --name-only --diff-filter=U)"
+            }
+            git commit -m "Integrate current main before $code rating review" || test -z "$(git status --porcelain)"
+            # Never overwrite unrelated data or method files.
+            python /tmp/reassess.py "$code"
+            python scripts/generate_rankings.py
+            python scripts/validate.py
+            python scripts/check_city_benchmarks.py
+            python scripts/check_sight_benchmarks.py
+            python scripts/generate_rankings.py --check
+            python scripts/rank.py --kind cities --limit 60
+            python scripts/rank.py --kind sights --limit 60
+            python scripts/rank.py --country "$code" --kind cities --limit 5
+            python scripts/rank.py --country "$code" --kind sights --limit 5
+            git add "countries/$code" "methodology/reviews/$code" README.md
+            git commit -m "Review $code ratings against current worldwide peers"
+            git diff --name-only origin/main HEAD | while read -r f; do
+              case "$f" in README.md|countries/"$code"/*|methodology/reviews/"$code"/*) ;; *) echo "Unexpected changed file $f"; exit 1;; esac
+            done
+            git push origin "HEAD:refs/heads/$branch"
+            sha=$(git rev-parse HEAD)
+            # Don't merge an untested concurrent main or modified head.
+            git fetch origin main
+            git merge-base --is-ancestor origin/main HEAD
+            gh pr merge "$n" --repo Persie0/TopTravelList --merge --match-head-commit "$sha"
+            echo "PR $n merged at reviewed head $sha"
+          done
+      - name: Screen all today's merged country additions
+        if: always()
+        run: |
+          git fetch origin main
+          git switch --detach origin/main
+          python /tmp/screen.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: today-rating-screening
+          path: today-screening.md
