@@ -37,6 +37,7 @@ jobs:
           python scripts/check_city_benchmarks.py
           python scripts/check_sight_benchmarks.py
           python scripts/check_new_country_reviews.py --country GL
+          python scripts/check_new_country_reviews.py --country FO
           python scripts/generate_rankings.py
           python scripts/generate_rankings.py --check
           python scripts/rank.py --kind cities --limit 60 >/tmp/world-cities.txt
@@ -75,7 +76,7 @@ jobs:
           print('PASS: 250 registry entries, all pages, sight-only coverage')
           PY
           cd web
-          npm ci
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-package-lock; fi
           npm test
           npm run build
           node --input-type=module - <<'JS'
@@ -84,6 +85,8 @@ jobs:
           const a=JSON.parse(fs.readFileSync('public/atlas.json','utf8'));
           assert.equal(Object.keys(a.countries).length,250);
           assert.equal(a.countries.GL.catalogued,true);
+          assert.equal(a.countries.FO.catalogued,true);
+          assert.equal(a.rows.filter(r=>r.country==='FO').length,11);
           assert.equal(a.countries.AQ.settlementsRequired,false);
           assert.equal(a.rows.filter(r=>r.country==='GL').length,19);
           console.log('PASS: exported atlas registry and Greenland rows');
