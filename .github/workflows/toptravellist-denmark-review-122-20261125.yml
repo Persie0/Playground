@@ -29,7 +29,9 @@ jobs:
           git config user.name toptravellist-review-bot
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for attempt in 1 2 3 4; do
-          git fetch origin main
+          if gh api repos/Persie0/TopTravelList/pulls/122 --jq '.merged' | grep -qx true; then exit 0; fi
+          git fetch origin main data/denmark-worldwide-v2-20261125
+          git merge --ff-only origin/data/denmark-worldwide-v2-20261125
           if ! git merge --no-commit --no-ff origin/main; then
             test "$(git diff --name-only --diff-filter=U)" = README.md
           fi
@@ -51,7 +53,7 @@ jobs:
           if ! git diff --cached --quiet || test -f .git/MERGE_HEAD; then
             git commit -m 'Integrate current main and regenerate Denmark reviewed rankings (source audit)'
           fi
-          git push origin HEAD:refs/heads/data/denmark-worldwide-v2-20261125
+          if ! git push origin HEAD:refs/heads/data/denmark-worldwide-v2-20261125; then exit 1; fi
           git rev-parse HEAD
           if gh api --method PUT repos/Persie0/TopTravelList/pulls/122/merge -f merge_method=merge -f sha="$(git rev-parse HEAD)" --jq '.merged' | grep -qx true; then exit 0; fi
           if gh api repos/Persie0/TopTravelList/pulls/122 --jq '.merged' | grep -qx true; then exit 0; fi
