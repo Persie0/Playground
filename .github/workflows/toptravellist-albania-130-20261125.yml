@@ -1,0 +1,97 @@
+name: TopTravelList Albania validation
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-albania-130-20261125.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/albania-worldwide-v2-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and generate rankings
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country AL
+          python scripts/generate_rankings.py --country AL
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          python scripts/rank.py --kind cities --country AL --limit 20
+          python scripts/rank.py --kind sights --country AL --limit 20
+      - name: Assert review coverage and benchmark vectors
+        working-directory: repo
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from decimal import Decimal
+          import re,yaml
+          r=Path('countries/AL')
+          d=Path('methodology/reviews/AL')
+          txt='\n'.join((d/p).read_text() for p in ['cities.md','sights.md'])
+          ids=re.findall(r'^## ((?:city|sight)-al-[a-z0-9-]+) — ',txt,re.M)
+          assert len(ids)==len(set(ids))==130
+          assert txt.count('**source-linked-unverified**')==63
+          assert txt.count('**editorial-only**')==67
+          dims=['impact','uniqueness','significance','experience','depth']
+          weights=[30,25,20,15,10]
+          high=0
+          for kind,n in [('cities',35),('sights',95)]:
+              files=list((r/kind).glob('*.yaml'))
+              assert len(files)==n
+              md=(r/f'{kind}.md').read_text()
+              assert md.count('https://www.google.com/maps/search/?api=1&query=')==n
+              for f in files:
+                  a=yaml.safe_load(f.read_text())
+                  assert a['id'] in ids and a['location']['country_code']=='AL'
+                  vals=[*(a['scores'][x] for x in dims),*a['scores']['categories'].values()]
+                  assert all(0<=v<10 for v in vals)
+                  assert f']({kind}/{f.name})' in md
+                  total=sum(Decimal(str(a['scores'][x]))*w for x,w in zip(dims,weights))/10
+                  section=txt.split('## '+a['id']+' — ',1)[1].split('\n## ',1)[0]
+                  assert f'Overall {total:.2f}/100' in section,a['id']
+                  peers=re.findall(r'\]\(\.\./\.\./\.\./(countries/[A-Z]{2}/(?:cities|sights)/[^)]*\.yaml)\) — ([0-9./]+) \(([0-9.]+)/100\)',section)
+                  assert len(set(p[0] for p in peers))==4,a['id']
+                  for path,vec,score in peers:
+                      p=Path(path)
+                      assert p.parts[2]==kind and p.parts[1]!='AL'
+                      peer=yaml.safe_load(p.read_text())
+                      actual=[Decimal(str(peer['scores'][k])) for k in dims]
+                      assert actual==[Decimal(x) for x in vec.split('/')],(path,actual,vec)
+                      assert sum(v*w for v,w in zip(actual,weights))/10==Decimal(score),(path,score)
+                  if total>=90 or any(v>=9.5 for v in vals):
+                      high+=1
+                      assert 'High-score challenge: Not applicable' not in section,a['id']
+          assert high==5,high
+          print('PASS: 130 reviews, 520 peer references and vectors, five exceptional-score cases, 63 source-linked, 67 editorial-only.')
+          PY
+      - name: Commit generated rankings
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md countries/AL/cities.md countries/AL/sights.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate Albania ranking pages'
+            git push origin HEAD:refs/heads/data/albania-worldwide-v2-2026
+          fi
