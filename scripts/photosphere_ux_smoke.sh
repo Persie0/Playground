@@ -48,7 +48,7 @@ capture help-dialog
 adb shell input keyevent 4
 sleep 1
 
-adb shell cmd window set-user-rotation lock 1
+adb shell wm user-rotation lock 1
 adb shell settings put system user_rotation 1
 adb shell am force-stop at.persie0.photosphere
 adb shell am start -n at.persie0.photosphere/.CaptureActivity
@@ -56,21 +56,21 @@ sleep 7
 capture landscape
 
 # Large-font layout must keep its core actions visible and accessible.
-adb shell cmd window set-user-rotation lock 0
+adb shell wm user-rotation lock 0
 adb shell settings put system user_rotation 0
 adb shell settings put system font_scale 1.4
 adb shell am force-stop at.persie0.photosphere
 adb shell am start -n at.persie0.photosphere/.CaptureActivity
 sleep 7
 capture portrait-large-font
-adb shell cmd window set-user-rotation lock 1
+adb shell wm user-rotation lock 1
 adb shell settings put system user_rotation 1
 adb shell am force-stop at.persie0.photosphere
 adb shell am start -n at.persie0.photosphere/.CaptureActivity
 sleep 7
 capture landscape-large-font
 adb shell settings put system font_scale 1.0
-adb shell cmd window set-user-rotation free
+adb shell wm user-rotation free
 adb shell settings put system user_rotation 0
 
 python3 - <<'PY'
