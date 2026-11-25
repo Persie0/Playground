@@ -1,0 +1,102 @@
+name: TopTravelList Russia PR 133 review
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-russia-review-133-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/russia-worldwide-v2-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Integrate main, audit sources and regenerate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-review-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python -m pip install -r requirements.txt
+          for attempt in 1 2 3 4; do
+            if gh api repos/Persie0/TopTravelList/pulls/133 --jq '.merged' | grep -qx true; then exit 0; fi
+            git fetch origin main data/russia-worldwide-v2-2026
+            git merge --ff-only origin/data/russia-worldwide-v2-2026
+            if ! git merge --no-commit --no-ff origin/main; then
+              test "$(git diff --name-only --diff-filter=U)" = README.md
+            fi
+            git checkout origin/main -- README.md
+            python scripts/validate.py
+            python scripts/check_city_benchmarks.py
+            python scripts/check_sight_benchmarks.py
+            python scripts/check_new_country_reviews.py --country RU
+            python - <<'PY'
+          import re, yaml
+          from pathlib import Path
+          from collections import Counter
+          from decimal import Decimal
+          weights = dict(zip(('impact','uniqueness','significance','experience','depth'),map(Decimal,('0.30','0.25','0.20','0.15','0.10'))))
+          def score(v):
+              return sum(Decimal(str(v[k]))*w*100/10 for k,w in weights.items()) if all(v.get(k) is not None for k in weights) else None
+          stats=Counter()
+          issues=[]
+          for kind in ('cities','sights'):
+              doc=Path(f'methodology/reviews/RU/{kind}.md').read_text()
+              for section in re.split(r'\n## ',doc)[1:]:
+                  ident=section.split(' — ')[0]
+                  path=Path('countries/RU')/kind/(ident.split('-ru-',1)[1]+'.yaml')
+                  v=yaml.safe_load(path.read_text())['scores']
+                  total=score(v)
+                  status=re.search(r'Evidence status: \*\*(.*?)\*\*',section).group(1)
+                  stats[status]+=1
+                  stats['records']+=1
+                  assert re.search(r'https?://',section), ident+' missing source URL'
+                  stats['linked']+=1
+                  expected=re.search(r'Overall: (\d+\.\d+)/100',section)
+                  assert (total is None and expected is None) or (expected and abs(total-Decimal(expected.group(1)))<Decimal('0.001')), (ident,total,expected)
+                  if total is not None: stats['ranked']+=1
+                  for field in weights:
+                      m=re.search(r'\| '+field.capitalize()+r' \| (null|[0-9.]+) \|',section)
+                      assert m and ((v.get(field) is None and m.group(1)=='null') or (m.group(1)!='null' and float(m.group(1))==v.get(field))), (ident,field)
+                  peers=re.findall(r'\]\(\.\./\.\./\.\./(countries/[^)]+\.yaml)\) — ([0-9.]+)/100; I/U/S/E/D ([0-9./]+)\.',section)
+                  assert len(peers)>=4,(ident,len(peers))
+                  for peer,p_total,vec in peers:
+                      pv=yaml.safe_load(Path(peer).read_text())['scores']
+                      if score(pv)!=Decimal(p_total) or [float(pv[k]) for k in weights]!=list(map(float,vec.split('/'))):
+                          issues.append((ident,peer,p_total,str(score(pv))))
+                      stats['peer_refs']+=1
+                  if total is not None and total>=90:
+                      assert 'High-score challenge:' in section and 'High-score challenge: Not applicable' not in section,ident
+          print('Audit:',dict(stats))
+          print('Stale peer references:',issues[:30])
+          assert stats['records']==63 and stats['linked']==63 and stats['ranked']==35 and stats['peer_refs']==252,stats
+          assert not issues, 'Stale comparator profiles must be resolved before merge'
+          PY
+            python scripts/generate_rankings.py --country RU
+            python scripts/generate_rankings.py --check
+            python scripts/rank.py --kind cities --limit 60
+            python scripts/rank.py --kind sights --limit 60
+            git add README.md countries/RU/cities.md countries/RU/sights.md methodology/reviews/RU
+            git diff --cached --check origin/main
+            git diff --cached --name-only origin/main | grep -vE '^(README\.md|countries/RU/|methodology/reviews/RU/)' > /tmp/unexpected-paths || true
+            test ! -s /tmp/unexpected-paths
+            if ! git diff --cached --quiet || test -f .git/MERGE_HEAD; then
+              git commit -m 'Integrate current main and regenerate Russia reviewed rankings'
+            fi
+            git push origin HEAD:refs/heads/data/russia-worldwide-v2-2026
+            git rev-parse HEAD
+            if gh api --method PUT repos/Persie0/TopTravelList/pulls/133/merge -f merge_method=merge -f sha="$(git rev-parse HEAD)" --jq '.merged' | grep -qx true; then exit 0; fi
+            if gh api repos/Persie0/TopTravelList/pulls/133 --jq '.merged' | grep -qx true; then exit 0; fi
+          done
+          exit 1
