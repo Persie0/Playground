@@ -1,0 +1,62 @@
+name: Validate reviewed Maldives against current main
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-maldives-readonly-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate local integration
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name 'review-validation'
+          git config user.email 'review-validation@example.invalid'
+          git fetch origin refs/pull/56/head
+          test "$(git rev-parse FETCH_HEAD)" = a98b55d289f7de75dfdb08d1511db56fac4c85ee
+          base=$(git rev-parse HEAD)
+          echo "Base $base"
+          git merge --no-commit --no-ff FETCH_HEAD || {
+            while IFS= read -r f; do
+              case "$f" in README.md|countries/*/cities.md|countries/*/sights.md) git checkout --ours -- "$f"; git add "$f";;
+                *) echo "Unexpected conflict: $f"; exit 1;;
+              esac
+            done < <(git diff --name-only --diff-filter=U)
+            test -z "$(git diff --name-only --diff-filter=U)"
+          }
+          python -m pip install -r requirements.txt
+          python scripts/generate_rankings.py
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          git add README.md countries/MV methodology/reviews/MV
+          git diff --cached --name-only "$base" | while IFS= read -r f; do
+            case "$f" in README.md|countries/MV/*|methodology/reviews/MV/*) ;; *) echo "Unexpected file: $f"; exit 1;; esac
+          done
+          mkdir -p /tmp/atlas-validation
+          printf '%s\n' "$base" > /tmp/atlas-validation/base.txt
+          git diff --cached --binary "$base" > /tmp/atlas-validation/validated.patch
+          cp README.md /tmp/atlas-validation/README.md
+          cp countries/MV/cities.md /tmp/atlas-validation/cities.md
+          cp countries/MV/sights.md /tmp/atlas-validation/sights.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maldives-validated-integration
+          path: /tmp/atlas-validation/
