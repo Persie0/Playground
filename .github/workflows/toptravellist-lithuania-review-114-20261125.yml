@@ -1,0 +1,48 @@
+name: TopTravelList Lithuania PR 114 review
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-lithuania-review-114-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/lithuania-worldwide-v2-20261125
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Integrate main, regenerate and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-review-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          if ! git merge --no-commit --no-ff origin/main; then
+            test "$(git diff --name-only --diff-filter=U)" = README.md
+          fi
+          git checkout origin/main -- README.md
+          python -m pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py --country LT
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          git add README.md countries/LT/cities.md countries/LT/sights.md
+          git diff --cached --check origin/main
+          git diff --cached --name-only origin/main | grep -vE '^(README\.md|countries/LT/|methodology/reviews/LT/)' > /tmp/unexpected-paths || true
+          test ! -s /tmp/unexpected-paths
+          git commit -m 'Integrate current main and regenerate Lithuania reviewed rankings'
+          git push origin HEAD:refs/heads/data/lithuania-worldwide-v2-20261125
+          git rev-parse HEAD
