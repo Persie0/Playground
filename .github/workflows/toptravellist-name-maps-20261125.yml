@@ -1,0 +1,141 @@
+name: TopTravelList name and country Maps links
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-name-maps-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Persie0/TopTravelList
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply reviewed generator and website changes
+        run: |
+          set -euo pipefail
+          git switch -c feature/name-country-google-maps
+          python - <<'PY'
+          from pathlib import Path
+          def change(path, replacements, append=""):
+              p=Path(path); s=p.read_text(encoding="utf-8")
+              for old,new in replacements:
+                  assert s.count(old)==1, (path,old,s.count(old))
+                  s=s.replace(old,new)
+              p.write_text(s+append, encoding="utf-8", newline="\n")
+          
+          change("scripts/generate_rankings.py",[
+          ("def get_map_location(record, code):",'''def maps_search_url(query):
+              return "https://www.google.com/maps/search/?api=1&query=" + quote(query, safe="")
+          
+          
+          def get_map_search(record, code):
+              return "[Google Maps](" + maps_search_url(f"{record['name']}, {get_country_name(code)}") + ")"
+          
+          
+          def get_map_location(record, code):'''),
+          ('        record["_map"] = get_map_location(record, code)','        record["_map"] = get_map_location(record, code)\n        record["_map_search"] = get_map_search(record, code)'),
+          ('"Categories /10 (best first) | I / U / S / E / D | GPS → Google Maps |\\n"\n    "| ---: | --- | --- | ---: | --- | --- | --- |"','"Categories /10 (best first) | I / U / S / E / D | GPS → Google Maps | Name + country search |\\n"\n    "| ---: | --- | --- | ---: | --- | --- | --- | --- |"'),
+          ("{record['_map']} |\"","{record['_map']} | {record['_map_search']} |\""),
+          ('        "Click a destination for its source YAML, or click its GPS coordinates "\n        "to open **Google Maps**. Locations are approximate representative points, "','        "Click a destination for its source YAML, its **Google Maps** name-and-country search, "\n        "or its GPS coordinates for a representative map point. Locations are approximate representative points, "'),
+          ('        "| Country | Cities | Sights |",\n        "| --- | ---: | ---: |",','        "| Country | Cities | Sights | Google Maps |",\n        "| --- | ---: | ---: | --- |",'),
+          ('            f"{cities} | {sights} |"','            f"[{cities}](countries/{code}/cities.md) | [{sights}](countries/{code}/sights.md) | "\n            f"[Map]({maps_search_url(name)}) |"'),
+          ('            cells.append(f"[{cell(name)}](countries/{code}/) (\x60{code}\x60){status}")','            cells.append(f"[{cell(name)}](countries/{code}/) (\x60{code}\x60){status} · [Map]({maps_search_url(name)})")'),
+          ])
+          change("README.md",[
+          ("full computed city ranking + GPS Google Maps links","full computed city ranking + name/country and GPS Google Maps links"),
+          ("full computed sights ranking + GPS Google Maps links","full computed sights ranking + name/country and GPS Google Maps links"),
+          ("## Country directory","## Explore on the map\n\nBrowse every catalogued city and sight in the [interactive travel atlas](https://top-travel-list.vercel.app). Each country ranking links to the destination's source YAML, a Google Maps search for its name and country (for example, [Vienna, Austria](https://www.google.com/maps/search/?api=1&query=Vienna%2C%20Austria)), and the original representative GPS point. Country map links are also available in the directory below.\n\n## Country directory")
+          ])
+          change("web/scripts/model.mjs",[],'''
+          export function mapsSearchUrl(name, country){
+           const query=country ? name+', '+country : name;
+           return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(query).replace(/[!'()*]/g,c=>'%'+c.charCodeAt(0).toString(16).toUpperCase());
+          }
+          ''')
+          change("web/src/main.js",[
+          ("wrappedLocations,scoreBins}","wrappedLocations,scoreBins,mapsSearchUrl}"),
+          ("function scoreText(r){","function mapLink(r){const name=r.name,country=r.kind?data.countries[r.country].name:'';return '<a class=\"rowmap\" href=\"'+esc(mapsSearchUrl(name,country))+'\" target=\"_blank\" rel=\"noopener noreferrer\" aria-label=\"Search Google Maps for '+esc(country?name+', '+country:name)+'\">Maps ↗</a>'}\nfunction scoreText(r){"),
+          ("items.slice(page*50,page*50+50).map(r=>state.mode==='countries'?","items.slice(page*50,page*50+50).map(r=>'<div class=\"resultwrap\">'+(state.mode==='countries'?"),
+          ("+'</small></span></button>').join('')||","+'</small></span></button>')+mapLink(r)+'</div>').join('')||"),
+          ("'<a href=\"https://www.google.com/maps/search/?api=1&query='+r.lat+','+r.lon+'\" target=\"_blank\" rel=\"noopener\">Open in Google Maps ↗</a>","'<a href=\"https://www.google.com/maps/search/?api=1&query='+r.lat+','+r.lon+'\" target=\"_blank\" rel=\"noopener\">Open in Google Maps ↗</a>") if False else
+          ("href=\"https://www.google.com/maps/search/?api=1&query='+r.lat+','+r.lon+'\" target=\"_blank\" rel=\"noopener\">Open in Google Maps ↗</a>","href=\"'+esc(mapsSearchUrl(r.name,data.countries[r.country].name))+'\" target=\"_blank\" rel=\"noopener noreferrer\">Open in Google Maps ↗</a><a href=\"'+esc(mapsSearchUrl(r.lat+','+r.lon))+'\" target=\"_blank\" rel=\"noopener noreferrer\">GPS point ↗</a>"),
+          ])
+          change("web/src/style.css",[],'''
+          .resultwrap{display:flex;align-items:stretch;border-bottom:1px solid var(--line)}
+          .resultwrap .result{flex:1;min-width:0;border-bottom:0}
+          .rowmap{display:flex;align-items:center;padding:0 10px;flex:none;font-size:.75rem;font-weight:600;white-space:nowrap;text-decoration:none;color:var(--accent,#193d63)}
+          .rowmap:hover,.rowmap:focus-visible{text-decoration:underline;background:#eaf2e9}
+          @media(max-width:480px){.rowmap{padding:0 6px;font-size:.7rem}}
+          ''')
+          change("web/scripts/model.test.mjs",[],'''
+          import {mapsSearchUrl} from './model.mjs';
+          test('Google Maps searches preserve names, countries and punctuation',()=>{
+           for(const [name,country] of [['Vienna','Austria'],['Schönbrunn Palace','Austria'],["St. John's (A&B)",'Antigua and Barbuda'],['東京','Japan']]){
+             const u=new URL(mapsSearchUrl(name,country));
+             assert.equal(u.origin,'https://www.google.com');
+             assert.equal(u.pathname,'/maps/search/');
+             assert.equal(u.searchParams.get('api'),'1');
+             assert.equal(u.searchParams.get('query'),name+', '+country);
+           }
+           assert.equal(new URL(mapsSearchUrl('Austria')).searchParams.get('query'),'Austria');
+          });
+          ''')
+          change("web/README.md",[],"\nEvery result and destination detail has a Google Maps search link using the destination name and country. Detail views retain a separate representative GPS link; country-directory results search the country name.\n")
+          
+          PY
+          python -m pip install -r requirements.txt
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python - <<'PY'
+          import sys,json
+          from pathlib import Path
+          from urllib.parse import urlparse,parse_qs
+          import yaml
+          sys.path.insert(0,'scripts')
+          from generate_rankings import get_country_name,get_map_search,maps_search_url
+          count=0
+          for code in json.loads(Path('countries/_registry.json').read_text())['codes']:
+              for kind in ('cities','sights'):
+                  root=Path('countries')/code
+                  md=(root/(kind+'.md')).read_text()
+                  records=list((root/kind).glob('*.yaml'))
+                  assert md.count('[Google Maps](https://www.google.com/maps/search/?api=1&query=')==len(records),(code,kind)
+                  for p in records:
+                      row=yaml.safe_load(p.read_text())
+                      link=get_map_search(row,code)
+                      assert link in md,(code,p)
+                      assert parse_qs(urlparse(maps_search_url(row['name']+', '+get_country_name(code))).query)['query']==[row['name']+', '+get_country_name(code)]
+                      count+=1
+          print(f'Verified {count} destination name-and-country links')
+          PY
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          test -z "$(git diff --name-only -- 'countries/**/*.yaml' 'methodology/scoring.json' 'schemas/')"
+          git diff --stat | tail -n 3
+      - name: Website tests and build
+        working-directory: web
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+          npm run build
+      - name: Commit and push generated changes
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md scripts/generate_rankings.py countries/*/cities.md countries/*/sights.md web/src/main.js web/src/style.css web/scripts/model.mjs web/scripts/model.test.mjs web/README.md
+          git commit -m 'Add name and country Google Maps search to all destinations'
+          gh auth setup-git
+          git push origin HEAD:refs/heads/feature/name-country-google-maps
+          echo "Travel atlas commit: $(git rev-parse HEAD)"
