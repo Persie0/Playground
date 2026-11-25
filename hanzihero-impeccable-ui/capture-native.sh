@@ -147,6 +147,29 @@ if tap_by_label "Get Started"; then
                   if tap_by_label "Skip"; then
                     sleep 4
                     capture android-learning-character-choices-light
+                    # Choose the first visible enabled Han character, not a
+                    # fixture-dependent answer. Capture the selected and reveal
+                    # states as well as the initial question.
+                    first_character="$(python3 - <<'PY'
+import re
+import xml.etree.ElementTree as ET
+root = ET.parse('/tmp/ux-hierarchy.xml').getroot()
+for node in root.iter('node'):
+    a = node.attrib
+    label = (a.get('text') or a.get('content-desc') or '').strip()
+    if a.get('clickable') == 'true' and a.get('enabled') == 'true' and re.fullmatch(r'[\u3400-\u9fff\U00020000-\U0002fa1f]+', label):
+        print(label)
+        break
+PY
+)"
+                    if [[ -n "$first_character" ]] && tap_by_label "$first_character"; then
+                      sleep 2
+                      capture android-learning-character-selected-light
+                      if tap_by_label "Continue"; then
+                        sleep 5
+                        capture android-learning-character-reveal-light
+                      fi
+                    fi
                   fi
                 fi
               fi
