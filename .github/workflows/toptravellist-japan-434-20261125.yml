@@ -1,0 +1,87 @@
+name: TopTravelList Japan 434 reviews and rankings
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-japan-434-20261125.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-japan-434-20261125
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Japan branch via public Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/japan-worldwide-v2-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install requirements
+        working-directory: repo
+        run: python -m pip install -r requirements.txt
+      - name: Validate worldwide schema benchmarks and Japan review coverage
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country JP
+      - name: Regenerate and inspect worldwide ranking lists
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python scripts/generate_rankings.py --country JP
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+      - name: Assert coverage and evidence status counts
+        working-directory: repo
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          import yaml
+          root=Path.cwd()
+          review=root/'methodology/reviews/JP'
+          for kind,count,prefix in [('cities',87,'city'),('sights',347,'sight')]:
+              files=list((root/'countries/JP'/kind).glob('*.yaml'))
+              assert len(files)==count,(kind,len(files))
+              md=(root/'countries/JP'/f'{kind}.md').read_text()
+              assert md.count('https://www.google.com/maps/search/?api=1&query=')==count
+              for f in files:
+                  r=yaml.safe_load(f.read_text())
+                  assert r['id']==f'{prefix}-jp-{f.stem}'
+                  assert all(0<=r['scores'][k]<10 for k in ['impact','uniqueness','significance','experience','depth'])
+                  assert f']({kind}/{f.name})' in md
+          notes=[review/'cities.md',*review.glob('sights-*.md')]
+          alltext='\n'.join(p.read_text() for p in notes)
+          assert len(re.findall(r'^## (?:city|sight)-jp-',alltext,re.M))==434
+          assert alltext.count('**source-linked-unverified**')==38
+          assert alltext.count('**editorial-only**')==396
+          assert '| [Japan](countries/JP/) (`JP`) | 87 | 347 |' in (root/'README.md').read_text()
+          print('PASS: 87 cities, 347 sights, 434 individual decisions, 38 linked and 396 editorial-only.')
+          PY
+      - name: Commit only generated Japan rankings and country index
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md countries/JP/cities.md countries/JP/sights.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate Japan ranking pages and update country directory'
+            git push origin HEAD:refs/heads/data/japan-worldwide-v2-2026
+          fi
