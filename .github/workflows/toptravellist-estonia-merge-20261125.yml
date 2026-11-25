@@ -1,0 +1,108 @@
+name: TopTravelList Estonia guarded validation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-estonia-merge-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/estonia-worldwide-v2-20261125
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Integrate, generate and validate
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          branch=data/estonia-worldwide-v2-20261125
+          repo=Persie0/TopTravelList
+          for attempt in 1 2 3; do
+            git fetch origin main "$branch"
+            base=$(git rev-parse origin/main)
+            head=$(git rev-parse "origin/$branch")
+            if [ "$(gh api "repos/$repo/pulls/108" --jq .merged)" = true ]; then exit 0; fi
+            if [ -n "$(git ls-tree -r --name-only "$base" countries/EE | grep '\.yaml$' || true)" ]; then
+              echo "Estonia already populated on main; refusing replacement"; exit 1
+            fi
+            git reset --hard "$base"
+            git checkout "$head" -- countries/EE methodology/reviews/EE
+            python scripts/generate_rankings.py --country EE
+            git add countries/EE methodology/reviews/EE README.md
+            git diff --cached --check
+            new=$(git commit-tree "$(git write-tree)" -p "$head" -p "$base" -m "Integrate Estonia against current main and regenerate rankings")
+            git reset --hard "$new"
+            python scripts/validate.py
+            python scripts/check_city_benchmarks.py
+            python scripts/check_sight_benchmarks.py
+            python scripts/check_new_country_reviews.py --country EE
+            python scripts/generate_rankings.py --country EE
+            python scripts/generate_rankings.py --check
+            python scripts/rank.py --kind cities --limit 60 > /tmp/ee-world-cities.txt
+            python scripts/rank.py --kind sights --limit 60 > /tmp/ee-world-sights.txt
+            python scripts/rank.py --kind sights --country EE --limit 15 > /tmp/ee-sights.txt
+            BASE="$base" python - <<'PY'
+          import os, re, subprocess
+          from pathlib import Path
+          from decimal import Decimal
+          import yaml
+          root=Path('countries/EE')
+          docs=Path('methodology/reviews/EE')
+          txt='\n'.join((docs/f'{k}.md').read_text() for k in ['cities','sights'])
+          assert len(set(re.findall(r'^## ((?:city|sight)-ee-[a-z0-9-]+) — ',txt,re.M)))==57
+          for status,count in [('source-linked-unverified',40),('editorial-only',13),('unassessed',4)]:
+              assert txt.count('**'+status+'**')==count
+          unranked=high=0
+          for k,n in [('cities',15),('sights',42)]:
+              files=list((root/k).glob('*.yaml'))
+              assert len(files)==n
+              md=(root/f'{k}.md').read_text()
+              assert md.count('https://www.google.com/maps/search/?api=1&query=')==2*n
+              for f in files:
+                  a=yaml.safe_load(f.read_text())
+                  sec=txt.split('## '+a['id']+' — ',1)[1].split('\n## ',1)[0]
+                  assert len(sec.split('Worldwide peers (I/U/S/E/D):\n',1)[1].split('- Impact ',1)[0].strip().splitlines())==4
+                  assert f']({k}/{f.name})' in md
+                  vals=[a['scores'][x] for x in ['impact','uniqueness','significance','experience','depth']]
+                  assert all(x is None or x<9.5 for x in vals+list(a['scores']['categories'].values()))
+                  if None in vals:
+                      unranked+=1
+                  else:
+                      total=sum(Decimal(str(v))*w for v,w in zip(vals,[30,25,20,15,10]))/10
+                      assert f'Computed overall: {total:.2f}/100.' in sec
+                      if total>=90:
+                          high+=1
+                          assert 'High-score challenge: Not applicable' not in sec
+          assert unranked==4 and high==1
+          assert all(p=='README.md' or p.startswith(('countries/EE/','methodology/reviews/EE/')) for p in subprocess.check_output(['git','diff','--name-only',os.environ['BASE'],'HEAD'],text=True).splitlines())
+          print('PASS: counts, review coverage, weighted scores, map links and unrelated-file preservation.')
+          PY
+            git diff --exit-code
+            git push origin HEAD:refs/heads/"$branch"
+            for poll in 1 2 3 4 5; do
+              git fetch origin main
+              if [ "$(git rev-parse origin/main)" != "$base" ]; then break; fi
+              pr=$(gh api "repos/$repo/pulls/108")
+              if [ "$(jq -r .merged <<<"$pr")" = true ]; then exit 0; fi
+              if [ "$(jq -r .head.sha <<<"$pr")" = "$new" ] && [ "$(jq -r .mergeable <<<"$pr")" = true ]; then
+                if gh api --method PUT "repos/$repo/pulls/108/merge" -f sha="$new" -f merge_method=squash >/dev/null; then
+                  test "$(gh api "repos/$repo/pulls/108" --jq .merged)" = true
+                  exit 0
+                fi
+              fi
+              sleep 2
+            done
+          done
+          echo "Could not merge after three validated attempts"; exit 1
