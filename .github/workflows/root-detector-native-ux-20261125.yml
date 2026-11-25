@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/root_detection_app
-          ref: 6b79e95e9b4618324127bc7007bf3a4593221747
+          ref: 2bdee3e8b4b4afea6a47e937905e71b8beb14e13
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           path: root-detector
           persist-credentials: false
@@ -83,6 +83,8 @@ jobs:
           if [ -e /dev/kvm ]; then sudo chmod a+rw /dev/kvm; fi
       - name: Native launch and configuration smoke
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          RD_SCREENSHOT_DIR: ${{ runner.temp }}/root-detector-ux-evidence
         with:
           api-level: 33
           arch: x86_64
@@ -94,6 +96,34 @@ jobs:
             set -euo pipefail
             adb install root-detector/app/build/outputs/apk/debug/app-debug.apk >/dev/null
             python3 root-detector/scripts/ux-emulator-smoke.py
+      - name: Retain screenshots in private evidence branch
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          RD_SCREENSHOT_DIR: ${{ runner.temp }}/root-detector-ux-evidence
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, subprocess
+          from pathlib import Path
+          folder = Path(os.environ["RD_SCREENSHOT_DIR"])
+          images = list(folder.glob("*.png"))
+          retained = 0
+          for picture in images:
+              path = "docs/ux-evidence/" + os.environ["GITHUB_RUN_ID"] + "/" + picture.name
+              payload = json.dumps({
+                  "message": "test: retain private emulator evidence [skip ci]",
+                  "branch": "impeccable/ux-evidence",
+                  "content": base64.b64encode(picture.read_bytes()).decode("ascii")
+              })
+              result = subprocess.run(["gh", "api", "--method", "PUT",
+                  "repos/Persie0/root_detection_app/contents/" + path, "--input", "-"],
+                  input=payload, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              retained += result.returncode == 0
+          print(f"Private screenshot retention: {retained}/{len(images)}")
+          if retained != len(images):
+              raise SystemExit(1)
+          PY
       - name: Enforce lint result
         if: always()
         run: test "${{ steps.lint.outcome }}" = success
