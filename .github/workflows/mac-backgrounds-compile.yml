@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/mac-backgrounds
-          ref: 5b3e8ab29a6ccd8cc8da33e4f6167861aa217de1
+          ref: 87112693ef272e393e96bc829b2e26e5a461e6f3
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Install XcodeGen
@@ -77,7 +77,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/mac-backgrounds
-          ref: 7d52a2fbc6d71aca2d521a29fd6d23d82e0d444c
+          ref: 5b3e8ab29a6ccd8cc8da33e4f6167861aa217de1
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: benchmark-baseline
@@ -89,8 +89,6 @@ jobs:
           cp Sources/LivingDesktop/EffectPainter.swift /tmp/living-desktop-painter-original.swift
           trap 'rm -f /tmp/living-desktop-run-benchmark; cp /tmp/living-desktop-painter-original.swift Sources/LivingDesktop/EffectPainter.swift' EXIT
           cp Tests/LivingDesktopTests/RendererPerformanceTests.swift benchmark-baseline/Tests/LivingDesktopTests/
-          # Freeze only wall-clock inputs in the benchmark source copies.
-          # The actual universal Release build above remains unmodified.
           export TZ=UTC
           python3 - <<'PY'
           from pathlib import Path
@@ -103,73 +101,63 @@ jobs:
           (
             cd benchmark-baseline
             xcodegen generate --spec project.yml
-            xcodebuild -project LivingDesktop.xcodeproj -scheme LivingDesktop -configuration Release -destination 'platform=macOS' -derivedDataPath BenchmarkDerivedData CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES ONLY_ACTIVE_ARCH=YES -parallel-testing-enabled NO -only-testing:LivingDesktopTests/RendererPerformanceTests test
           )
-          mv /tmp/living-desktop-render-benchmark.json /tmp/living-desktop-performance/baseline.json
-          mv /tmp/living-desktop-render-captures /tmp/living-desktop-baseline-captures
-          (
-            cd benchmark-baseline
-            xcodebuild -project LivingDesktop.xcodeproj -scheme LivingDesktop -configuration Release -destination 'platform=macOS' -derivedDataPath BenchmarkDerivedData CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES ONLY_ACTIVE_ARCH=YES -parallel-testing-enabled NO -only-testing:LivingDesktopTests/RendererPerformanceTests test
-          )
-          mv /tmp/living-desktop-render-benchmark.json /tmp/living-desktop-performance/baseline-repeat.json
-          mv /tmp/living-desktop-render-captures /tmp/living-desktop-repeat-captures
-          xcodebuild -project LivingDesktop.xcodeproj -scheme LivingDesktop -configuration Release -destination 'platform=macOS' -derivedDataPath BenchmarkDerivedData CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES ONLY_ACTIVE_ARCH=YES -parallel-testing-enabled NO -only-testing:LivingDesktopTests/RendererPerformanceTests test
-          mv /tmp/living-desktop-render-benchmark.json /tmp/living-desktop-performance/optimized.json
-          mv /tmp/living-desktop-render-captures /tmp/living-desktop-optimized-captures
+          # Prebuild both test bundles so compilation does not affect the order of timed runs.
+          build_tests() {
+            (
+              cd "$1"
+              xcodebuild -project LivingDesktop.xcodeproj -scheme LivingDesktop -configuration Release -destination 'platform=macOS' -derivedDataPath BenchmarkDerivedData CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES ONLY_ACTIVE_ARCH=YES -parallel-testing-enabled NO -only-testing:LivingDesktopTests/RendererPerformanceTests build-for-testing
+            )
+          }
+          build_tests benchmark-baseline
+          build_tests .
+          run_test() {
+            local source="$1" label="$2"
+            (
+              cd "$source"
+              xcodebuild -project LivingDesktop.xcodeproj -scheme LivingDesktop -configuration Release -destination 'platform=macOS' -derivedDataPath BenchmarkDerivedData CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES ONLY_ACTIVE_ARCH=YES -parallel-testing-enabled NO -only-testing:LivingDesktopTests/RendererPerformanceTests test-without-building
+            )
+            mv /tmp/living-desktop-render-benchmark.json "/tmp/living-desktop-performance/$label.json"
+            rm -rf /tmp/living-desktop-render-captures
+          }
+          # ABBA counterbalances monotonic runner-load and thermal changes.
+          run_test benchmark-baseline baseline-a
+          run_test . optimized-a
+          run_test . optimized-b
+          run_test benchmark-baseline baseline-b
           python3 - <<'PY'
           import json
           from pathlib import Path
           from statistics import median
           p = Path("/tmp/living-desktop-performance")
           def load(name):
-              return {(x["scene"], x["surface"]): x for x in json.loads((p / name).read_text())}
-          a, repeat, b = load("baseline.json"), load("baseline-repeat.json"), load("optimized.json")
-          assert a.keys() == b.keys() == repeat.keys()
+              return {(x["scene"], x["surface"]): x for x in json.loads((p / (name+".json")).read_text())}
+          a, b, c, d = map(load, ("baseline-a", "optimized-a", "optimized-b", "baseline-b"))
+          assert a.keys() == b.keys() == c.keys() == d.keys()
           assert len(a) == 56
           rows = []
-          mismatches = []
-          unstable = []
           for k in a:
-              old, again, new = a[k], repeat[k], b[k]
-              identical = old["digest"] == new["digest"]
-              repeat_identical = old["digest"] == again["digest"]
-              if not identical:
-                  mismatches.append(k)
-              if not repeat_identical:
-                  unstable.append(k)
-              rows.append(dict(scene=k[0], surface=k[1], before_ms=median([old["medianMilliseconds"], again["medianMilliseconds"]]),
-                               after_ms=new["medianMilliseconds"], before_p95=median([old["p95Milliseconds"], again["p95Milliseconds"]]),
-                               after_p95=new["p95Milliseconds"], pixel_identical=identical,
-                               baseline_repeat_identical=repeat_identical))
-          def differences(ref, other, cases):
-              result = []
-              for scene, surface in cases:
-                  if surface.endswith("-retina"):
-                      continue
-                  for frame in [0, 12, 24, 47]:
-                      filename = f"{scene}-{surface}-{frame}.rgba"
-                      x = (Path(ref) / filename).read_bytes()
-                      y = (Path(other) / filename).read_bytes()
-                      assert len(x) == len(y)
-                      if x == y:
-                          continue
-                      delta = [abs(i-j) for i,j in zip(x,y) if i != j]
-                      result.append(dict(file=filename, changed_channels=len(delta),
-                                         max_channel_delta=max(delta), mean_absolute_delta=sum(delta)/len(x)))
-              return result
-          result = dict(rows=rows,
-                        median_speedup=median(r["before_ms"]/max(0.000001,r["after_ms"]) for r in rows),
-                        exact_cases=sum(r["pixel_identical"] for r in rows),
-                        mismatches=mismatches, unstable_baselines=unstable,
-                        baseline_repeat_diagnostics=differences("/tmp/living-desktop-baseline-captures",
-                            "/tmp/living-desktop-repeat-captures", unstable),
-                        optimized_diagnostics=differences("/tmp/living-desktop-baseline-captures",
-                            "/tmp/living-desktop-optimized-captures", mismatches),
-                        note="Fixed wall clock in benchmark copies only; native 1x and 2x pixel comparison. Render time is not battery wattage or presentation FPS.")
+              old = [a[k], d[k]]
+              new = [b[k], c[k]]
+              r = dict(scene=k[0], surface=k[1], pixel_identical=len({v["digest"] for v in old+new}) == 1)
+              for field, key in [("medianMilliseconds","wall_ms"), ("p95Milliseconds","p95_wall_ms"),
+                                 ("medianCPUMilliseconds","cpu_ms"), ("p95CPUMilliseconds","p95_cpu_ms")]:
+                  r["before_"+key] = median(x[field] for x in old)
+                  r["after_"+key] = median(x[field] for x in new)
+              r["cpu_speedup"] = r["before_cpu_ms"] / max(r["after_cpu_ms"], 1e-9)
+              r["wall_speedup"] = r["before_wall_ms"] / max(r["after_wall_ms"], 1e-9)
+              rows.append(r)
+          result = dict(rows=rows, exact_cases=sum(r["pixel_identical"] for r in rows),
+                        median_cpu_speedup=median(r["cpu_speedup"] for r in rows),
+                        median_wall_speedup=median(r["wall_speedup"] for r in rows),
+                        by_surface={surface:dict(
+                            before_total_cpu_ms=sum(r["before_cpu_ms"] for r in rows if r["surface"]==surface),
+                            after_total_cpu_ms=sum(r["after_cpu_ms"] for r in rows if r["surface"]==surface))
+                            for surface in sorted({r["surface"] for r in rows})},
+                        note="ABBA paired offscreen benchmark with process CPU time; not physical battery watts or presented FPS.")
           (p / "comparison.json").write_text(json.dumps(result, indent=2))
           print(json.dumps(result, indent=2))
-          assert not unstable, f"Baseline is not deterministic: {unstable}"
-          assert not mismatches, f"Unexpected pixel changes: {mismatches}"
+          assert result["exact_cases"] == 56, "Rendered pixels differ across the four runs."
           PY
       - name: Upload paired renderer performance and pixel comparison
         if: always()
