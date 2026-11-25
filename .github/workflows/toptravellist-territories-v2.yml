@@ -48,6 +48,7 @@ jobs:
           python scripts/check_new_country_reviews.py --country SJ
           python scripts/check_new_country_reviews.py --country NO
           python scripts/check_new_country_reviews.py --country RE
+          python scripts/check_new_country_reviews.py --country NC
           python scripts/generate_rankings.py
           python scripts/generate_rankings.py --check
           python scripts/rank.py --kind cities --limit 60 >/tmp/world-cities.txt
@@ -130,6 +131,8 @@ jobs:
           test -f countries/FR/sights/saint-denis.yaml
           test -f countries/RE/sights/reunion-pitons.yaml
           test ! -f countries/RE/sights/reunion-park.yaml
+          test ! -f countries/FR/sights/new-caledonia-lagoons.yaml
+          test -f countries/NC/sights/new-caledonia-lagoons.yaml
           cd web
           if [ -f package-lock.json ]; then npm ci; else npm install --no-package-lock; fi
           npm test
@@ -153,6 +156,8 @@ jobs:
           assert.equal(a.countries.MO.catalogued,true);
           assert.equal(a.countries.SJ.catalogued,true);
           assert.equal(a.countries.RE.catalogued,true);
+          assert.equal(a.countries.NC.catalogued,true);
+          assert.equal(a.rows.filter(r=>r.country==='NC').length,15);
           assert.equal(a.rows.filter(r=>r.country==='RE').length,15);
           assert.equal(a.rows.filter(r=>r.country==='SJ').length,14);
           assert.equal(a.rows.filter(r=>r.country==='MO').length,13);
