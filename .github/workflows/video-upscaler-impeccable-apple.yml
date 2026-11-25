@@ -1,4 +1,4 @@
-# Validation revision: PhotosPicker import-only Transferable + macOS UX polish
+# Validation revision: final Apple UI state, source preservation and history regression tests
 name: Video Upscaler Apple UI validation (public runner)
 
 on:
@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/video_upscaler
-          ref: impeccable/apple-ui-complete-20261122
+          ref: c8dfe6fb61b4461588c620b6a124c7a8c90e5fd9
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: app
@@ -74,6 +74,12 @@ jobs:
             SWIFT_STRICT_CONCURRENCY=complete \
             test 2>&1 | tee ../macos-tests.log
 
+      - name: Swift Package tests (includes shared state regressions)
+        working-directory: app
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee ../swift-package-tests.log
+
       - name: Save iPhone first-launch screenshot
         if: always()
         continue-on-error: true
@@ -84,7 +90,31 @@ jobs:
           BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_PATH/Info.plist")"
           xcrun simctl launch "$SIM_ID" "$BUNDLE_ID"
           sleep 5
+          xcrun simctl ui "$SIM_ID" appearance light
           xcrun simctl io "$SIM_ID" screenshot ios-first-launch.png
+          xcrun simctl ui "$SIM_ID" appearance dark
+          sleep 2
+          xcrun simctl io "$SIM_ID" screenshot ios-dark.png
+          if xcrun simctl ui "$SIM_ID" content_size accessibility-extra-extra-extra-large; then
+            sleep 2
+            xcrun simctl io "$SIM_ID" screenshot ios-large-type.png
+          fi
+
+      - name: Capture iPad layout
+        if: always()
+        continue-on-error: true
+        run: |
+          PAD_ID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; devs=[d for arr in json.load(sys.stdin)["devices"].values() for d in arr if "iPad" in d["name"] and d.get("isAvailable",False)]; print(devs[0]["udid"] if devs else "")')"
+          if [[ -z "$PAD_ID" ]]; then echo "No iPad simulator"; exit 1; fi
+          APP_PATH="$(find app/DerivedData/Build/Products -name VideoUpscalerIOS.app -type d | head -n 1)"
+          xcrun simctl boot "$PAD_ID" || true
+          xcrun simctl bootstatus "$PAD_ID" -b
+          xcrun simctl install "$PAD_ID" "$APP_PATH"
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_PATH/Info.plist")"
+          xcrun simctl launch "$PAD_ID" "$BUNDLE_ID"
+          sleep 5
+          xcrun simctl io "$PAD_ID" screenshot ios-ipad.png
+          xcrun simctl shutdown "$PAD_ID"
 
       - name: Upload diagnostics and screenshot
         if: always()
@@ -96,5 +126,9 @@ jobs:
             ios-tests.log
             macos-tests.log
             ios-first-launch.png
+            ios-dark.png
+            ios-large-type.png
+            ios-ipad.png
+            swift-package-tests.log
             app/DerivedData/Logs/Test/*.xcresult
           if-no-files-found: ignore
