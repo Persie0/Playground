@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Persie0/Memory_Palace_Builder
-          ref: c7ac76eeb39d8923ac4f47d64e668464a6f2667b
+          ref: b4ea1a3a9dd8f5490f83346fa04a452d1fe07d21
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-app
@@ -36,9 +36,23 @@ jobs:
       - name: Analyze changed Flutter files
         working-directory: private-app
         run: |
-          if flutter analyze --no-fatal-infos --no-fatal-warnings lib/pages/learn_lists lib/pages/memory_palaces lib/pages/training lib/provider/settings_provider.dart lib/provider/storage_manager.dart lib/widgets test/widgets test/provider/storage_manager_test.dart > "$RUNNER_TEMP/memory-analyze.log" 2>&1; then
+          if flutter analyze --no-fatal-infos --no-fatal-warnings lib/pages/learn_lists lib/pages/memory_palaces lib/pages/training lib/provider/settings_provider.dart lib/provider/storage_manager.dart lib/settings/options.dart lib/widgets test/widgets test/provider/storage_manager_test.dart > "$RUNNER_TEMP/memory-analyze.log" 2>&1; then
             echo "Analysis passed"
           else
+            grep -E '^[[:space:]]*(error|warning) •' "$RUNNER_TEMP/memory-analyze.log" | sed -E 's/^[[:space:]]*(error|warning) • .* • (lib\/[^ ]+|test\/[^ ]+) • ([a-z_]+)$/\1 • \2 • \3/' | grep -E '^(error|warning) • (lib|test)/[^ ]+ • [a-z_]+
+            exit 1
+          fi
+      - name: Run focused widget tests
+        working-directory: private-app
+        if: success() || failure()
+        run: |
+          if flutter test test/widgets test/provider/storage_manager_test.dart > "$RUNNER_TEMP/memory-test.log" 2>&1; then
+            echo "Focused widget tests passed"
+          else
+            echo "::error::Focused widget tests failed (private output withheld)"
+            exit 1
+          fi
+ || true
             echo "::error::Analysis failed (private output withheld)"
             exit 1
           fi
