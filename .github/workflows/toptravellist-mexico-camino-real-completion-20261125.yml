@@ -66,8 +66,7 @@ jobs:
           cat >/tmp/camino-audit.py <<'PY'
           import re,yaml
           from pathlib import Path
-          p=Path('methodology/reviews/MX/camino-real-coverage.md')
-          text=p.read_text()
+          text=Path('methodology/reviews/MX/camino-real-coverage.md').read_text()
           rows=[l for l in text.splitlines() if l.startswith('| 1351-')]
           ids=[l.split('|')[1].strip() for l in rows]
           assert len(rows)==60 and len(set(ids))==60
@@ -81,55 +80,7 @@ jobs:
               if 'Reviewed — inventory-only' in row:
                   inventory+=1
                   assert not links and f'](#component-{ident})' in row
-                  assert re.search(r'^### Component '+ident+r'
-          for pair in 211:MX; do
-            pr=${pair%:*}; country=${pair#*:}
-            echo "=== PR #$pr ($country) ==="
-            IFS=, read -ra countries <<< "$country"
-            state=$(gh pr view "$pr" --repo Persie0/TopTravelList --json state --jq .state)
-            if [[ "$state" == MERGED ]]; then echo "Already merged"; continue; fi
-            if [[ "$state" != OPEN ]]; then failures+=("$pr:not open"); continue; fi
-            branch=$(gh pr view "$pr" --repo Persie0/TopTravelList --json headRefName --jq .headRefName)
-            merged=0
-            for attempt in 1 2 3; do
-              git fetch origin main "$branch"
-              git checkout -B "verify-$pr" "origin/$branch"
-              if ! git merge --no-edit origin/main; then
-                if [[ "$(git diff --name-only --diff-filter=U)" != README.md ]]; then
-                  git merge --abort
-                  echo "Non-README conflict; requires review"
-                  break
-                fi
-                git checkout --theirs README.md
-                git add README.md
-                git commit --no-edit
-              fi
-              if ! (python scripts/validate.py && python scripts/check_city_benchmarks.py && python scripts/check_sight_benchmarks.py && (for cc in "${countries[@]}"; do python scripts/check_new_country_reviews.py --country "$cc" && python scripts/generate_rankings.py --country "$cc" || exit 1; done) && python scripts/generate_rankings.py --check && python scripts/rank.py --kind cities --limit 60 >/tmp/city-leaders.txt && python scripts/rank.py --kind sights --limit 60 >/tmp/sight-leaders.txt && (for cc in "${countries[@]}"; do COUNTRY="$cc" python /tmp/country-audit.py || exit 1; done) && python /tmp/camino-audit.py); then
-                echo "Validation failure for $country"
-                git reset --hard HEAD
-                break
-              fi
-              git add README.md
-              for cc in "${countries[@]}"; do git add "countries/$cc/cities.md" "countries/$cc/sights.md"; done
-              git diff --cached --check
-              if ! git diff --cached --quiet; then git commit -m "Regenerate $country rankings on current main"; fi
-              if ! git push origin "HEAD:refs/heads/$branch"; then sleep 3; continue; fi
-              sleep 3
-              if gh api -X PUT "repos/Persie0/TopTravelList/pulls/$pr/merge" -f merge_method=squash -f sha="$(git rev-parse HEAD)" --jq '.merged' | grep -qx true; then
-                echo "MERGED #$pr ($country)"
-                merged=1
-                break
-              fi
-              if [[ "$(gh pr view "$pr" --repo Persie0/TopTravelList --json state --jq .state)" == MERGED ]]; then merged=1; break; fi
-              echo "Merge attempt $attempt failed; refreshing main"
-              sleep 3
-            done
-            if [[ "$merged" != 1 ]]; then failures+=("$pr:$country"); fi
-          done
-          echo "Unmerged: ${failures[*]:-none}"
-          printf 'Unmerged: %s\n' "${failures[*]:-none}" >>"$GITHUB_STEP_SUMMARY"
-          test "${#failures[@]}" -eq 0
-,text,re.M)
+                  assert re.search(r'^### Component '+ident+r'$',text,re.M)
                   continue
               assert links,ident
               is_unranked='Unranked —' in row
@@ -170,7 +121,7 @@ jobs:
                 git add README.md
                 git commit --no-edit
               fi
-              if ! (python scripts/validate.py && python scripts/check_city_benchmarks.py && python scripts/check_sight_benchmarks.py && (for cc in "${countries[@]}"; do python scripts/check_new_country_reviews.py --country "$cc" && python scripts/generate_rankings.py --country "$cc" || exit 1; done) && python scripts/generate_rankings.py --check && python scripts/rank.py --kind cities --limit 60 >/tmp/city-leaders.txt && python scripts/rank.py --kind sights --limit 60 >/tmp/sight-leaders.txt && (for cc in "${countries[@]}"; do COUNTRY="$cc" python /tmp/country-audit.py || exit 1; done)); then
+              if ! (python scripts/validate.py && python scripts/check_city_benchmarks.py && python scripts/check_sight_benchmarks.py && (for cc in "${countries[@]}"; do python scripts/check_new_country_reviews.py --country "$cc" && python scripts/generate_rankings.py --country "$cc" || exit 1; done) && python scripts/generate_rankings.py --check && python scripts/rank.py --kind cities --limit 60 >/tmp/city-leaders.txt && python scripts/rank.py --kind sights --limit 60 >/tmp/sight-leaders.txt && (for cc in "${countries[@]}"; do COUNTRY="$cc" python /tmp/country-audit.py || exit 1; done) && python /tmp/camino-audit.py); then
                 echo "Validation failure for $country"
                 git reset --hard HEAD
                 break
