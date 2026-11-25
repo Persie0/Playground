@@ -39,20 +39,7 @@ jobs:
           if flutter analyze --no-fatal-infos --no-fatal-warnings lib/pages/learn_lists lib/pages/memory_palaces lib/pages/training lib/provider/settings_provider.dart lib/provider/storage_manager.dart lib/settings/options.dart lib/widgets test/widgets test/provider/storage_manager_test.dart > "$RUNNER_TEMP/memory-analyze.log" 2>&1; then
             echo "Analysis passed"
           else
-            grep -E '^[[:space:]]*(error|warning) •' "$RUNNER_TEMP/memory-analyze.log" | sed -E 's/^[[:space:]]*(error|warning) • .* • (lib\/[^ ]+|test\/[^ ]+) • ([a-z_]+)$/\1 • \2 • \3/' | grep -E '^(error|warning) • (lib|test)/[^ ]+ • [a-z_]+
-            exit 1
-          fi
-      - name: Run focused widget tests
-        working-directory: private-app
-        if: success() || failure()
-        run: |
-          if flutter test test/widgets test/provider/storage_manager_test.dart > "$RUNNER_TEMP/memory-test.log" 2>&1; then
-            echo "Focused widget tests passed"
-          else
-            echo "::error::Focused widget tests failed (private output withheld)"
-            exit 1
-          fi
- || true
+            python3 -c 'import os,re; p=os.path.join(os.environ["RUNNER_TEMP"],"memory-analyze.log"); print("\n".join(m.group(1)+" "+m.group(2)+" "+m.group(3) for l in open(p) if (m:=re.match(r"\s*(error|warning) • .* • ((?:lib|test)/[^ ]+) • ([a-z_]+)\s*$",l))))'
             echo "::error::Analysis failed (private output withheld)"
             exit 1
           fi
