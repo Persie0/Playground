@@ -1,0 +1,89 @@
+name: TopTravelList Americas sequential merge
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-americas-sequential-merge-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-americas-sequential-merge
+  cancel-in-progress: false
+jobs:
+  validate-and-merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          ref: main
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and merge older American country branches in order
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python -m pip install -r requirements.txt
+          for pair in 153:GD 162:BS 168:HT 170:JM 172:NI 174:DO 175:CU; do
+            pr=${pair%:*}; country=${pair#*:}
+            echo "=== PR #$pr ($country) ==="
+            state=$(gh pr view "$pr" --repo Persie0/TopTravelList --json state --jq .state)
+            if [[ "$state" == MERGED ]]; then echo "Already merged"; continue; fi
+            [[ "$state" == OPEN ]]
+            branch=$(gh pr view "$pr" --repo Persie0/TopTravelList --json headRefName --jq .headRefName)
+            git fetch origin main "$branch"
+            git checkout -B "verify-$country" "origin/$branch"
+            if ! git merge --no-edit origin/main; then
+              test "$(git diff --name-only --diff-filter=U)" = README.md
+              git checkout --theirs README.md
+              git add README.md
+              git commit --no-edit
+            fi
+            python scripts/validate.py
+            python scripts/check_city_benchmarks.py
+            python scripts/check_sight_benchmarks.py
+            python scripts/check_new_country_reviews.py --country "$country"
+            python scripts/generate_rankings.py --country "$country"
+            python scripts/generate_rankings.py --check
+            python scripts/rank.py --kind cities --limit 60 >/tmp/city-leaders.txt
+            python scripts/rank.py --kind sights --limit 60 >/tmp/sight-leaders.txt
+            COUNTRY="$country" python - <<'PY'
+          import os,re
+          from pathlib import Path
+          import yaml
+          from decimal import Decimal
+          cc=os.environ['COUNTRY']
+          for kind in ('cities','sights'):
+              text=Path(f'methodology/reviews/{cc}/{kind}.md').read_text()
+              for path in Path(f'countries/{cc}/{kind}').glob('*.yaml'):
+                  data=yaml.safe_load(path.read_text())
+                  matches=list(re.finditer(r'^## '+re.escape(data['id'])+r' — ',text,re.M))
+                  assert len(matches)==1, data['id']
+                  section=text[matches[0].start():].split('\n## ',1)[0]
+                  peers=set(re.findall(r'\]\(\.\./\.\./\.\./countries/([A-Z]{2}/(?:cities|sights)/[^)]+\.yaml)\)',section))
+                  peers={p for p in peers if not p.startswith(cc+'/')}
+                  assert len(peers)>=4 and len({p.split('/')[0] for p in peers})>=3,(data['id'],peers)
+                  assert all((Path('countries')/p).is_file() for p in peers),(data['id'],peers)
+                  vals=[data['scores'][d] for d in ['impact','uniqueness','significance','experience','depth']]
+                  if None not in vals:
+                      total=sum(Decimal(str(v))*w for v,w in zip(vals,[30,25,20,15,10]))/10
+                      assert f'{total:.2f}/100' in section,(data['id'],total)
+          print('Record and peer checks passed:',cc)
+          PY
+            git add README.md "countries/$country/cities.md" "countries/$country/sights.md"
+            git diff --cached --check
+            if ! git diff --cached --quiet; then git commit -m "Regenerate $country rankings on current main"; fi
+            git push origin "HEAD:refs/heads/$branch"
+            gh pr merge "$pr" --repo Persie0/TopTravelList --squash --match-head-commit "$(git rev-parse HEAD)"
+            echo "Merged #$pr ($country)"
+          done
