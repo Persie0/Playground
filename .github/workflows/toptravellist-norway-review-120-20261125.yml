@@ -35,6 +35,9 @@ jobs:
           fi
           git checkout origin/main -- README.md
           python -m pip install -r requirements.txt
+          # YAML 1.1 treats unquoted NO as false; preserve ISO code as a string.
+          find countries/NO -name '*.yaml' -exec sed -i 's/^  country_code: NO$/  country_code: "NO"/' {} +
+          git add countries/NO
           python scripts/validate.py
           python scripts/check_city_benchmarks.py
           python scripts/check_sight_benchmarks.py
