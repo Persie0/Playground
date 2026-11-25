@@ -1,0 +1,100 @@
+name: TopTravelList Vatican City validation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-vatican-25-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/vatican-worldwide-v2-2026
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and generate rankings
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/check_new_country_reviews.py --country VA
+          python scripts/generate_rankings.py --country VA
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          python scripts/rank.py --country VA --kind cities --limit 15
+          python scripts/rank.py --country VA --kind sights --limit 20
+      - name: Verify exact peer vectors and review coverage
+        working-directory: repo
+        run: |
+          python - <<'PY'
+          import re,yaml,unicodedata
+          from pathlib import Path
+          from decimal import Decimal as D
+          dims='impact uniqueness significance experience depth'.split()
+          weights=[30,25,20,15,10]
+          r=Path('countries/VA')
+          d=Path('methodology/reviews/VA')
+          refs=0
+          high=0
+          for kind,n in [('cities',1),('sights',24)]:
+              txt=(d/f'{kind}.md').read_text()
+              ids=re.findall(r'^## ((?:city|sight)-va-[a-z0-9-]+) — ',txt,re.M)
+              assert len(ids)==len(set(ids))==n
+              assert txt.count('**source-linked-unverified**')==n
+              files=list((r/kind).glob('*.yaml'))
+              assert len(files)==n
+              md=(r/f'{kind}.md').read_text()
+              assert md.count('https://www.google.com/maps/search/?api=1&query=')==n
+              names=set()
+              for f in files:
+                  a=yaml.safe_load(f.read_text()); sc=a['scores']; loc=a['location']
+                  assert a['id'] in ids and loc['country_code']=='VA'
+                  assert 41.90<=loc['latitude']<=41.91 and 12.44<=loc['longitude']<=12.46,(f,loc)
+                  norm=re.sub(r'[^a-z0-9]','',unicodedata.normalize('NFKD',a['name']).encode('ascii','ignore').decode().lower())
+                  assert norm not in names; names.add(norm)
+                  assert all(0<=v<10 for v in [*(sc[k] for k in dims),*sc['categories'].values()])
+                  assert f']({kind}/{f.name})' in md
+                  section=txt.split('## '+a['id']+' — ',1)[1].split('\n## ',1)[0]
+                  total=sum(D(str(sc[k]))*w for k,w in zip(dims,weights))/10
+                  assert f'Overall {total:.2f}/100' in section
+                  if total>=90 or any(v>=9.5 for v in [*(sc[k] for k in dims),*sc['categories'].values()]):
+                      high+=1
+                      assert 'High-score challenge: Not applicable' not in section
+                  peers=re.findall(r'\]\(\.\./\.\./\.\./(countries/[A-Z]{2}/(?:cities|sights)/[^)]+\.yaml)\) — ([0-9./]+) \(([0-9.]+)/100\)',section)
+                  assert len(set(p[0] for p in peers))==4
+                  assert len(set(p[0].split('/')[1] for p in peers))>=3
+                  for path,vec,score in peers:
+                      assert Path(path).parts[2]==kind and Path(path).parts[1]!='VA'
+                      p=yaml.safe_load(Path(path).read_text())
+                      actual=[D(str(p['scores'][k])) for k in dims]
+                      assert actual==[D(x) for x in vec.split('/')],(path,actual,vec)
+                      assert sum(v*w for v,w in zip(actual,weights))/10==D(score),(path,score)
+                      refs+=1
+          assert refs==100 and high==10
+          print('PASS: 25 named reviews, 100 numerical peer checks, ten exceptional-score records, all GPS points within broad national extent.')
+          PY
+      - name: Commit generated rankings
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md countries/VA/cities.md countries/VA/sights.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate Vatican City ranking pages'
+            git push origin HEAD:refs/heads/data/vatican-worldwide-v2-2026
+          fi
