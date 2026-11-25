@@ -1,0 +1,120 @@
+name: TopTravelList Oceania canonical validation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-oceania-validation-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-oceania-validation
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate current Oceania branches sequentially without modifying source repository
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-validation
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python -m pip install -r requirements.txt
+          base=$(git rev-parse HEAD)
+          failed=0
+          echo "Validation base: $base"
+          printf 'PR | Countries | Integration | Schema | City benchmarks | Sight benchmarks | Reviews | Original generation | Regenerated check | Top 60\n---|---|---|---|---|---|---|---|---|---\n' >> "$GITHUB_STEP_SUMMARY"
+          check() {
+            local output
+            output=$(mktemp)
+            if "$@" >"$output" 2>&1; then
+              printf PASS
+            else
+              printf FAIL
+              echo "::group::Failed check: $*" >&2
+              # Keep public logs limited to diagnostics, never dump credentials or full datasets.
+              tail -n 35 "$output" >&2
+              echo "::endgroup::" >&2
+            fi
+            rm -f "$output"
+          }
+          for item in 236:NR,TV 235:KI 210:PW 213:TO 215:WS 217:FM 219:VU 221:SB 222:FJ 224:PG 226:NZ 227:AU 208:MH; do
+            pr=${item%:*}
+            countries=${item#*:}
+            git reset --hard >/dev/null
+            git checkout --detach "$base" >/dev/null 2>&1
+            state=$(gh pr view "$pr" --repo Persie0/TopTravelList --json state --jq .state)
+            echo "=== PR #$pr ($countries): $state ==="
+            integration=PASS
+            if [[ "$state" == OPEN ]]; then
+              sha=$(gh pr view "$pr" --repo Persie0/TopTravelList --json headRefOid --jq .headRefOid)
+              echo "Head: $sha"
+              if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
+                printf '%s | %s | missing pinned head | — | — | — | — | — | — | —\n' "$pr" "$countries" >> "$GITHUB_STEP_SUMMARY"
+                failed=1
+                continue
+              fi
+              if ! git merge --no-edit --no-ff "$sha"; then
+                conflicts=$(git diff --name-only --diff-filter=U)
+                if [[ "$conflicts" == README.md ]]; then
+                  git checkout --ours README.md
+                  git add README.md
+                  git commit --no-edit >/dev/null
+                  integration=README-rebuild
+                else
+                  echo "Unresolved conflict paths:"
+                  printf '%s\n' "$conflicts"
+                  git merge --abort
+                  printf '%s | %s | CONFLICT | — | — | — | — | — | — | —\n' "$pr" "$countries" >> "$GITHUB_STEP_SUMMARY"
+                  failed=1
+                  continue
+                fi
+              fi
+            elif [[ "$state" != MERGED ]]; then
+              printf '%s | %s | closed without merge | — | — | — | — | — | — | —\n' "$pr" "$countries" >> "$GITHUB_STEP_SUMMARY"
+              failed=1
+              continue
+            fi
+            schema=$(check python scripts/validate.py)
+            city=$(check python scripts/check_city_benchmarks.py)
+            sight=$(check python scripts/check_sight_benchmarks.py)
+            reviews=PASS
+            IFS=, read -ra codes <<< "$countries"
+            for code in "${codes[@]}"; do
+              result=$(check python scripts/check_new_country_reviews.py --country "$code")
+              [[ "$result" == PASS ]] || reviews=FAIL
+            done
+            original=$(check python scripts/generate_rankings.py --check)
+            regenerated=PASS
+            if ! python scripts/generate_rankings.py >/dev/null; then
+              regenerated=FAIL
+            else
+              regenerated=$(check python scripts/generate_rankings.py --check)
+              echo "Canonical generated changes:"
+              git diff --stat -- README.md countries
+            fi
+            leaders=PASS
+            for kind in cities sights; do
+              result=$(check python scripts/rank.py --kind "$kind" --limit 60)
+              [[ "$result" == PASS ]] || leaders=FAIL
+            done
+            printf '%s | %s | %s | %s | %s | %s | %s | %s | %s | %s\n' "$pr" "$countries" "$integration" "$schema" "$city" "$sight" "$reviews" "$original" "$regenerated" "$leaders" >> "$GITHUB_STEP_SUMMARY"
+            echo "Results: schema=$schema city=$city sight=$sight reviews=$reviews generation-before=$original generation-after=$regenerated top60=$leaders"
+            if [[ "$schema $city $sight $reviews $original $regenerated $leaders" == *FAIL* ]]; then failed=1; fi
+          done
+          exit "$failed"
