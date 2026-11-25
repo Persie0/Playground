@@ -1,0 +1,42 @@
+name: PDF Studio reliability audit
+on:
+  push:
+    branches: [pdf-studio-reliability-audit-ci]
+    paths:
+      - .github/workflows/pdf-studio-reliability-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pdf-studio-reliability-audit
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout pinned private app revision
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/pdfapp
+          ref: bf391e36d3e1513ba730e0c688035bfc54dc191c
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Verify checkout
+        run: git rev-parse HEAD
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Static analysis
+        run: flutter analyze
+      - name: Full regression suite
+        run: flutter test --reporter expanded
+      - name: Compile Android release APK
+        run: flutter build apk --release
