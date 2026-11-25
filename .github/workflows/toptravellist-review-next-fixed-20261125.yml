@@ -1,0 +1,176 @@
+name: Continue oldest PR review (corrected patterns)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-review-next-fixed-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Persie0/TopTravelList
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare rating reviewer
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          gh auth setup-git
+          cat > /tmp/reassess.py <<'PY'
+          import json,sys,re
+          from pathlib import Path
+          from decimal import Decimal
+          from collections import Counter
+          import yaml
+          sys.path.insert(0,'scripts')
+          from rank import overall_score
+          code=sys.argv[1]
+          notes=json.loads("{\"UY\":[[\"sights\",\"isla-de-lobos-marine-protected-area\",{\"depth\":6.7},\"The environment ministry confirms a marine national park and priority pinniped species; the Maldonado government and a tour operator confirm offshore boat visits. The operator describes roughly 40 minutes circling the island. Retain impact, rarity, conservation significance and experience; reduce depth because ordinary visitors observe from a boat rather than explore the entire protected marine area.\",\"https://www.gub.uy/ministerio-ambiente/politicas-y-gestion/isla-islote-lobos-su-entorno-sumergido https://www.maldonado.gub.uy/descubre-maldonado/parques_y_paseos https://www.isladelobos.com.uy/\",[\"MY/sights/sipadan-island-reefs\",\"BR/sights/abrolhos-marine-national-park\",\"TH/sights/tarutao-national-marine-park\",\"JO/sights/azraq-wetland-reserve\"],[\"The marine dive site offers greater rarity and underwater breadth.\",\"Broader reef exploration warrants greater depth.\",\"Multiple islands and habitats support more sustained exploration.\",\"Comparable bounded wildlife observation; marine ecology is distinct.\"]],[\"sights\",\"colonia-del-sacramento-historic-quarter\",{},\"UNESCO confirms preserved Portuguese, Spanish and post-colonial urban fabric. Its strong uniqueness/significance are justified by the specific historical layout, while its compact footprint limits depth compared with larger historic ensembles. Retain all fields.\",\"https://whc.unesco.org/en/list/747/\",[\"CO/sights/port-fortresses-and-group-of-monuments-of-cartagena\",\"ME/sights/kotor-old-town\",\"SM/sights/san-marino-historic-centre-and-mount-titano\",\"ME/sights/perast-historic-waterfront\"],[\"Cartagena has much greater fortification and ensemble breadth.\",\"Kotor has stronger dramatic enclosed medieval setting.\",\"Similar compact heritage landscape; distinct colonial history.\",\"The waterfront has less historic urban breadth.\"]],[\"sights\",\"fray-bentos-industrial-landscape\",{},\"UNESCO identifies a coherent industrial landscape with production, port, residential and agricultural components. Preserve high historical significance and unusual industrial breadth without equating access to every historical component with visitor depth. The current 8.7 depth is a provisional normal-site estimate; verify accessible routes separately.\",\"https://whc.unesco.org/en/list/1464\",[\"AT/sights/semmering-railway\",\"AT/sights/hallstatt-salt-mine\",\"BR/sights/paranapiacaba-railway-village\",\"JO/sights/abila-archaeological-site\"],[\"Major industrial heritage reference of greater global technological significance.\",\"Long interpreted industrial visit but different production process.\",\"Smaller industrial settlement with less complete production chain.\",\"Bounded archaeological site has lower interpretive breadth.\"]],[\"sights\",\"church-of-atlantida-eladio-dieste\",{},\"UNESCO confirms the single hall, undulating brick walls and innovative vaults. Distinguish engineering rarity from visitor duration: the 9.4 uniqueness and architecture are plausible while depth 6.6 is appropriate for a single church.\",\"https://whc.unesco.org/en/list/1612/\",[\"AT/sights/st-stephens-cathedral\",\"CO/sights/salt-cathedral-of-zipaquira\",\"VN/sights/phat-diem-cathedral\",\"AT/sights/st-peters-abbey-salzburg\"],[\"Cathedral has greater architectural and historical breadth.\",\"Unusual engineering and sacred space, deeper underground circuit.\",\"Strong fusion architecture with a broader compound.\",\"Smaller historic sacred experience, different engineering contribution.\"]]],\"BZ\":[[\"sights\",\"actun-tunichil-muknal-cave\",{\"depth\":8.2},\"Belize Tourism Board confirms a guided swim and hike to an archaeological cave. Rare in-situ ritual archaeology supports uniqueness 9.6, and active caving supports adventure 9.5 and impact 9.4. Depth reduced modestly for one guided route, not the whole cave system; it remains richer than a short stop.\",\"https://www.travelbelize.org/attraction/actun-tunichil-muknal-atm/ https://www.travelbelize.org/activities/caving/\",[\"VN/sights/son-doong-cave\",\"MY/sights/niah-caves-archaeological-complex\",\"MY/sights/deer-cave-mulu\",\"AT/sights/eisriesenwelt-werfen\"],[\"Larger cave expedition has greater geological scale and depth.\",\"Major archaeological cave ensemble has deeper historical record.\",\"Huge chamber has comparable visual impact but different ritual scope.\",\"Guided single cave offers similar bounded exploration.\"]],[\"sights\",\"blue-hole-natural-monument-great-blue-hole\",{},\"Tourism Board confirms submerged formations and aerial tours; UNESCO identifies the component. Retain impact 9.6 and photography 9.6 for the iconic circular geometry available from air, uniqueness 9.7 and nature 9.6 for the distinctive flooded karst feature. These scores do not describe every surface excursion. The modest 7.4 depth and 8.7 experience keep total below broader reef expeditions.\",\"https://www.travelbelize.org/attraction/blue-hole/ https://whc.unesco.org/en/list/764/\",[\"MY/sights/sipadan-island-reefs\",\"JO/sights/aqaba-marine-reserve\",\"MY/sights/tun-sakaran-marine-park\",\"MY/sights/tunku-abdul-rahman-marine-park\"],[\"Broader world-class underwater experience; less singular geometry.\",\"Reef visit offers greater depth and ecological variety.\",\"Marine landscape has broader visitable environments.\",\"Ordinary island park is less globally distinctive.\"]],[\"sights\",\"glover-s-reef-marine-reserve\",{},\"UNESCO identifies the reserve as a distinct component, while official tourism describes diving, snorkelling, kayaking, shallow coral, channels and pinnacles. Its 91.90 is plausible below Sipadan but above smaller island parks. Retain core fields; no automatic UNESCO bonus.\",\"https://whc.unesco.org/en/list/764/ https://www.travelbelize.org/destinations/belize-reef/glovers-reef-atoll/\",[\"MY/sights/sipadan-island-reefs\",\"JO/sights/aqaba-marine-reserve\",\"TH/sights/tarutao-national-marine-park\",\"MY/sights/tunku-abdul-rahman-marine-park\"],[\"Sipadan has greater underwater impact and rarity.\",\"Comparable reserve has stronger recognized conservation relevance but less atoll variety.\",\"Comparable breadth, different habitat and marine focus.\",\"Smaller conventional marine park has lower uniqueness.\"]],[\"sights\",\"turneffe-atoll-marine-reserve\",{},\"Tourism Board confirms both steep drop-offs and gentler snorkelling sites, and a separate reserve dive site. Retain broad experience and depth at 9.0, slightly below Sipadan overall, not treating the reserve as the entirety of Belize's barrier reef.\",\"https://www.travelbelize.org/attraction/turneffe-atoll/ https://www.travelbelize.org/attraction/wit-turneffe-dive-snorkel-site/\",[\"MY/sights/sipadan-island-reefs\",\"JO/sights/aqaba-marine-reserve\",\"TH/sights/tarutao-national-marine-park\",\"MY/sights/tunku-abdul-rahman-marine-park\"],[\"Stronger global diving exemplar.\",\"Similar reef scope and high conservation merit.\",\"Similar multi-habitat experience.\",\"Smaller marine park is more replaceable.\"]],[\"sights\",\"caracol-archaeological-reserve\",{},\"Belize Tourism Board confirms the major ancient Maya site and links to Calakmul and Tikal political history. 91.10 is reasonable given monumental remains and political significance, below much larger Angkor; depth and experience stay below global-defining ensembles. No assumption about future Tikal ranking.\",\"https://www.travelbelize.org/attraction/caracol/\",[\"KH/sights/angkor-archaeological-park\",\"PE/sights/ollantaytambo-archaeological-site\",\"PE/sights/chan-chan-archaeological-zone\",\"JO/sights/abila-archaeological-site\"],[\"Larger global-defining ensemble outranks Caracol.\",\"Comparable impressive ancient monumental complex.\",\"Greater urban archaeological extent, but limited exposed visitor route.\",\"Smaller site with lower monument impact and scope.\"]],[\"sights\",\"belize-barrier-reef-reserve-system\",{},\"UNESCO confirms seven separate protected areas. Retain the unranked total and existing null visitor fields; do not add together independent trips. Its high uniqueness and significance describe the whole serial ecological system, not every component.\",\"https://whc.unesco.org/en/list/764/\",[\"VN/sights/ha-long-bay\",\"MY/sights/sipadan-island-reefs\",\"TH/sights/tarutao-national-marine-park\",\"MY/sights/tunku-abdul-rahman-marine-park\"],[\"Coherent seascape offers a normal visitor scope unlike serial sites.\",\"Individual reef destination can be rated directly.\",\"Multi-island park has a coherent visitable scope.\",\"Individual marine park is far more bounded.\"]]],\"BR\":[[\"sights\",\"iguacu-falls-brazilian-viewpoints\",{},\"UNESCO confirms the enormous shared waterfall system in its forest setting. Brazilian and Argentine viewpoint circuits should retain equal impact and rarity for the shared falls, but the existing Brazilian depth 7.8 versus Argentine 8.6 correctly distinguishes circuit breadth. Nature and photography 9.9 describe the actual waterfall panorama, not whole-park biodiversity.\",\"https://whc.unesco.org/en/list/355 https://whc.unesco.org/en/list/303/\",[\"AR/sights/iguazu-falls-argentine-circuits\",\"VN/sights/ban-gioc-waterfall\",\"AT/sights/krimml-waterfalls\",\"PE/sights/gocta-waterfall\"],[\"Same falls, broader visitor circuit in Argentina.\",\"Major waterfall has smaller overall concentration and scale.\",\"Highly rewarding falls but less globally singular.\",\"Tall cascade with different and narrower visual character.\"]],[\"sights\",\"valongo-wharf-archaeological-site\",{},\"UNESCO identifies the wharf as exceptionally important physical evidence of the arrival of enslaved Africans in the Americas. Preserve significance 9.7 and history 9.8; do not transfer these to visual spectacle or duration. Existing depth 6.1 reflects the small exposed archaeological site.\",\"https://whc.unesco.org/en/list/1548/\",[\"AT/sights/mauthausen-memorial\",\"TH/sights/hellfire-pass-memorial\",\"VN/sights/my-lai-massacre-memorial\",\"BJ/sights/zoungbodji-memorial-sites\"],[\"Greater physical extent and interpreted visitor breadth.\",\"Strong historic testimony with longer interpreted route.\",\"International historical significance with broader site interpretation.\",\"Related remembrance scope, distinct historical evidence.\"]],[\"cities\",\"rio-de-janeiro\",{},\"UNESCO confirms the integration of mountains, coastal landscapes and urban form. Impact 9.5 and photography 9.8 are defensible for the cityscape itself, depth 9.6 remains provisional for districts and urban activities; culture 9.5 and beaches 9.5 need separate closer field comparisons rather than the landscape source alone. No automatic downgrade or claim of full category verification.\",\"https://whc.unesco.org/en/list/1100\",[\"AT/cities/vienna\",\"AR/cities/buenos-aires\",\"PE/cities/lima\",\"CO/cities/medellin\"],[\"Vienna has stronger built heritage and comparable depth.\",\"Buenos Aires has very high sustained urban breadth, less striking topography.\",\"Lima has strong historic/food merits but less distinctive visual integration.\",\"Medellín is a more bounded urban comparison.\"]]],\"BJ\":[[\"sights\",\"royal-palaces-of-abomey-main-complex\",{},\"UNESCO component map confirms the main palace ensemble, and its conservation decision describes phased rehabilitation. Significance 9.5, history 9.6 and culture 9.5 are plausible for the collective royal heritage, not a single courtyard. Existing visitor depth 8.5 remains provisional for normal interpreted precinct access; current works are not a promise of admission. No new category or perfect ten.\",\"https://whc.unesco.org/en/list/323/ https://whc.unesco.org/en/list/323/maps/ https://whc.unesco.org/en/decisions/8876\",[\"AT/sights/schoenbrunn-palace\",\"TH/sights/grand-palace\",\"MY/sights/seri-menanti-old-palace\",\"AT/sights/hohensalzburg-fortress\"],[\"Much broader preserved imperial visitor ensemble.\",\"Extensive intact royal architecture and ritual precinct.\",\"Smaller royal palace is less broad but closer material heritage comparator.\",\"Strong historic defensive and civic ensemble with more established visitor circuit.\"]]]}")
+          weights={k:Decimal(str(v)) for k,v in json.loads(Path('methodology/scoring.json').read_text())['dimensions'].items()}
+          def load(p):return yaml.safe_load(Path(p).read_text())
+          def vector(r):return ' / '.join(str(r['scores'].get(k)) if r['scores'].get(k) is not None else 'null' for k in weights)
+          def total(r):
+           v=overall_score(r,weights)
+           return 'unranked' if v is None else f'{v:.2f}/100'
+          for kind,slug,changes,reason,urls,peers,why in notes[code]:
+           p=Path('countries')/code/kind/(slug+'.yaml');r=load(p);before=vector(r);oldtotal=total(r)
+           if changes:
+            r['scores'].update(changes)
+            p.write_text(yaml.safe_dump(r,sort_keys=False,allow_unicode=True),encoding='utf-8')
+           review=Path('methodology/reviews')/code/(kind+'.md')
+           doc=review.read_text()
+           assert re.search(r'^#{2,3} '+re.escape(r['id'])+r' — ',doc,re.M),r['id']
+           with review.open('a',encoding='utf-8') as f:
+            f.write(f'\n## Follow-up: {r["id"]} — 2026-11-25 (worldwide review)\n\n- [YAML](../../../{p}) · Action: {"rescore" if changes else "fact-check-only"} · **source-linked-unverified**: limited source claims checked; not comprehensive fact-check. Original decision above retained.\n- Sources inspected 2026-11-25: '+', '.join(f'[{u}]({u})' for u in urls.split())+'\n- Decision: '+reason+f'\n- I/U/S/E/D: {before} → {vector(r)}; total {oldtotal} → {total(r)}. Categories unchanged. No new 10 or country multiplier. Representative GPS retained.\n\n| Current worldwide peer | I/U/S/E/D | Overall | Scope comparison |\n| --- | --- | --- | --- |\n')
+            for peer,comparison in zip(peers,why):
+             pp=Path('countries')/(peer+'.yaml');q=load(pp)
+             f.write(f'| [{q["name"]}](../../../{pp}) | {vector(q)} | {total(q)} | {comparison} |\n')
+            f.write('\n')
+           print(r['id'],oldtotal,'->',total(r))
+          for kind in ('cities','sights'):
+           doc=(Path('methodology/reviews')/code/(kind+'.md')).read_text()
+           records=[load(p) for p in sorted((Path('countries')/code/kind).glob('*.yaml'))]; statuses=Counter()
+           for r in records:
+            m=re.search(r'^#{2,3} '+re.escape(r['id'])+r' — .*?(?=^#{2,3} |\Z)',doc,re.M|re.S)
+            assert m,(r['id'],'missing original review')
+            b=m.group(); status=re.search(r'\*\*(source-linked-unverified|editorial-only|fact-checked|unassessed)\*\*',b)
+            if status:statuses[status.group(1)]+=1
+            else:statuses['status-format-needs-review']+=1
+            assert len(set(re.findall(r'\]\(\.\./\.\./\.\./countries/([A-Z]{2}/(?:cities|sights)/[^)]+)\)',b)))>=4,(r['id'],'missing peers')
+            for k in weights: assert re.search(r'^- '+k.capitalize()+r' ',b,re.M),(r['id'],k)
+           print(code,kind,len(records),'original evidence statuses',dict(statuses),'unranked',sum(overall_score(r,weights) is None for r in records))
+          
+          PY
+          cat > /tmp/screen.py <<'PY'
+          import json,re,sys,statistics
+          from pathlib import Path
+          from decimal import Decimal
+          from collections import Counter
+          import yaml
+          sys.path.insert(0,'scripts')
+          from rank import overall_score
+          root=Path('countries')
+          meta=json.loads(Path('methodology/scoring.json').read_text())
+          w={k:Decimal(str(v)) for k,v in meta['dimensions'].items()}
+          codes='JP ID MY SG BN CZ LA BA ME LK AL NP BT LI JO SM BH MU PY ST EC LS OM PE DJ CL BW CO TG AR MW AM BR BJ'.split()
+          allrows={}
+          for kind in ('cities','sights'):
+           allrows[kind]=[]
+           for p in root.glob(f'*/{kind}/*.yaml'):
+            r=yaml.safe_load(p.read_text());allrows[kind].append((p,r,overall_score(r,w)))
+           print('GLOBAL',kind,len(allrows[kind]),'ranked',sum(x[2] is not None for x in allrows[kind]))
+          report=['# 2026-11-25 country-addition screening','', 'Automated screening of the listed recently added countries against current global YAML, not independent individual fact-checking. High-score flags are review priorities, not proof of inflation; no automatic score adjustments.','', '| Country | Kind | Records | Unranked | 90+ totals | 9.5+ fields | Median overall | Top destination |','| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |']
+          flags=[]
+          for code in codes:
+           for kind,rows in allrows.items():
+            rr=[x for x in rows if x[0].parts[1]==code]; scored=[x for x in rr if x[2] is not None]
+            highs=[];exception=[]
+            for p,r,s in rr:
+             scores=r['scores']; fields={**{k:scores.get(k) for k in w},**scores.get('categories',{})}
+             high=[(k,v) for k,v in fields.items() if v is not None and v>=9.5]
+             if high: highs.extend(high)
+             if high or s is not None and s>=90:
+              flags.append(f'- {r["id"]}: {s if s is not None else "unranked"}; '+', '.join(f'{k}={v}' for k,v in high))
+            if not rr:continue
+            best=max(scored,key=lambda x:x[2]) if scored else None
+            median=f'{statistics.median(x[2] for x in scored):.2f}' if scored else '—'
+            report.append(f'| {code} | {kind} | {len(rr)} | {len(rr)-len(scored)} | {sum(x[2]>=90 for x in scored)} | {len(highs)} | {median} | {best[1]["name"]+" "+str(best[2]) if best else "—"} |')
+            names=Counter(r['name'].casefold() for _,r,_ in rr)
+            for name,n in names.items():
+             if n>1:flags.append(f'- Duplicate-name flag: {code} {kind} {name} ({n})')
+          report+=['','## Individual high-score / duplicate-name flags','']+flags
+          Path('today-screening.md').write_text('\n'.join(report)+'\n')
+          print('\n'.join(report[:len(codes)*2+6]))
+          print('Screening flags',len(flags))
+          
+          PY
+      - name: Integrate and validate Uruguay then Belize
+        run: |
+          set -euo pipefail
+          for item in '43 UY data/uruguay-worldwide-v2-2026 806c66a3cce0874bbc38280b5e15912575a4c6ac' '44 BZ data/belize-worldwide-v2 350aea0974e23d8324a194e94ec9be9304ce569c'; do
+            read -r n code branch expected <<< "$item"
+            git fetch origin main "$branch"
+            state=$(gh pr view "$n" --repo Persie0/TopTravelList --json state --jq .state)
+            if [ "$state" = MERGED ]; then continue; fi
+            test "$state" = OPEN
+            test "$(git rev-parse origin/$branch)" = "$expected"
+            git switch -C "review-$code" "origin/$branch"
+            git merge --no-commit --no-ff origin/main || {
+              while IFS= read -r f; do
+                case "$f" in README.md|countries/*/cities.md|countries/*/sights.md) git checkout --theirs -- "$f"; git add "$f";;
+                  *) echo "Unexpected conflict: $f"; exit 1;; esac
+              done < <(git diff --name-only --diff-filter=U)
+              test -z "$(git diff --name-only --diff-filter=U)"
+            }
+            git commit -m "Integrate main before $code rating review" || test -z "$(git status --porcelain)"
+            python /tmp/reassess.py "$code"
+            python scripts/generate_rankings.py
+            python scripts/validate.py
+            python scripts/check_city_benchmarks.py
+            python scripts/check_sight_benchmarks.py
+            python scripts/generate_rankings.py --check
+            python scripts/rank.py --kind cities --limit 60
+            python scripts/rank.py --kind sights --limit 60
+            git add "countries/$code" "methodology/reviews/$code" README.md
+            git commit -m "Review $code against current worldwide peers"
+            git diff --name-only origin/main HEAD | while IFS= read -r f; do
+              case "$f" in README.md|countries/"$code"/*|methodology/reviews/"$code"/*) ;; *) echo "Unexpected changed file $f"; exit 1;; esac
+            done
+            git push origin "HEAD:refs/heads/$branch"
+            sha=$(git rev-parse HEAD)
+            git fetch origin main
+            git merge-base --is-ancestor origin/main HEAD
+            gh pr merge "$n" --repo Persie0/TopTravelList --merge --match-head-commit "$sha"
+            echo "PR $n merged at reviewed head $sha"
+          done
+      - name: Document targeted review of Brazil and Benin on new branch
+        if: always()
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git switch -C review-recent-br-bj origin/main
+          python /tmp/reassess.py BR
+          python /tmp/reassess.py BJ
+          python /tmp/screen.py
+          mkdir -p methodology/reviews
+          mv today-screening.md methodology/reviews/screening-2026-11-25.md
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py --check
+          git add methodology/reviews/BR methodology/reviews/BJ methodology/reviews/screening-2026-11-25.md
+          git commit -m "Review selected Brazil and Benin ratings and record worldwide screening"
+          git push origin HEAD:refs/heads/review/today-ratings-br-bj-20261125
+          gh pr create --repo Persie0/TopTravelList --base main --head review/today-ratings-br-bj-20261125 --title "Review recent Brazil and Benin ratings and document today's screening" --body "Targeted independent source and current peer checks for Rio, Iguaçu viewpoints, Valongo Wharf and Abomey. Scores retained; unresolved category and visitor evidence identified. Automated screening is not individual confirmation. No scoring weights changed."
