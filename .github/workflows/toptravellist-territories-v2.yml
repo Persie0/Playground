@@ -43,6 +43,7 @@ jobs:
           python scripts/check_new_country_reviews.py --country PR
           python scripts/check_new_country_reviews.py --country US
           python scripts/check_new_country_reviews.py --country AQ
+          python scripts/check_new_country_reviews.py --country HK
           python scripts/generate_rankings.py
           python scripts/generate_rankings.py --check
           python scripts/rank.py --kind cities --limit 60 >/tmp/world-cities.txt
@@ -87,6 +88,20 @@ jobs:
           test ! -f countries/US/sights/san-juan-national-historic-site.yaml
           test -f countries/PR/sights/san-juan-national-historic-site.yaml
           test "$(find countries/AQ -path '*/cities/*.yaml' | wc -l)" -eq 0
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          for folder in ('cities','sights'):
+              for p in Path('countries/HK',folder).glob('*.yaml'):
+                  r=yaml.safe_load(p.read_text())
+                  assert r['location']['country_code']=='HK',p
+                  assert not Path('countries/CN',folder,p.name).exists(),p
+          assert len(list(Path('countries/HK/cities').glob('*.yaml')))==1
+          assert len(list(Path('countries/HK/sights').glob('*.yaml')))==20
+          assert Path('countries/CN/cities/shenzhen.yaml').exists()
+          assert Path('countries/CN/sights/dapeng-fortress.yaml').exists()
+          print('PASS: HK migration, no parent duplicates, mainland records retained')
+          PY
           cd web
           if [ -f package-lock.json ]; then npm ci; else npm install --no-package-lock; fi
           npm test
@@ -105,6 +120,8 @@ jobs:
           assert.equal(a.rows.filter(r=>r.country==='FO').length,11);
           assert.equal(a.countries.AQ.settlementsRequired,false);
           assert.equal(a.countries.AQ.catalogued,true);
+          assert.equal(a.countries.HK.catalogued,true);
+          assert.equal(a.rows.filter(r=>r.country==='HK').length,21);
           assert.equal(a.rows.filter(r=>r.country==='AQ').length,14);
           assert.equal(a.rows.filter(r=>r.country==='GL').length,19);
           console.log('PASS: exported atlas registry and Greenland rows');
