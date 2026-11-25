@@ -1,0 +1,109 @@
+name: Atlas release verification
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-ux-release-20261125.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Persie0/TopTravelList
+          ref: a818314d724eefd5272564c74def9c8674eed1cb
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Install and build
+        working-directory: web
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+          npm run build
+          npm install --no-save --package-lock=false playwright @axe-core/playwright
+          npx playwright install --with-deps chromium
+      - name: Browser regression checks
+        working-directory: web
+        run: |
+          set -euo pipefail
+          mkdir -p screenshots
+          python -m http.server 4173 --directory dist > /tmp/atlas-http.log 2>&1 &
+          server=$!
+          trap 'kill "$server" || true' EXIT
+          cat > .browser-check.mjs <<'JS'
+          import {chromium} from 'playwright';
+          import AxeBuilder from '@axe-core/playwright';
+          import assert from 'node:assert/strict';
+          const browser=await chromium.launch({headless:true});
+          try{
+            for(const viewport of [{width:1440,height:900},{width:390,height:844},{width:320,height:700}]){
+              const context=await browser.newContext({viewport,deviceScaleFactor:1});
+              const page=await context.newPage();
+              const errors=[];
+              const scans=[];
+              const scan=async(label)=>{const a=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();const v=a.violations.map(x=>({id:x.id,impact:x.impact,nodes:x.nodes.map(n=>n.target)}));console.log('AXE',viewport.width,label,JSON.stringify(v));scans.push(...v)};
+              page.on('pageerror',e=>errors.push(e.message));
+              const base='http://127.0.0.1:4173';
+              await page.goto(base+'/?basemap=outline');
+              await page.locator('#rows [data-id]').first().waitFor();
+              assert.equal(await page.locator('header,.intro').count(),0);
+              assert.equal(await page.locator('footer .footstats span').count(),3);
+              assert.equal(await page.locator('footer nav a').count(),3);
+              assert.equal(await page.locator('#advanced').evaluate(e=>e.open),false);
+              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+              await page.screenshot({path:'screenshots/'+viewport.width+'-overview.png',fullPage:true});
+              assert.equal(await page.evaluate(()=>document.querySelector('#mapframe').getBoundingClientRect().bottom<=document.querySelector('.results').getBoundingClientRect().top+1||innerWidth>800),true);
+              await scan('map');
+              await page.locator('#query').fill('Vienna, Austria');
+              await page.waitForFunction(()=>document.querySelector('#rows .name strong')?.textContent==='Vienna');
+              const mapLink=await page.locator('#rows .rowmap').first().getAttribute('href');
+              assert.equal(new URL(mapLink).searchParams.get('query'),'Vienna, Austria');
+              await page.locator('#rows [data-id]').first().click();
+              await page.locator('#detailTitle').waitFor();
+              assert.equal(await page.locator('#detailTitle').textContent(),'Vienna');
+              assert.equal(await page.locator('#rows').isVisible(),false);
+              await page.screenshot({path:'screenshots/'+viewport.width+'-detail.png',fullPage:true});
+              assert.equal(new URL(await page.locator('.primaryMap').getAttribute('href')).searchParams.get('query'),'Vienna, Austria');
+              await scan('detail');
+              await page.keyboard.press('Escape');
+              assert.equal(await page.locator('#detail').isVisible(),false);
+              assert.equal(await page.locator('#rows').isVisible(),true);
+              assert.equal(await page.evaluate(()=>document.activeElement.hasAttribute('data-id')),true);
+              await page.locator('#query').fill('qqqq-no-such-destination');
+              await page.locator('#emptyReset').waitFor();
+              await page.locator('#emptyReset').click();
+              await page.locator('#rows [data-id]').first().waitFor();
+              await page.locator('#countries').click();
+              assert.equal(await page.locator('#advanced').isVisible(),false);
+              await page.locator('#query').fill('Austria');
+              await page.locator('[data-country="AT"]').waitFor();
+              await page.locator('[data-country="AT"]').click();
+              assert.equal(await page.locator('#country').inputValue(),'AT');
+              await page.locator('#listView').click();
+              assert.equal(await page.locator('#mapframe').isVisible(),false);
+              await page.locator('#advanced summary').click();
+              await page.locator('#min').fill('80');
+              await page.locator('#min').blur();
+              assert.equal(await page.locator('#min').inputValue(),'80');
+              await page.reload();
+              await page.locator('#rows [data-id]').first().waitFor();
+              assert.equal(await page.locator('#min').inputValue(),'80');
+              assert.equal(await page.locator('#advanced').evaluate(e=>e.open),true);
+              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+              await scan('list');
+              console.log('TOTAL AXE FINDINGS',viewport.width,scans.length);
+              assert.equal(scans.length,0);
+              assert.deepEqual(errors,[]);
+              console.log('PASS viewport',viewport.width,'core flows, no page errors or document overflow');
+              await context.close();
+            }
+          }finally{await browser.close()}
+          JS
+          node .browser-check.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-browser-screenshots
+          path: web/screenshots/
