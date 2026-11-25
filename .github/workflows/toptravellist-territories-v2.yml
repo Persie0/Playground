@@ -42,6 +42,7 @@ jobs:
           python scripts/check_new_country_reviews.py --country FR
           python scripts/check_new_country_reviews.py --country PR
           python scripts/check_new_country_reviews.py --country US
+          python scripts/check_new_country_reviews.py --country AQ
           python scripts/generate_rankings.py
           python scripts/generate_rankings.py --check
           python scripts/rank.py --kind cities --limit 60 >/tmp/world-cities.txt
@@ -85,6 +86,7 @@ jobs:
           test -f countries/PF/sights/marquesas.yaml
           test ! -f countries/US/sights/san-juan-national-historic-site.yaml
           test -f countries/PR/sights/san-juan-national-historic-site.yaml
+          test "$(find countries/AQ -path '*/cities/*.yaml' | wc -l)" -eq 0
           cd web
           if [ -f package-lock.json ]; then npm ci; else npm install --no-package-lock; fi
           npm test
@@ -102,6 +104,8 @@ jobs:
           assert.equal(a.rows.filter(r=>r.country==='PF').length,16);
           assert.equal(a.rows.filter(r=>r.country==='FO').length,11);
           assert.equal(a.countries.AQ.settlementsRequired,false);
+          assert.equal(a.countries.AQ.catalogued,true);
+          assert.equal(a.rows.filter(r=>r.country==='AQ').length,14);
           assert.equal(a.rows.filter(r=>r.country==='GL').length,19);
           console.log('PASS: exported atlas registry and Greenland rows');
           JS
