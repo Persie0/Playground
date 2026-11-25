@@ -1,5 +1,5 @@
-name: Photo Sphere debug ZIP export APK
-run-name: Build Photo Sphere ZIP export APK (3e56458f9906)
+name: Photo Sphere UX audit APK
+run-name: Build Photo Sphere UX audit APK (30e7cd1b4247)
 on:
   push:
     branches:
@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 100
     env:
-      SOURCE_SHA: 3e56458f99067b416cd137a96be672603a67be1d
+      SOURCE_SHA: 30e7cd1b4247b276ad95523e77bfb9355c3959f6
     steps:
       - name: Checkout public Playground scripts
         uses: actions/checkout@v4
@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: 3e56458f99067b416cd137a96be672603a67be1d
+          ref: 30e7cd1b4247b276ad95523e77bfb9355c3959f6
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: engine
@@ -104,14 +104,14 @@ jobs:
           test -s engine/android/app/build/outputs/apk/debug/app-debug.apk
           unzip -tq engine/android/app/build/outputs/apk/debug/app-debug.apk
           mkdir -p out
-          cp engine/android/app/build/outputs/apk/debug/app-debug.apk out/PhotoSphere-debug-export.apk
-          sha256sum out/PhotoSphere-debug-export.apk
+          cp engine/android/app/build/outputs/apk/debug/app-debug.apk out/PhotoSphere-UX-debug.apk
+          sha256sum out/PhotoSphere-UX-debug.apk
 
       - name: Upload installable APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhotoSphere-debug-zip-export-3e56458
-          path: out/PhotoSphere-debug-export.apk
+          name: PhotoSphere-UX-debug-30e7cd1
+          path: out/PhotoSphere-UX-debug.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -123,11 +123,11 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$GH_TOKEN"
-          TAG=debug-zip-export-3e56458
+          TAG=debug-ux-30e7cd1
           if gh release view "$TAG" --repo Persie0/PhotosphereCleanroom >/dev/null 2>&1; then
-            gh release upload "$TAG" out/PhotoSphere-debug-export.apk --clobber --repo Persie0/PhotosphereCleanroom
+            gh release upload "$TAG" out/PhotoSphere-UX-debug.apk --clobber --repo Persie0/PhotosphereCleanroom
           else
-            gh release create "$TAG" out/PhotoSphere-debug-export.apk --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --prerelease --title "Photo Sphere debug ZIP export APK" --notes "Debug-signed APK for PR #208, commit $SOURCE_SHA. Native JNI libraries rebuilt for arm64-v8a and x86_64."
+            gh release create "$TAG" out/PhotoSphere-UX-debug.apk --repo Persie0/PhotosphereCleanroom --target "$SOURCE_SHA" --prerelease --title "Photo Sphere UX audit APK" --notes "Debug-signed APK for PR #208, commit $SOURCE_SHA. Native JNI libraries rebuilt for arm64-v8a and x86_64."
           fi
 
       - name: Build summary
@@ -136,4 +136,4 @@ jobs:
           echo "## Photo Sphere debugging ZIP APK" >> "$GITHUB_STEP_SUMMARY"
           echo "Built from private PhotosphereCleanroom PR #208 commit $SOURCE_SHA." >> "$GITHUB_STEP_SUMMARY"
           echo "Public workflow compiled the Rust Android libraries, ran Android JVM tests and lint, and verified the installable APK." >> "$GITHUB_STEP_SUMMARY"
-          echo "Download the PhotoSphere-debug-zip-export-3e56458 artifact from this run or use the matching private prerelease." >> "$GITHUB_STEP_SUMMARY"
+          echo "Download the PhotoSphere-UX-debug-30e7cd1 artifact from this run or use the matching private prerelease." >> "$GITHUB_STEP_SUMMARY"
