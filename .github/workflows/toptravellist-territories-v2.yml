@@ -49,6 +49,8 @@ jobs:
           python scripts/check_new_country_reviews.py --country NO
           python scripts/check_new_country_reviews.py --country RE
           python scripts/check_new_country_reviews.py --country NC
+          python scripts/check_new_country_reviews.py --country AX
+          python scripts/check_new_country_reviews.py --country FI
           python scripts/generate_rankings.py
           python scripts/generate_rankings.py --check
           python scripts/rank.py --kind cities --limit 60 >/tmp/world-cities.txt
@@ -133,6 +135,17 @@ jobs:
           test ! -f countries/RE/sights/reunion-park.yaml
           test ! -f countries/FR/sights/new-caledonia-lagoons.yaml
           test -f countries/NC/sights/new-caledonia-lagoons.yaml
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          for folder,n in [('cities',3),('sights',10)]:
+              paths=list(Path('countries/AX',folder).glob('*.yaml'))
+              assert len(paths)==n,folder
+              for p in paths:
+                  assert yaml.safe_load(p.read_text())['location']['country_code']=='AX',p
+                  assert not Path('countries/FI',folder,p.name).exists(),p
+          print('PASS: AX inventory and no parent duplicates')
+          PY
           cd web
           if [ -f package-lock.json ]; then npm ci; else npm install --no-package-lock; fi
           npm test
@@ -157,6 +170,8 @@ jobs:
           assert.equal(a.countries.SJ.catalogued,true);
           assert.equal(a.countries.RE.catalogued,true);
           assert.equal(a.countries.NC.catalogued,true);
+          assert.equal(a.countries.AX.catalogued,true);
+          assert.equal(a.rows.filter(r=>r.country==='AX').length,13);
           assert.equal(a.rows.filter(r=>r.country==='NC').length,15);
           assert.equal(a.rows.filter(r=>r.country==='RE').length,15);
           assert.equal(a.rows.filter(r=>r.country==='SJ').length,14);
