@@ -193,6 +193,19 @@ capture saved-history
 assert_text saved-history 'Panorama ready'
 assert_text saved-history 'Stitching stopped'
 assert_text saved-history 'Render failed'
+assert_text saved-history '1 photo'
+python3 - <<'PY'
+import xml.etree.ElementTree as ET
+for name in ['failed-render','complete-render','interrupted-render']:
+    tree=ET.parse('ux-artifacts/'+name+'.xml')
+    nodes=list(tree.iter('node'))
+    texts=[n.get('text','') for n in nodes]
+    assert '1 photo' in texts, f'{name}: expected actual saved photo count'
+    assert not any('1 of ' in t for t in texts), f'{name}: misleading target count'
+    assert not any(n.get('resource-id','').endswith(':id/capture_status') for n in nodes), f'{name}: duplicate status banner'
+tree=ET.parse('ux-artifacts/saved-history.xml')
+assert not any('1 photos' in n.get('text','') for n in tree.iter('node')), 'incorrect plural'
+PY
 adb shell input keyevent 4
 sleep 1
 adb shell input tap $(button_center ux-artifacts/complete-render.xml 'New capture')
