@@ -14,12 +14,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/fruits
-          ref: f596cb9dc773f7385799ffadc27e53739be1bde5
+          ref: d70c7c1668e219bf34e31cafa269c562e9f78d35
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.50.1'
       - name: Resolve dependencies
         run: flutter pub get > /tmp/fruits-deps.log 2>&1
       - name: Analyze and test
@@ -35,4 +36,6 @@ jobs:
           # Only expose diagnostic codes and locations, never private source lines.
           grep -E '^[[:space:]]*(error|warning|info) •' /tmp/fruits-analyze.log | sed -E 's/^[[:space:]]*(error|warning|info) • .* • ([^•]+) • ([a-z_]+)$/\1 • \2 • \3/' | grep -E '^(error|warning|info) • [^•]+ • [a-z_]+$' || true
           grep -E '^[0-9]{2}:[0-9]{2} [+0-9 ~-]+: (All tests passed!|Some tests failed\.)$' /tmp/fruits-test.log || true
+          grep -E '^[0-9]{2}:[0-9]{2} [+0-9 ~-]+: .*\[E\]
+ /tmp/fruits-test.log | sed -E 's/^.*: /Failed test: /' || true
           test "$a" = 0 && test "$t" = 0
