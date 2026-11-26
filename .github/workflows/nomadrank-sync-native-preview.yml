@@ -1,0 +1,220 @@
+name: NomadRank sync health native preview (public Playground)
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/nomadrank-sync-native-preview.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout private feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/skratch_clone
+          ref: ux/impeccable-nomadrank-20261122
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Restore dependencies and localizations
+        run: |
+          flutter pub get
+          flutter gen-l10n
+          git rev-parse HEAD
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Create a temporary native preview using the real Sync Health screen
+        run: |
+          cat > lib/sync_ux_preview_main.dart <<'DART'
+          // ignore: deprecated_member_use
+          import 'package:flutter/material.dart';
+          import 'package:nomadrank/l10n/gen_l10n/app_localizations.dart';
+          import 'package:nomadrank/providers/bucket_list_provider.dart';
+          import 'package:nomadrank/providers/friends_provider.dart';
+          import 'package:nomadrank/providers/travel_circles_provider.dart';
+          import 'package:nomadrank/providers/trips_provider.dart';
+          import 'package:nomadrank/providers/user_provider.dart';
+          import 'package:nomadrank/screens/sync_health_screen.dart';
+          import 'package:nomadrank/services/server_health_service.dart';
+          import 'package:nomadrank/theme/app_theme.dart';
+          import 'package:provider/provider.dart';
+          
+          class _Guest extends ChangeNotifier implements UserProvider {
+            @override
+            bool get isLoggedIn => false;
+            @override
+            dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+          }
+          
+          class _Trips extends ChangeNotifier implements TripsProvider {
+            @override
+            int get pendingCount => 0;
+            @override
+            bool get isSyncing => false;
+            @override
+            bool get isHandlingUserLogin => false;
+            @override
+            bool get isOnline => true;
+            @override
+            bool get loginSyncDeferred => false;
+            @override
+            String? get syncError => null;
+            @override
+            DateTime? get lastSyncAttemptAt => null;
+            @override
+            DateTime? get lastSuccessfulSyncAt => null;
+            @override
+            dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+          }
+          
+          class _Friends extends ChangeNotifier implements FriendsProvider {
+            @override
+            int get pendingSocialActionCount => 0;
+            @override
+            bool get isRefreshing => false;
+            @override
+            dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+          }
+          
+          class _Circles extends ChangeNotifier implements TravelCirclesProvider {
+            @override
+            int get pendingSocialActionCount => 0;
+            @override
+            bool get isRefreshing => false;
+            @override
+            dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+          }
+          
+          class _Bucket extends ChangeNotifier implements BucketListProvider {
+            @override
+            int get pendingCount => 0;
+            @override
+            bool get isRefreshing => false;
+            @override
+            dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+          }
+          
+          class _Health extends ServerHealthService {
+            int calls = 0;
+            @override
+            Future<ServerHealthResult> check() async {
+              calls++;
+          
+              return ServerHealthResult(
+                checkedAt: DateTime(2026, 11, 25),
+                publicHealth: const EndpointHealthResult(
+                  ok: false,
+                  issue: ServerHealthIssue.unstableConnection,
+                  duration: Duration.zero,
+                ),
+                apiHealth: const EndpointHealthResult(
+                  ok: false,
+                  issue: ServerHealthIssue.authenticationRequired,
+                  duration: Duration.zero,
+                ),
+              );
+            }
+          }
+          
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+            runApp(MultiProvider(
+              providers: [
+                ChangeNotifierProvider<UserProvider>(create: (_) => _Guest()),
+                ChangeNotifierProvider<TripsProvider>(create: (_) => _Trips()),
+                ChangeNotifierProvider<FriendsProvider>(create: (_) => _Friends()),
+                ChangeNotifierProvider<TravelCirclesProvider>(create: (_) => _Circles()),
+                ChangeNotifierProvider<BucketListProvider>(create: (_) => _Bucket()),
+              ],
+              child: MaterialApp(
+                debugShowCheckedModeBanner: false,
+                theme: AppTheme.lightTheme,
+                darkTheme: AppTheme.darkTheme,
+                themeMode: ThemeMode.system,
+                locale: const Locale('en'),
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+                home: SyncHealthScreen(healthService: _Health()),
+              ),
+            ));
+          }
+          DART
+
+          cat > capture-sync-ux.sh <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          flutter build apk --debug --no-pub -t lib/sync_ux_preview_main.dart
+          adb install -r build/app/outputs/flutter-apk/app-debug.apk
+          mkdir -p native-sync-ux
+          adb shell wm size 1080x2400
+          adb shell wm density 440
+          adb shell cmd uimode night no
+          adb shell settings put system font_scale 1.0
+          adb shell am start -n at.persie0.nomadrank/.MainActivity
+          sleep 12
+          adb exec-out screencap -p > native-sync-ux/01-guest-light.png
+          adb shell input tap 540 1050
+          sleep 3
+          adb exec-out screencap -p > native-sync-ux/01b-diagnostics.png
+          adb shell cmd uimode night yes
+          sleep 4
+          adb exec-out screencap -p > native-sync-ux/02-phone-dark.png
+          adb shell wm size 880x1562
+          adb shell settings put system font_scale 2.0
+          sleep 6
+          adb exec-out screencap -p > native-sync-ux/03-compact-large-text-dark.png
+          adb shell input swipe 440 1250 440 420 700
+          sleep 2
+          adb exec-out screencap -p > native-sync-ux/04-compact-large-text-actions.png
+          adb shell cmd uimode night no
+          sleep 4
+          adb exec-out screencap -p > native-sync-ux/05-compact-large-text-light.png
+          adb shell settings put system font_scale 1.0
+          adb shell wm size 1920x1200
+          adb shell wm density 200
+          sleep 6
+          adb exec-out screencap -p > native-sync-ux/06-wide-light.png
+          adb logcat -d -s flutter > native-sync-ux/flutter-log.txt
+          git rev-parse HEAD > native-sync-ux/commit.txt
+          SCRIPT
+
+      - name: Build and capture Android sync preview
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_atd
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: bash capture-sync-ux.sh
+
+      - name: Upload native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nomadrank-sync-native-ux
+          path: native-sync-ux/
+          if-no-files-found: ignore
