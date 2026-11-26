@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/punisher
-          ref: d208a2ec4e460035ed192b7c37a27fb5a999ecac
+          ref: 2e610af90b8687c1f81cdc0cece09a0860f5466a
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - uses: subosito/flutter-action@v2
@@ -107,7 +107,7 @@ jobs:
           flutter test --no-pub test/visual_capture.dart > "$RUNNER_TEMP/ui-capture.log" 2>&1 || { echo 'Visual fixture failed'; exit 1; }
           python3 -m venv "$RUNNER_TEMP/ui-venv"
           "$RUNNER_TEMP/ui-venv/bin/pip" -q install Pillow==11.3.0
-          for name in dashboard goal review; do
+          for name in dashboard; do
             input="$RUNNER_TEMP/punisher-ui/$name.png"
             test -s "$input"
             # Only ciphertext leaves the runner. Never upload an unencrypted screenshot.
@@ -117,4 +117,4 @@ jobs:
             base64 -w0 "$RUNNER_TEMP/$name.der"
             printf '\n'
           done
-          echo 'Three synthetic rendered screens captured'
+          echo 'Three synthetic screens rendered; dashboard ciphertext exported'
