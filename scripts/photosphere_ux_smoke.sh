@@ -13,6 +13,7 @@ sleep 8
 
 capture() {
     local name="$1"
+    adb shell rm -f /sdcard/window.xml
     for attempt in 1 2 3; do
         if timeout 35 adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1; then break; fi
         sleep 3
@@ -98,6 +99,8 @@ for orientation in ['portrait','landscape','portrait-large-font','landscape-larg
     assert buttons, f'{orientation}: expected native accessible buttons'
     labels=[label for label,_ in buttons]
     expected=['Start'] if 'large-font' in orientation else ['Start','More','Open photo']
+    hints=[el.get('text','') for el in root.iter('node')]
+    assert 'Pivot around the lens. Follow the arrow.' in hints, f'{orientation}: missing shortened guidance'
     for value in expected:
         assert any(value.lower() in label.lower() for label in labels), f'{orientation}: missing {value}: {labels}'
     for label,(left,top,right,bottom) in buttons:
@@ -116,3 +119,89 @@ for name,required in [('options-menu','How to capture a Photo Sphere'),('help-di
     assert required in alltext, f'{name}: missing {required}: {alltext[:400]}'
 print('PASS: portrait, landscape, large-font and in-app help actions are discoverable, sized and non-overlapping')
 PY
+
+# Use deterministic, synthetic saved sessions to exercise the real native
+# activity's recovery and export UI without claiming a physical camera stitch.
+adb shell wm user-rotation lock 0
+adb shell am force-stop at.persie0.photosphere
+mkdir -p /tmp/photosphere-ui-fixtures
+app_dir="$(adb shell run-as at.persie0.photosphere pwd | tr -d '\r')"
+APP_DIR="$app_dir" python3 - <<'PY'
+import base64,json,os,pathlib,time
+root=pathlib.Path('/tmp/photosphere-ui-fixtures')
+jpeg=base64.b64decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIx8lJCIfIiEmKzcvJik0KSEiMEExNDk7Pj4+JS5ESUM8SDc9Pjv/2wBDAQoLCw4NDhwQEBw7KCIoOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozv/wAARCAAgAEADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDAooor0DywooooAKKKKACiiigAooooAKKKKACiiigAooooA//Z')
+for n,status in enumerate(['failed','complete','rendering'],1):
+    ident='00000000-0000-4000-8000-%012d'%n
+    d=root/ident;d.mkdir()
+    p=os.environ['APP_DIR']+'/files/captures/'+ident+'/0.jpg'
+    pose={'horizontal_fov_deg':70.0,'vertical_fov_deg':55.0,'quaternion_wxyz':[1.0,0.0,0.0,0.0]}
+    data={'version':1,'width':64,'height':32,'horizontal_fov_deg':70.0,'vertical_fov_deg':55.0,
+          'sensor_orientation':90,'anchor_heading':0.0,'first_photo_time':int(time.time()*1000)+n,
+          'config':{},'target_layout_policy':'gcam_native','sources':[{'path':p,'pose':pose}],
+          'target_ids':[0],'status':status,'revision':1}
+    (d/'0.jpg').write_bytes(jpeg)
+    (d/'session.json').write_text(json.dumps(data))
+    if status=='complete':(d/'panorama.jpg').write_bytes(jpeg)
+PY
+for d in /tmp/photosphere-ui-fixtures/*; do
+    id="$(basename "$d")"
+    adb shell run-as at.persie0.photosphere mkdir -p "files/captures/$id"
+    for f in "$d"/*; do
+        name="$(basename "$f")"
+        adb shell -T "run-as at.persie0.photosphere sh -c 'cat > files/captures/$id/$name'" < "$f"
+    done
+done
+
+open_fixture() {
+    adb shell am force-stop at.persie0.photosphere
+    adb shell am start -n at.persie0.photosphere/.CaptureActivity --es capture_id "$1"
+    sleep 6
+    capture "$2"
+}
+assert_text() {
+    python3 - "$1" "$2" <<'PY'
+import sys,xml.etree.ElementTree as ET
+tree=ET.parse('ux-artifacts/'+sys.argv[1]+'.xml')
+content=' '.join(n.get('text','')+' '+n.get('content-desc','') for n in tree.iter('node'))
+assert sys.argv[2] in content, f'{sys.argv[1]}: expected {sys.argv[2]}, found {content[:500]}'
+PY
+}
+open_fixture 00000000-0000-4000-8000-000000000001 failed-render
+assert_text failed-render 'Render failed'
+assert_text failed-render 'Retry'
+assert_text failed-render 'Export ZIP'
+adb shell input tap $(button_center ux-artifacts/failed-render.xml 'Export ZIP')
+sleep 2
+capture export-privacy
+assert_text export-privacy 'sensitive details'
+adb shell input keyevent 4
+sleep 1
+open_fixture 00000000-0000-4000-8000-000000000003 interrupted-render
+assert_text interrupted-render 'Stitching stopped'
+assert_text interrupted-render 'Retry'
+assert_text interrupted-render 'Export ZIP'
+open_fixture 00000000-0000-4000-8000-000000000002 complete-render
+assert_text complete-render 'Panorama ready'
+assert_text complete-render 'View 360°'
+assert_text complete-render 'New capture'
+adb shell input tap $(button_center ux-artifacts/complete-render.xml 'More')
+sleep 1
+capture saved-menu
+adb shell input tap $(button_center ux-artifacts/saved-menu.xml 'Saved captures')
+sleep 2
+capture saved-history
+assert_text saved-history 'Panorama ready'
+assert_text saved-history 'Stitching stopped'
+assert_text saved-history 'Render failed'
+adb shell input keyevent 4
+sleep 1
+adb shell input tap $(button_center ux-artifacts/complete-render.xml 'New capture')
+sleep 4
+capture new-capture
+assert_text new-capture 'Start'
+adb shell am force-stop at.persie0.photosphere
+adb shell am start -n at.persie0.photosphere/.CaptureActivity
+sleep 6
+capture new-capture-relaunch
+assert_text new-capture-relaunch 'Start'
+echo 'PASS: synthetic complete, failed and interrupted states, ZIP privacy, saved-session history and new-session recreation'
