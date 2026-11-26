@@ -72,18 +72,31 @@ jobs:
                       print('ANALYZE', f[0], f[2], loc(f[3]), f[4], f[5])
           t = root / 'punisher-test.log'
           if t.exists():
-              passed, failed = 0, set()
+              passed, failed, names, suites = 0, set(), {}, {}
               for line in t.read_text(errors='replace').splitlines():
                   try: e = json.loads(line)
                   except ValueError:
                       for path, ln, col in re.findall(r'((?:lib|test)/[\w/.-]+\.dart):(\d+):(\d+)', line): print('COMPILE', loc(path), ln, col)
                       continue
                   if not isinstance(e, dict): continue
-                  if e.get('type') == 'testDone':
+                  if e.get('type') == 'testStart':
+                  test = e.get('test', {})
+                  names[test.get('id')] = hashlib.sha256(str(test.get('name', '')).encode()).hexdigest()[:12]
+              if e.get('type') == 'suite':
+                  suite = e.get('suite', {})
+                  suites[suite.get('id')] = loc(suite.get('path',''))
+              if e.get('type') == 'testDone':
                       if e.get('result') == 'success' and not e.get('hidden'): passed += 1
                       elif e.get('result') != 'success': failed.add(e.get('testID'))
                   if e.get('type') == 'error':
                       error = str(e.get('error', ''))
+                  stack = str(e.get('stackTrace','')) + error
+                  print('ERROR_CASE', names.get(e.get('testID'), 'unknown'), 'assertion' if 'Expected:' in error else 'exception')
+                  for match in re.finditer(r'((?:lib|test)/[\w/.-]+\.dart)[: ]+(\d+)[: ](\d+)', stack):
+                      print('ERROR_LINE', loc(match[1]), match[2], match[3])
+                  for pattern, label in [('Found 0 widgets', 'zero_widgets'), ('Found 2 widgets', 'two_widgets'), ('overflowed', 'overflow'), ('pumpAndSettle timed out', 'settle_timeout'), ('pending', 'pending'), ('Multiple exceptions', 'multiple_exceptions')]:
+                      if pattern.lower() in error.lower(): print('ERROR_KIND', label)
                       for path, ln, col in re.findall(r'((?:lib|test)/[\w/.-]+\.dart):(\d+):(\d+)', str(e.get('stackTrace','')) + error): print('TEST_LOCATION', loc(path), ln, col)
+              print('FAILED_TEST_IDS', [(i,names.get(i)) for i in sorted(failed)])
               print('FLUTTER_TEST_COUNTS', passed, len(failed))
           PY
