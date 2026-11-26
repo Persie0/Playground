@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/punisher
-          ref: 4b7cae15cdcb3ea48763cc4640c117c873f8dc82
+          ref: d208a2ec4e460035ed192b7c37a27fb5a999ecac
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - uses: subosito/flutter-action@v2
@@ -30,7 +30,7 @@ jobs:
           set +e
           dart analyze --fatal-infos --format=machine > "$RUNNER_TEMP/punisher-analyze.log" 2>&1
           analyze=$?
-          flutter test --machine > "$RUNNER_TEMP/punisher-test.log" 2>&1
+          flutter test --no-pub --machine > "$RUNNER_TEMP/punisher-test.log" 2>&1
           tests=$?
           printf 'Analyzer exit: %s\nTests exit: %s\n' "$analyze" "$tests"
           test "$analyze" -eq 0 && test "$tests" -eq 0
@@ -104,12 +104,14 @@ jobs:
         if: always()
         shell: bash
         run: |
-          flutter test test/visual_capture.dart > "$RUNNER_TEMP/ui-capture.log" 2>&1 || { echo 'Visual fixture failed'; exit 1; }
+          flutter test --no-pub test/visual_capture.dart > "$RUNNER_TEMP/ui-capture.log" 2>&1 || { echo 'Visual fixture failed'; exit 1; }
+          python3 -m venv "$RUNNER_TEMP/ui-venv"
+          "$RUNNER_TEMP/ui-venv/bin/pip" -q install Pillow==11.3.0
           for name in dashboard goal review; do
             input="$RUNNER_TEMP/punisher-ui/$name.png"
             test -s "$input"
             # Only ciphertext leaves the runner. Never upload an unencrypted screenshot.
-            convert "$input" -resize 280x -quality 45 "$RUNNER_TEMP/$name.jpg"
+            "$RUNNER_TEMP/ui-venv/bin/python" -c 'from PIL import Image; import sys; im=Image.open(sys.argv[1]).convert("RGB"); im.thumbnail((240,1000),Image.Resampling.LANCZOS); im.save(sys.argv[2],quality=35,optimize=True)' "$input" "$RUNNER_TEMP/$name.jpg"
             openssl cms -encrypt -binary -aes256 -outform DER -in "$RUNNER_TEMP/$name.jpg" -out "$RUNNER_TEMP/$name.der" "$RUNNER_TEMP/recipient.pem"
             printf 'UI_CIPHERTEXT_%s ' "$name"
             base64 -w0 "$RUNNER_TEMP/$name.der"
