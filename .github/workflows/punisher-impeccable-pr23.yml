@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/punisher
-          ref: e3a073b4b6e9fdb8fd7d45ccf0578e83a1ca7360
+          ref: c1894a36b5a8435c8bd96880ae6726a2c4ac28c6
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - uses: subosito/flutter-action@v2
@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          dart analyze --format=machine > "$RUNNER_TEMP/punisher-analyze.log" 2>&1
+          dart analyze --fatal-infos --format=machine > "$RUNNER_TEMP/punisher-analyze.log" 2>&1
           analyze=$?
           flutter test --machine > "$RUNNER_TEMP/punisher-test.log" 2>&1
           tests=$?
@@ -51,6 +51,12 @@ jobs:
                   fields = line.split('|')
                   if len(fields) >= 8 and re.fullmatch(r'[A-Z_]+', fields[2]) and fields[4].isdigit() and fields[5].isdigit():
                       print('ANALYZE', fields[0], fields[2], loc(fields[3]), fields[4], fields[5])
+                      if fields[2] == 'DEPRECATED_MEMBER_USE':
+                          try: source = pathlib.Path(fields[3]).read_text().splitlines()[int(fields[4])-1]
+                          except (OSError, IndexError): source = ''
+                          if source.strip() == "import 'package:flutter/material.dart';":
+                              # Only report public framework names, not project identifiers or raw messages.
+                              print('FRAMEWORK_DEPRECATION', [word for word in ['material.dart','Material','material_ui','material','flutter','Flutter','widgets.dart','cupertino','package:material','package:flutter','deprecated','migration'] if word in fields[7]])
           t = root / 'punisher-test.log'
           if t.exists():
               suites, tests = {}, {}
@@ -67,13 +73,14 @@ jobs:
                       suites[suite['id']] = loc(suite.get('path') or '')
                   if kind == 'testStart':
                       test = event['test']
-                      tests[test['id']] = (suites.get(test['suiteID'], 'unknown'), test.get('line'), test.get('column'))
+                      tests[test['id']] = (suites.get(test['suiteID'], 'unknown'), hashlib.sha256(test.get('name','').encode()).hexdigest()[:12], test.get('root_line',test.get('line')), test.get('root_column',test.get('column')))
                   if kind == 'testDone' and event.get('result') != 'success':
                       print('TEST', event.get('result'), tests.get(event['testID'], 'unknown'))
-                  if kind == 'error':
-                      error = str(event.get('error',''))
-                      categories = ['RenderFlex overflowed', 'No element', 'MissingPluginException', 'Bad state', 'Expected:', 'Multiple exceptions', 'Timeout', 'Compilation failed', 'TypeError', 'not found', 'not a subtype', 'setState()']
-                      print('TEST_ERROR', tests.get(event['testID'], 'unknown'), [x for x in categories if x in error])
-                      for path, ln, col in re.findall(r'((?:lib|test)/[\w/.-]+\.dart):(\d+):(\d+)', str(event.get('stackTrace','')) + error):
+                  if kind in ('error', 'print'):
+                      error = str(event.get('error',event.get('message','')))
+                      categories = ['RenderFlex overflowed', 'No element', 'MissingPluginException', 'Bad state', 'Expected:', 'Actual:', 'Multiple exceptions', 'Timeout', 'Compilation failed', 'TypeError', 'not found', 'not a subtype', 'setState()', 'Test failed', 'test failed', 'TestFailure', 'FlutterError', 'overflowed', 'pumpAndSettle', 'scrollUntilVisible', 'ensureVisible', 'hit test', 'Finder', 'found 0 widgets', 'found 1 widget', 'found 2 widgets', 'Too many elements', 'disposed', 'pending timer', 'assertion', 'Expected exactly one matching', 'No matching', 'No widgets', 'was called', 'Exception', 'TestWidgetsFlutterBinding', 'hasSize', 'not laid out', 'A RenderFlex', 'A RenderViewport', 'Null check operator', 'No MaterialLocalizations', 'MediaQuery', 'ChangeNotifier', 'setSurfaceSize']
+                      hits = [x for x in categories if x.lower() in error.lower()]
+                      if hits or kind == 'error': print('TEST_ERROR', tests.get(event.get('testID'), 'unknown'), hits)
+                      for path, ln, col in re.findall(r'((?:lib|test)/[\w/.-]+\.dart)[: ]+(\d+)[: ]+(\d+)', str(event.get('stackTrace','')) + error):
                           print('TEST_LOCATION', loc(path), ln, col)
           PY
