@@ -34,3 +34,25 @@ jobs:
           tests=$?
           printf 'Analyzer exit: %s\nTests exit: %s\n' "$analyze" "$tests"
           test "$analyze" -eq 0 && test "$tests" -eq 0
+      - name: Send diagnostics to private pull request
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          python3 - <<'PY' > "$RUNNER_TEMP/punisher-diagnostics.md"
+          import os, pathlib
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          print('### Private CI diagnostics — run ' + os.environ['GITHUB_RUN_ID'])
+          for name in ('pub', 'analyze', 'test'):
+              p = root / ('punisher-' + name + '.log')
+              if not p.exists(): continue
+              print('\n**' + name + '**\n\`\`\`text')
+              s = p.read_text(errors='replace').replace('\r', '\n')
+              lines = [x for x in s.splitlines() if x.strip()]
+              if name == 'test':
+                  lines = [x for x in lines if not (' +0:' in x and 'loading' in x)]
+              print('\n'.join(lines)[-16000:])
+              print('\`\`\`')
+          PY
+          gh pr comment 23 --repo Persie0/punisher --body-file "$RUNNER_TEMP/punisher-diagnostics.md" >/dev/null 2>&1 || { echo 'Private diagnostics delivery failed'; exit 1; }
