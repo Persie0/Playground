@@ -1,0 +1,49 @@
+name: MicroRWIS L.3 solar charger bench PCB
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revl3-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 65d2fda1f7dfe5d218ada7a6a3752c3db99fe79e
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Charger topology and model regressions
+        working-directory: source/road-weather-station
+        run: |
+          node hardware/solar-charger/verify.mjs
+          node hardware/solar-charger/model.mjs
+          node hardware/solar-variant/season.mjs
+          node hardware/solar-variant/gauge-model.mjs
+          c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/solar-variant/test-gauge.cpp -o /tmp/gauge
+          /tmp/gauge
+          node server/smoke.mjs
+      - name: KiCad install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad kicad-footprints
+      - name: Route charger PCB
+        working-directory: source/road-weather-station/hardware/solar-charger
+        run: |
+          for layers in 2 4; do
+            for seed in 9 0 1; do
+              p="/tmp/charger-$layers-$seed.kicad_pcb"
+              if /usr/bin/python3 ../integrated-carrier/generate.py --design design.json --layers "$layers" --grid .125 --seed "$seed" --margin .025 --output "$p" && kicad-cli pcb drc --exit-code-violations --severity-error --output /tmp/charger-drc.txt "$p"; then
+                echo "Accepted layers=$layers seed=$seed"
+                exit 0
+              fi
+            done
+          done
+          exit 1
