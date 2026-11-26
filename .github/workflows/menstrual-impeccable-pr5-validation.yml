@@ -1,0 +1,39 @@
+name: Menstrual PR validation
+on:
+  push:
+    paths:
+      - '.github/workflows/menstrual-impeccable-pr5-validation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/menstrual
+          ref: ec03ee96418708d79bd600fc8fc4fad5253b285a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Resolve dependencies
+        run: flutter pub get > "$RUNNER_TEMP/pub.log" 2>&1
+      - name: Static analysis
+        run: |
+          set +e
+          flutter analyze --no-fatal-infos --no-fatal-warnings > "$RUNNER_TEMP/analyze.log" 2>&1
+          status=$?
+          echo "Analyzer exit status: $status"
+          echo "Error count: $(grep -c 'error •' "$RUNNER_TEMP/analyze.log" || true)"
+          exit "$status"
+      - name: Flutter regression tests
+        run: |
+          set +e
+          flutter test --reporter expanded > "$RUNNER_TEMP/test.log" 2>&1
+          status=$?
+          echo "Test exit status: $status"
+          exit "$status"
