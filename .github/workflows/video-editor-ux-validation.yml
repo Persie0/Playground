@@ -25,10 +25,9 @@ jobs:
           path: app-src
       - name: Install compile SDK
         run: |
-          if ! sdkmanager "platforms;android-37" > /tmp/sdk-install.log 2>&1; then
-            echo "::error::Android SDK installation failed"
-            exit 1
-          fi
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install 'platforms;android-37.0' || "$SDKMANAGER" --install 'platforms;android-37'
       - name: Compile app, JVM tests and Android instrumentation APK
         working-directory: app-src
         run: |
