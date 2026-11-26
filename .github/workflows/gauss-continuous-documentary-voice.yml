@@ -10,10 +10,10 @@ concurrency:
   group: gauss-continuous-documentary-20261126
   cancel-in-progress: false
 env:
-  SOURCE_SHA: 5951fc9f7cc89420120c460cc78ea91c22d8ce12
+  SOURCE_SHA: 3a8dae54d37a26b172839f6fa4d0f784a0bd9ff2
   PICTURE_TAG: gauss-circle-continuous-directors-cut-1080p30-20261126
   ORIGINAL_TAG: gauss-circle-complete-1080p30-20261112
-  RELEASE_TAG: gauss-circle-directed-documentary-v20-1080p30-20261126
+  RELEASE_TAG: gauss-circle-directed-documentary-v21-1080p30-20261126
   GH_TOKEN: ${{ github.token }}
   PYTHONUNBUFFERED: '1'
 jobs:
@@ -48,6 +48,7 @@ jobs:
           python -m unittest discover -s tests -p test_documentary_visual_direction.py -v
           python -m unittest discover -s tests -p test_caption_readability.py -v
           python -m unittest discover -s tests -p test_documentary_pause_timing.py -v
+          python -m unittest discover -s tests -p test_documentary_sync.py -v
           python -m production.documentary_visual_direction --preview-only --output-dir ../../visual-previews
       - uses: actions/upload-artifact@v4
         with:
@@ -102,7 +103,7 @@ jobs:
           path: output/*
           if-no-files-found: error
           retention-days: 21
-      - name: Direct sixteen mathematical visual sequences using actual word cues
+      - name: Direct seventeen mathematical visual sequences using actual word cues
         run: |
           set -euo pipefail
           cd source/gauss-circle-problem
@@ -114,6 +115,12 @@ jobs:
           cd source/gauss-circle-problem
           python -m production.mix_continuous_documentary --picture ../../directed-picture/Gauss_Circle_Directed_Picture_1080p30.mp4 --instrumental-source ../../input/Gauss_Circle_Complete_1080p30_NoNarration.mp4 --reference-cues ../../input/Gauss_Circle_Narration_Cues.json --output-dir ../../output
           (cd ../../output && sha256sum -c SHA256SUMS.txt)
+      - name: Verify decoded visual reveal timing and final narration alignment
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m production.verify_documentary_sync --film ../../output/Gauss_Circle_Continuous_Documentary_1080p30.mp4 --voice ../../output/Gauss_Circle_Documentary_Voice.wav --visual-qa ../../output/Gauss_Directed_Visuals_QA.json --audio-qa ../../output/Gauss_Circle_Documentary_Audio_QA.json --output ../../output/Gauss_Documentary_Sync_QA.json
+          (cd ../../output && sha256sum Gauss_Documentary_Sync_QA.json >> SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
           name: gauss-continuous-documentary-1080p30
@@ -130,4 +137,4 @@ jobs:
             echo 'Refusing to overwrite existing release'
             exit 1
           fi
-          gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground --title "Gauss Circle — Directed Documentary v20 (1080p30)" --notes "Sixteen progressively revealed mathematical sequences, geometric radius scaling, boundary shell derivation, optimized word-level captions and measured narration pauses, original clean instrumental, exact 16,098-frame 536.6-second clock, and visual and audio QA. The source picture is re-encoded to integrate the four inserts. Earlier releases are unchanged. Source PR #266. Final human viewing remains necessary."
+          gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground --title "Gauss Circle — Directed Documentary v21 (1080p30)" --notes "Seventeen progressively revealed mathematical sequences, continuous shell growth, analytical cancellation, linked-arrivals contrast, optimized word-level captions, measured narration pauses and post-encode synchronization checks, original clean instrumental, exact 16,098-frame 536.6-second clock, and visual and audio QA. The source picture is re-encoded to integrate the directed sequences. Earlier releases are unchanged. Source PR #266. Final human viewing remains necessary."
