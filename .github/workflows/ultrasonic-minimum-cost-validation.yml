@@ -1,0 +1,60 @@
+name: Ultrasonic minimum-cost validation
+on:
+  push:
+    branches: [ultrasonic-minimum-cost-validation]
+    paths: ['.github/workflows/ultrasonic-minimum-cost-validation.yml']
+permissions:
+  contents: read
+jobs:
+  validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Ultrasonic
+          ref: 44d292d80b5acb321ff39c6a494d9da6a83e47a9
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          persist-credentials: false
+      - name: Run both electrical sweeps
+        run: |
+          python3 designs/esp32-digital/simulation/rc_sweep.py
+          python3 designs/esp32-digital/simulation/minimum_cost_sweep.py
+          python3 - <<'PY'
+          import csv, math, pathlib
+          d=pathlib.Path("designs/esp32-digital/simulation")
+          generated=list(csv.DictReader((d/"minimum-cost-results.csv").open()))
+          for variant in ("baseline","passive"):
+              ref=list(csv.DictReader((d/f"minimum-cost-{variant}.csv").open()))
+              actual=[r for r in generated if r["variant"]==variant]
+              assert len(ref)==len(actual)==3240
+              for x,y in zip(ref,actual):
+                  for k in x:
+                      if k in ("variant","scenario"):
+                          assert x[k]==y[k]
+                      else:
+                          assert math.isclose(float(x[k]),float(y[k]),rel_tol=1e-8,abs_tol=1e-9),(k,x[k],y[k])
+          print("6480 rows match committed reference")
+          PY
+      - name: Install KiCad 9
+        run: |
+          sudo add-apt-repository -y ppa:kicad/kicad-9.0-releases
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends kicad kicad-symbols kicad-footprints
+          kicad-cli version
+      - name: Strict native ERC and DRC
+        run: |
+          mkdir -p reports "$HOME/.config/kicad/9.0"
+          folder=designs/esp32-digital/minimum-cost
+          sed "s|\${KIPRJMOD}|$PWD/$folder|g" "$folder/sym-lib-table" > "$HOME/.config/kicad/9.0/sym-lib-table"
+          sed "s|\${KIPRJMOD}|$PWD/$folder|g" "$folder/fp-lib-table" > "$HOME/.config/kicad/9.0/fp-lib-table"
+          result=0
+          kicad-cli sch erc --exit-code-violations -o reports/erc.txt "$folder/minimum-cost.kicad_sch" || result=1
+          kicad-cli pcb drc --exit-code-violations -o reports/drc.txt "$folder/minimum-cost.kicad_pcb" || result=1
+          for f in reports/*.txt; do cat "$f"; done
+          exit "$result"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: minimum-cost-eda
+          path: reports/
