@@ -31,12 +31,12 @@ jobs:
             echo "::error::No private repository token configured."
             exit 1
           fi
-          if [[ -n "$UNITY_LICENSE" ]]; then
-            echo "Unity license file configured (activation not yet verified)."
+          if [[ -n "$UNITY_LICENSE" && -n "$UNITY_EMAIL" && -n "$UNITY_PASSWORD" ]]; then
+            echo "Unity Personal license and account credentials configured (activation not yet verified)."
           elif [[ -n "$UNITY_SERIAL" && -n "$UNITY_EMAIL" && -n "$UNITY_PASSWORD" ]]; then
             echo "Unity serial credentials configured (activation not yet verified)."
           else
-            echo "::error::Unity activation missing. Configure UNITY_LICENSE or UNITY_SERIAL + UNITY_EMAIL + UNITY_PASSWORD on Playground. No APK produced."
+            echo "::error::Unity activation missing. Configure UNITY_LICENSE (or UNITY_SERIAL), UNITY_EMAIL and UNITY_PASSWORD on Playground. No APK produced."
             exit 1
           fi
       - name: Fetch exact private source
@@ -86,26 +86,48 @@ jobs:
                 fi
               }
               trap cleanup EXIT
-              if [[ -n "$UNITY_LICENSE" ]]; then
-                printf "%s" "$UNITY_LICENSE" > /tmp/toothfairy-activation/Unity.ulf
-                if ! grep -q "<" /tmp/toothfairy-activation/Unity.ulf; then
-                  printf "%s" "$UNITY_LICENSE" | base64 -d > /tmp/toothfairy-activation/Unity.ulf
-                fi
-                "$UNITY_EDITOR" -batchmode -nographics -quit -manualLicenseFile /tmp/toothfairy-activation/Unity.ulf -logFile /tmp/toothfairy-activation/activation.log
-              else
-                "$UNITY_EDITOR" -batchmode -nographics -quit -serial "$UNITY_SERIAL" -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -logFile /tmp/toothfairy-activation/activation.log
+              # GameCI activates a fresh entitlement using the serial embedded in a Personal ULF.
+              # Never copy a workstation-bound ULF into this ephemeral editor.
+              if [[ -n "$UNITY_LICENSE" && -z "$UNITY_SERIAL" ]]; then
+                UNITY_SERIAL="$(python3 -c "import os,base64,xml.etree.ElementTree as E; raw=os.environ[\"UNITY_LICENSE\"].strip(); root=E.fromstring(raw if raw.startswith(\"<\") else base64.b64decode(raw)); data=root.find(\".//DeveloperData\"); assert data is not None; print(base64.b64decode(data.attrib[\"Value\"])[4:].decode(\"ascii\").strip())")"
               fi
-              activated=1
-              rm -f /tmp/toothfairy-activation/Unity.ulf
+              if [[ ! "$UNITY_SERIAL" =~ ^[A-Z0-9-]+$ ]]; then
+                echo "STAGE_LICENSE_FORMAT_INVALID"
+                exit 1
+              fi
               unset UNITY_LICENSE
+              if [[ "$UNITY_SERIAL" == F* ]]; then
+                dbus-uuidgen > /etc/machine-id
+                mkdir -p /var/lib/dbus
+                ln -sf /etc/machine-id /var/lib/dbus/machine-id
+              fi
+              echo "STAGE_ACTIVATING"
+              for attempt in 1 2 3; do
+                if "$UNITY_EDITOR" -batchmode -nographics -quit -serial "$UNITY_SERIAL" -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -projectPath /BlankProject -logFile /tmp/toothfairy-activation/activation.log; then
+                  activated=1
+                  break
+                fi
+                if [[ "$attempt" != 3 ]]; then sleep $((attempt*10)); fi
+              done
+              if [[ "$activated" != 1 ]]; then
+                echo "STAGE_ACTIVATION_FAILED"
+                if grep -qiE "invalid.*password|authentication failed|invalid credentials" /tmp/toothfairy-activation/activation.log; then echo "CLASS_AUTHENTICATION"; fi
+                if grep -qiE "activation.*limit|maximum.*activations|no seats" /tmp/toothfairy-activation/activation.log; then echo "CLASS_SEAT_LIMIT"; fi
+                if grep -qiE "no valid unity editor license|no license activation|0 entitlement" /tmp/toothfairy-activation/activation.log; then echo "CLASS_NO_ENTITLEMENT"; fi
+                exit 1
+              fi
+              echo "STAGE_ACTIVATED"
+              echo "STAGE_BUILD_START"
               bash /src/tools/unity_development.sh Android
               test -s /src/mobile/Builds/Android/Toothfairy-debug.apk
             ' >"$log" 2>&1 || {
               echo "::error::Unity activation, import, tests or Android build failed. No APK produced. Private logs not printed."
-              # Print only non-sensitive compiler diagnostic codes, never paths or messages.
+              # Print only whitelisted stage markers and compiler codes, never raw private logs.
+              grep -xE "STAGE_(LICENSE_FORMAT_INVALID|ACTIVATING|ACTIVATION_FAILED|ACTIVATED|BUILD_START)|CLASS_(AUTHENTICATION|SEAT_LIMIT|NO_ENTITLEMENT)" "$log" || true
               grep -hEo 'error CS[0-9]{4}' "$RUNNER_TEMP/toothfairy-src/mobile/Logs/"*.log 2>/dev/null | sort | uniq -c || true
               exit 1
             }
+          grep -xE "STAGE_(ACTIVATED|BUILD_START)" "$log" || true
           echo "Development APK built; EditMode gate passed."
       - name: Publish APK to private draft release
         env:
