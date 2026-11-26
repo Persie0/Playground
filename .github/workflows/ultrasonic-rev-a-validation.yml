@@ -1,4 +1,4 @@
-name: Ultrasonic Rev A checks
+name: Ultrasonic multi-design checks
 on:
   push:
     branches: [ultrasonic-rev-a-validation]
@@ -13,52 +13,57 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/Ultrasonic
-          ref: ab4349aae88deb8254243c29ea5180e5e021325d
+          ref: 9a5d6853c840717ca232b188b9262621db5c0e69
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
           persist-credentials: false
       - run: |
           sudo add-apt-repository -y ppa:kicad/kicad-9.0-releases
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends kicad kicad-symbols kicad-footprints
-          mkdir -p reports "$HOME/.config/kicad/9.0"
-          sed "s|\${KIPRJMOD}|$PWD/hardware|g" hardware/sym-lib-table > "$HOME/.config/kicad/9.0/sym-lib-table"
-          sed "s|\${KIPRJMOD}|$PWD/hardware|g" hardware/fp-lib-table > "$HOME/.config/kicad/9.0/fp-lib-table"
           kicad-cli version
-          kicad-cli sch erc --exit-code-violations -o reports/erc.txt hardware/ultrasonic.kicad_sch
-        id: erc
-        continue-on-error: true
-      - run: |
-          kicad-cli pcb drc --exit-code-violations -o reports/drc.txt hardware/ultrasonic.kicad_pcb
-        id: drc
-        continue-on-error: true
-      - run: |
+      - name: Validate three separate projects
+        run: |
+          mkdir -p reports "$HOME/.config/kicad/9.0"
+          result=0
+          for spec in 'designs/esp32-digital/hardware ultrasonic' 'designs/analog-dds/hardware analog-dds' 'designs/analog-dds/reference-pwm reference-pwm'; do
+            read -r folder name <<< "$spec"
+            sed "s|\${KIPRJMOD}|$PWD/$folder|g" "$folder/sym-lib-table" > "$HOME/.config/kicad/9.0/sym-lib-table"
+            sed "s|\${KIPRJMOD}|$PWD/$folder|g" "$folder/fp-lib-table" > "$HOME/.config/kicad/9.0/fp-lib-table"
+            kicad-cli sch erc --exit-code-violations -o "reports/$name-erc.txt" "$folder/$name.kicad_sch" || result=1
+            kicad-cli pcb drc --exit-code-violations -o "reports/$name-drc.txt" "$folder/$name.kicad_pcb" || result=1
+          done
           for f in reports/*.txt; do echo "=== $f ==="; cat "$f"; done
-          test -s reports/erc.txt && test -s reports/drc.txt
-          test '${{ steps.erc.outcome }}' = success && test '${{ steps.drc.outcome }}' = success
+          exit "$result"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: eda-reports
           path: reports/
-  firmware:
+  digital:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/Ultrasonic
-          ref: ab4349aae88deb8254243c29ea5180e5e021325d
+          ref: 9a5d6853c840717ca232b188b9262621db5c0e69
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
           persist-credentials: false
+      - run: python3 designs/esp32-digital/simulation/rc_sweep.py
+      - run: docker run --rm -v "$PWD:/project" -w /project/designs/esp32-digital/firmware espressif/idf:v5.4.2 idf.py build
+  nano:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Ultrasonic
+          ref: 9a5d6853c840717ca232b188b9262621db5c0e69
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          persist-credentials: false
+      - uses: arduino/setup-arduino-cli@v2
       - run: |
-          docker run --rm -v "$PWD:/project" -w /project/firmware espressif/idf:v5.4.2 idf.py build
-  simulation:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: Persie0/Ultrasonic
-          ref: ab4349aae88deb8254243c29ea5180e5e021325d
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
-          persist-credentials: false
-      - run: python3 simulation/rc_sweep.py
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+          arduino-cli compile --fqbn arduino:avr:nano designs/analog-dds/firmware/dds_setup
+          mkdir -p "$HOME/Arduino/libraries"
+          git clone --depth 1 https://github.com/TheSpaceEgg/SimpleAD9833.git "$HOME/Arduino/libraries/SimpleAD9833"
+          arduino-cli compile --fqbn arduino:avr:nano --libraries "$HOME/Arduino/libraries" designs/analog-dds/firmware/simplead9833_setup
