@@ -152,6 +152,24 @@ jobs:
             --notes "Development-only ARM64 debug APK. Unity EditMode gate passed. Physical-device and release acceptance remain pending." \
             >"$RUNNER_TEMP/toothfairy-private/release.log" 2>&1
           echo "APK uploaded to private draft release."
+      - name: Retain compiler diagnostics in private source repository
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/toothfairy-src"
+          report="$RUNNER_TEMP/toothfairy-private/compiler-diagnostics.txt"
+          test -d "$src/mobile/Logs" || exit 0
+          # Keep only C# diagnostics from source paths; no activation logs or secrets.
+          grep -hE '^Assets/.*\\.cs\\([0-9]+,[0-9]+\\): error CS[0-9]{4}:' "$src/mobile/Logs/"*.log 2>/dev/null | sort -u > "$report" || true
+          test -s "$report" || { echo "No source compiler diagnostics matched."; exit 0; }
+          test "$(gh repo view Persie0/Toothfairy --json isPrivate --jq .isPrivate)" = true
+          diag_branch="ci/diagnostics/toothfairy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          gh api --method POST repos/Persie0/Toothfairy/git/refs -f ref="refs/heads/$diag_branch" -f sha="$SOURCE_SHA" >/dev/null
+          gh api --method PUT repos/Persie0/Toothfairy/contents/.ci/compiler-diagnostics.txt -f message="Private compiler diagnostics for build $GITHUB_RUN_ID" -f branch="$diag_branch" -f content="$(base64 -w0 "$report")" >/dev/null
+          echo "Compiler diagnostics retained in private source repository."
       - name: Cleanup private build data
         if: always()
         shell: bash
