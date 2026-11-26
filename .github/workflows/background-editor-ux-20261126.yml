@@ -7,13 +7,14 @@ permissions:
   contents: read
 jobs:
   android:
+    if: ${{ false }} # Android source unchanged since successful run 45735012464
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/BackgroundVideoRemover
-          ref: 208ace8d9a2277e7953fc4538892b0bbdf1a0c72
+          ref: b54ce4c17d6e38cae2e6a1a7ae0c41855d6f15b6
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: source
@@ -70,7 +71,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/BackgroundVideoRemover
-          ref: 208ace8d9a2277e7953fc4538892b0bbdf1a0c72
+          ref: b54ce4c17d6e38cae2e6a1a7ae0c41855d6f15b6
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: source
@@ -96,6 +97,7 @@ jobs:
           DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for xs in d["devices"].values() for x in xs if x["name"].startswith("iPhone") and x.get("isAvailable")))')
           xcrun simctl boot "$DEVICE" || true
           xcrun simctl bootstatus "$DEVICE" -b >/dev/null
+          xcrun simctl ui "$DEVICE" content_size large
           for MODE in light dark; do
             xcrun simctl ui "$DEVICE" appearance "$MODE"
             if [ "$MODE" = dark ]; then
