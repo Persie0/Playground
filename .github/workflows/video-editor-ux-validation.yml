@@ -1,0 +1,62 @@
+name: Video editor native UX validation
+on:
+  push:
+    branches: [ci/video-upscaler-ux-20261126]
+    paths: [.github/workflows/video-editor-ux-validation.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Checkout private Android editor (read only)
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/video_upscaler_android
+          ref: 3007af739118a0e0c357e8dc09387360755e2332
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app-src
+      - name: Install compile SDK
+        run: |
+          if ! sdkmanager "platforms;android-37" > /tmp/sdk-install.log 2>&1; then
+            echo "::error::Android SDK installation failed"
+            exit 1
+          fi
+      - name: Compile app, JVM tests and Android instrumentation APK
+        working-directory: app-src
+        run: |
+          chmod +x ./gradlew
+          if ! ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest :app:lintDebug --no-daemon --console=plain > /tmp/native-ux-build.log 2>&1; then
+            echo "::error::Android compile, test or lint failed (private build output withheld)"
+            exit 1
+          fi
+          echo "Debug build, JVM tests, instrumentation APK and lint passed"
+      - name: Enable KVM for emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run UI regression tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            cd app-src
+            if ! ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=at.persie0.VideoUpscaler.EditorAccessibilityTest,at.persie0.VideoUpscaler.UpscalerHomeInstrumentedTest --no-daemon --console=plain > /tmp/native-ux-device.log 2>&1; then
+              echo "::error::UI regression tests failed (private test output withheld)"
+              exit 1
+            fi
+            echo "Editor and Home instrumentation tests passed"
+      - name: Remove private build output
+        if: always()
+        run: rm -f /tmp/sdk-install.log /tmp/native-ux-build.log /tmp/native-ux-device.log
