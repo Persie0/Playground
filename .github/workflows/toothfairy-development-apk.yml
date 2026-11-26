@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      SOURCE_SHA: 8f0be9314ca59a72e92a53ba8e9f419ffde0df54
+      SOURCE_SHA: dabede3c81cf98f98f1da8a5538d228d065632c6
       IMAGE: unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
     steps:
       - name: Check Unity license and repository access
@@ -64,14 +64,26 @@ jobs:
           umask 077
           src="$RUNNER_TEMP/toothfairy-src"
           logs="$RUNNER_TEMP/toothfairy-private"
-          # Install packaged Blender before accessing private art. No public project output.
-          sudo apt-get update -qq >"$logs/blender-install.log" 2>&1
-          sudo apt-get install -y --no-install-recommends blender >>"$logs/blender-install.log" 2>&1
+          # Blender 5.0.1 packaged exporter has a missing RNA property. Use a fixed official LTS release.
+          mkdir -p "$logs/blender"
+          (
+            cd "$logs/blender"
+            version=4.2.23
+            archive="blender-$version-linux-x64.tar.xz"
+            url="https://download.blender.org/release/Blender4.2"
+            curl --fail --location --retry 3 "$url/$archive" -o "$archive"
+            curl --fail --location --retry 3 "$url/blender-$version.sha256" -o checksums
+            grep -E "[[:space:]]\*?$archive$" checksums | sha256sum -c -
+            tar -xf "$archive"
+            rm "$archive"
+          ) >"$logs/blender-install.log" 2>&1 || { echo "::error::Pinned Blender installation failed."; exit 1; }
+          blender="$logs/blender/blender-4.2.23-linux-x64/blender"
+          test -x "$blender"
           mkdir -p "$logs/rig"
-          blender -b --python-exit-code 1 -P "$src/assets-source/create_fairy.py" -- "$logs/rig/Fairy.blend" >"$logs/rig/generate.log" 2>&1 || { echo "::error::Fairy model generation failed."; exit 1; }
+          "$blender" -b --python-exit-code 1 -P "$src/assets-source/create_fairy.py" -- "$logs/rig/Fairy.blend" >"$logs/rig/generate.log" 2>&1 || { echo "::error::Fairy model generation failed."; exit 1; }
           expected="$(sed -nE 's/^Generated optimized fairy rig: [0-9]+ meshes, ([0-9]+) triangles, [0-9]+ bones$/\1/p' "$logs/rig/generate.log" | tail -n 1)"
           test -n "$expected" && test -s "$logs/rig/Fairy.blend" && test -s "$logs/rig/Fairy.fbx"
-          blender -b --python-exit-code 1 -P "$src/assets-source/verify_fairy.py" -- "$logs/rig/Fairy.fbx" "$expected" >"$logs/rig/verify.log" 2>&1 || { echo "::error::Fairy FBX roundtrip verification failed."; exit 1; }
+          "$blender" -b --python-exit-code 1 -P "$src/assets-source/verify_fairy.py" -- "$logs/rig/Fairy.fbx" "$expected" >"$logs/rig/verify.log" 2>&1 || { echo "::error::Fairy FBX roundtrip verification failed."; exit 1; }
           cp "$logs/rig/Fairy.blend" "$src/assets-source/Fairy.blend"
           cp "$logs/rig/Fairy.fbx" "$src/mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx"
           git -C "$src" add -- assets-source/Fairy.blend mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx
