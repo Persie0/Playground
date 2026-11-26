@@ -86,15 +86,25 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Build private recovery probe
-        working-directory: private-app
+      - name: Build isolated native recovery harness
         run: |
-          if ! flutter pub get > "$RUNNER_TEMP/memory-device-pub.log" 2>&1; then
-            echo "::error::Device dependency resolution failed"
+          set -e
+          # Compile the actual journal and storage implementation without
+          # unrelated application dependencies (ads, billing, Firebase, etc.).
+          flutter create --platforms=android --org com.austriao --project-name memory_palace_builder --no-pub "$RUNNER_TEMP/palace-probe" > "$RUNNER_TEMP/palace-create.log" 2>&1
+          probe="$RUNNER_TEMP/palace-probe"
+          mkdir -p "$probe/lib/provider"
+          cp private-app/lib/provider/palace_save_journal.dart "$probe/lib/provider/"
+          cp private-app/lib/provider/storage_manager.dart "$probe/lib/provider/"
+          cp private-app/test_driver/palace_recovery_probe.dart "$probe/lib/main.dart"
+          cd "$probe"
+          if ! flutter pub add 'crypto:^3.0.7' 'path_provider:^2.1.6' 'shared_preferences:^2.5.6' > "$RUNNER_TEMP/palace-probe-pub.log" 2>&1; then
+            echo "::error::Isolated probe dependency resolution failed"
             exit 1
           fi
-          if ! flutter build apk --debug --target test_driver/palace_recovery_probe.dart --dart-define=PALACE_RECOVERY_PROBE=true > "$RUNNER_TEMP/memory-device-build.log" 2>&1; then
-            echo "::error::Device probe build failed (private output withheld)"
+          if ! flutter build apk --debug --dart-define=PALACE_RECOVERY_PROBE=true > "$RUNNER_TEMP/palace-probe-build.log" 2>&1; then
+            python3 -c 'import sys; raw=open(sys.argv[1]).read().lower(); categories=["sdk location not found","failed to find platform","license","ndk","gradle","could not resolve","could not download","minimum supported","java heap space","out of memory","no space left","compilation failed","failed to compile","missingpluginexception","unsupported class file","network is unreachable","timeout","manifest merger failed","could not install"]; print("Build diagnostic categories:",", ".join(x for x in categories if x in raw))' "$RUNNER_TEMP/palace-probe-build.log"
+            echo "::error::Isolated probe build failed (private output withheld)"
             exit 1
           fi
       - name: Verify real Android process restart
@@ -105,7 +115,7 @@ jobs:
           target: google_apis
           disable-animations: true
           script: |
-            adb install -r private-app/build/app/outputs/flutter-apk/app-debug.apk
+            adb install -r "$RUNNER_TEMP/palace-probe/build/app/outputs/flutter-apk/app-debug.apk"
             adb shell pm clear com.austriao.memory_palace_builder
             adb logcat -c
             adb shell am start -n com.austriao.memory_palace_builder/.MainActivity
