@@ -1,0 +1,50 @@
+name: MicroRWIS revision J unified carrier
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revj-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 5f5c9e8e419a90b29b6c803a1314e24b61a0010a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Topology and electrical models
+        working-directory: source/road-weather-station
+        run: |
+          node hardware/unified-carrier/verify.mjs
+          node hardware/unified-carrier/noise-envelope.mjs
+          node hardware/buck-boost/damping-precharge.mjs > /tmp/damping.json
+          node hardware/buck-boost/model.mjs > /tmp/power.json
+          node hardware/integrated-carrier/verify.mjs
+          python3 hardware/integrated-carrier/test-resistance.py
+          node server/smoke.mjs
+      - name: KiCad install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad kicad-footprints
+          kicad-cli version
+      - name: Unified board candidate
+        working-directory: source/road-weather-station/hardware/unified-carrier
+        run: |
+          for seed in 11 10 9 1 0 2 3; do
+            p="/tmp/unified-$seed.kicad_pcb"
+            if /usr/bin/python3 ../integrated-carrier/generate.py --design design.json --layers 4 --grid .125 --seed "$seed" --margin .025 --output "$p" && kicad-cli pcb drc --exit-code-violations --severity-error --output /tmp/unified-drc.txt "$p" && /usr/bin/python3 ../buck-boost/geometry-check.py --unified "$p"; then
+              cp "$p" /tmp/unified-accepted.kicad_pcb
+              break
+            fi
+            if test -f /tmp/unified-drc.txt; then grep -E '^\[|\*\* Found' /tmp/unified-drc.txt | sort | uniq -c || true; fi
+          done
+          test -s /tmp/unified-accepted.kicad_pcb
+          # No public manufacturing artifacts; no release.
