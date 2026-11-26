@@ -59,7 +59,7 @@ jobs:
             return 1
           }
           failed=0
-          for item in 237:WS:dc311292b27c9b8d56d8b6262f722aecd5892f25 238:MH:9b1ef19d0eb9c8e658dbc2f7a88e6fa25e928773 239:PW:f68c88ba9b0d8a8d4cab38f1b0407d867d2fb87b 240:TO:dc184e1f03e962f72e80dc8dd7d243ef41ecb1ab 234:registry:e2f3427b2bd99012e7a06cf8ceca8af559ecf54e; do
+          for item in 237:WS:dc311292b27c9b8d56d8b6262f722aecd5892f25 238:MH:9b1ef19d0eb9c8e658dbc2f7a88e6fa25e928773 239:PW:f68c88ba9b0d8a8d4cab38f1b0407d867d2fb87b 240:TO:dc184e1f03e962f72e80dc8dd7d243ef41ecb1ab 234:registry:e2f3427b2bd99012e7a06cf8ceca8af559ecf54e 242:bias:fdd3c2f474d87261938df88c3aea1efb57741cde; do
             IFS=: read -r pr scope pinned <<< "$item"
             git reset --hard >/dev/null
             git clean -fd >/dev/null
@@ -85,6 +85,7 @@ jobs:
           def allowed(f):
               if scope == 'registry': return f in allowed_registry or f.startswith(('countries/','methodology/reviews/'))
               if scope == 'web': return f in allowed_web
+              if scope == 'bias': return f in ["countries/CN/cities.md","countries/CN/cities/dunhuang.yaml","countries/CN/sights.md","countries/CN/sights/great-wall-jinshanling.yaml","countries/EC/sights.md","countries/EC/sights/galapagos-islands-world-heritage-property.yaml","countries/EG/sights.md","countries/EG/sights/giza-plateau.yaml","countries/IN/sights.md","countries/IN/sights/golden-temple-amritsar.yaml","countries/IN/sights/ranganathaswamy-temple-srirangam.yaml","countries/IN/sights/taj-mahal.yaml","countries/KH/cities.md","countries/KH/cities/siem-reap.yaml","countries/US/sights.md","countries/US/sights/grand-canyon-national-park.yaml","methodology/reviews/CN/cities.md","methodology/reviews/CN/sights.md","methodology/reviews/EC/sights.md","methodology/reviews/EG/sights.md","methodology/reviews/IN/sights-north.md","methodology/reviews/IN/sights-tamil-andhra-telangana.md","methodology/reviews/KH/cities.md","methodology/reviews/US/sights.md","methodology/scoring.json","methodology/worldwide-bias-review-2026-11-26.md"]
               return f == 'README.md' or any(f.startswith((f'countries/{c}/',f'methodology/reviews/{c}/')) for c in scope.split(','))
           raw = subprocess.check_output(['git','diff','--raw','--no-renames',base,head],text=True)
           assert all(map(allowed,files)), 'Unexpected file scope'
@@ -162,7 +163,7 @@ jobs:
             if [[ "$scope" == registry ]]; then
               codes=$(comm -13 <(git ls-tree -d --name-only "$common":countries | sort) <(git ls-tree -d --name-only "$head":countries | sort) | grep -E '^[A-Z]{2}$' | paste -sd, -)
               if [[ $(tr ',' '\n' <<< "$codes" | wc -l) != 53 ]]; then report 'Unexpected territory registry delta'; failed=1; continue; fi
-            elif [[ "$scope" == web ]]; then codes=""; else codes="$scope"; fi
+            elif [[ "$scope" == web || "$scope" == bias ]]; then codes=""; else codes="$scope"; fi
             # Check current numeric peer links for the documentation being integrated.
             if ! python - "$codes" "$scope" <<'PY'
           import pathlib,re,sys,yaml,collections
@@ -207,6 +208,10 @@ jobs:
               assert len({p.split('/')[1] for p in profiles})==250, 'Incomplete populated registry'
           PY
             then report 'Numerical or coverage audit failed; no write'; failed=1; continue; fi
+            if [[ "$scope" == bias ]]; then
+              # Do not merge a second scoring change into an unresolved geographic migration.
+              if [[ $(gh pr view 234 --repo "$TARGET_REPO" --json state --jq .state) != MERGED ]]; then report "Registry integration must complete first"; failed=1; continue; fi
+            fi
             ok=true
             if [[ -n "$codes" ]]; then
               IFS=, read -ra cc <<< "$codes"
