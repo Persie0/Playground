@@ -1,0 +1,36 @@
+name: Punisher PR 23 validation
+on:
+  push:
+    branches: [ci/punisher-impeccable-pr23]
+    paths: [.github/workflows/punisher-impeccable-pr23.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/punisher
+          ref: a0577eb186c7ac79c1b4172063216a055e0de670
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.50.0'
+      - name: Dependencies
+        run: |
+          if flutter pub get > "$RUNNER_TEMP/punisher-pub.log" 2>&1; then echo "Dependency resolution passed"; else echo "Dependency resolution failed"; exit 1; fi
+      - name: Analyze and test without publishing private source or logs
+        shell: bash
+        run: |
+          set +e
+          flutter analyze > "$RUNNER_TEMP/punisher-analyze.log" 2>&1
+          analyze=$?
+          flutter test --reporter compact > "$RUNNER_TEMP/punisher-test.log" 2>&1
+          tests=$?
+          printf 'Analyzer exit: %s\nTests exit: %s\n' "$analyze" "$tests"
+          test "$analyze" -eq 0 && test "$tests" -eq 0
