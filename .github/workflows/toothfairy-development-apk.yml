@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      SOURCE_SHA: 1a4b8b3661aaa105cff755f14a2827810d515d7c
+      SOURCE_SHA: a075c1fd7f310a1a23ff6e2f67948f26fc886bbd
       IMAGE: unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
     steps:
       - name: Check Unity license and repository access
@@ -162,9 +162,9 @@ jobs:
           src="$RUNNER_TEMP/toothfairy-src"
           report="$RUNNER_TEMP/toothfairy-private/compiler-diagnostics.txt"
           test -d "$src/mobile/Logs" || exit 0
-          # Compiler diagnostics can have absolute paths or leading whitespace; preserve only compiler-error lines privately.
-          grep -hE 'error CS[0-9]{4}' "$src/mobile/Logs/"*.log "$RUNNER_TEMP/toothfairy-private/unity.log" 2>/dev/null | sort -u > "$report" || true
-          test -s "$report" || { echo "No compiler diagnostics available."; exit 0; }
+          # Retain selected project build diagnostics privately, excluding activation and credentials logs.
+          grep -hiE 'error CS[0-9]{4}|BuildFailedException|Exception:|FAILURE: Build failed|Execution failed for task|^\s*\* What went wrong:|^\s*> .*failed|Tests failed|Failed: [1-9]|TOOTHFAIRY_PREPARE_OK|TOOTHFAIRY_BUILD_OK' "$src/mobile/Logs/"*.log 2>/dev/null | sort -u | head -n 200 > "$report" || true
+          test -s "$report" || { echo "No build diagnostics available."; exit 0; }
           test "$(gh repo view Persie0/Toothfairy --json isPrivate --jq .isPrivate)" = true
           diag_branch="ci/diagnostics/toothfairy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           gh api --method POST repos/Persie0/Toothfairy/git/refs -f ref="refs/heads/$diag_branch" -f sha="$SOURCE_SHA" >/dev/null
