@@ -1,0 +1,54 @@
+name: TopTravelList worldwide bias pass 10
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-worldwide-bias-pass10-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/worldwide-bias-audit-20261126
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and regenerate all worldwide rankings
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = d5b832ea7850e70ae2a5ec6102010d3b4860e8da
+          pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/audit_worldwide.py
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          rows={r['id']:r for r in csv.DictReader(Path('methodology/worldwide-diagnostics/records.tsv').open(),delimiter='\t')}
+          expected={'sight-pl-binarowa':'85.00','sight-pl-brunary':'83.40','sight-pl-churches-of-peace':'91.00','sight-pl-debno':'85.65','sight-pl-kwiaton':'84.25','sight-pl-lipnica-murowana':'83.50','sight-pl-owczary':'83.70','sight-pl-powroznik':'83.95','sight-pl-sekowa':'83.45','sight-pl-wooden-churches':'89.10','sight-pl-wooden-tserkvas':'89.10','sight-de-berlin-modernism':'86.95','sight-de-swabian-caves':'88.85','sight-de-upper-german-limes':'85.55','sight-ch-le-corbusier':'86.65'}
+          assert len(rows)==len(list(Path('countries').glob('*/cities/*.yaml')))+len(list(Path('countries').glob('*/sights/*.yaml')))
+          for k,v in expected.items():
+              assert rows[k]['overall']==v,(k,rows[k]['overall'],v)
+              print('Verified',k,v)
+          PY
+          git diff --check
+      - name: Commit generated reports
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md 'countries/*/cities.md' 'countries/*/sights.md' methodology/worldwide-diagnostics
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Regenerate all-country rankings and diagnostic after third 100-record incomplete-core triage'
+            git push origin HEAD:refs/heads/data/worldwide-bias-audit-20261126
+          fi
