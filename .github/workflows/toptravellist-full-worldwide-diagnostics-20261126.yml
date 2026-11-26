@@ -60,6 +60,13 @@ jobs:
           pip install -r requirements.txt
           python scripts/generate_rankings.py
           git add README.md 'countries/*/cities.md' 'countries/*/sights.md'
+          python - <<'PY'
+          from pathlib import Path
+          for name in ('CN/cities.md','CN/sights.md','KH/cities.md'):
+              p=Path('methodology/reviews')/name
+              p.write_text(p.read_text().rstrip()+'\n',encoding='utf-8')
+          PY
+          git add methodology/reviews/CN/cities.md methodology/reviews/CN/sights.md methodology/reviews/KH/cities.md
           git diff --cached --check d8b2c87bb8f3d584f078ab40832df4d2fa30aa3c
           git commit -m 'Integrate expanded 250-area registry and regenerate rankings'
       - name: Validate and screen all source records
