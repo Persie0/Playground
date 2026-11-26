@@ -1,0 +1,77 @@
+name: MicroRWIS revision J.2 compact power optimization
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revj2-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 392c1549de9c9f8c67d015f68cfd28722bd14dea
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Topology and electrical models
+        working-directory: source/road-weather-station
+        run: |
+          node hardware/unified-carrier/verify.mjs
+          node hardware/unified-carrier/noise-envelope.mjs
+          node hardware/buck-boost/damping-precharge.mjs > /tmp/damping.json
+          node hardware/buck-boost/model.mjs > /tmp/power.json
+          node hardware/integrated-carrier/verify.mjs
+          python3 hardware/integrated-carrier/test-resistance.py
+          node server/smoke.mjs
+      - name: KiCad install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad kicad-footprints
+          kicad-cli version
+      - name: Unified board candidate
+        working-directory: source/road-weather-station/hardware/unified-carrier
+        run: |
+          for seed in 11 10 9 1 0 2 3; do
+            p="/tmp/unified-$seed.kicad_pcb"
+            if /usr/bin/python3 ../integrated-carrier/generate.py --design design.json --layers 4 --grid .125 --seed "$seed" --margin .025 --output "$p" && kicad-cli pcb drc --exit-code-violations --severity-error --output /tmp/unified-drc.txt "$p" && /usr/bin/python3 ../buck-boost/geometry-check.py --unified "$p"; then
+              cp "$p" /tmp/unified-accepted.kicad_pcb
+              break
+            fi
+            if test -f /tmp/unified-drc.txt; then grep -E '^\[|\*\* Found' /tmp/unified-drc.txt | sort | uniq -c || true; fi
+          done
+          test -s /tmp/unified-accepted.kicad_pcb
+          # No public manufacturing artifacts; no release.
+      - name: Compact outlines
+        working-directory: source/road-weather-station/hardware/unified-carrier
+        run: |
+          for width in 50 52 54 56 58; do
+            node compact.mjs "$width"
+            p="/tmp/compact-$width.kicad_pcb"
+            if /usr/bin/python3 ../integrated-carrier/generate.py --design design-compact.json --layers 4 --grid .125 --seed 11 --margin .025 --output "$p" && kicad-cli pcb drc --exit-code-violations --severity-error --output /tmp/compact-drc.txt "$p" && /usr/bin/python3 ../buck-boost/geometry-check.py --unified "$p"; then
+              echo "Compact accepted width=$width"
+              cp "$p" /tmp/compact-accepted.kicad_pcb
+              break
+            fi
+          done
+          test -s /tmp/compact-accepted.kicad_pcb
+      - name: DRC-gated power optimization
+        working-directory: source/road-weather-station/hardware/unified-carrier
+        run: |
+          /usr/bin/python3 ../integrated-carrier/extract-network.py --unified /tmp/compact-accepted.kicad_pcb | tee /tmp/before.jsonl
+          /usr/bin/python3 ../integrated-carrier/optimize-power.py --unified /tmp/compact-accepted.kicad_pcb /tmp/widened.kicad_pcb --max-checks 150
+          /usr/bin/python3 ../buck-boost/geometry-check.py --unified /tmp/widened.kicad_pcb
+          /usr/bin/python3 ../integrated-carrier/extract-network.py --unified /tmp/widened.kicad_pcb | tee /tmp/after.jsonl
+          node compare-power.mjs /tmp/before.jsonl /tmp/after.jsonl
+      - name: Experimental ground copper fill
+        working-directory: source/road-weather-station/hardware/unified-carrier
+        run: |
+          /usr/bin/python3 ../integrated-carrier/ground-pour.py /tmp/widened.kicad_pcb /tmp/poured.kicad_pcb
+          /usr/bin/python3 ../buck-boost/geometry-check.py --unified /tmp/poured.kicad_pcb
+          # No manufacturing release or public CAD artifacts.
