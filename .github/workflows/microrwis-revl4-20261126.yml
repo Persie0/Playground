@@ -1,0 +1,38 @@
+name: MicroRWIS L.4 Waldviertel winter sensor qualification
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revl4-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 75be310486c06d3c4d46fe98c16ce8f841c69fd1
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Winter sensor advisory and simulation
+        working-directory: source/road-weather-station
+        run: |
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/winter-qualification/test.cpp -o /tmp/winter
+          /tmp/winter
+          node hardware/winter-qualification/model.mjs
+          node hardware/solar-charger/timer-envelope.mjs
+      - name: Existing charger, energy and firmware regressions
+        working-directory: source/road-weather-station
+        run: |
+          node hardware/solar-charger/verify.mjs
+          node hardware/solar-charger/model.mjs
+          node hardware/solar-variant/season.mjs
+          c++ -std=c++17 -Wall -Wextra -Werror simulation/rev-c-policy.cpp -o /tmp/policy
+          /tmp/policy
+          node server/smoke.mjs
