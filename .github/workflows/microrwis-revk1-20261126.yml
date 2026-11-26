@@ -1,0 +1,55 @@
+name: MicroRWIS revision K.1 scaled ADC bench protection
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revk1-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 2b280d6b21babaacd7f8c4d3bdeb8f7003df2baa
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Sensor and existing model regressions
+        working-directory: source/road-weather-station
+        run: |
+          node hardware/sensor-protection/model.mjs
+          node hardware/road-adc-protection/model.mjs
+          node hardware/unified-carrier/periodic-noise.mjs
+          node hardware/unified-carrier/verify.mjs
+          node hardware/buck-boost/damping-precharge.mjs > /tmp/damping.json
+          node server/smoke.mjs
+      - name: KiCad and SPICE install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad kicad-footprints ngspice
+      - name: Independent protection DC comparisons
+        working-directory: source/road-weather-station/hardware/sensor-protection
+        run: python3 spice-check.py
+      - name: Secondary clamp independent DC comparisons
+        working-directory: source/road-weather-station/hardware/road-adc-protection
+        run: python3 spice-check.py
+      - name: Route separate protection candidate
+        working-directory: source/road-weather-station/hardware/road-adc-protection
+        run: |
+          for layers in 2 4; do
+            for seed in 9 1 0; do
+              p="/tmp/sensor-protection-$layers-$seed.kicad_pcb"
+              if /usr/bin/python3 ../integrated-carrier/generate.py --design design.json --layers "$layers" --grid .125 --seed "$seed" --margin .025 --output "$p" && kicad-cli pcb drc --exit-code-violations --severity-error --output /tmp/protection-drc.txt "$p"; then
+                echo "Accepted layers=$layers seed=$seed"
+                exit 0
+              fi
+            done
+          done
+          exit 1
+          # No fabrication release, no public CAD artifacts.
