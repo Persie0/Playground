@@ -1,0 +1,56 @@
+name: MicroRWIS revision I.2 switch routing correction
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revi2-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 324052ed65ce93cf44df08864b00d38f78a2f346
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Electrical envelope and regression
+        working-directory: source/road-weather-station
+        run: |
+          node hardware/buck-boost/model.mjs
+          node hardware/buck-boost/input-pulse.mjs
+          node hardware/integrated-carrier/verify.mjs
+          python3 hardware/integrated-carrier/test-resistance.py
+          node simulation/rev-d.mjs > /tmp/revd.json
+          node server/smoke.mjs
+      - name: KiCad install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad kicad-footprints
+          kicad-cli version
+      - name: Generate converter candidate and verify DRC
+        working-directory: source/road-weather-station/hardware/buck-boost
+        run: |
+          /usr/bin/python3 ../integrated-carrier/generate.py --design design.json --placement-only --layers 4 --grid .125 --output /tmp/bb-placement.kicad_pcb
+          for seed in 10 9 1 0 2 3 4; do
+            p="/tmp/bb-$seed.kicad_pcb"
+            if /usr/bin/python3 ../integrated-carrier/generate.py --design design.json --layers 4 --grid .125 --seed "$seed" --margin .025 --output "$p" && kicad-cli pcb drc --exit-code-violations --severity-error --output /tmp/bb-drc.txt "$p"; then
+              cp "$p" /tmp/bb-accepted.kicad_pcb
+              break
+            fi
+            if test -f /tmp/bb-drc.txt; then grep -E '^\[|\*\* Found' /tmp/bb-drc.txt | sort | uniq -c || true; fi
+          done
+          test -s /tmp/bb-accepted.kicad_pcb
+          /usr/bin/python3 geometry-check.py /tmp/bb-accepted.kicad_pcb
+          # Switching layout needs separate review; no fabrication export yet.
+      - name: Revalidate existing carrier generation
+        working-directory: source/road-weather-station/hardware/integrated-carrier
+        run: |
+          /usr/bin/python3 generate.py --layers 4 --seed 9 --grid .25 --spread 1.0 --margin .10 --output /tmp/carrier.kicad_pcb
+          kicad-cli pcb drc --exit-code-violations --severity-error --output /tmp/carrier-drc.txt /tmp/carrier.kicad_pcb
