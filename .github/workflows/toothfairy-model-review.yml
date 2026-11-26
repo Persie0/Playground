@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      SOURCE_SHA: d2db5b43d96cb149edb886e3eaab68e7d0336f47
+      SOURCE_SHA: f6cc725cd50368e8aab9d4cae6c90b7ac6fdc65c
       PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
     steps:
       - name: Render actual Blender rig and save review images privately
@@ -39,9 +39,19 @@ jobs:
             rm "$archive"
           ) >>"$log" 2>&1
           blender="$d/blender/blender-4.2.23-linux-x64/blender"
-          # Render the exact checked-in asset (not a new illustration).
+          # Regenerate, verify and render the revised source, preserving the full rig.
+          mkdir -p "$d/generated"
+          "$blender" -b --python-exit-code 1 -P "$d/src/assets-source/create_fairy.py" -- "$d/generated/Fairy.blend" >"$d/generate.log" 2>&1 || { echo "::error::Fairy generation failed."; exit 1; }
+          expected="$(sed -nE 's/^Generated optimized fairy rig: [0-9]+ meshes, ([0-9]+) triangles, [0-9]+ bones$/\1/p' "$d/generate.log" | tail -1)"
+          test -n "$expected"
+          "$blender" -b --python-exit-code 1 -P "$d/src/assets-source/verify_fairy.py" -- "$d/generated/Fairy.fbx" "$expected" >"$d/verify.log" 2>&1 || { echo "::error::FBX roundtrip failed."; exit 1; }
           sed -e 's/samples=24/samples=12/' -e 's/resolution_x=720;scene.render.resolution_y=900/resolution_x=480;scene.render.resolution_y=600/' -e "s/file_format='PNG'/file_format='JPEG';scene.render.image_settings.quality=85/" -e "s/\.png/\.jpg/g" "$d/src/assets-source/render_fairy_review.py" > "$d/render.py"
-          "$blender" -b "$d/src/assets-source/Fairy.blend" --python-exit-code 1 -P "$d/render.py" -- "$d/review" >>"$log" 2>&1
+          "$blender" -b "$d/generated/Fairy.blend" --python-exit-code 1 -P "$d/render.py" -- "$d/review" >>"$log" 2>&1
+          cp "$d/generated/Fairy.blend" "$d/src/assets-source/Fairy.blend"
+          cp "$d/generated/Fairy.fbx" "$d/src/mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx"
+          git -C "$d/src" add -- assets-source/Fairy.blend mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx
+          git -C "$d/src" -c user.name="Toothfairy CI" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Regenerate V5 sculpt and verified smooth-arm rig" >>"$log" 2>&1
+          git -C "$d/src" -c "http.extraheader=AUTHORIZATION: basic $auth" push --quiet origin HEAD:refs/heads/feature/fairy-face-parent-unlock >>"$log" 2>&1
           mkdir -p "$d/src/.ci/model-review"
           cp "$d/review/"*.jpg "$d/src/.ci/model-review/"
           test "$(find "$d/src/.ci/model-review" -name '*.jpg' | wc -l)" -eq 3
@@ -49,6 +59,23 @@ jobs:
           git -C "$d/src" -c user.name="Toothfairy CI" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Private visual review of exact fairy rig" >>"$log" 2>&1
           git -C "$d/src" -c "http.extraheader=AUTHORIZATION: basic $auth" push --quiet origin HEAD:refs/heads/ci/model-review/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT >>"$log" 2>&1
           echo "Three review images saved privately."
+      - name: Retain generation diagnostics privately
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/toothfairy-review"
+          test -d "$d/src/.git" || exit 0
+          mkdir -p "$d/src/.ci/model-review"
+          for stage in generate verify; do
+            if [[ -s "$d/$stage.log" ]]; then tail -n 40 "$d/$stage.log" >>"$d/src/.ci/model-review/diagnostics.txt"; fi
+          done
+          test -s "$d/src/.ci/model-review/diagnostics.txt" || exit 0
+          git -C "$d/src" add -- .ci/model-review/diagnostics.txt
+          git -C "$d/src" -c user.name="Toothfairy CI" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Private model generation diagnostics" >/dev/null
+          auth="$(printf 'x-access-token:%s' "$PRIVATE_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          git -C "$d/src" -c "http.extraheader=AUTHORIZATION: basic $auth" push --quiet origin HEAD:refs/heads/ci/model-review/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT >/dev/null 2>&1
       - name: Cleanup
         if: always()
         run: sudo rm -rf "$RUNNER_TEMP/toothfairy-review"
