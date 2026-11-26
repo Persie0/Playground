@@ -1,0 +1,69 @@
+name: TopTravelList worldwide bias pass 103
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-worldwide-bias-pass103-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/worldwide-bias-audit-pass103
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate ratings, regenerate rankings and reconcile backlog
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = ee41f02b0e7e9a5f66071561bac78ad70e49b46c
+          pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/audit_worldwide.py
+          python scripts/reconcile_worldwide_backlog.py --verify-baseline
+          python scripts/reconcile_worldwide_backlog.py --check
+          python - <<'PY'
+          import csv, subprocess, yaml
+          from pathlib import Path
+          expected={"IT/sights/condominio-theatres":("89.85",dict(impact=8.8,experience=8.7,depth=8.8)),"IT/sights/papal-villas":("90.60",dict(impact=9.1,experience=9.1,depth=9.2)),"ES/sights/la-palma-engravings":("88.55",dict(impact=8.5,experience=8.5,depth=8.7)),"ES/sights/mediterranean-rock-art":("90.65",dict(impact=8.7,experience=8.8,depth=9.1)),"ES/sights/mozarabic-buildings":("88.90",dict(experience=8.7,depth=8.9)),"ES/sights/frontier-forts":("88.25",dict(experience=8.8,depth=9.0)),"ES/sights/paper-mills":("86.05",dict(impact=8.1,experience=8.7,depth=8.5))}
+          def read(p):
+              with Path(p).open() as f:
+                  return list(csv.DictReader(f,delimiter='\t'))
+          rows=read('methodology/worldwide-diagnostics/records.tsv')
+          bysource={r['source']:r for r in rows}
+          for path,(score,changes) in expected.items():
+              p='countries/'+path+'.yaml'
+              old=yaml.safe_load(subprocess.check_output(['git','show','38421f345455ce992809c13a0a26f8d89d24f299:'+p],text=True))
+              assert all(old['scores'][k] is None for k in changes)
+              old['scores'].update(changes)
+              assert old==yaml.safe_load(Path(p).read_text())
+              assert bysource[p]['overall']==score,(p,bysource[p]['overall'])
+          q=read('methodology/worldwide-backlog/remaining.tsv')
+          h=read('methodology/worldwide-backlog/original-inventory.tsv')
+          assert len(rows)==16269 and len(q)==994
+          assert {r['source'] for r in q}=={r['source'] for r in rows if 'incomplete-core' in r['flags'].split(';')}
+          assert len(h)==1590 and sum(r['current_status']=='complete' for r in h)==596
+          print('Verified all seven scores, 19 new fields and exact live queue.')
+          PY
+          git diff --check
+      - name: Commit generated reports
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md 'countries/*/cities.md' 'countries/*/sights.md' methodology/worldwide-diagnostics methodology/worldwide-backlog
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Regenerate worldwide rankings, diagnostic and live backlog after pass 103'
+            git push origin HEAD:refs/heads/data/worldwide-bias-audit-pass103
+          fi
