@@ -7,13 +7,13 @@ permissions:
   contents: read
 jobs:
   android:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/BackgroundVideoRemover
-          ref: fix/impeccable-editor-ux
+          ref: 3a69944045b66ec016abb4f8a7d5c827909e1823
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: source
@@ -23,19 +23,16 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.6'
+          gradle-version: '9.6.1'
           cache-disabled: true
       - name: Compile and test
         working-directory: source/android
         shell: bash
         run: |
           set -euo pipefail
-          if ! sdkmanager --list | grep -q 'platforms;android-37 '; then
-            sdkmanager 'platforms;android-36'
-            sed -i 's/compileSdk = 37/compileSdk = 36/;s/targetSdk = 37/targetSdk = 36/;s/2026.09.00/2026.05.00/' app/build.gradle.kts
-          else
-            sdkmanager 'platforms;android-37'
-          fi
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          sed -i 's/compileSdk = 37/compileSdk = 36/;s/targetSdk = 37/targetSdk = 36/;s/2026.09.00/2026.05.00/' app/build.gradle.kts
           if gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug > "$RUNNER_TEMP/editor-android.log" 2>&1; then
             echo 'Android unit tests and debug compilation passed.'
           else
@@ -43,13 +40,13 @@ jobs:
             exit 1
           fi
   ios:
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/BackgroundVideoRemover
-          ref: fix/impeccable-editor-ux
+          ref: 3a69944045b66ec016abb4f8a7d5c827909e1823
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: source
