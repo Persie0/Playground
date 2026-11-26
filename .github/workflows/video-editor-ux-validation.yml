@@ -42,29 +42,41 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Run UI regression tests
+      - name: Prepare explicit test runner
+        run: |
+          cat > "$RUNNER_TEMP/native-ux-tests.sh" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cd app-src
+          for spec in EditorAccessibilityTest:5 UpscalerHomeInstrumentedTest:5 EditorNavigationInstrumentedTest:2; do
+            cls="${spec%:*}"
+            count="${spec#*:}"
+            if ! ./gradlew :app:connectedDebugAndroidTest "-Pandroid.testInstrumentationRunnerArguments.class=at.persie0.VideoUpscaler.$cls" --no-daemon --console=plain > /tmp/native-ux-device.log 2>&1; then
+              echo "::error::$cls device tests failed"
+              exit 1
+            fi
+            python3 - "$cls" "$count" <<'PY'
+          import pathlib, sys, xml.etree.ElementTree as ET
+          cls, expected = sys.argv[1], int(sys.argv[2])
+          cases = []
+          for file in pathlib.Path("app/build/outputs/androidTest-results").rglob("TEST-*.xml"):
+              root = ET.parse(file).getroot()
+              cases += [case for case in root.iter("testcase") if case.get("classname", "").endswith("." + cls)]
+          passed = sum(not any(case.find(tag) is not None for tag in ("failure", "error", "skipped")) for case in cases)
+          print(f"{cls}: {passed}/{expected} passed (found {len(cases)})")
+          if len(cases) != expected or passed != expected:
+              sys.exit("Missing or unsuccessful device tests")
+          PY
+          done
+          SH
+      - name: Run all three UI regression classes
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: >-
-            cd app-src &&
-            ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=at.persie0.VideoUpscaler.EditorAccessibilityTest,at.persie0.VideoUpscaler.UpscalerHomeInstrumentedTest,at.persie0.VideoUpscaler.EditorNavigationInstrumentedTest --no-daemon --console=plain > /tmp/native-ux-device.log 2>&1
-            || { echo "::error::UI regression tests failed"; exit 1; }
-      - name: Summarize UI test results without exposing source
-        if: always()
-        run: |
-          python3 - <<'PY'
-          import pathlib, xml.etree.ElementTree as ET
-          files = list(pathlib.Path("app-src/app/build/outputs/androidTest-results").rglob("TEST-*.xml"))
-          for file in files:
-              root = ET.parse(file).getroot()
-              print("Tests:", root.get("tests"), "Failures:", root.get("failures"), "Errors:", root.get("errors"))
-              for case in root.iter("testcase"):
-                  print(case.get("name"), "FAILED" if case.find("failure") is not None or case.find("error") is not None else "PASSED")
-          PY
+          script: bash "$RUNNER_TEMP/native-ux-tests.sh"
       - name: Remove private build output
         if: always()
         run: rm -f /tmp/sdk-install.log /tmp/native-ux-build.log /tmp/native-ux-device.log
