@@ -16,11 +16,12 @@ jobs:
       - name: Checkout private TeamHub with first accessible configured token
         shell: bash
         env:
+          PERZIS_TOKEN: ${{ secrets.PERZIS_TOKEN }}
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
         run: |
-          for candidate in "$PRIVATE_REPO_TOKEN" "$GH_TOKEN" "$GH_RELEASE_TOKEN"; do
+          for candidate in "$PERZIS_TOKEN" "$PRIVATE_REPO_TOKEN" "$GH_TOKEN" "$GH_RELEASE_TOKEN"; do
             if [ -z "$candidate" ]; then continue; fi
             header=$(printf 'x-access-token:%s' "$candidate" | base64 -w0)
             if git -c "http.extraHeader=AUTHORIZATION: basic $header" clone \
@@ -42,8 +43,21 @@ jobs:
         working-directory: teamhub-src
         run: flutter pub get
       - name: Analyze code
+        id: analysis
+        continue-on-error: true
         working-directory: teamhub-src
         run: flutter analyze --no-pub --no-fatal-infos
       - name: Run Flutter widget and unit tests
+        id: tests
+        continue-on-error: true
         working-directory: teamhub-src
         run: flutter test --no-pub
+
+      - name: Require both checks to pass
+        if: always()
+        env:
+          ANALYSIS: ${{ steps.analysis.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+        run: |
+          printf 'Analysis: %s\nTests: %s\n' "$ANALYSIS" "$TESTS"
+          test "$ANALYSIS" = success && test "$TESTS" = success
