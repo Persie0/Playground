@@ -1,0 +1,118 @@
+name: TeamHub native visual audit
+on:
+  push:
+    branches: [ci/teamhub-native-audit-20261126]
+    paths: [.github/workflows/teamhub-native-audit-20261126.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: teamhub-native-visual-audit
+  cancel-in-progress: false
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private source at audited revision
+        uses: actions/checkout@v4
+        with:
+          repository: perzis/teamplus_clone
+          ref: 9407cbb7f6fa68d4c4f9458731b7a6f06486fcb9
+          token: ${{ secrets.PERZIS_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Build isolated demo APK
+        working-directory: source
+        run: |
+          flutter pub get
+          flutter build apk --debug --target-platform android-x64 --dart-define=API_BASE_URL=https://example.invalid
+      - name: Enable emulator virtualization
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Prepare private demo capture script
+        run: |
+          cat > /tmp/teamhub-audit.py <<'PY'
+          import base64, pathlib, re, subprocess, time, xml.etree.ElementTree as ET
+          target = pathlib.Path("source/.ux-native/android")
+          target.mkdir(parents=True, exist_ok=True)
+          def adb(*args):
+              return subprocess.check_output(["adb", *args])
+          def tree():
+              adb("shell", "uiautomator", "dump", "/sdcard/teamhub-ui.xml")
+              return adb("shell", "cat", "/sdcard/teamhub-ui.xml")
+          def tap_label(label, attempts=3):
+              for _ in range(attempts):
+                  root = ET.fromstring(tree())
+                  for node in root.iter("node"):
+                      value = node.get("text", "") + " " + node.get("content-desc", "")
+                      if label.casefold() in value.casefold():
+                          bounds = [int(x) for x in re.findall(r"\d+", node.get("bounds", ""))]
+                          if len(bounds) == 4 and bounds[2] > bounds[0] and bounds[3] > bounds[1]:
+                              adb("shell", "input", "tap", str((bounds[0]+bounds[2])//2), str((bounds[1]+bounds[3])//2))
+                              time.sleep(2)
+                              return True
+                  adb("shell", "input", "swipe", "200", "700", "200", "250", "400")
+                  time.sleep(1)
+              return False
+          def capture(name):
+              data = adb("exec-out", "screencap", "-p")
+              if not data.startswith(b"\x89PNG"): raise RuntimeError("Invalid screenshot")
+              (target / (name + ".b64.txt")).write_text(base64.b64encode(data).decode())
+              (target / (name + ".xml")).write_bytes(tree())
+              print("Captured", name, flush=True)
+          adb("shell","wm","size","390x844")
+          adb("shell","wm","density","160")
+          adb("shell","settings","put","system","font_scale","1.0")
+          adb("shell","am","start","-n","com.example.teamplus_clone/.MainActivity")
+          time.sleep(8)
+          capture("01-login")
+          if not tap_label("App zuerst offline ausprobieren"):
+              raise RuntimeError("Could not locate offline demo entry")
+          capture("02-overview")
+          for label, name in [("Termine","03-events"),("Team","04-members"),("News","05-feed")]:
+              if tap_label(label, 1):
+                  capture(name)
+              else:
+                  print("Could not locate tab:", label)
+          adb("shell","settings","put","system","font_scale","1.8")
+          time.sleep(4)
+          capture("06-large-text-current")
+          adb("shell","settings","put","system","font_scale","1.0")
+          PY
+      - name: Capture Android screens with synthetic demo data
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            adb install -r source/build/app/outputs/flutter-apk/app-debug.apk
+            python3 /tmp/teamhub-audit.py
+      - name: Save captures exclusively in the private audit branch
+        if: always()
+        working-directory: source
+        env:
+          REPO_TOKEN: ${{ secrets.PERZIS_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          test -d .ux-native/android || exit 1
+          git config user.name 'teamhub-visual-audit'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -f .ux-native/android
+          git commit -m 'audit: demo-only Android captures [skip ci]'
+          header=$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)
+          echo "::add-mask::$header"
+          git -c "http.extraHeader=AUTHORIZATION: basic $header" push origin HEAD:refs/heads/audit/teamhub-native-visual-20261126
