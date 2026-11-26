@@ -1,0 +1,125 @@
+name: TopTravelList missing sights PR 249 validation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-missing-sights-pr249-validation-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-missing-sights-pr249
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          ref: audit/missing-sights-cultural-20261126
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and regenerate private audit branch
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python -m pip install -r requirements.txt >/tmp/ttl-install.log 2>&1
+          branch=audit/missing-sights-cultural-20261126
+          git fetch origin main "$branch" >/tmp/ttl-fetch.log 2>&1
+          git checkout -B "$branch" "origin/$branch" >/tmp/ttl-checkout.log 2>&1
+          if ! git merge --no-edit origin/main >/tmp/ttl-merge.log 2>&1; then
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            for file in "${conflicts[@]}"; do
+              if [[ "$file" != README.md && ! "$file" =~ ^countries/[A-Z]{2}/(cities|sights)\.md$ && "$file" != methodology/worldwide-diagnostics/README.md && "$file" != methodology/worldwide-diagnostics/records.tsv ]]; then
+                git merge --abort
+                echo 'Unexpected source conflict; stopped without pushing.'
+                exit 1
+              fi
+            done
+            for file in "${conflicts[@]}"; do git checkout --theirs -- "$file"; git add "$file"; done
+            git commit --no-edit >/tmp/ttl-merge-commit.log 2>&1
+          fi
+          # Only normalize the review headers and dimension labels for audit-added records.
+          # Source ratings and existing review history are never changed.
+          python - <<'PY' >/tmp/ttl-reviews-format.log 2>&1
+          import re, subprocess
+          from pathlib import Path
+          from collections import defaultdict
+          paths=subprocess.check_output(['git','diff','--diff-filter=A','--name-only','origin/main...HEAD'],text=True).splitlines()
+          by_country=defaultdict(set)
+          for p in paths:
+              m=re.fullmatch(r'countries/([A-Z]{2})/sights/([a-z0-9-]+)\.yaml',p)
+              if m:
+                  cc,slug=m.groups()
+                  by_country[cc].add(f'sight-{cc.lower()}-{slug}')
+          assert sum(map(len,by_country.values()))>=135
+          for cc,ids in by_country.items():
+              root=Path('methodology/reviews')/cc
+              for p in root.glob('sights*.md'):
+                  txt=p.read_text(encoding='utf-8')
+                  header=re.compile(r'^#{2,4} (sight-[a-z]{2}-[a-z0-9-]+)\s+[—-]\s+',re.M)
+                  matches=list(header.finditer(txt))
+                  for i in range(len(matches)-1,-1,-1):
+                      m=matches[i]
+                      if m.group(1) not in ids: continue
+                      end=matches[i+1].start() if i+1<len(matches) else len(txt)
+                      section=txt[m.start():end]
+                      section=re.sub(r'^#{2,4} (sight-)',r'## \1',section,count=1)
+                      section=re.sub(r'(?m)^(\| )(impact|uniqueness|significance|experience|depth)( \|)',lambda x:x[1]+x[2].capitalize()+x[3],section)
+                      txt=txt[:m.start()]+section+txt[end:]
+                  p.write_text(txt,encoding='utf-8')
+          PY
+          report=methodology/missing-sights-validation-pr249-2026-11-26.md
+          printf '# Missing-sights PR 249 validation\n\nSnapshot: `%s`\n\n' "$(git rev-parse HEAD)" > "$report"
+          failed=0
+          check() {
+            local label="$1"; shift
+            local log="/tmp/ttl-${label}.log"
+            if "$@" >"$log" 2>&1; then
+              printf -- '- %s: PASS\n' "$label" >> "$report"
+              echo "$label: PASS"
+            else
+              printf -- '- %s: FAIL\n' "$label" >> "$report"
+              printf '\n```text\n' >> "$report"
+              tail -n 80 "$log" >> "$report"
+              printf '\n```\n\n' >> "$report"
+              echo "$label: FAIL (details retained in private repository if published)"
+              failed=1
+            fi
+          }
+          check schema python scripts/validate.py
+          check city-benchmarks python scripts/check_city_benchmarks.py
+          check sight-benchmarks python scripts/check_sight_benchmarks.py
+          check regenerate python scripts/generate_rankings.py
+          check ranking-freshness python scripts/generate_rankings.py --check
+          check diagnostics python scripts/audit_worldwide.py
+          check city-leaders python scripts/rank.py --kind cities --limit 60
+          check sight-leaders python scripts/rank.py --kind sights --limit 60
+          for cc in AU CA CH DE EG ES FR GB IS IT MA MG NO NZ PT RO SE TZ US ZA; do
+            check "reviews-$cc" python scripts/check_new_country_reviews.py --country "$cc"
+          done
+          # Ensure no source YAML, scoring weights or executable scripts are changed by regeneration.
+          if git diff --name-only | grep -Eq '\.ya?ml$|^scripts/|^methodology/scoring\.json$'; then
+            echo 'Unexpected source change; stopped without pushing.'
+            exit 1
+          fi
+          git add README.md countries methodology/reviews methodology/worldwide-diagnostics "$report"
+          git diff --cached --check >/tmp/ttl-diff-check.log 2>&1
+          if ! git diff --cached --quiet; then
+            git commit -m 'Run PR 249 validators and refresh generated rankings and diagnostics' >/tmp/ttl-commit.log 2>&1
+          fi
+          git push origin "HEAD:refs/heads/$branch" >/tmp/ttl-push.log 2>&1
+          echo 'Validation report and generated files pushed to audit branch only.'
+          if [[ "$failed" != 0 ]]; then
+            echo 'One or more checks failed; review the private validation report.'
+            exit 1
+          fi
+          echo 'All invoked checks passed. No automatic PR merge.'
