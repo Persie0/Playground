@@ -1,0 +1,80 @@
+name: MicroRWIS revision H.6 power and ground optimization
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revh6-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: c5d7653ff07c722328c9fcdf6fa39432e4354c56
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Netlist and regression
+        working-directory: source/road-weather-station
+        run: |
+          python3 hardware/integrated-carrier/test-resistance.py
+          node hardware/integrated-carrier/verify.mjs
+          node hardware/integrated-carrier/power-model.mjs > /tmp/power.json
+          node hardware/integrated-carrier/pulse-model.mjs
+          node simulation/rev-g-timer.mjs > /tmp/timer.json
+          node simulation/rev-d.mjs > /tmp/revd.json
+          node server/smoke.mjs
+      - name: KiCad install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad kicad-footprints
+          kicad-cli version
+          /usr/bin/python3 -c 'import pcbnew; print(pcbnew.Version())'
+      - name: Generate and validate integrated candidate
+        working-directory: source/road-weather-station/hardware/integrated-carrier
+        run: |
+          /usr/bin/python3 generate.py --placement-only --output /tmp/placement.kicad_pcb
+          bash route-check.sh /tmp/rwis-carrier
+          cp /tmp/rwis-carrier/carrier.kicad_pcb /tmp/carrier.kicad_pcb
+          /usr/bin/python3 extract-power.py /tmp/carrier.kicad_pcb
+          /usr/bin/python3 extract-network.py /tmp/carrier.kicad_pcb | tee /tmp/baseline-network.jsonl
+          mkdir -p /tmp/carrier-gerbers
+          kicad-cli pcb export gerbers --output /tmp/carrier-gerbers/ /tmp/carrier.kicad_pcb
+          kicad-cli pcb export drill --output /tmp/carrier-gerbers/ /tmp/carrier.kicad_pcb
+          for ext in gtl gbl gts gbs gto gm1 drl; do
+            test "$(find /tmp/carrier-gerbers -name "*.$ext" -size +0c | wc -l)" -ge 1
+          done
+          # Do not publish private CAD artifacts to public CI.
+      - name: Widen supply routes and compare resistance
+        working-directory: source/road-weather-station/hardware/integrated-carrier
+        run: |
+          /usr/bin/python3 optimize-power.py /tmp/carrier.kicad_pcb /tmp/widened.kicad_pcb --max-checks 110
+          /usr/bin/python3 extract-network.py /tmp/widened.kicad_pcb | tee /tmp/widened-network.jsonl
+          python3 - <<'PY'
+          import json
+          def read(name):
+              return {(x["net"],x["from"],x["to"]):x["effective_mOhm"] for x in map(json.loads,open(name))}
+          a=read("/tmp/baseline-network.jsonl")
+          b=read("/tmp/widened-network.jsonl")
+          assert a.keys()==b.keys()
+          for k in a:
+              assert b[k]<=a[k]+.001,(k,a[k],b[k])
+              print(k,a[k],b[k],"mOhm")
+          assert any(b[k]<a[k]-.01 for k in a)
+          PY
+      - name: Experimental inner ground pour
+        working-directory: source/road-weather-station/hardware/integrated-carrier
+        run: |
+          /usr/bin/python3 ground-pour.py /tmp/widened.kicad_pcb /tmp/ground-pour.kicad_pcb
+          mkdir -p /tmp/ground-gerbers
+          kicad-cli pcb export gerbers --output /tmp/ground-gerbers/ /tmp/ground-pour.kicad_pcb
+          kicad-cli pcb export drill --output /tmp/ground-gerbers/ /tmp/ground-pour.kicad_pcb
+          for ext in gtl gbl g1 g2 gts gbs gto gm1 drl; do
+            test "$(find /tmp/ground-gerbers -name "*.$ext" -size +0c | wc -l)" -ge 1
+          done
