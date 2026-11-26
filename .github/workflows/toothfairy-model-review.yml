@@ -1,0 +1,60 @@
+name: Toothfairy private model review
+on:
+  push:
+    branches: [ci/toothfairy-model-review]
+    paths: [.github/workflows/toothfairy-model-review.yml]
+permissions:
+  contents: read
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SOURCE_SHA: d2db5b43d96cb149edb886e3eaab68e7d0336f47
+      PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - name: Render actual Blender rig and save review images privately
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          d="$RUNNER_TEMP/toothfairy-review"
+          mkdir -p "$d/src" "$d/blender" "$d/review"
+          log="$d/review.log"
+          auth="$(printf 'x-access-token:%s' "$PRIVATE_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          git -C "$d/src" init -q
+          git -C "$d/src" remote add origin https://github.com/Persie0/Toothfairy.git
+          git -C "$d/src" -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --quiet --depth=1 origin "$SOURCE_SHA" >"$log" 2>&1
+          git -C "$d/src" checkout -q --detach FETCH_HEAD
+          (
+            cd "$d/blender"
+            version=4.2.23
+            archive="blender-$version-linux-x64.tar.xz"
+            url="https://download.blender.org/release/Blender4.2"
+            curl -fsSL --retry 3 "$url/$archive" -o "$archive"
+            curl -fsSL --retry 3 "$url/blender-$version.sha256" -o checksums
+            grep -E "[[:space:]]\\*?$archive$" checksums | sha256sum -c -
+            tar -xf "$archive"
+            rm "$archive"
+          ) >>"$log" 2>&1
+          blender="$d/blender/blender-4.2.23-linux-x64/blender"
+          # Render the exact checked-in asset (not a new illustration).
+          sed -e 's/samples=24/samples=12/' -e 's/resolution_x=720;scene.render.resolution_y=900/resolution_x=480;scene.render.resolution_y=600/' "$d/src/assets-source/render_fairy_review.py" > "$d/render.py"
+          "$blender" -b "$d/src/assets-source/Fairy.blend" --python-exit-code 1 -P "$d/render.py" -- "$d/review" >>"$log" 2>&1
+          mkdir -p "$d/src/.ci/model-review"
+          python3 - "$d/review" "$d/src/.ci/model-review" <<'PY'
+          import sys
+          from pathlib import Path
+          from PIL import Image
+          for file in Path(sys.argv[1]).glob('*.png'):
+              Image.open(file).convert('RGB').save(Path(sys.argv[2])/(file.stem+'.jpg'),quality=83,optimize=True)
+          PY
+          test "$(find "$d/src/.ci/model-review" -name '*.jpg' | wc -l)" -eq 3
+          git -C "$d/src" add -- .ci/model-review
+          git -C "$d/src" -c user.name="Toothfairy CI" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Private visual review of exact fairy rig" >>"$log" 2>&1
+          git -C "$d/src" -c "http.extraheader=AUTHORIZATION: basic $auth" push --quiet origin HEAD:refs/heads/ci/model-review/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT >>"$log" 2>&1
+          echo "Three review images saved privately."
+      - name: Cleanup
+        if: always()
+        run: sudo rm -rf "$RUNNER_TEMP/toothfairy-review"
