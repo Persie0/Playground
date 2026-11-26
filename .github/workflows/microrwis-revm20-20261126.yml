@@ -1,0 +1,63 @@
+name: MicroRWIS M.20 optical fault and cable exit
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revm20-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 389c93c07d17a68d52aaf6c3081a1a41cb1fcec4
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Optical geometry radiance energy and firmware tests
+        working-directory: source/road-weather-station
+        run: |
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test.cpp -o /tmp/post-test
+          /tmp/post-test
+          node hardware/leitpflock/model.mjs
+          node hardware/leitpflock/obstruction.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test-window.cpp -o /tmp/window-test
+          /tmp/window-test
+          node hardware/leitpflock/window-model.mjs
+          node hardware/leitpflock/witness-regions.mjs
+          node hardware/leitpflock/window-calibration.mjs
+          node hardware/leitpflock/test-calibration-record.mjs
+          node hardware/leitpflock/mechanical/environment-rf.mjs
+          node hardware/leitpflock/mechanical/seal-moisture.mjs
+          node hardware/leitpflock/mechanical/seal-optimize.mjs
+          node hardware/leitpflock/air-head/model.mjs
+          node hardware/leitpflock/air-head/thermal-harness.mjs
+          node hardware/leitpflock/air-head/flex/model.mjs
+          node hardware/leitpflock/air-head/fit-m18.mjs
+          node hardware/leitpflock/air-head/exit-m20.mjs
+          node hardware/leitpflock/optical-head/model.mjs
+          node hardware/leitpflock/fit-model.mjs
+          node hardware/leitpflock/power-gate/model.mjs
+          node hardware/leitpflock/timed-gate/model.mjs
+          node hardware/leitpflock/watchdog-study.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/optical-head/test-mlx-bus.cpp -o /tmp/mlx-test
+          /tmp/mlx-test
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined -Ihardware/leitpflock firmware/leitpflock/test-commissioning.cpp -o /tmp/commissioning-test
+          /tmp/commissioning-test
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/power-gate/test.cpp -o /tmp/gate-test
+          /tmp/gate-test
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/optical-head/test-sequence.cpp -o /tmp/ir-seq
+          /tmp/ir-seq
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test-frame.cpp -o /tmp/frame-test
+          /tmp/frame-test
+          node hardware/leitpflock/test-telemetry.mjs
+          node hardware/leitpflock/carrier/verify.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror simulation/rev-c-policy.cpp -o /tmp/policy
+          /tmp/policy
+          node server/smoke.mjs
