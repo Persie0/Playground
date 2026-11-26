@@ -1,0 +1,47 @@
+name: MicroRWIS revision B validation
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revb-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 86127a7a33271e3e486149e962f45502233843bb
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Simulations and server
+        working-directory: source/road-weather-station
+        run: |
+          node simulation/test.mjs > /tmp/rwis-model.json
+          diff -u simulation/results.json /tmp/rwis-model.json
+          node simulation/cold-battery.mjs > /tmp/rwis-cold.json
+          diff -u simulation/cold-battery-results.json /tmp/rwis-cold.json
+          node simulation/rev-b.mjs
+          node server/smoke.mjs
+      - name: SPICE
+        working-directory: source/road-weather-station
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python3 simulation/spice-check.py
+          python3 simulation/rev-b-spice.py
+      - uses: arduino/setup-arduino-cli@v2
+        with:
+          version: '1.2.2'
+      - name: Compile firmware
+        working-directory: source/road-weather-station
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr@1.8.6
+          arduino-cli compile --fqbn arduino:avr:pro:cpu=8MHzatmega328 firmware/road_weather
