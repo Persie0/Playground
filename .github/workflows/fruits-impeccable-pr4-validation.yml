@@ -37,4 +37,16 @@ jobs:
           grep -E '^[[:space:]]*(error|warning|info) •' /tmp/fruits-analyze.log | sed -E 's/^[[:space:]]*(error|warning|info) • .* • ([^•]+) • ([a-z_]+)$/\1 • \2 • \3/' | grep -E '^(error|warning|info) • [^•]+ • [a-z_]+$' || true
           grep -E '^[0-9]{2}:[0-9]{2} [+0-9 ~-]+: (All tests passed!|Some tests failed\.)$' /tmp/fruits-test.log || true
           grep -E '^[0-9]{2}:[0-9]{2} [+0-9 ~-]+: .*\[E\]$' /tmp/fruits-test.log | sed -E 's/^.*: /Failed test: /' || true
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          log = Path('/tmp/fruits-test.log').read_text()
+          for line in log.splitlines():
+              if re.search(r'A RenderFlex overflowed by [\d.]+ pixels on the (left|right|top|bottom)', line):
+                  print(re.search(r'A RenderFlex overflowed by [\d.]+ pixels on the (left|right|top|bottom)', line).group())
+              elif re.match(r'^\s*(Expected:|Actual:|Which:|The following .* was thrown|Multiple exceptions)', line):
+                  print(line[:250])
+              elif re.search(r'orchard_ui_test\.dart:\d+:\d+', line):
+                  print(re.search(r'orchard_ui_test\.dart:\d+:\d+', line).group())
+          PY
           test "$a" = 0 && test "$t" = 0
