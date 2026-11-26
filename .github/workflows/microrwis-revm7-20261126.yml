@@ -1,0 +1,64 @@
+name: MicroRWIS M.7 optical power gate
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revm7-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 26b6fce25515196a7599b4dc4b59277fb1063af5
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Optical geometry radiance energy and firmware tests
+        working-directory: source/road-weather-station
+        run: |
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test.cpp -o /tmp/post-test
+          /tmp/post-test
+          node hardware/leitpflock/model.mjs
+          node hardware/leitpflock/obstruction.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test-window.cpp -o /tmp/window-test
+          /tmp/window-test
+          node hardware/leitpflock/window-model.mjs
+          node hardware/leitpflock/window-calibration.mjs
+          node hardware/leitpflock/optical-head/model.mjs
+          node hardware/leitpflock/fit-model.mjs
+          node hardware/leitpflock/power-gate/model.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/power-gate/test.cpp -o /tmp/gate-test
+          /tmp/gate-test
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/optical-head/test-sequence.cpp -o /tmp/ir-seq
+          /tmp/ir-seq
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test-frame.cpp -o /tmp/frame-test
+          /tmp/frame-test
+          node hardware/leitpflock/test-telemetry.mjs
+          node hardware/leitpflock/carrier/verify.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror simulation/rev-c-policy.cpp -o /tmp/policy
+          /tmp/policy
+          node server/smoke.mjs
+      - name: KiCad install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad kicad-footprints
+      - name: Route power gate
+        working-directory: source/road-weather-station/hardware/leitpflock/power-gate
+        run: |
+          for layers in 2 4; do
+            for seed in 9 0 1; do
+              p="/tmp/gate-$layers-$seed.kicad_pcb"
+              if /usr/bin/python3 ../../integrated-carrier/generate.py --design design.json --layers "$layers" --grid .125 --seed "$seed" --margin .025 --output "$p" && kicad-cli pcb drc --exit-code-violations --severity-error --output /tmp/gate-drc.txt "$p"; then
+                echo "Accepted layers=$layers seed=$seed"
+                exit 0
+              fi
+            done
+          done
+          exit 1
