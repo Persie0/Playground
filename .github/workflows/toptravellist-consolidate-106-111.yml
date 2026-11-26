@@ -1,0 +1,71 @@
+name: TopTravelList consolidate passes 106-111
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-consolidate-106-111.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/worldwide-bias-audit-consolidated-106-111
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Integrate and validate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = bf244716b57fe5ed91edd7baad147af66e6d00f6
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for pair in 106:089bf4243e30894df6201988d1b9746156e158a3 107:3188e8dccad0043a2f16589e10349e06906d5631 108:791f05350f7bf4537ccdf352420a0c791b7922f2 109:13aefd534011ee22f7ec2858f85275c9248b17e9 110:9ecc190f3123ff340c672df65792988ac16c23d6 111:edd126ca93ce562fd1841ca2ec3d9289e0613231; do
+            git fetch origin "data/worldwide-bias-audit-pass${pair%:*}"
+            test "$(git rev-parse FETCH_HEAD)" = "${pair#*:}"
+            git merge --no-ff --no-edit FETCH_HEAD
+          done
+          pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/audit_worldwide.py
+          python scripts/reconcile_worldwide_backlog.py --verify-baseline
+          python scripts/reconcile_worldwide_backlog.py --check
+          python - <<'PY'
+          import csv, subprocess, yaml
+          from pathlib import Path
+          base='bf244716b57fe5ed91edd7baad147af66e6d00f6'
+          paths=subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()
+          count=0
+          for p in paths:
+              if not p.endswith('.yaml'): continue
+              old=yaml.safe_load(subprocess.check_output(['git','show',base+':'+p],text=True))
+              new=yaml.safe_load(Path(p).read_text())
+              for k in ('impact','uniqueness','significance','experience','depth'):
+                  if old['scores'][k] is None:
+                      assert isinstance(new['scores'][k],(int,float)),p
+                      old['scores'][k]=new['scores'][k]
+              assert old==new,p
+              count+=1
+          assert count==15,count
+          def read(p):
+              with open(p) as f: return list(csv.DictReader(f,delimiter='\t'))
+          q=read('methodology/worldwide-backlog/remaining.tsv')
+          h=read('methodology/worldwide-backlog/original-inventory.tsv')
+          d=read('methodology/worldwide-diagnostics/records.tsv')
+          assert len(q)==969 and len(d)==16269
+          assert len(h)==1590 and sum(r['current_status']=='complete' for r in h)==621
+          assert {r['source'] for r in q}=={r['source'] for r in d if 'incomplete-core' in r['flags'].split(';')}
+          PY
+          git add README.md 'countries/*/cities.md' 'countries/*/sights.md' methodology/worldwide-diagnostics methodology/worldwide-backlog
+          git diff --cached --check
+          git commit -m 'Regenerate rankings and backlog after passes 106–111'
+          git push origin HEAD:refs/heads/data/worldwide-bias-audit-consolidated-106-111
