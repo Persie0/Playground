@@ -317,6 +317,7 @@ report={"territory_codes_in_registry":len(CODES),"populated_territories":len(cou
 if issues:
     print(json.dumps({k:v for k,v in report.items() if k not in ("counts","no_named_match_ids","arithmetic_discrepancies","issues")}))
     print("Coverage issues:",len(issues))
+    for issue in issues: print("COVERAGE_ISSUE:",issue)
     pathlib.Path("/tmp/territory-benchmark-report.json").write_text(json.dumps(report,indent=2))
     raise SystemExit(1)
 lines=["# Territory benchmark numerical coverage — "+STAMP,"","This pass resolves existing named editorial peers to current YAML and supplements missing comparisons with curated type-based anchors. It verifies numerical coverage, not independent material claims, peer appropriateness for every specialist record, or rating correctness. No YAML values, categories, nulls, evidence statuses, or older decisions changed.","","| Code | Settlements | Sights | Ranked | Unranked | Previously covered | Added | Type supplements | No resolved named peer |","| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
