@@ -1,0 +1,31 @@
+name: MicroRWIS M noncontact delineator sensor
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revm-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 69ecd7df4d8c29855a4b61f341cdf239822d527a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Optical geometry radiance energy and firmware tests
+        working-directory: source/road-weather-station
+        run: |
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test.cpp -o /tmp/post-test
+          /tmp/post-test
+          node hardware/leitpflock/model.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror simulation/rev-c-policy.cpp -o /tmp/policy
+          /tmp/policy
+          node server/smoke.mjs
