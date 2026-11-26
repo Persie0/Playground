@@ -11,16 +11,16 @@ concurrency:
   group: gauss-continuous-documentary-20261126
   cancel-in-progress: false
 env:
-  SOURCE_SHA: 69a16187fd77b5fba0b7f69d2f9890e1f82fe82b
+  SOURCE_SHA: 47c1319f8e35bfedbfc4a80b8d95205092266db8
   PICTURE_TAG: gauss-circle-continuous-directors-cut-1080p30-20261126
   ORIGINAL_TAG: gauss-circle-complete-1080p30-20261112
-  RELEASE_TAG: gauss-circle-directed-documentary-v22-1080p30-20261126
+  RELEASE_TAG: gauss-circle-long-take-v23-1080p30-20261126
   GH_TOKEN: ${{ github.token }}
   PYTHONUNBUFFERED: '1'
 jobs:
   documentary:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -106,23 +106,36 @@ jobs:
           path: output/*
           if-no-files-found: error
           retention-days: 21
-      - name: Direct seventeen mathematical visual sequences using actual word cues
+      - name: Preflight the continuous long take on actual word timings
         run: |
           set -euo pipefail
           cd source/gauss-circle-problem
-          python -m production.documentary_visual_direction --picture ../../input/Gauss_Circle_Continuous_Directors_Cut_1080p30.mp4 --cues ../../output/Gauss_Circle_Documentary_Narration_Cues.json --output-dir ../../directed-picture
-          cp ../../directed-picture/*.png ../../directed-picture/*_QA.json ../../output/
+          DOCUMENTARY_CUES=../../output/Gauss_Circle_Documentary_Narration_Cues.json python -m unittest discover -s tests -p test_documentary_long_take.py -v
+          python -m production.documentary_long_take --preview-only --cues ../../output/Gauss_Circle_Documentary_Narration_Cues.json --output-dir ../../long-take-previews
+          python -m production.documentary_long_take --sample-start 74 --sample-duration 34 --cues ../../output/Gauss_Circle_Documentary_Narration_Cues.json --output-dir ../../long-take-previews
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gauss-long-take-motion-preview
+          path: long-take-previews/*
+          if-no-files-found: error
+          retention-days: 21
+      - name: Render one uninterrupted long-take picture
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m production.documentary_long_take --cues ../../output/Gauss_Circle_Documentary_Narration_Cues.json --output-dir ../../directed-picture
+          cp ../../directed-picture/*_QA.json ../../output/
       - name: Mix revised narration and clean original instrumental into directed picture
         run: |
           set -euo pipefail
           cd source/gauss-circle-problem
           python -m production.mix_continuous_documentary --picture ../../directed-picture/Gauss_Circle_Directed_Picture_1080p30.mp4 --instrumental-source ../../input/Gauss_Circle_Complete_1080p30_NoNarration.mp4 --reference-cues ../../input/Gauss_Circle_Narration_Cues.json --output-dir ../../output
           (cd ../../output && sha256sum -c SHA256SUMS.txt)
-      - name: Verify decoded visual reveal timing and final narration alignment
+      - name: Verify decoded continuous motion and final narration alignment
         run: |
           set -euo pipefail
           cd source/gauss-circle-problem
-          python -m production.verify_documentary_sync --film ../../output/Gauss_Circle_Continuous_Documentary_1080p30.mp4 --voice ../../output/Gauss_Circle_Documentary_Voice.wav --visual-qa ../../output/Gauss_Directed_Visuals_QA.json --audio-qa ../../output/Gauss_Circle_Documentary_Audio_QA.json --output ../../output/Gauss_Documentary_Sync_QA.json
+          python -m production.verify_long_take --film ../../output/Gauss_Circle_Continuous_Documentary_1080p30.mp4 --voice ../../output/Gauss_Circle_Documentary_Voice.wav --visual-qa ../../output/Gauss_Directed_Visuals_QA.json --audio-qa ../../output/Gauss_Circle_Documentary_Audio_QA.json --output ../../output/Gauss_Documentary_Sync_QA.json
           (cd ../../output && sha256sum Gauss_Documentary_Sync_QA.json >> SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
@@ -140,4 +153,4 @@ jobs:
             echo 'Refusing to overwrite existing release'
             exit 1
           fi
-          gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground --title "Gauss Circle — Directed Documentary v22 (1080p30)" --notes "Final readability consolidation: seventeen directed sequences, continuous shell growth, analytical cancellation, linked-arrivals contrast, higher-contrast informational dots, larger numeric labels, balanced captions, exact reused V21 narration and post-encode synchronization checks, original clean instrumental, exact 16,098-frame 536.6-second clock, and visual and audio QA. The source picture is re-encoded to integrate the directed sequences. Earlier releases are unchanged. Source PR #266. Final human viewing remains necessary."
+          gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground --title "Gauss Circle — Continuous Long Take v23 (1080p30)" --notes "Continuous long-take visual redesign: first five beats share persistent circle and lattice for 3 minutes 10 seconds; long geometric transformations, no returns to the legacy picture, no matte dips, preserved exact narration and balanced captions. Single 16,098-frame 536.6-second picture. Verified mathematical counts, full picture decode, continuity diagnostics and audio alignment. Earlier releases unchanged. Source PR #266. Final human viewing remains necessary."
