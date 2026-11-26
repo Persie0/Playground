@@ -1,0 +1,46 @@
+name: TopTravelList worldwide bias audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-worldwide-bias-audit-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: becddd271e08db22e6e4a8c5758ffdb619577c52
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Screen every country and worldwide leaders
+        run: |
+          pip install -r requirements.txt
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/rank.py --kind cities --limit 100
+          python scripts/rank.py --kind sights --limit 100
+          python - <<'PY'
+          import sys, json, statistics, collections
+          from pathlib import Path
+          from decimal import Decimal
+          import yaml
+          sys.path.insert(0,'scripts')
+          from rank import overall_score
+          weights={k:Decimal(str(v)) for k,v in json.loads(Path('methodology/scoring.json').read_text())['dimensions'].items()}
+          codes=json.loads(Path('countries/_registry.json').read_text())['codes']
+          print('COUNTRY SCREEN: code, kind, total, ranked, median, >=90, >=95, >=97, high fields, repeated core profiles')
+          for code in codes:
+              for kind in ('cities','sights'):
+                  records=[yaml.safe_load(p.read_text()) for p in Path('countries',code,kind).glob('*.yaml')]
+                  values=[v for x in records if (v:=overall_score(x,weights)) is not None]
+                  profiles=collections.Counter(tuple(x['scores'].get(k) for k in weights) for x in records if overall_score(x,weights) is not None)
+                  high=sum(sum(v is not None and v>=9.5 for v in list(x['scores'].get('categories',{}).values())+[x['scores'].get(k) for k in weights]) for x in records)
+                  print(code,kind,len(records),len(values),statistics.median(values) if values else '-',sum(v>=90 for v in values),sum(v>=95 for v in values),sum(v>=97 for v in values),high,sum(n-1 for n in profiles.values()))
+          PY
