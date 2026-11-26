@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      SOURCE_SHA: c4e726c39f740fc488726c7a09359bf54fcda1f0
+      SOURCE_SHA: 040fd0a2cc358407bc5a52d8faa7db64dff1d3f4
       IMAGE: unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
     steps:
       - name: Check Unity license and repository access
@@ -84,6 +84,7 @@ jobs:
           expected="$(sed -nE 's/^Generated optimized fairy rig: [0-9]+ meshes, ([0-9]+) triangles, [0-9]+ bones$/\1/p' "$logs/rig/generate.log" | tail -n 1)"
           test -n "$expected" && test -s "$logs/rig/Fairy.blend" && test -s "$logs/rig/Fairy.fbx"
           "$blender" -b --python-exit-code 1 -P "$src/assets-source/verify_fairy.py" -- "$logs/rig/Fairy.fbx" "$expected" >"$logs/rig/verify.log" 2>&1 || { echo "::error::Fairy FBX roundtrip verification failed."; exit 1; }
+          "$blender" -b "$logs/rig/Fairy.blend" --python-exit-code 1 -P "$src/assets-source/render_fairy_review.py" -- "$logs/rig/review" >"$logs/rig/render.log" 2>&1 || { echo "::error::Character review render failed."; exit 1; }
           cp "$logs/rig/Fairy.blend" "$src/assets-source/Fairy.blend"
           cp "$logs/rig/Fairy.fbx" "$src/mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx"
           git -C "$src" add -- assets-source/Fairy.blend mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx
@@ -95,6 +96,12 @@ jobs:
           git -C "$src" -c "http.extraheader=AUTHORIZATION: basic $auth" push --quiet origin HEAD:refs/heads/feature/fairy-face-parent-unlock >"$logs/rig/push.log" 2>&1 || { echo "::error::Private feature branch moved or asset push failed."; exit 1; }
           echo "SOURCE_SHA=$(git -C "$src" rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "Original character geometry and FBX rig verified and committed privately."
+      - name: Provision bundled Android offline speech
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash "$RUNNER_TEMP/toothfairy-src/tools/fetch_offline_speech.sh" >"$RUNNER_TEMP/toothfairy-private/speech.log" 2>&1 || { echo "::error::Offline speech dependencies unavailable."; exit 1; }
+          echo "Pinned offline speech dependencies and model archives verified."
       - name: Pull pinned-version Android editor
         shell: bash
         run: |
@@ -185,11 +192,12 @@ jobs:
           apk="$RUNNER_TEMP/toothfairy-src/mobile/Builds/Android/Toothfairy-debug.apk"
           test -s "$apk"
           unzip -tq "$apk" >/dev/null
+          python3 "$RUNNER_TEMP/toothfairy-src/tools/check_android_speech_package.py" "$apk"
           test "$(gh repo view Persie0/Toothfairy --json isPrivate --jq .isPrivate)" = true
           tag="dev-apk-${SOURCE_SHA:0:7}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          gh release create "$tag" "$apk" --repo Persie0/Toothfairy --target "$SOURCE_SHA" \
+          gh release create "$tag" "$apk" "$RUNNER_TEMP/toothfairy-private/rig/review/"*.png --repo Persie0/Toothfairy --target "$SOURCE_SHA" \
             --draft --prerelease --title "Toothfairy development APK ($SOURCE_SHA)" \
-            --notes "Development-only ARM64 debug APK. Unity EditMode gate passed. Physical-device and release acceptance remain pending." \
+            --notes "Development-only ARM64 debug APK. Unity EditMode and speech-package gates passed. Blender review renders attached; physical-device acceptance remains pending." \
             >"$RUNNER_TEMP/toothfairy-private/release.log" 2>&1
           echo "APK uploaded to private draft release."
       - name: Retain compiler diagnostics in private source repository
@@ -205,13 +213,14 @@ jobs:
           # Retain selected project build diagnostics privately, excluding activation and credentials logs.
           grep -hiE 'error CS[0-9]{4}|BuildFailedException|Exception:|FAILURE: Build failed|Execution failed for task|^[[:space:]]*[*] What went wrong:|^[[:space:]]*> .*failed|Tests failed|Failed: [1-9]|TOOTHFAIRY_PREPARE_OK|TOOTHFAIRY_BUILD_OK|Test run completed' "$src/mobile/Logs/"*.log 2>/dev/null | sort -u | head -n 200 > "$report" || true
           # Blender output is private; keep the ending context needed to repair generation/roundtrip.
-          for stage in generate verify commit push; do
+          for stage in generate verify render commit push; do
             file="$RUNNER_TEMP/toothfairy-private/rig/$stage.log"
             if [[ -s "$file" ]]; then
               printf '\n--- Rig %s ---\n' "$stage" >> "$report"
               tail -n 60 "$file" >> "$report"
             fi
           done
+          if [[ -s "$RUNNER_TEMP/toothfairy-private/speech.log" ]]; then tail -n 30 "$RUNNER_TEMP/toothfairy-private/speech.log" >> "$report"; fi
           # Append actual NUnit failure names, messages and stack traces privately.
           python3 - "$src/mobile/Logs" >> "$report" <<'PY'
           import sys
