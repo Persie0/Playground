@@ -26,7 +26,7 @@ def norm(s):
 def dec(x): return Decimal(str(x)) if x is not None else None
 def fmt(x): return "null" if x is None else f"{x:.1f}"
 def overall(vals):
-    return None if any(v is None for v in vals) else sum(v*w for v,w in zip(vals,WEIGHTS))*100
+    return None if any(v is None for v in vals) else sum(v*w for v,w in zip(vals,WEIGHTS))*10
 for path in sorted((ROOT/"countries").glob("*/*/*.yaml")):
     c,k=path.relative_to(ROOT/"countries").parts[:2]
     if k not in ("cities","sights"): continue
@@ -261,6 +261,11 @@ for code in CODES:
             sm=re.search(r"^(?:#{3,4} Scoring decisions[ \t]*$|- Impact(?:\s*:|\s+(?:null|\d)))",section,re.M)
             if not pm or not sm or sm.start()<=pm.end():
                 issues.append(f"{sid}: missing comparison/scoring headings");new.append(section);continue
+            # Regenerate only this script\x27s prior insertions; preserve manual and original comparisons.
+            prior=section.find(HEADING,pm.end(),sm.start())
+            if prior>=0:
+                section=section[:prior]+section[sm.start():]
+                sm=re.search(r"^(?:#{3,4} Scoring decisions[ \t]*$|- Impact(?:\s*:|\s+(?:null|\d)))",section,re.M)
             block=section[pm.end():sm.start()]
             existing=numeric_links(block)
             existing.pop(item["key"],None)
