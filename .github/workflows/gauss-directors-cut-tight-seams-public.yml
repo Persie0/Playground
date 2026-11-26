@@ -1,0 +1,133 @@
+name: Gauss Circle - Director Cut Tight Audio Gaps (Public Release)
+
+on:
+  push:
+    branches: [ci/gauss-directors-cut-tight-seams-20261121]
+    paths:
+      - .github/workflows/gauss-directors-cut-tight-seams-public.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gauss-directors-cut-tight-seams-20261121
+  cancel-in-progress: false
+
+jobs:
+  remaster:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_TAG: gauss-circle-directors-cut-1080p30-20261114
+      RELEASE_TAG: gauss-circle-directors-cut-tight-seams-1080p30-20261121
+    steps:
+      - name: Checkout public Playground
+        uses: actions/checkout@v4
+
+      - name: Checkout PRIVATE source via PUBLIC runner ONLY
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: fix/gauss-directors-cut-seam-gaps-20261121
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate seam model and SRT retiming
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m compileall -q production/tighten_directors_cut_seams.py tests/test_directors_cut_seams.py
+          python -m unittest discover -s tests -p test_directors_cut_seams.py -v
+
+      - name: Install FFmpeg and FFprobe on clean public Ubuntu runner
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - name: Download and SHA256-check original verified 2026-11-14 public release
+        run: |
+          set -euo pipefail
+          mkdir -p input
+          gh release download "$SOURCE_TAG" --repo Persie0/Playground --dir input \
+            --pattern 'Gauss_Circle_Directors_Cut_1080p30_English.mp4' \
+            --pattern 'Gauss_Circle_English_Neural_Voice.wav' \
+            --pattern 'Gauss_Circle_Narration_Cues.json' \
+            --pattern 'Gauss_Circle_English_Subtitles.srt' \
+            --pattern 'SHA256SUMS.txt'
+          (cd input && sha256sum --check --ignore-missing SHA256SUMS.txt)
+          ffprobe -v error -select_streams v:0 -show_entries stream=width,height,nb_frames,r_frame_rate \
+            -of default=noprint_wrappers=1 input/Gauss_Circle_Directors_Cut_1080p30_English.mp4
+
+      - name: Dry-run exact 14 scene-seam edit plan
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m production.tighten_directors_cut_seams \
+            --video ../../input/Gauss_Circle_Directors_Cut_1080p30_English.mp4 \
+            --cues ../../input/Gauss_Circle_Narration_Cues.json \
+            --subtitles ../../input/Gauss_Circle_English_Subtitles.srt \
+            --voice ../../input/Gauss_Circle_English_Neural_Voice.wav \
+            --output-dir ../../output --dry-run
+
+      - name: Remaster video and audio with identical sample-and-frame cuts
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m production.tighten_directors_cut_seams \
+            --video ../../input/Gauss_Circle_Directors_Cut_1080p30_English.mp4 \
+            --cues ../../input/Gauss_Circle_Narration_Cues.json \
+            --subtitles ../../input/Gauss_Circle_English_Subtitles.srt \
+            --voice ../../input/Gauss_Circle_English_Neural_Voice.wav \
+            --output-dir ../../output
+          (cd ../../output && sha256sum --check SHA256SUMS.txt)
+
+      - name: Verify all 15 chapter markers, 30fps frames, 171 speech-aligned subtitles and 14 tight gaps
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          o=Path('output')
+          report=json.loads((o/'Gauss_Circle_Seam_Gap_QA.json').read_text())
+          cues=json.loads((o/'Gauss_Circle_Narration_Cues.json').read_text())
+          film=o/'Gauss_Circle_Directors_Cut_1080p30_Tightened_Gaps.mp4'
+          info=json.loads(subprocess.check_output(['ffprobe','-v','error',
+              '-show_streams','-show_format','-show_chapters','-of','json',str(film)]))
+          video=next(s for s in info['streams'] if s['codec_type']=='video')
+          audio=next(s for s in info['streams'] if s['codec_type']=='audio')
+          assert report['final_frames']==17944,report
+          assert abs(report['final_seconds']-598.133333)<.01,report
+          assert report['shortened_seams']==14
+          assert len(report['new_seam_gaps_seconds'])==14
+          assert all(1.4<=s<=1.6 for s in report['new_seam_gaps_seconds'])
+          assert int(video['nb_frames'])==17944 and video['r_frame_rate']=='30/1'
+          assert (int(video['width']),int(video['height']))==(1920,1080)
+          assert audio['codec_name']=='aac' and audio['sample_rate']=='48000'
+          assert len(info['chapters'])==15,len(info['chapters'])
+          assert len(cues['scenes'])==15 and len(cues['paragraphs'])==75
+          assert sum(len(p['word_events']) for p in cues['paragraphs'])>900
+          assert (o/'Gauss_Circle_English_Subtitles.srt').read_text().count('-->')==171
+          print('PASS: 17,944 exact frames, 598.133s, 15 chapters, 171 subtitles, 14 tightened seams')
+          PY
+
+      - name: Upload complete verification assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: gauss-directors-cut-tight-seams-fullhd
+          path: output/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish separate public release (do not overwrite original)
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground \
+            --title "Gauss Circle — Director's Cut, Tight Audio Gaps (1080p30)" \
+            --notes "15-scene alternative edit of the verified 2026-11-14 original director's cut. All 1,119 original words and 171 speech-timed subtitle cues are preserved. Shortens 14 narration seam pauses (4.54–11.87 seconds originally) to 1.4–1.6 seconds each. New runtime 9:58.133, 17,944 frames, original 1080p30 scene order, corrected 15 chapter markers. Original 11:25 release is untouched. The silence-only visual cuts and instrumental music transitions should be auditioned for editorial taste. Full source and SHA256 checksums included."
