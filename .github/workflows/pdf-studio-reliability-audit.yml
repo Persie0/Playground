@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/pdfapp
-          ref: 4f78929a35943ddd534c58da09b796fdef57f98a
+          ref: d085b022486bf2ef4ade59c9aaf8edc22f49fcff
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Install Flutter stable
@@ -40,3 +40,25 @@ jobs:
         run: flutter test --reporter expanded
       - name: Compile Android release APK
         run: flutter build apk --release
+
+  merge-reviewed:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'push' && github.ref == 'refs/heads/pdf-studio-reliability-audit-ci'
+    steps:
+      - name: Merge only the reviewed PR after successful validation
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          EXPECTED_HEAD: d085b022486bf2ef4ade59c9aaf8edc22f49fcff
+          EXPECTED_BASE: 7f74bede55811867ae20602e42c42a2e8c31019e
+        run: |
+          set -euo pipefail
+          actual="$(gh api repos/Persie0/pdfapp/pulls/11 --jq '.head.sha + " " + .base.sha + " " + .state')"
+          if [ "$actual" != "$EXPECTED_HEAD $EXPECTED_BASE open" ]; then
+            echo 'PR head, base or state changed; refusing to merge.'
+            exit 1
+          fi
+          merged="$(gh api --method PUT repos/Persie0/pdfapp/pulls/11/merge -f sha="$EXPECTED_HEAD" -f merge_method=squash --jq '.merged')"
+          test "$merged" = true
+          echo 'Reviewed PR merged successfully.'
