@@ -1,0 +1,65 @@
+name: TopTravelList Impeccable validation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-impeccable-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: 1be6e81e4f3f1877411118e4a93e33a8b48fc54e
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Unit tests and build
+        working-directory: web
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+          npm run build
+      - name: Browser smoke and accessibility checks
+        working-directory: web
+        run: |
+          npm install --no-save --no-audit --no-fund playwright axe-core
+          npx playwright install --with-deps chromium
+          npx vite preview --host 127.0.0.1 > /tmp/toptravel-preview.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep 1; done
+          node scripts/trip-browser-smoke.mjs
+          mkdir -p qa
+          node --input-type=module <<'JS'
+          import {chromium} from 'playwright';
+          import {createRequire} from 'node:module';
+          const require=createRequire(import.meta.url), browser=await chromium.launch();
+          try {
+            for(const width of [1440,390]){
+              const page=await browser.newPage({viewport:{width,height:900}});
+              await page.goto('http://127.0.0.1:4173/');
+              await page.locator('#routesTab').waitFor();
+              for(const [name,selector] of [['explore','#places'],['statistics','#statisticsTab'],['routes','#routesTab'],['plan','#routeJump']]){
+                await page.locator(selector).click();
+                await page.waitForTimeout(350);
+                await page.screenshot({path:'qa/'+name+'-'+width+'.png',fullPage:false});
+                await page.addScriptTag({path:require.resolve('axe-core/axe.min.js')});
+                const result=await page.evaluate(async()=>{const r=await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21a','wcag21aa']}});return r.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.slice(0,6).map(n=>({target:n.target,summary:n.failureSummary}))}))});
+                console.log('AXE',name,width,JSON.stringify(result));
+                console.log('OVERFLOW',name,width,await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth));
+              }
+              await page.close();
+            }
+          }finally{await browser.close()}
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atlas-desktop-mobile-screens
+          path: web/qa/
+          if-no-files-found: ignore
