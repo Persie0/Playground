@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/TopTravelList
-          ref: 80d357290ca197040131394c4c88fa48d9ff0780
+          ref: 6b581d82cc670db42684d4888f66a761468e9a22
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -47,6 +47,7 @@ jobs:
               for(const [name,selector] of [['explore','#places'],['statistics','#statisticsTab'],['routes','#routesTab'],['plan','#routeJump']]){
                 await page.locator(selector).click();
                 if(name==='routes'){await page.locator('#routeCountry').selectOption('AT');await page.locator('#routeGenerate').click();await page.locator('#routeUse').click();await page.locator('.route-stop').first().waitFor();}
+                await page.evaluate(()=>window.scrollTo(0,0));
                 await page.waitForTimeout(350);
                 await page.screenshot({path:'qa/'+name+'-'+width+'.png',fullPage:false});
                 await page.addScriptTag({path:require.resolve('axe-core/axe.min.js')});
