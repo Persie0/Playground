@@ -1,0 +1,140 @@
+name: TopTravelList worldwide bias pass 23
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-worldwide-bias-pass23-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/worldwide-bias-audit-20261126
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and regenerate all worldwide rankings
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = fa23bfac0362d5fa2624297f46719085b945b5c2
+          pip install -r requirements.txt
+          python - <<'PY'
+          import csv, re, subprocess, io
+          from collections import Counter
+          from pathlib import Path
+          root=Path('methodology')
+          prior=sorted(root.glob('worldwide-incomplete-batch-100*-2026-11-26.md'))
+          assert len(prior)==14,len(prior)
+          pattern=r'\.\./countries/([A-Z]{2}/(?:sights|cities)/[^)]+\.yaml)'
+          used=set()
+          for f in prior:
+              paths=re.findall(pattern,f.read_text())
+              assert len(paths)==100 and len(set(paths))==100 and not used.intersection(paths),f
+              used.update(paths)
+          assert len(used)==1400
+          raw=subprocess.check_output(['git','show','d69bfe1532605e1136ab38f9b268f92809ba0109:methodology/worldwide-diagnostics/records.tsv'],text=True)
+          baseline={r['source'].removeprefix('countries/'):r for r in csv.DictReader(io.StringIO(raw),delimiter='\t') if 'incomplete-core' in r['flags'].split(';')}
+          assert len(baseline)==1590,len(baseline)
+          assert used<=baseline.keys(),used-baseline.keys()
+          remaining={p:r for p,r in baseline.items() if p not in used}
+          assert len(remaining)==190
+          current={r['source'].removeprefix('countries/'):r for r in csv.DictReader((root/'worldwide-diagnostics/records.tsv').open(),delimiter='\t')}
+          already={p:r['overall'] for p,r in current.items() if p in remaining and 'incomplete-core' not in r['flags'].split(';')}
+          assert len(already)==12,len(already)
+          completed={'SN/cities/podor.yaml':'78.60','MZ/cities/nampula.yaml':'72.80','MZ/cities/beira.yaml':'75.40','PN/sights/henderson-island.yaml':'87.75','PN/sights/ducie-atoll.yaml':'84.90','PN/sights/oeno-atoll.yaml':'81.40'}
+          notes={'SN/cities/podor.yaml':'Town quays, trading houses, fort and river-trade museum; exclude regional excursions.','MZ/cities/nampula.yaml':'City ethnology museum, cathedral, square and neighborhoods; exclude Mozambique Island.','MZ/cities/beira.yaml':'Urban coastal setting, cathedral and railway-station exterior; no assumed interior access.','MC/sights/villa-sauber-new-national-museum.yaml':'Museum lists renovation closure: https://www.nmnm.mc/en/visit/hours-and-admissions/','NF/sights/phillip-island.yaml':'Tourism authority lists guided visits but no guided tours available: https://www.norfolkisland.com.au/things-to-do/nature/national-parks-reserves/phillip-island/','PN/sights/henderson-island.yaml':'Restricted authorized coastal expedition visit only; UNESCO identity and operator itinerary verified: https://whc.unesco.org/en/list/487/','PN/sights/ducie-atoll.yaml':'Conditional authorized expedition landing, guided shore walks and marine observation.','PN/sights/oeno-atoll.yaml':'Conditional coastal and lagoon expedition observation; no wider itinerary credit.','YT/sights/tsingoni-mosque.yaml':'2026 heritage event documented, but restoration and regular interior access require confirmation: https://mairiedetsingoni.fr/journees-europeennes-du-patrimoine-a-tsingoni/ ; https://www.culture.gouv.fr/regions/dac-mayotte/patrimoines-et-architecture-a-mayotte/les-monuments-historiques-de-mayotte/les-chantiers-en-cours','XK/sights/church-of-the-virgin-of-ljevisa.yaml':'No confirmed official visitor hours; usually locked according to secondary report; confirm diocesan access before rating: https://www.heritage.world/sites/medieval-monuments-in-kosovo/'}
+          assert set(notes)<=remaining.keys(),set(notes)-remaining.keys()
+          assert not set(completed).intersection(already)
+          ordered=list(notes)+[p for p in sorted(already) if p not in notes]+[p for p in sorted(remaining) if p not in notes and p not in already]
+          assert len(ordered)==190 and len(set(ordered))==190
+          def make_register(paths,num,filename):
+              counts=Counter(p[:2] for p in paths)
+              done=Counter(p[:2] for p in paths if p in completed or p in already)
+              new_count=sum(p in completed for p in paths)
+              old_count=sum(p in already for p in paths)
+              n=len(paths)
+              lines=[f'# Incomplete-core batch {num}: {n} distinct original records — 2026-11-26','','Selected from the original 1590-record diagnostic snapshot; this is an inventory reconciliation, not an individual factual review of every record.',f'{new_count} new source-assisted completions, {old_count} earlier completions registered retrospectively, {n-new_count-old_count} deferred. Only the explicitly researched entries have new evidence; the other rows are research targets.','','| Area | Triaged | Completed (new or earlier) | Remain incomplete |','| --- | ---: | ---: | ---: |']
+              for cc,k in sorted(counts.items()):
+                  lines.append(f'| {cc} | {k} | {done[cc]} | {k-done[cc]} |')
+              lines += [f'| Total | {n} | {new_count+old_count} | {n-new_count-old_count} |','','| Record | Area | Before I/U/S/E/D (original snapshot) | New overall | Disposition | Evidence target / rationale | Prior review |','| --- | --- | --- | ---: | --- | --- | --- |']
+              for path in paths:
+                  r=baseline[path]
+                  cc,kind,_=path.split('/')
+                  name=r['name'].replace('|','\\|')
+                  before=' / '.join(r[k] or 'null' for k in ('impact','uniqueness','significance','experience','depth'))
+                  target=notes.get(path)
+                  if path in already:
+                      target='Previously completed outside the batch registers; historical review and current diagnostic retain the earlier decision.'
+                  if target is None:
+                      if kind=='cities':
+                          target=f'Verify {name} settlement-specific urban experiences and global city peers; exclude surrounding attractions.'
+                      elif re.search(r'park|reserve|island|atoll|wetland|reef|forest',name,re.I):
+                          target=f'Confirm permitted visitor scope, conservation restrictions and documented activities at {name}; no assumed wildlife encounters.'
+                      else:
+                          target=f'Confirm named scope, surviving visible features, actual public access and global peers for {name}; exclude overlapping parent properties.'
+                  disposition='completed' if path in completed else 'completed earlier' if path in already else 'deferred'
+                  lines.append(f'| [{name}](../countries/{path}) | {cc} | {before} | {completed.get(path,already.get(path,"—"))} | {disposition} | {target} | [prior review](reviews/{cc}/{kind}.md) |')
+              (root/filename).write_text('\n'.join(lines)+'\n')
+              print('Batch',num,n,'new completions',new_count,'earlier completions',old_count,'deferred',n-new_count-old_count)
+          make_register(ordered[:100],15,'worldwide-incomplete-batch-100-pass22-2026-11-26.md')
+          make_register(ordered[100:],16,'worldwide-incomplete-batch-final-90-pass23-2026-11-26.md')
+          print('Earlier unregistered completions:',len(already))
+          PY
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/audit_worldwide.py
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          rows={r['id']:r for r in csv.DictReader(Path('methodology/worldwide-diagnostics/records.tsv').open(),delimiter='\t')}
+          expected={'city-sn-podor':'78.60','city-mz-nampula':'72.80','city-mz-beira':'75.40','sight-pn-henderson-island':'87.75','sight-pn-ducie-atoll':'84.90','sight-pn-oeno-atoll':'81.40'}
+          assert len(rows)==len(list(Path('countries').glob('*/cities/*.yaml')))+len(list(Path('countries').glob('*/sights/*.yaml')))
+          for k,v in expected.items():
+              assert rows[k]['overall']==v,(k,rows[k]['overall'],v)
+              print('Verified',k,v)
+          PY
+          python - <<'PY'
+          import csv,re,subprocess,io
+          from pathlib import Path
+          root=Path('methodology')
+          files=sorted(root.glob('worldwide-incomplete-batch-100*-2026-11-26.md'))+[root/'worldwide-incomplete-batch-final-90-pass23-2026-11-26.md']
+          assert len(files)==16,files
+          seen=set()
+          for f in files:
+              rows=re.findall(r'\.\./countries/([A-Z]{2}/(?:sights|cities)/[^)]+\.yaml)',f.read_text())
+              expected_count=90 if 'final-90' in f.name else 100
+              assert len(rows)==expected_count and len(set(rows))==expected_count,(f,len(rows))
+              assert not seen.intersection(rows),(f,seen.intersection(rows))
+              seen.update(rows)
+          raw=subprocess.check_output(['git','show','d69bfe1532605e1136ab38f9b268f92809ba0109:methodology/worldwide-diagnostics/records.tsv'],text=True)
+          baseline={r['source'].removeprefix('countries/') for r in csv.DictReader(io.StringIO(raw),delimiter='\t') if 'incomplete-core' in r['flags'].split(';')}
+          assert len(seen)==1590 and seen==baseline,(len(seen),len(baseline),seen-baseline,baseline-seen)
+          current=list(csv.DictReader((root/'worldwide-diagnostics/records.tsv').open(),delimiter='\t'))
+          unresolved={r['source'].removeprefix('countries/') for r in current if 'incomplete-core' in r['flags'].split(';')}
+          assert unresolved<=seen,unresolved-seen
+          assert len(unresolved)==1499,len(unresolved)
+          print('Verified exact original inventory coverage:',len(seen),'unresolved:',len(unresolved))
+          PY
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          git diff --check
+      - name: Commit generated reports
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md 'countries/*/cities.md' 'countries/*/sights.md' methodology/worldwide-diagnostics methodology/worldwide-incomplete-batch-100-pass22-2026-11-26.md methodology/worldwide-incomplete-batch-final-90-pass23-2026-11-26.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Regenerate all-country rankings and diagnostic after exact baseline reconciliation of all 1590 incomplete records'
+            git push origin HEAD:refs/heads/data/worldwide-bias-audit-20261126
+          fi
