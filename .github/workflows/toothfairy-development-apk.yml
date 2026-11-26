@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      SOURCE_SHA: 4f00a686400f4ccba6fda3a7d08415c4ad8120c6
+      SOURCE_SHA: 1a4b8b3661aaa105cff755f14a2827810d515d7c
       IMAGE: unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
     steps:
       - name: Check Unity license and repository access
@@ -146,7 +146,7 @@ jobs:
           test -s "$apk"
           unzip -tq "$apk" >/dev/null
           test "$(gh repo view Persie0/Toothfairy --json isPrivate --jq .isPrivate)" = true
-          tag="dev-apk-4f00a68-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          tag="dev-apk-${SOURCE_SHA:0:7}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           gh release create "$tag" "$apk" --repo Persie0/Toothfairy --target "$SOURCE_SHA" \
             --draft --prerelease --title "Toothfairy development APK ($SOURCE_SHA)" \
             --notes "Development-only ARM64 debug APK. Unity EditMode gate passed. Physical-device and release acceptance remain pending." \
