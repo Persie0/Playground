@@ -59,7 +59,7 @@ jobs:
             return 1
           }
           failed=0
-          for item in 235:KI:e389c9e6ca697c43911c987c7eac895031d21c53 236:NR,TV:5b4145d5e985a026203ba36f4c5ade45bd9d17dd 237:WS:dc311292b27c9b8d56d8b6262f722aecd5892f25 238:MH:9b1ef19d0eb9c8e658dbc2f7a88e6fa25e928773 239:PW:f68c88ba9b0d8a8d4cab38f1b0407d867d2fb87b 240:TO:29725fb44cd650badfc65a990d0ea2faeb04cd5c 234:registry:517ad757e4eeb9a3767006e9ae08060ad703f7a7 241:web:83aab05774f3a272041b72343fbbc7d48193c697; do
+          for item in 237:WS:dc311292b27c9b8d56d8b6262f722aecd5892f25 238:MH:9b1ef19d0eb9c8e658dbc2f7a88e6fa25e928773 239:PW:f68c88ba9b0d8a8d4cab38f1b0407d867d2fb87b 240:TO:dc184e1f03e962f72e80dc8dd7d243ef41ecb1ab 234:registry:bbd51c795573df93b7ca6bb299eae0adea91271e; do
             IFS=: read -r pr scope pinned <<< "$item"
             git reset --hard >/dev/null
             git clean -fd >/dev/null
@@ -113,7 +113,7 @@ jobs:
                       r=subprocess.run(['git','merge-file','-p',*paths],capture_output=True)
                       assert r.returncode==0,'Manual README conflict'
                       pathlib.Path(f).write_bytes(r.stdout)
-              else: raise RuntimeError('Non-generated conflict')
+              else: raise RuntimeError('Non-generated conflict: '+f)
               subprocess.run(['git','add','--',f],check=True)
           PY
               then git merge --abort; report 'Non-generated conflict or ambiguous README; untouched'; failed=1; continue; fi
@@ -180,23 +180,23 @@ jobs:
                       u,v=x['location'],y['location']
                       if abs(u['latitude']-v['latitude'])<.02 and min(abs(u['longitude']-v['longitude']),360-abs(u['longitude']-v['longitude']))<.02: candidates+=1
           print('Cross-code close exact-name candidate pairs:',candidates)
-          pattern=re.compile(r'(?m)^(- \[[^\n]+?\]\(\.\./\.\./\.\./(countries/[A-Z]{2}/(?:cities|sights)/[^)]+\.yaml)\)\s+—\s+)([0-9.]+(?:/[0-9.]+){4})([^\n]*)')
+          pattern=re.compile(r'(?m)^(- \[[^\n]+?\]\(\.\./\.\./\.\./(countries/[A-Z]{2}/(?:cities|sights)/[^)]+\.yaml)\)(?:\s+—\s+|:\s+|\s+\([^)\n]+\),\s+))([0-9.]+(?:/[0-9.]+){4})([^\n]*)')
           count=0
           for code in filter(None,codes.split(',')):
               paths=[p for p in root.glob(f'methodology/reviews/{code}/*.md') if re.fullmatch(r'(cities|sights(?:-[a-z0-9-]+)?)\.md',p.name)]
               for p in paths:
                   s=p.read_text()
                   for m in pattern.finditer(s):
-                      d=profiles.get(m[2]); assert d is not None, 'Missing numeric peer'
+                      d=profiles.get(m[2]); assert d is not None, f'Missing numeric peer in {p.name}: {m[2]}'
                       actual=[d['scores'].get(k) for k in fields]
-                      assert all(isinstance(v,(int,float)) for v in actual), 'Incomplete numeric peer'
-                      assert [float(v) for v in m[3].split('/')]==actual, 'Stale numeric peer'
+                      assert all(isinstance(v,(int,float)) for v in actual), f'Incomplete numeric peer in {p.name}: {m[2]}'
+                      assert [float(v) for v in m[3].split('/')]==actual, f'Stale numeric peer in {p.name}: {m[2]}'
                       count+=1
                   if scope=='registry' or scope in ('WS','MH','PW','TO'):
                       for block in re.split(r'(?m)^## (?=(?:city|sight)-)',s)[1:]:
                           ident=block.split(' ',1)[0]
                           peers={m[2] for m in pattern.finditer(block)}
-                          assert len(peers)>=4 and len({p.split('/')[1] for p in peers})>=3, 'Insufficient cross-country numerical coverage'
+                          assert len(peers)>=4 and len({p.split('/')[1] for p in peers})>=3, f'Insufficient cross-country numerical coverage: {ident} ({len(peers)} links)'
           print('Checked numerical peer profiles:',count)
           if scope=='registry':
               assert len({p.split('/')[1] for p in profiles})==250, 'Incomplete populated registry'
