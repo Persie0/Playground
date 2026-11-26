@@ -1,0 +1,113 @@
+name: TopTravelList worldwide bias pass 22
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-worldwide-bias-pass22-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/worldwide-bias-audit-20261126
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and regenerate all worldwide rankings
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 680e609f5f50a472756dc90d8a9f0fc0d27e6202
+          pip install -r requirements.txt
+          python - <<'PY'
+          import csv, re
+          from collections import Counter
+          from pathlib import Path
+          root=Path('methodology')
+          files=sorted(root.glob('worldwide-incomplete-batch-100*-2026-11-26.md'))
+          assert len(files)==14
+          used=set()
+          for f in files:
+              paths=re.findall(r'\.\./countries/([A-Z]{2}/(?:sights|cities)/[^)]+\.yaml)',f.read_text())
+              assert len(paths)==100 and not used.intersection(paths)
+              used.update(paths)
+          assert len(used)==1400
+          rows=list(csv.DictReader((root/'worldwide-diagnostics/records.tsv').open(),delimiter='\t'))
+          remaining={r['source'].removeprefix('countries/'):r for r in rows if 'incomplete-core' in r['flags'].split(';') and r['source'].removeprefix('countries/') not in used}
+          assert len(remaining)==190, len(remaining)
+          completed={'SN/cities/podor.yaml':'78.60','MZ/cities/nampula.yaml':'72.80','MZ/cities/beira.yaml':'75.40'}
+          notes={'SN/cities/podor.yaml':'Town quays, trading houses, fort and river-trade museum; exclude regional excursions.','MZ/cities/nampula.yaml':'City ethnology museum, cathedral, square and neighborhoods; exclude Mozambique Island.','MZ/cities/beira.yaml':'Urban coastal setting, cathedral and railway-station exterior; no assumed interior access.','MC/sights/villa-sauber-new-national-museum.yaml':'Official museum confirms renovation closure: https://www.nmnm.mc/en/visit/hours-and-admissions/','NF/sights/phillip-island.yaml':'Tourism authority says guided visits are required but no guided tours available: https://www.norfolkisland.com.au/things-to-do/nature/national-parks-reserves/phillip-island/ ; verify actual reopening.'}
+          assert set(notes)<=remaining.keys(),set(notes)-remaining.keys()
+          selected=list(notes)+[p for p in sorted(remaining) if p not in notes][:100-len(notes)]
+          assert len(selected)==100 and len(set(selected))==100
+          counts=Counter(p[:2] for p in selected)
+          done=Counter(p[:2] for p in completed)
+          lines=['# Incomplete-core batch 15: 100 distinct records — 2026-11-26','','Selected from the prior validated diagnostic inventory, excluding all 1400 previous register paths. Three source-assisted completions, 97 deferred. Only the three completed records and two explicitly linked closure/access findings received new source review; other rows are inventory triage and research targets, not factual verification.','','| Area | Triaged | Completed | Remain incomplete |','| --- | ---: | ---: | ---: |']
+          for cc,n in sorted(counts.items()):
+              lines.append(f'| {cc} | {n} | {done[cc]} | {n-done[cc]} |')
+          lines+=['| Total | 100 | 3 | 97 |','','| Record | Area | Before I/U/S/E/D | New overall | Disposition | Evidence target / rationale | Prior review |','| --- | --- | --- | ---: | --- | --- | --- |']
+          for path in selected:
+              r=remaining[path]
+              cc,kind,_=path.split('/')
+              name=r['name'].replace('|','\\|')
+              before=' / '.join(r[k] or 'null' for k in ('impact','uniqueness','significance','experience','depth'))
+              target=notes.get(path)
+              if target is None:
+                  if kind=='cities':
+                      target=f'Verify {name} settlement-specific urban experiences and global city peers; exclude surrounding attractions.'
+                  elif re.search(r'park|reserve|island|atoll|wetland|reef|forest',name,re.I):
+                      target=f'Confirm permitted visitor scope, conservation restrictions, seasonal access and documented activities at {name}; no assumed wildlife encounters.'
+                  else:
+                      target=f'Confirm named scope, surviving visible features, actual public access and global peers for {name}; exclude overlapping parent properties.'
+              lines.append(f'| [{name}](../countries/{path}) | {cc} | {before} | {completed.get(path,"—")} | {"completed" if path in completed else "deferred"} | {target} | [prior review](reviews/{cc}/{kind}.md) |')
+          (root/'worldwide-incomplete-batch-100-pass22-2026-11-26.md').write_text('\n'.join(lines)+'\n')
+          print('Selected',len(selected),'unique records; remaining outside registers:',len(remaining)-len(selected))
+          print(sorted(counts.items()))
+          PY
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/audit_worldwide.py
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          rows={r['id']:r for r in csv.DictReader(Path('methodology/worldwide-diagnostics/records.tsv').open(),delimiter='\t')}
+          expected={'city-sn-podor':'78.60','city-mz-nampula':'72.80','city-mz-beira':'75.40'}
+          assert len(rows)==len(list(Path('countries').glob('*/cities/*.yaml')))+len(list(Path('countries').glob('*/sights/*.yaml')))
+          for k,v in expected.items():
+              assert rows[k]['overall']==v,(k,rows[k]['overall'],v)
+              print('Verified',k,v)
+          PY
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          files=sorted(Path('methodology').glob('worldwide-incomplete-batch-100*-2026-11-26.md'))
+          seen=set()
+          assert len(files)==15,files
+          for f in files:
+              rows=re.findall(r'\.\./countries/([A-Z]{2}/(?:sights|cities)/[^)]+\.yaml)',f.read_text())
+              assert len(rows)==100 and len(set(rows))==100,(f,len(rows))
+              assert not seen.intersection(rows),(f,seen.intersection(rows))
+              seen.update(rows)
+          assert len(seen)==1500
+          print('Verified 1500 distinct batch records')
+          PY
+          git diff --check
+      - name: Commit generated reports
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md 'countries/*/cities.md' 'countries/*/sights.md' methodology/worldwide-diagnostics methodology/worldwide-incomplete-batch-100-pass22-2026-11-26.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Regenerate all-country rankings and diagnostic after fifteenth 100-record incomplete-core triage'
+            git push origin HEAD:refs/heads/data/worldwide-bias-audit-20261126
+          fi
