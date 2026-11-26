@@ -1,0 +1,28 @@
+name: TopTravelList routes and statistics validation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-routes-statistics-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: 6a0b555fa644893e6b15fcc79490d6334f40ff24
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test and build
+        working-directory: web
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+          npm run build
