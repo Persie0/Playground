@@ -40,16 +40,7 @@ jobs:
       - name: Build iOS simulator app without code signing
         working-directory: app
         run: |
-          # MapLibre/location/Sentry require SwiftPM; use macOS 26 and
-          # its newer Xcode instead of the crashing Xcode 16.4 resolver.
-          # CI-only experiment: both nested and workspace Package.resolved
-          # were committed with the same pins; an Xcode package graph mismatch
-          # can crash while inserting dependency file references.
-          rm -f ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
-          rm -f ios/Runner.xcworkspace/xcshareddata/swiftpm/Package.resolved
-          # CI-only compatibility check. The checked-out sources are not pushed.
-          sed -i '' "s/platform :ios, '15.0'/platform :ios, '15.5'/" ios/Podfile
-          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/IPHONEOS_DEPLOYMENT_TARGET = 15.5;/g' ios/Runner.xcodeproj/project.pbxproj
+          # Verify the exact checked-in iOS 15.5 project and mainline SwiftPM pins.
           flutter config --enable-swift-package-manager
           flutter pub get
           flutter build ios --debug --simulator --no-codesign
