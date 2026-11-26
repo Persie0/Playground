@@ -1,0 +1,65 @@
+name: MicroRWIS revision C validation
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revc-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 34c103ed1ffb1221ad71d49c663b71e5883a700b
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Regression and Rev C models
+        working-directory: source/road-weather-station
+        run: |
+          node simulation/test.mjs > /tmp/rwis-model.json
+          diff -u simulation/results.json /tmp/rwis-model.json
+          node simulation/cold-battery.mjs > /tmp/rwis-cold.json
+          diff -u simulation/cold-battery-results.json /tmp/rwis-cold.json
+          node simulation/rev-b.mjs
+          node simulation/rev-c.mjs
+          g++ -std=c++17 -Wall -Wextra -Werror simulation/rev-c-policy.cpp -o /tmp/rwis-policy
+          /tmp/rwis-policy
+          node server/smoke.mjs
+      - name: SPICE regression
+        working-directory: source/road-weather-station
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python3 simulation/spice-check.py
+          python3 simulation/rev-b-spice.py
+      - uses: arduino/setup-arduino-cli@v2
+        with:
+          version: '1.2.2'
+      - name: Compile AVR fallback
+        working-directory: source/road-weather-station
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr@1.8.6
+          arduino-cli compile --fqbn arduino:avr:pro:cpu=8MHzatmega328 firmware/road_weather
+      - name: Compile RAK3172 with vendor BSP
+        working-directory: source/road-weather-station
+        shell: bash
+        run: |
+          set -euo pipefail
+          url=https://raw.githubusercontent.com/RAKWireless/RAKwireless-Arduino-BSP-Index/main/package_rakwireless_com_rui_index.json
+          arduino-cli core update-index --additional-urls "$url"
+          arduino-cli core search --additional-urls "$url" --format json rakwireless > /tmp/rak-cores.json
+          cat /tmp/rak-cores.json
+          core=$(python3 -c 'import json; d=json.load(open("/tmp/rak-cores.json")); print(next(x["id"] for x in d["platforms"] if "stm32" in x["id"].lower()))')
+          arduino-cli core install "$core" --additional-urls "$url"
+          arduino-cli board listall RAK3172
+          arduino-cli board listall --format json RAK3172 > /tmp/rak-boards.json
+          fqbn=$(python3 -c 'import json; d=json.load(open("/tmp/rak-boards.json")); print(next(x["fqbn"] for x in d["boards"] if "RAK3172" in x["name"] and not any(s in x["name"].lower() for s in ("evaluation","evb","sip","breakout","rak3272"))))')
+          arduino-cli compile --fqbn "$fqbn" firmware/road_weather_rak
