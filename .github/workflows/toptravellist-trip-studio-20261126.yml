@@ -1,0 +1,36 @@
+name: TopTravelList trip studio validation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-trip-studio-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: cce88d81197b8ce3b08763e48c33465f74400d87
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test and build
+        working-directory: web
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+          npm run build
+      - name: Browser smoke test
+        working-directory: web
+        run: |
+          npm install --no-save --no-audit --no-fund playwright
+          npx playwright install --with-deps chromium
+          npx vite preview --host 127.0.0.1 > /tmp/toptravel-preview.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep 1; done
+          node scripts/trip-browser-smoke.mjs
