@@ -185,22 +185,22 @@ jobs:
                       u,v=x['location'],y['location']
                       if abs(u['latitude']-v['latitude'])<.02 and min(abs(u['longitude']-v['longitude']),360-abs(u['longitude']-v['longitude']))<.02: candidates+=1
           print('Cross-code close exact-name candidate pairs:',candidates)
-          pattern=re.compile(r'(?m)^(- \[[^\n]+?\]\(\.\./\.\./\.\./(countries/[A-Z]{2}/(?:cities|sights)/[^)]+\.yaml)\)(?:\s+—\s+|:\s+|\s+\([^)\n]+\),\s+))([0-9.]+(?:/[0-9.]+){4})([^\n]*)')
+          pattern=re.compile(r'(?m)^[-*]\s+\[[^\n]+?\]\(\.\./\.\./\.\./(countries/[A-Z]{2}/(?:cities|sights)/[^)\s]+\.yaml)\)[ \t]*(?:\((?![ \t]*(?:null|\d))[^)\n]*\)[ \t]*)?(?:[—–:,][ \t]*)?\(?[ \t]*(\d+(?:\.\d+)?(?:[ \t]*/[ \t]*\d+(?:\.\d+)?){4})(?![\d.])([^\n]*)')
           count=0
           for code in filter(None,codes.split(',')):
               paths=[p for p in root.glob(f'methodology/reviews/{code}/*.md') if re.fullmatch(r'(cities|sights(?:-[a-z0-9-]+)?)\.md',p.name)]
               for p in paths:
                   s=p.read_text()
                   for m in pattern.finditer(s):
-                      d=profiles.get(m[2]); assert d is not None, f'Missing numeric peer in {p.name}: {m[2]}'
+                      d=profiles.get(m[1]); assert d is not None, f'Missing numeric peer in {p.name}: {m[1]}'
                       actual=[d['scores'].get(k) for k in fields]
-                      assert all(isinstance(v,(int,float)) for v in actual), f'Incomplete numeric peer in {p.name}: {m[2]}'
-                      assert [float(v) for v in m[3].split('/')]==actual, f'Stale numeric peer in {p.name}: {m[2]}'
+                      assert all(isinstance(v,(int,float)) for v in actual), f'Incomplete numeric peer in {p.name}: {m[1]}'
+                      assert [float(v) for v in m[2].split('/')]==actual, f'Stale numeric peer in {p.name}: {m[1]}'
                       count+=1
                   if scope=='registry' or scope in ('WS','MH','PW','TO'):
-                      for block in re.split(r'(?m)^## (?=(?:city|sight)-)',s)[1:]:
+                      for block in re.split(r'(?m)^#{2,3} (?=(?:city|sight)-)',s)[1:]:
                           ident=block.split(' ',1)[0]
-                          peers={m[2] for m in pattern.finditer(block)}
+                          peers={m[1] for m in pattern.finditer(block)}
                           assert len(peers)>=4 and len({p.split('/')[1] for p in peers})>=3, f'Insufficient cross-country numerical coverage: {ident} ({len(peers)} links)'
           print('Checked numerical peer profiles:',count)
           if scope=='registry':
