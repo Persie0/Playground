@@ -1,0 +1,68 @@
+name: TopTravelList worldwide bias pass 19
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-worldwide-bias-pass19-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/worldwide-bias-audit-20261126
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and regenerate all worldwide rankings
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = d78342c3a5fecf1587e18c9356321006d811148b
+          pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/audit_worldwide.py
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          rows={r['id']:r for r in csv.DictReader(Path('methodology/worldwide-diagnostics/records.tsv').open(),delimiter='\t')}
+          expected={'sight-ms-plymouth-buried-city':'87.75','sight-is-hofskirkja':'76.75','sight-ee-simuna-struve-station':'73.90','sight-ee-voivere-struve-station':'76.55'}
+          assert len(rows)==len(list(Path('countries').glob('*/cities/*.yaml')))+len(list(Path('countries').glob('*/sights/*.yaml')))
+          for k,v in expected.items():
+              assert rows[k]['overall']==v,(k,rows[k]['overall'],v)
+              print('Verified',k,v)
+          PY
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          files=sorted(Path('methodology').glob('worldwide-incomplete-batch-100*-2026-11-26.md'))
+          seen=set()
+          assert len(files)==12,files
+          for f in files:
+              rows=re.findall(r'\.\./countries/([A-Z]{2}/(?:sights|cities)/[^)]+\.yaml)',f.read_text())
+              assert len(rows)==100 and len(set(rows))==100,(f,len(rows))
+              assert not seen.intersection(rows),(f,seen.intersection(rows))
+              seen.update(rows)
+          assert len(seen)==1200
+          print('Verified 1200 distinct batch records')
+          PY
+          git diff --check
+      - name: Commit generated reports
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md 'countries/*/cities.md' 'countries/*/sights.md' methodology/worldwide-diagnostics
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Regenerate all-country rankings and diagnostic after twelfth 100-record incomplete-core triage'
+            git push origin HEAD:refs/heads/data/worldwide-bias-audit-20261126
+          fi
