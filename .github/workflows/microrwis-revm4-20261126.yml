@@ -1,0 +1,58 @@
+name: MicroRWIS M.4 optical calibration and compact controller
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revm4-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 1332f1a33ae209b42a1c710a76542aebe33377a3
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Optical geometry radiance energy and firmware tests
+        working-directory: source/road-weather-station
+        run: |
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test.cpp -o /tmp/post-test
+          /tmp/post-test
+          node hardware/leitpflock/model.mjs
+          node hardware/leitpflock/obstruction.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test-window.cpp -o /tmp/window-test
+          /tmp/window-test
+          node hardware/leitpflock/window-model.mjs
+          node hardware/leitpflock/window-calibration.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test-frame.cpp -o /tmp/frame-test
+          /tmp/frame-test
+          node hardware/leitpflock/test-telemetry.mjs
+          node hardware/leitpflock/carrier/verify.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror simulation/rev-c-policy.cpp -o /tmp/policy
+          /tmp/policy
+          node server/smoke.mjs
+      - name: KiCad install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad kicad-footprints
+      - name: Compact layout candidates
+        working-directory: source/road-weather-station/hardware/leitpflock/carrier
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict";const a=JSON.parse(fs.readFileSync("design.json"));for(const name of ["46x40","48x42","50x44"]){const b=JSON.parse(fs.readFileSync("design-"+name+".json"));assert.deepEqual(a.components.map(c=>[...c.slice(0,4),c[6],c[7]]),b.components.map(c=>[...c.slice(0,4),c[6],c[7]]));for(const k of ["trace","clearance","via","drill"])assert.equal(a[k],b[k]);console.log(name+" topology unchanged");}'
+          for design in design-46x40.json design-48x42.json design-50x44.json design.json; do
+            for seed in 11 9 0; do
+              p="/tmp/post-${seed}.kicad_pcb"
+              if /usr/bin/python3 ../../integrated-carrier/generate.py --design "$design" --layers 4 --grid .125 --seed "$seed" --margin .025 --output "$p" && kicad-cli pcb drc --exit-code-violations --severity-error --output /tmp/post-drc.txt "$p" && /usr/bin/python3 ../../buck-boost/geometry-check.py "$p" --unified; then
+                echo "Accepted design=$design seed=$seed"
+                exit 0
+              fi
+            done
+          done
+          exit 1
