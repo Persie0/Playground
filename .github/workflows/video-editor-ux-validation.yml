@@ -49,13 +49,22 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: |
-            cd app-src
-            if ! ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=at.persie0.VideoUpscaler.EditorAccessibilityTest,at.persie0.VideoUpscaler.UpscalerHomeInstrumentedTest --no-daemon --console=plain > /tmp/native-ux-device.log 2>&1; then
-              echo "::error::UI regression tests failed (private test output withheld)"
-              exit 1
-            fi
-            echo "Editor and Home instrumentation tests passed"
+          script: >-
+            cd app-src &&
+            ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=at.persie0.VideoUpscaler.EditorAccessibilityTest,at.persie0.VideoUpscaler.UpscalerHomeInstrumentedTest --no-daemon --console=plain > /tmp/native-ux-device.log 2>&1
+            || { echo "::error::UI regression tests failed"; exit 1; }
+      - name: Summarize UI test results without exposing source
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import pathlib, xml.etree.ElementTree as ET
+          files = list(pathlib.Path("app-src/app/build/outputs/androidTest-results").rglob("TEST-*.xml"))
+          for file in files:
+              root = ET.parse(file).getroot()
+              print("Tests:", root.get("tests"), "Failures:", root.get("failures"), "Errors:", root.get("errors"))
+              for case in root.iter("testcase"):
+                  print(case.get("name"), "FAILED" if case.find("failure") is not None or case.find("error") is not None else "PASSED")
+          PY
       - name: Remove private build output
         if: always()
         run: rm -f /tmp/sdk-install.log /tmp/native-ux-build.log /tmp/native-ux-device.log
