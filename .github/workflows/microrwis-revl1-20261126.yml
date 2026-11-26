@@ -1,0 +1,34 @@
+name: MicroRWIS L.1 historical weather and reserve reporting
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revl1-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 79b8f5f4c2f43a267e4b8df50720f165047e66e8
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Policy and synthetic energy regression
+        working-directory: source/road-weather-station/hardware/solar-variant
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror test-policy.cpp -o /tmp/solar-policy
+          /tmp/solar-policy
+          node season.mjs
+      - name: Download and validate historical reanalysis
+        working-directory: source/road-weather-station/hardware/solar-variant
+        run: python3 fetch-weather.py --out /tmp/rwis-weather --years 2021 2022 2023
+      - name: Historical energy sizing
+        working-directory: source/road-weather-station/hardware/solar-variant
+        run: node historical.mjs /tmp/rwis-weather
