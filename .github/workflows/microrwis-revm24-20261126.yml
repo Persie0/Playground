@@ -1,0 +1,95 @@
+name: MicroRWIS M.24 component evidence and library review
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revm24-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 323e4ea47a7d0819c397fe5ea8d35861163f2a5b
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Optical geometry radiance energy and firmware tests
+        working-directory: source/road-weather-station
+        run: |
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test.cpp -o /tmp/post-test
+          /tmp/post-test
+          node hardware/leitpflock/model.mjs
+          node hardware/leitpflock/obstruction.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test-window.cpp -o /tmp/window-test
+          /tmp/window-test
+          node hardware/leitpflock/window-model.mjs
+          node hardware/leitpflock/witness-regions.mjs
+          node hardware/leitpflock/window-calibration.mjs
+          node hardware/leitpflock/test-calibration-record.mjs
+          node hardware/leitpflock/mechanical/environment-rf.mjs
+          node hardware/leitpflock/mechanical/seal-moisture.mjs
+          node hardware/leitpflock/mechanical/seal-optimize.mjs
+          node hardware/leitpflock/air-head/model.mjs
+          node hardware/leitpflock/air-head/thermal-harness.mjs
+          node hardware/leitpflock/air-head/flex/model.mjs
+          node hardware/leitpflock/air-head/fit-m18.mjs
+          node hardware/leitpflock/air-head/exit-m20.mjs
+          node hardware/leitpflock/air-head/fit-m21.mjs
+          node hardware/leitpflock/optical-head/model.mjs
+          node hardware/leitpflock/fit-model.mjs
+          node hardware/leitpflock/power-gate/model.mjs
+          node hardware/leitpflock/timed-gate/model.mjs
+          node hardware/leitpflock/watchdog-study.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/optical-head/test-mlx-bus.cpp -o /tmp/mlx-test
+          /tmp/mlx-test
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined -Ihardware/leitpflock firmware/leitpflock/test-commissioning.cpp -o /tmp/commissioning-test
+          /tmp/commissioning-test
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/power-gate/test.cpp -o /tmp/gate-test
+          /tmp/gate-test
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/optical-head/test-sequence.cpp -o /tmp/ir-seq
+          /tmp/ir-seq
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test-frame.cpp -o /tmp/frame-test
+          /tmp/frame-test
+          node hardware/leitpflock/test-telemetry.mjs
+          node hardware/leitpflock/carrier/verify.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror simulation/rev-c-policy.cpp -o /tmp/policy
+          /tmp/policy
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined firmware/leitpflock/test-sht.cpp -o /tmp/sht-test
+          /tmp/sht-test
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -Ihardware/leitpflock firmware/leitpflock/emit-commissioning.cpp -o /tmp/emit-commissioning
+          RWIS_COMMISSIONING_HEX="$(/tmp/emit-commissioning)" node server/smoke.mjs
+      - name: Generate selected bench manufacturing package
+        working-directory: source/road-weather-station
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad kicad-footprints openscad
+          bash hardware/leitpflock/build-bench.sh /tmp/rwis-bench
+          (cd /tmp/rwis-bench && sha256sum -c SHA256SUMS >/dev/null)
+          cat /tmp/rwis-bench/reports/electrical-audit.txt
+          cat /tmp/rwis-bench/reports/retainer-tolerance.json
+          cat /tmp/rwis-bench/reports/optic-m24.json /tmp/rwis-bench/reports/power-m24.json
+          for f in /tmp/rwis-bench/reports/*-erc.txt; do echo "$(basename "$f")"; tail -n 12 "$f"; done
+          echo 'Bench package generated and verified; no public upload.'
+      - uses: arduino/setup-arduino-cli@v2
+        with:
+          version: '1.2.2'
+      - name: Install pinned RUI3 BSP
+        run: |
+          index=https://raw.githubusercontent.com/RAKWireless/RAKwireless-Arduino-BSP-Index/main/package_rakwireless_com_rui_index.json
+          arduino-cli core update-index --additional-urls "$index"
+          arduino-cli core install rak_rui:stm32@4.3.0 --additional-urls "$index"
+          arduino-cli board listall | grep -i 'RAK3172'
+      - name: Compile safe-default and bench firmware for RAK3172-T
+        working-directory: source/road-weather-station
+        run: |
+          python3 firmware/leitpflock/stage.py /tmp/rwis-build
+          arduino-cli compile --fqbn rak_rui:stm32:WisDuoRAK3172TBoard /tmp/rwis-build/leitpflock
+          sed -i '1i#define RWIS_BENCH 1\n#define RWIS_RADIO 1' /tmp/rwis-build/leitpflock/leitpflock.ino
+          arduino-cli compile --fqbn rak_rui:stm32:WisDuoRAK3172TBoard /tmp/rwis-build/leitpflock
