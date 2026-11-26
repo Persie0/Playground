@@ -1,0 +1,73 @@
+name: MicroRWIS revision K.7 consolidated precision carrier
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revk7-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 85e3e17bae0c76cf95eb25779b784218feb019ab
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Sensor and existing model regressions
+        working-directory: source/road-weather-station
+        run: |
+          node hardware/sensor-protection/model.mjs
+          node hardware/road-adc-protection/model.mjs
+          node hardware/biased-adc/model.mjs
+          node hardware/adc-isolation/model.mjs
+          node hardware/adc-sequencing/model.mjs
+          node hardware/adc-interlock/model.mjs
+          node hardware/adc-power-gate/model.mjs
+          node hardware/precision-carrier/verify.mjs
+          node hardware/precision-carrier/model.mjs
+          c++ -std=c++17 -Wall -Wextra -Werror hardware/adc-sequencing/test.cpp -o /tmp/adc-seq
+          /tmp/adc-seq
+          node hardware/unified-carrier/periodic-noise.mjs
+          node hardware/unified-carrier/verify.mjs
+          node hardware/buck-boost/damping-precharge.mjs > /tmp/damping.json
+          node server/smoke.mjs
+      - name: KiCad and SPICE install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad kicad-footprints ngspice
+      - name: Independent protection DC comparisons
+        working-directory: source/road-weather-station/hardware/sensor-protection
+        run: python3 spice-check.py
+      - name: Secondary clamp independent DC comparisons
+        working-directory: source/road-weather-station/hardware/road-adc-protection
+        run: python3 spice-check.py
+      - name: Biased ADC independent DC comparisons
+        working-directory: source/road-weather-station/hardware/biased-adc
+        run: python3 spice-check.py
+      - name: Isolation and hold-up independent comparisons
+        working-directory: source/road-weather-station/hardware/adc-isolation
+        run: python3 spice-check.py
+      - name: Power gate independent RC comparisons
+        working-directory: source/road-weather-station/hardware/adc-power-gate
+        run: python3 spice-check.py
+      - name: Route separate protection candidate
+        working-directory: source/road-weather-station/hardware/precision-carrier
+        run: |
+          for layers in 2 4; do
+            for seed in 9 1 0; do
+              p="/tmp/sensor-protection-$layers-$seed.kicad_pcb"
+              if /usr/bin/python3 ../integrated-carrier/generate.py --design design.json --layers "$layers" --grid .125 --seed "$seed" --margin .025 --output "$p" && kicad-cli pcb drc --exit-code-violations --severity-error --output /tmp/protection-drc.txt "$p"; then
+                echo "Accepted layers=$layers seed=$seed"
+                exit 0
+              fi
+            done
+          done
+          exit 1
+          # No fabrication release, no public CAD artifacts.
