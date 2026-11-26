@@ -1,0 +1,63 @@
+name: TopTravelList worldwide bias pass 2
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-worldwide-bias-pass2-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/worldwide-bias-audit-20261126
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate worldwide data and rankings
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = e853a60bef4e51ca69d9320e4918ce4dfdf3d2e4
+          pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          python - <<'PY'
+          from pathlib import Path
+          import yaml, json, sys
+          from decimal import Decimal
+          sys.path.insert(0,'scripts')
+          from rank import overall_score
+          expected = {'IN/sights/kailasa-temple-ellora':'96.30','IN/sights/vittala-temple-hampi':'93.45','IN/sights/meenakshi-amman-temple':'95.80','PA/sights/panama-canal-visitor-transit-and-lock-experience':'93.70','EG/cities/luxor':'92.15','US/cities/new-york-city':'96.45','ZA/cities/cape-town':'93.30'}
+          weights={k:Decimal(str(v)) for k,v in json.loads(Path('methodology/scoring.json').read_text())['dimensions'].items()}
+          for path, score in expected.items():
+              rec=yaml.safe_load(Path('countries',path+'.yaml').read_text())
+              assert overall_score(rec,weights)==Decimal(score), path
+              c,kind,slug=path.split('/')
+              text=Path('countries',c,kind+'.md').read_text()
+              line=next(l for l in text.splitlines() if f']({kind}/{slug}.yaml)' in l)
+              assert f'**{score}**' in line, path
+              print('Verified',path,score)
+          print('PASS: seven new corrected records and generated views agree')
+          PY
+          git diff --check
+      - name: Commit generated Markdown
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md 'countries/*/cities.md' 'countries/*/sights.md'
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Regenerate rankings after worldwide bias pass 2'
+            git push origin HEAD:refs/heads/data/worldwide-bias-audit-20261126
+          fi
