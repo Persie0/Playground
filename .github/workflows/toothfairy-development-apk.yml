@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      SOURCE_SHA: 97cd27159c80c9fd2723aad84b61539261e90d51
+      SOURCE_SHA: 74416c07084effd17952b0439552e7f1ebf62b0c
       IMAGE: unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
     steps:
       - name: Check Unity license and repository access
@@ -55,6 +55,34 @@ jobs:
           git -C "$RUNNER_TEMP/toothfairy-src" checkout -q --detach FETCH_HEAD
           test "$(git -C "$RUNNER_TEMP/toothfairy-src" rev-parse HEAD)" = "$SOURCE_SHA"
           echo "Pinned source fetched."
+      - name: Generate and verify original upgraded fairy assets
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          src="$RUNNER_TEMP/toothfairy-src"
+          logs="$RUNNER_TEMP/toothfairy-private"
+          # Install packaged Blender before accessing private art. No public project output.
+          sudo apt-get update -qq >"$logs/blender-install.log" 2>&1
+          sudo apt-get install -y --no-install-recommends blender >>"$logs/blender-install.log" 2>&1
+          mkdir -p "$logs/rig"
+          blender -b --python-exit-code 1 -P "$src/assets-source/create_fairy.py" -- "$logs/rig/Fairy.blend" >"$logs/rig/generate.log" 2>&1 || { echo "::error::Fairy model generation failed."; exit 1; }
+          expected="$(sed -nE 's/^Generated optimized fairy rig: [0-9]+ meshes, ([0-9]+) triangles, [0-9]+ bones$/\1/p' "$logs/rig/generate.log" | tail -n 1)"
+          test -n "$expected" && test -s "$logs/rig/Fairy.blend" && test -s "$logs/rig/Fairy.fbx"
+          blender -b --python-exit-code 1 -P "$src/assets-source/verify_fairy.py" -- "$logs/rig/Fairy.fbx" "$expected" >"$logs/rig/verify.log" 2>&1 || { echo "::error::Fairy FBX roundtrip verification failed."; exit 1; }
+          cp "$logs/rig/Fairy.blend" "$src/assets-source/Fairy.blend"
+          cp "$logs/rig/Fairy.fbx" "$src/mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx"
+          git -C "$src" add -- assets-source/Fairy.blend mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx
+          test "$(git -C "$src" diff --cached --name-only | wc -l)" -eq 2
+          git -C "$src" -c user.name="Toothfairy CI" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Regenerate verified storybook fairy Blender and FBX assets" >"$logs/rig/commit.log" 2>&1
+          auth="$(printf 'x-access-token:%s' "$PRIVATE_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          # Fast-forward only; never overwrite a changed feature branch.
+          git -C "$src" -c "http.extraheader=AUTHORIZATION: basic $auth" push --quiet origin HEAD:refs/heads/feature/fairy-face-parent-unlock >"$logs/rig/push.log" 2>&1 || { echo "::error::Private feature branch moved or asset push failed."; exit 1; }
+          echo "SOURCE_SHA=$(git -C "$src" rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "Original character geometry and FBX rig verified and committed privately."
       - name: Pull pinned-version Android editor
         shell: bash
         run: |
