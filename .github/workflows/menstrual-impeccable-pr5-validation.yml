@@ -40,6 +40,7 @@ jobs:
             grep -oE "(lib|test)/[A-Za-z0-9_/.-]+\.dart:[0-9]+:[0-9]+" "$RUNNER_TEMP/test.log" | sort -u || true
             grep -oE 'A RenderFlex overflowed by [0-9.]+ pixels on the (right|left|top|bottom)' "$RUNNER_TEMP/test.log" | sort -u || true
             grep -E 'EXCEPTION CAUGHT|^The following .* was thrown|^Expected:|^  Actual:|^A Render|^RenderBox was not laid out|^Multiple exceptions|^Incorrect use of ParentDataWidget' "$RUNNER_TEMP/test.log" | cut -c1-220 | head -35 || true
+            grep -A3 '^The following assertion was thrown:' "$RUNNER_TEMP/test.log" | cut -c1-200 | head -40 || true
             echo "Overflow reports: $(grep -c 'overflowed by' "$RUNNER_TEMP/test.log" || true)"
           fi
           exit "$status"
