@@ -6,224 +6,118 @@ on:
     paths:
       - ".github/workflows/monsters-private-development.yml"
   workflow_dispatch:
+    inputs:
+      build_apk:
+        description: "Build with an already configured valid Unity CI license"
+        type: boolean
+        default: false
+      revision:
+        description: "Private main commit or branch"
+        type: string
+        default: main
 permissions:
   contents: read
 concurrency:
   group: monsters-private-development
   cancel-in-progress: false
 jobs:
-  generate-and-validate:
+  source-and-assets:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 10
     steps:
-      - name: Checkout exact private prototype
+      - name: Checkout private source
         uses: actions/checkout@v4
         with:
           repository: Persie0/monsters
-          ref: 4b5451890afc58676a51ac69b98a32ca66a37fbd
+          ref: ${{ inputs.revision || '1f3b76301bc05f9845bd5e0eaea26d75f4177432' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-          persist-credentials: true
+          persist-credentials: false
           path: app
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Check whether generated assets already pass validation
-        id: existing-assets
-        working-directory: app
-        shell: bash
-        run: |
-          if python3 tools/verify_assets.py >"$RUNNER_TEMP/monsters-existing-assets.log" 2>&1; then
-            echo "valid=true" >> "$GITHUB_OUTPUT"
-            echo "Existing generated assets verified."
-          else
-            echo "valid=false" >> "$GITHUB_OUTPUT"
-            echo "Asset regeneration required."
-          fi
-      - name: Install Blender and voice build dependencies
-        if: steps.existing-assets.outputs.valid != 'true'
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq blender >/dev/null
-          python -m pip install --disable-pip-version-check -q -r app/tools/requirements-neural-voice.txt pillow
-      - name: Verify authored source
-        working-directory: app
-        run: |
-          set -euo pipefail
-          python3 tools/check_dialogue.py
-          python3 tools/voice_catalog.py
-          python3 -m compileall -q tools assets-source/build_monsters.py
-      - name: Generate original art and offline voice clips
-        if: steps.existing-assets.outputs.valid != 'true'
+      - name: Install pinned grammar parsers
+        run: python -m pip install -q -r app/tools/requirements-syntax.txt
+      - name: Check source and generated content
         working-directory: app
         shell: bash
         run: |
           set -euo pipefail
-          # Do not expose private source or generated assets in public logs.
-          if ! blender -b -t 2 --python-exit-code 1 --python assets-source/build_monsters.py -- --render >"$RUNNER_TEMP/monsters-blender.log" 2>&1; then
-            grep -E '^MONSTER_BUILD_DIAGNOSTIC [A-Za-z]+ [A-Za-z0-9_:,<>]+$' "$RUNNER_TEMP/monsters-blender.log" || true
-            echo "::error::Blender generation failed (private logs withheld)"
+          python tools/check_dialogue.py
+          python tools/voice_catalog.py
+          python tools/verify_assets.py
+          python -m compileall -q tools assets-source/build_monsters.py
+          bash -n tools/unity_development.sh
+          if ! python tools/check_source_syntax.py >"$RUNNER_TEMP/monsters-syntax.log" 2>&1; then
+            echo "::error::Private source grammar check failed"
             exit 1
           fi
-          python3 tools/build_brand.py
-          git config user.name "Monster asset builder"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets-source/generated mobile/Assets/Monsters/Resources/MonsterMeshes mobile/Assets/Monsters/Brand
-          if ! git diff --cached --quiet; then
-            git commit -qm "Generate Blender review scenes and runtime meshes"
-            git push -q origin HEAD:main
-          fi
-          if ! python3 tools/build_neural_voice.py >"$RUNNER_TEMP/monsters-voice.log" 2>&1; then
-            grep -E '^MONSTER_BUILD_DIAGNOSTIC [A-Za-z]+ [A-Za-z0-9_:,<>]+$' "$RUNNER_TEMP/monsters-voice.log" || true
-            echo "::error::Neural voice generation failed (private logs withheld)"
-            exit 1
-          fi
-          python3 tools/verify_assets.py
-      - name: Commit verified outputs to private main
-        if: steps.existing-assets.outputs.valid != 'true'
-        working-directory: app
-        run: |
-          set -euo pipefail
-          git config user.name "Monster asset builder"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets-source/generated assets-source/voice-notices mobile/Assets/Monsters/Resources/MonsterMeshes mobile/Assets/Monsters/Resources/Voice mobile/Assets/Monsters/Brand
-          if ! git diff --cached --quiet; then
-            git commit -qm "Generate verified monster art, offline neural voices and app icon"
-            git push -q origin HEAD:main
-          fi
-          echo "Generated private assets committed successfully."
-      - name: Check Unity license configuration
-        id: unity
+          grep -E '^(cs|java): [0-9]+ source files parsed$' "$RUNNER_TEMP/monsters-syntax.log"
+      - name: Report grammar failures privately
+        if: failure()
         env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: |
-          if [ -n "$UNITY_LICENSE" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Unity build not run: no UNITY_LICENSE secret configured."
+          if [ -s "$RUNNER_TEMP/monsters-syntax.log" ]; then
+            grep -E '^mobile/Assets/[A-Za-z0-9_./-]+:[0-9]+:[0-9]+: (ERROR|[A-Za-z_]+)$' "$RUNNER_TEMP/monsters-syntax.log" > "$RUNNER_TEMP/monsters-syntax-report.txt" || true
+            if [ -s "$RUNNER_TEMP/monsters-syntax-report.txt" ]; then
+              gh api --method POST repos/Persie0/monsters/issues/1/comments -F body=@"$RUNNER_TEMP/monsters-syntax-report.txt" >/dev/null || true
+            fi
           fi
-      - name: Unity development compilation, tests and Android APK
-        if: steps.unity.outputs.available == 'true'
+  android-development:
+    if: github.event_name == 'workflow_dispatch' && inputs.build_apk
+    needs: source-and-assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout private source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/monsters
+          ref: ${{ inputs.revision }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Check license and build
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
         shell: bash
         run: |
           set -euo pipefail
+          if [ -z "$UNITY_LICENSE" ]; then
+            echo "::error::Configure a valid Unity CI license before requesting APK generation."
+            exit 1
+          fi
           IMAGE=unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
-          # Free unused host SDKs; the image contains its matching Android tools.
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android/sdk /opt/hostedtoolcache/CodeQL
-          df -h /
           docker pull "$IMAGE" >/dev/null
-          echo "Matching Unity Docker image pulled successfully."
-          docker run --rm --entrypoint bash -e UNITY_LICENSE -v "$GITHUB_WORKSPACE/app/mobile:/project" "$IMAGE" -lc '
+          mkdir -p app/mobile/Logs
+          docker run --rm --shm-size=1g --entrypoint bash -e UNITY_LICENSE -v "$GITHUB_WORKSPACE/app:/project" "$IMAGE" -lc '
             set -euo pipefail
+            umask 077
             mkdir -p "$HOME/.local/share/unity3d/Unity"
             printf "%s" "$UNITY_LICENSE" > "$HOME/.local/share/unity3d/Unity/Unity_lic.ulf"
-            mkdir -p /project/Logs
-            test -x /opt/unity/Editor/Unity
+            unset UNITY_LICENSE
+            export UNITY_EDITOR=/opt/unity/Editor/Unity
+            test -x "$UNITY_EDITOR"
             echo "MONSTERS_CI_STAGE executable-found"
-            unity=/opt/unity/Editor/Unity
-            echo "MONSTERS_CI_STAGE prepare-start"
-            "$unity" -batchmode -nographics -quit -projectPath /project -buildTarget Android -executeMethod Monsters.Editor.DevelopmentBuild.Prepare -logFile /project/Logs/prepare-ci.log
-            echo "MONSTERS_CI_STAGE prepare-complete"
-            echo "MONSTERS_CI_STAGE editmode-start"
-            "$unity" -batchmode -nographics -projectPath /project -buildTarget Android -runTests -testPlatform EditMode -testResults /project/Logs/test-ci.xml -logFile /project/Logs/tests-ci.log
-            echo "MONSTERS_CI_STAGE editmode-complete"
-            echo "MONSTERS_CI_STAGE build-start"
-            "$unity" -batchmode -nographics -quit -projectPath /project -buildTarget Android -executeMethod Monsters.Editor.DevelopmentBuild.Android -logFile /project/Logs/build-ci.log
-            echo "MONSTERS_CI_STAGE build-complete"
+            bash /project/tools/unity_development.sh Android
           ' > "$RUNNER_TEMP/monsters-unity.log" 2>&1 || {
-            grep -E '^MONSTERS_CI_STAGE [a-z-]+
-            # Only compiler code and line/column, not private source text or paths.
-            grep -hEo '\([0-9]+,[0-9]+\): error CS[0-9]+' app/mobile/Logs/*-ci.log 2>/dev/null | sort -u | head -n 40 || true
+            grep -E '^MONSTERS_CI_STAGE [a-z-]+$' "$RUNNER_TEMP/monsters-unity.log" || true
             if grep -qiE 'license.*(invalid|failed|not found)|no valid unity editor license' "$RUNNER_TEMP/monsters-unity.log" app/mobile/Logs/*-ci.log 2>/dev/null; then
-              echo "::error::Unity license activation failed"
+              echo "::error::Unity license activation failed; renew or activate a valid entitlement."
             else
-              echo "::error::Unity validation failed (private logs withheld)"
+              echo "::error::Unity validation failed; private logs withheld."
             fi
             exit 1
           }
           test -s app/mobile/Builds/Android/Monsters-debug.apk
-          echo "Development APK built."
-          python3 - <<'PY'
-          from pathlib import Path
-          import xml.etree.ElementTree as ET
-          p=Path("app/mobile/Logs/test-ci.xml")
-          root=ET.parse(p).getroot()
-          assert int(root.attrib.get("failed","1"))==0
-          assert int(root.attrib.get("total","0"))>0
-          print("Unity EditMode passed:",root.attrib["total"])
-          PY
-      - name: Report sanitized Unity diagnostics in private repository
-        if: failure() && steps.unity.outputs.available == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os, pathlib, re, xml.etree.ElementTree as ET
-          root=pathlib.Path("app/mobile/Logs")
-          report=["Unity validation failed for run "+os.environ["GITHUB_RUN_ID"], "", "Only sanitized stage markers and compiler locations follow."]
-          console=pathlib.Path(os.environ["RUNNER_TEMP"])/"monsters-unity.log"
-          if console.exists():
-              lines=console.read_text(errors="replace").splitlines()
-              report += [line for line in lines if re.fullmatch(r"MONSTERS_CI_STAGE [a-z-]+",line)]
-          for stage in ("prepare","tests","build"):
-              log=root/(stage+"-ci.log")
-              if not log.exists(): continue
-              report.append(stage+": log present")
-              data=log.read_text(errors="replace")
-              errors=sorted(set(re.findall(r"(?m)((?:Assets|Packages)/[A-Za-z0-9_. /-]+\.cs\(\d+,\d+\): error CS\d+)",data)))
-              report.extend(errors[:30])
-              if "MONSTERS_PREPARE_OK" in data: report.append("Prepare success marker present.")
-              if "MONSTERS_BUILD_OK" in data: report.append("Build success marker present.")
-          try:
-              tests=ET.parse(root/"test-ci.xml").getroot()
-              report.append("Test counts: "+", ".join(k+"="+str(tests.get(k,"?")) for k in ("total","passed","failed","skipped")))
-          except (OSError,ET.ParseError): pass
-          pathlib.Path(os.environ["RUNNER_TEMP"],"monsters-private-diagnostics.md").write_text("\n".join(report)+"\n")
-          PY
-          gh api --method POST repos/Persie0/monsters/issues/1/comments -F body=@"$RUNNER_TEMP/monsters-private-diagnostics.md" >/dev/null || echo "Private diagnostic comment unavailable."
-      - name: Publish APK only to private repository
-        if: steps.unity.outputs.available == 'true'
+          python3 app/tools/check_unity_results.py app/mobile/Logs/test-ci.xml
+      - name: Publish APK to private repository only
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
           SHA=$(git -C app rev-parse HEAD)
-          gh release create "development-${SHA:0:12}" app/mobile/Builds/Android/Monsters-debug.apk --repo Persie0/monsters --target "$SHA" --prerelease --title "Development APK ${SHA:0:12}" --notes "Unity development build and EditMode validation; physical-device and release review still required." >/dev/null
-          echo "Private development APK published."
- "$RUNNER_TEMP/monsters-unity.log" || true
-            for stage in prepare tests build; do if [ -s "app/mobile/Logs/$stage-ci.log" ]; then echo "Unity $stage log exists"; fi; done
-            # Only compiler code and line/column, not private source text or paths.
-            grep -hEo '\([0-9]+,[0-9]+\): error CS[0-9]+' app/mobile/Logs/*-ci.log 2>/dev/null | sort -u | head -n 40 || true
-            if grep -qiE 'license.*(invalid|failed|not found)|no valid unity editor license' "$RUNNER_TEMP/monsters-unity.log" app/mobile/Logs/*-ci.log 2>/dev/null; then
-              echo "::error::Unity license activation failed"
-            else
-              echo "::error::Unity validation failed (private logs withheld)"
-            fi
-            exit 1
-          }
-          test -s app/mobile/Builds/Android/Monsters-debug.apk
-          echo "Development APK built."
-          python3 - <<'PY'
-          from pathlib import Path
-          import xml.etree.ElementTree as ET
-          p=Path("app/mobile/Logs/test-ci.xml")
-          root=ET.parse(p).getroot()
-          assert int(root.attrib.get("failed","1"))==0
-          assert int(root.attrib.get("total","0"))>0
-          print("Unity EditMode passed:",root.attrib["total"])
-          PY
-      - name: Publish APK only to private repository
-        if: steps.unity.outputs.available == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          SHA=$(git -C app rev-parse HEAD)
-          gh release create "development-${SHA:0:12}" app/mobile/Builds/Android/Monsters-debug.apk --repo Persie0/monsters --target "$SHA" --prerelease --title "Development APK ${SHA:0:12}" --notes "Unity development build and EditMode validation; physical-device and release review still required." >/dev/null
+          gh release create "development-${SHA:0:12}" app/mobile/Builds/Android/Monsters-debug.apk --repo Persie0/monsters --target "$SHA" --prerelease --title "Development APK ${SHA:0:12}" --notes "Unity development build and EditMode validation; device and release review required." >/dev/null
           echo "Private development APK published."
