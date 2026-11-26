@@ -1,0 +1,58 @@
+name: TopTravelList worldwide bias pass 102
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-worldwide-bias-pass102-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/worldwide-bias-audit-pass102
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify historical inventory and regenerate live backlog
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 3e0bf91b76834a725630af71718b570232617399
+          pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/reconcile_worldwide_backlog.py --verify-baseline
+          python scripts/reconcile_worldwide_backlog.py --check
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          def read(p):
+              with Path(p).open() as f:
+                  return list(csv.DictReader(f,delimiter='\t'))
+          q=read('methodology/worldwide-backlog/remaining.tsv')
+          h=read('methodology/worldwide-backlog/original-inventory.tsv')
+          d=read('methodology/worldwide-diagnostics/records.tsv')
+          expected={r['source'] for r in d if 'incomplete-core' in r['flags'].split(';')}
+          assert {r['source'] for r in q}==expected
+          assert len(q)==len(expected)==1001
+          assert len(h)==len({r['source'] for r in h})==1590
+          assert sum(r['current_status']=='complete' for r in h)==589
+          assert all(r['missing_core'] for r in q)
+          print('Verified current and historical inventory counts.')
+          PY
+          git diff --check
+      - name: Commit generated backlog reports
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add methodology/worldwide-backlog
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate reconciled worldwide incomplete-rating backlog'
+            git push origin HEAD:refs/heads/data/worldwide-bias-audit-pass102
+          fi
