@@ -101,6 +101,11 @@ jobs:
           for f in conflicts:
               if re.fullmatch(r'countries/[A-Z]{2}/(?:cities|sights)\.md',f):
                   subprocess.run(['git','checkout','--ours','--',f],check=True,stdout=subprocess.DEVNULL)
+              elif f=='web/src/main.js':
+                  # Explicitly reviewed conflict: PR version equals main except geographic directory labels.
+                  assert git('rev-parse',f':2:{f}').decode().strip()=='61c9753d2d1255c0f2d1afc6acadc6c179405cf8', 'Reviewed branch website blob changed'
+                  assert git('rev-parse',f':3:{f}').decode().strip()=='c43d662e670dd2eafe1fe36e7636dd9594e7c794', 'Reviewed main website blob changed'
+                  subprocess.run(['git','checkout','--ours','--',f],check=True,stdout=subprocess.DEVNULL)
               elif f=='README.md':
                   a,b='<!-- COUNTRY_DIRECTORY_START -->','<!-- COUNTRY_DIRECTORY_END -->'
                   with tempfile.TemporaryDirectory() as td:
@@ -222,6 +227,7 @@ jobs:
             if [[ "$ok" != true ]]; then report 'Canonical checks failed; no write'; failed=1; continue; fi
             # Stage only repository source and generated files, not dependency or build outputs.
             git add -u -- README.md countries methodology
+            if [[ "$scope" == registry && -f methodology/reviews/HM/migration-history-AU.md ]]; then git add -- methodology/reviews/HM/migration-history-AU.md; fi
             if ! git diff --cached --quiet; then git commit -m 'Reconcile documented migrations and regenerate canonical rankings' >/dev/null; fi
             tested=$(git rev-parse HEAD)
             live=$(git ls-remote origin refs/heads/main | cut -f1)
