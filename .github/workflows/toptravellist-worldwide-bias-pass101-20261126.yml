@@ -1,0 +1,58 @@
+name: TopTravelList worldwide bias pass 101
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-worldwide-bias-pass101-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/worldwide-bias-audit-pass101
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and regenerate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = c2ff59fb141232e62da5a76697325a549a9b972f
+          pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/audit_worldwide.py
+          python - <<'PY'
+          import csv, subprocess, yaml
+          from pathlib import Path
+          p=Path('countries/XK/sights/church-of-the-virgin-of-ljevisa.yaml')
+          old=yaml.safe_load(subprocess.check_output(['git','show','b67271c9d9880e405361849e57579512ee01e999:'+str(p)],text=True))
+          assert old['scores']['experience'] is None and old['scores']['depth'] is None
+          old['scores'].update(experience=8.2,depth=8.4)
+          assert old==yaml.safe_load(p.read_text())
+          rows=list(csv.DictReader(Path('methodology/worldwide-diagnostics/records.tsv').open(),delimiter='\t'))
+          assert len(rows)==len(list(Path('countries').glob('*/cities/*.yaml')))+len(list(Path('countries').glob('*/sights/*.yaml')))
+          row=next(r for r in rows if r['id']=='sight-xk-church-of-the-virgin-of-ljevisa')
+          assert row['overall']=='88.55',row['overall']
+          print('Records:',len(rows),'Incomplete:',sum('incomplete-core' in r['flags'].split(';') for r in rows))
+          PY
+          git diff --check
+      - name: Commit generated reports
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md 'countries/*/cities.md' 'countries/*/sights.md' methodology/worldwide-diagnostics
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Regenerate worldwide rankings and diagnostic after pass 101'
+            git push origin HEAD:refs/heads/data/worldwide-bias-audit-pass101
+          fi
