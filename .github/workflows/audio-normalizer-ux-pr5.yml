@@ -1,0 +1,46 @@
+name: Audio Loudness Normalizer UX validation
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/audio-normalizer-ux-pr5.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: audio-normalizer-ux-pr5
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_PAT: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/AudioLoudnessNormalizer
+          ref: 8cea16afc50e74133e558f3199174a1352db93e6
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - name: Authorize private Git dependencies
+        run: |
+          git config --global url."https://x-access-token:${GH_PAT}@github.com/".insteadOf "https://github.com/"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: false
+      - name: Resolve dependencies
+        working-directory: source
+        run: flutter pub get
+      - name: Analyze
+        working-directory: source
+        run: flutter analyze
+      - name: Test
+        working-directory: source
+        run: flutter test --reporter expanded
+      - name: Remove temporary credentials
+        if: always()
+        run: git config --global --remove-section "url.https://x-access-token:${GH_PAT}@github.com/" || true
