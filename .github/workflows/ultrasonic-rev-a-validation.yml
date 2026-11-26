@@ -1,0 +1,48 @@
+name: Ultrasonic Rev A checks
+on:
+  push:
+    branches: [ultrasonic-rev-a-validation]
+    paths: ['.github/workflows/ultrasonic-rev-a-validation.yml']
+permissions:
+  contents: read
+jobs:
+  eda:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Ultrasonic
+          ref: b94a3153acd78737c1f0ace7e012b978091fa909
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          persist-credentials: false
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends kicad kicad-symbols kicad-footprints
+          mkdir -p reports
+          kicad-cli version
+          kicad-cli sch erc --exit-code-violations -o reports/erc.txt hardware/ultrasonic.kicad_sch
+        continue-on-error: true
+      - run: |
+          kicad-cli pcb drc --exit-code-violations -o reports/drc.txt hardware/ultrasonic.kicad_pcb
+        continue-on-error: true
+      - run: |
+          for f in reports/*.txt; do echo "=== $f ==="; cat "$f"; done
+          test -s reports/erc.txt && test -s reports/drc.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eda-reports
+          path: reports/
+  firmware:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Ultrasonic
+          ref: b94a3153acd78737c1f0ace7e012b978091fa909
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          persist-credentials: false
+      - run: |
+          docker run --rm -v "$PWD:/project" -w /project/firmware espressif/idf:v5.4.2 idf.py build
