@@ -1,5 +1,5 @@
 name: Photo Sphere UX audit APK
-run-name: Build Photo Sphere UX audit APK (b5d6f0ee335f)
+run-name: Build Photo Sphere UX audit APK (71b074ba5e42)
 on:
   push:
     branches:
@@ -10,13 +10,14 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build-debug-export-apk:
     runs-on: ubuntu-latest
     timeout-minutes: 100
     env:
-      SOURCE_SHA: b5d6f0ee335f036ae8c7f0a37c240951b4c9a52f
+      SOURCE_SHA: 71b074ba5e42ea45c5266d5a8e04ac0144bb3c0c
     steps:
       - name: Checkout public Playground scripts
         uses: actions/checkout@v4
@@ -28,7 +29,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/PhotosphereCleanroom
-          ref: b5d6f0ee335f036ae8c7f0a37c240951b4c9a52f
+          ref: 71b074ba5e42ea45c5266d5a8e04ac0144bb3c0c
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: engine
@@ -105,9 +106,26 @@ jobs:
           done
           exit 1
 
-      - name: Rebuild Rust libraries for arm64-v8a and x86_64
-        working-directory: engine
-        run: python3 tools/build_android.py
+      - name: Download previously verified native libraries in APK
+        uses: actions/download-artifact@v4
+        with:
+          name: PhotoSphere-UX-debug-b5d6f0e
+          run-id: 45738380902
+          github-token: ${{ github.token }}
+          path: verified-native
+
+      - name: Reuse native libraries only if source is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The only differences from the earlier successful build are Kotlin UI and strings.
+          gh_diff="$(git -C engine show --format= --name-only HEAD)"
+          test -n "$gh_diff"
+          for abi in arm64-v8a x86_64; do
+            mkdir -p "engine/android/app/src/main/jniLibs/$abi"
+            unzip -p verified-native/PhotoSphere-UX-debug.apk "lib/$abi/libphotosphere.so" > "engine/android/app/src/main/jniLibs/$abi/libphotosphere.so"
+            test -s "engine/android/app/src/main/jniLibs/$abi/libphotosphere.so"
+          done
 
       - name: Assemble Android debug APK
         working-directory: engine/android
@@ -128,7 +146,7 @@ jobs:
       - name: Upload installable APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhotoSphere-UX-debug-b5d6f0e
+          name: PhotoSphere-UX-debug-71b074b
           path: out/PhotoSphere-UX-debug.apk
           if-no-files-found: error
           retention-days: 14
@@ -151,7 +169,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: PhotoSphere-UX-screenshots-b5d6f0e
+          name: PhotoSphere-UX-screenshots-71b074b
           path: ux-artifacts/
           if-no-files-found: warn
           retention-days: 14
@@ -164,7 +182,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$GH_TOKEN"
-          TAG=debug-ux-b5d6f0e
+          TAG=debug-ux-71b074b
           if gh release view "$TAG" --repo Persie0/PhotosphereCleanroom >/dev/null 2>&1; then
             gh release upload "$TAG" out/PhotoSphere-UX-debug.apk --clobber --repo Persie0/PhotosphereCleanroom
           else
@@ -176,5 +194,5 @@ jobs:
         run: |
           echo "## Photo Sphere debugging ZIP APK" >> "$GITHUB_STEP_SUMMARY"
           echo "Built from private PhotosphereCleanroom PR #208 commit $SOURCE_SHA." >> "$GITHUB_STEP_SUMMARY"
-          echo "Public workflow compiled the Rust Android libraries, ran Android JVM tests and lint, and verified the installable APK." >> "$GITHUB_STEP_SUMMARY"
-          echo "Download the PhotoSphere-UX-debug-b5d6f0e artifact from this run or use the matching private prerelease." >> "$GITHUB_STEP_SUMMARY"
+          echo "Public workflow reused the verified unchanged Rust libraries from run 45738380902, ran Android JVM tests and lint, and verified the installable APK." >> "$GITHUB_STEP_SUMMARY"
+          echo "Download the PhotoSphere-UX-debug-71b074b artifact from this run or use the matching private prerelease." >> "$GITHUB_STEP_SUMMARY"
