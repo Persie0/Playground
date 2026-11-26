@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      SOURCE_SHA: 218a7f89fef1e7ac53978d1e525c11a39c08d3e0
+      SOURCE_SHA: 3ccce84629cefc663882bfc02e88cba019238e39
       PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
     steps:
       - name: Render actual Blender rig and save review images privately
@@ -50,15 +50,15 @@ jobs:
           cp "$d/generated/Fairy.blend" "$d/src/assets-source/Fairy.blend"
           cp "$d/generated/Fairy.fbx" "$d/src/mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx"
           git -C "$d/src" add -- assets-source/Fairy.blend mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx
-          git -C "$d/src" -c user.name="Toothfairy CI" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Regenerate V8 sculpted face and wand grip" >>"$log" 2>&1
+          git -C "$d/src" -c user.name="Toothfairy CI" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Regenerate V9 reference-informed face and grip" >>"$log" 2>&1
           git -C "$d/src" -c "http.extraheader=AUTHORIZATION: basic $auth" push --quiet origin HEAD:refs/heads/feature/fairy-face-parent-unlock >>"$log" 2>&1
           mkdir -p "$d/src/.ci/model-review"
           cp "$d/review/"*.jpg "$d/src/.ci/model-review/"
-          test "$(find "$d/src/.ci/model-review" -name '*.jpg' | wc -l)" -eq 3
+          test "$(find "$d/src/.ci/model-review" -name '*.jpg' | wc -l)" -eq 4
           git -C "$d/src" add -- .ci/model-review
           git -C "$d/src" -c user.name="Toothfairy CI" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Private visual review of exact fairy rig" >>"$log" 2>&1
           git -C "$d/src" -c "http.extraheader=AUTHORIZATION: basic $auth" push --quiet origin HEAD:refs/heads/ci/model-review/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT >>"$log" 2>&1
-          echo "Three review images saved privately."
+          echo "Four review images saved privately."
       - name: Retain generation diagnostics privately
         if: failure()
         shell: bash
