@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - ci/teamhub-impeccable-20261122
+    paths: [.github/workflows/teamhub-ux-branch-check.yml]
   workflow_dispatch:
 
 permissions:
@@ -27,6 +28,8 @@ jobs:
             if git -c "http.extraHeader=AUTHORIZATION: basic $header" clone \
                 --depth 1 --single-branch --branch impeccable/teamhub-ux-hardening-20261122 \
                 https://github.com/perzis/teamplus_clone.git teamhub-src >/dev/null 2>&1; then
+              git -C teamhub-src rev-parse HEAD
+              test "$(git -C teamhub-src rev-parse HEAD)" = 510e92a3970ff40c6d5cc37334339290bc3d1ce6 || exit 1
               echo 'Private TeamHub checkout succeeded.'
               exit 0
             fi
