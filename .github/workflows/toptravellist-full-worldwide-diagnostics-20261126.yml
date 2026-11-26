@@ -1,0 +1,89 @@
+name: TopTravelList complete worldwide diagnostics
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-full-worldwide-diagnostics-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/worldwide-bias-audit-20261126
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Integrate current main preserving authored reviews
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          test "$(git rev-parse HEAD)" = 48f4cb9ecf731b99d4a0c3aa5a4f36603f58cffd
+          git merge --no-commit --no-ff d8b2c87bb8f3d584f078ab40832df4d2fa30aa3c || true
+          while IFS= read -r p; do
+            case "$p" in
+              countries/??/cities.md|countries/??/sights.md|README.md)
+                git checkout --theirs -- "$p"
+                git add -- "$p"
+                ;;
+              methodology/reviews/US/sights.md)
+                python - <<'PY'
+          import subprocess
+          from pathlib import Path
+          p='methodology/reviews/US/sights.md'
+          def get(stage):
+              return subprocess.check_output(['git','show',f':{stage}:{p}'],text=True)
+          def section(s):
+              start=s.index('## sight-us-grand-canyon-national-park —')
+              end=s.find('\n## ',start+3)
+              return start,len(s) if end<0 else end
+          base,ours,theirs=map(get,(1,2,3))
+          a,b=section(base); c,d=section(ours); e,f=section(theirs)
+          original=base[a:b]; revised=ours[c:d]
+          assert revised.startswith(original.rstrip()), 'unexpected edit to earlier review'
+          assert theirs[e:f]==original, 'upstream modified same individual section'
+          assert base[:a]+base[b:]==ours[:c]+ours[d:], 'other PR review changes would be lost'
+          Path(p).write_text(theirs[:e]+revised+theirs[f:],encoding='utf-8')
+          PY
+                git add -- "$p"
+                ;;
+              *) echo "Unexpected conflict: $p"; exit 1;;
+            esac
+          done < <(git diff --name-only --diff-filter=U)
+          test -z "$(git diff --name-only --diff-filter=U)"
+          pip install -r requirements.txt
+          python scripts/generate_rankings.py
+          git add README.md 'countries/*/cities.md' 'countries/*/sights.md'
+          git diff --cached --check
+          git commit -m 'Integrate expanded 250-area registry and regenerate rankings'
+      - name: Validate and screen all source records
+        run: |
+          set -euo pipefail
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          python scripts/audit_worldwide.py
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          codes=json.loads(Path('countries/_registry.json').read_text())['codes']
+          rows=list(csv.DictReader(Path('methodology/worldwide-diagnostics/records.tsv').open(),delimiter='\t'))
+          assert len(rows)==len(list(Path('countries').glob('*/cities/*.yaml')))+len(list(Path('countries').glob('*/sights/*.yaml')))
+          assert len({r['id'] for r in rows})==len(rows)
+          summary=Path('methodology/worldwide-diagnostics/README.md').read_text()
+          assert all(f'| {c} | cities |' in summary and f'| {c} | sights |' in summary for c in codes)
+          print('PASS: every registered area and every source record represented exactly once')
+          PY
+          git add methodology/worldwide-diagnostics
+          git diff --cached --check
+          git commit -m 'Record complete worldwide diagnostic and review queue'
+          git push origin HEAD:refs/heads/data/worldwide-bias-audit-20261126
