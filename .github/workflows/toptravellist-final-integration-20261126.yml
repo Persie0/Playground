@@ -1,0 +1,241 @@
+name: TopTravelList final sequential integration
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-final-integration-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-final-integration
+  cancel-in-progress: false
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      TARGET_REPO: Persie0/TopTravelList
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Integrate reviewed PR heads sequentially with fail-closed checks
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          gh auth setup-git
+          git config user.name toptravellist-integration
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python -m pip install -r requirements.txt >/dev/null
+          printf 'PR | Result | Tested commit\n---|---|---\n' >> "$GITHUB_STEP_SUMMARY"
+          report() {
+            printf '%s | %s | %s\n' "$pr" "$1" "${2:-—}" >> "$GITHUB_STEP_SUMMARY"
+            echo "PR #$pr: $1 ${2:-}"
+          }
+          check() {
+            local log
+            log=$(mktemp)
+            if "$@" >"$log" 2>&1; then
+              echo "PASS: $*"
+              rm -f "$log"
+              return 0
+            fi
+            echo "FAIL: $* (private diagnostics withheld)"
+            rm -f "$log"
+            return 1
+          }
+          failed=0
+          for item in 235:KI:e389c9e6ca697c43911c987c7eac895031d21c53 236:NR,TV:5b4145d5e985a026203ba36f4c5ade45bd9d17dd 237:WS:dc311292b27c9b8d56d8b6262f722aecd5892f25 238:MH:9b1ef19d0eb9c8e658dbc2f7a88e6fa25e928773 239:PW:f68c88ba9b0d8a8d4cab38f1b0407d867d2fb87b 240:TO:29725fb44cd650badfc65a990d0ea2faeb04cd5c 234:registry:b670123887fb169412ff2532fe584a2869fe91ec 241:web:83aab05774f3a272041b72343fbbc7d48193c697; do
+            IFS=: read -r pr scope pinned <<< "$item"
+            git reset --hard >/dev/null
+            git clean -fd >/dev/null
+            info=$(gh pr view "$pr" --repo "$TARGET_REPO" --json state,headRefOid,headRefName,baseRefName,isCrossRepository,isDraft)
+            state=$(jq -r .state <<< "$info")
+            if [[ "$state" == MERGED ]]; then report 'Already merged'; continue; fi
+            head=$(jq -r .headRefOid <<< "$info")
+            branch=$(jq -r .headRefName <<< "$info")
+            if [[ "$state" != OPEN || "$head" != "$pinned" || $(jq -r .baseRefName <<< "$info") != main || $(jq -r .isCrossRepository <<< "$info") != false ]]; then
+              report 'State or reviewed head changed; no write' "$head"; failed=1; continue
+            fi
+            if ! git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main" "+refs/pull/$pr/head:refs/remotes/origin/pr-$pr" >/dev/null 2>&1; then report 'Fetch failed'; failed=1; continue; fi
+            base=$(git rev-parse refs/remotes/origin/main)
+            if [[ $(git rev-parse "refs/remotes/origin/pr-$pr") != "$head" ]]; then report 'Head changed during fetch'; failed=1; continue; fi
+            common=$(git merge-base "$head" "$base")
+            # Reject unexpected files or executable mode changes before integrating.
+            if ! python - "$common" "$head" "$scope" <<'PY'
+          import re, subprocess, sys
+          base, head, scope = sys.argv[1:]
+          files = subprocess.check_output(['git','diff','--name-only','--no-renames',base,head],text=True).splitlines()
+          allowed_registry = {'README.md','rules.md','methodology/territory-expansion.md','scripts/generate_countries.py','scripts/generate_rankings.py','scripts/registry.py','scripts/validate.py','web/scripts/export.mjs','web/src/main.js'}
+          allowed_web = {'web/README.md','web/scripts/statistical-explorer.test.mjs','web/scripts/statistics.mjs','web/scripts/statistics.test.mjs','web/src/main.js','web/src/statistical-explorer.js','web/src/style.css'}
+          def allowed(f):
+              if scope == 'registry': return f in allowed_registry or f.startswith(('countries/','methodology/reviews/'))
+              if scope == 'web': return f in allowed_web
+              return f == 'README.md' or any(f.startswith((f'countries/{c}/',f'methodology/reviews/{c}/')) for c in scope.split(','))
+          raw = subprocess.check_output(['git','diff','--raw','--no-renames',base,head],text=True)
+          assert all(map(allowed,files)), 'Unexpected file scope'
+          assert not re.search(r'^:(?:\d{6} (?:120000|160000|100755)|(?:120000|160000|100755) \d{6}) ',raw,re.M), 'Unexpected file mode'
+          PY
+            then report 'Scope check failed'; failed=1; continue; fi
+            git checkout --detach "$head" >/dev/null 2>&1
+            if ! git merge --no-edit --no-ff "$base" >/dev/null 2>&1; then
+              # Only resolve generated ranking files automatically. Preserve README prose via a three-way merge of non-generated content.
+              if ! python - <<'PY'
+          import pathlib, re, subprocess, tempfile
+          def git(*args): return subprocess.check_output(['git',*args])
+          conflicts=git('diff','--name-only','--diff-filter=U').decode().splitlines()
+          for f in conflicts:
+              if re.fullmatch(r'countries/[A-Z]{2}/(?:cities|sights)\.md',f):
+                  subprocess.run(['git','checkout','--ours','--',f],check=True,stdout=subprocess.DEVNULL)
+              elif f=='README.md':
+                  a,b='<!-- COUNTRY_DIRECTORY_START -->','<!-- COUNTRY_DIRECTORY_END -->'
+                  with tempfile.TemporaryDirectory() as td:
+                      paths=[]
+                      for stage in (2,1,3):
+                          s=git('show',f':{stage}:README.md').decode()
+                          assert s.count(a)==s.count(b)==1
+                          before,rest=s.split(a,1); _,after=rest.split(b,1)
+                          p=pathlib.Path(td)/str(stage);p.write_text(before+a+'\n'+b+after);paths.append(str(p))
+                      r=subprocess.run(['git','merge-file','-p',*paths],capture_output=True)
+                      assert r.returncode==0,'Manual README conflict'
+                      pathlib.Path(f).write_bytes(r.stdout)
+              else: raise RuntimeError('Non-generated conflict')
+              subprocess.run(['git','add','--',f],check=True)
+          PY
+              then git merge --abort; report 'Non-generated conflict or ambiguous README; untouched'; failed=1; continue; fi
+              git commit --no-edit >/dev/null
+            fi
+            if [[ "$scope" == registry ]]; then
+              # The previously merged Australia inventory contains the old HM property.
+              # Retire only the documented equivalent if all score fields match.
+              if ! python - <<'PY'
+          import pathlib,re,yaml
+          old=pathlib.Path('countries/AU/sights/heard-mcdonald-islands.yaml')
+          new=pathlib.Path('countries/HM/sights/heard-mcdonald-islands.yaml')
+          if old.exists():
+              assert new.exists()
+              assert yaml.safe_load(old.read_text())['scores']==yaml.safe_load(new.read_text())['scores'], 'HM score divergence'
+              old.unlink()
+              p=pathlib.Path('methodology/reviews/AU/sights.md')
+              s=p.read_text()
+              pat=r'^## sight-au-heard-mcdonald-islands\s+[^\n]*\n[\s\S]*?(?=^## (?:city|sight)-|\Z)'
+              sections=re.findall(pat,s,re.M)
+              assert len(sections)==1,'Expected exactly one AU historical review'
+              archive=pathlib.Path('methodology/reviews/HM/migration-history-AU.md')
+              with archive.open('a') as f: f.write('\n\n## Historical merged Australia decision at integration\n\n'+sections[0])
+              p.write_text(re.sub(pat,'',s,flags=re.M))
+          # Redirect active relative links for documented migrations, never archival documents.
+          log=pathlib.Path('methodology/territory-expansion.md').read_text()
+          def file(id):
+              kind,code,slug=id.split('-',2)
+              return f'countries/{code.upper()}/{"cities" if kind=="city" else "sights"}/{slug}.yaml'
+          mapping={file(a):file(b) for a,b in re.findall(r'^\| ((?:city|sight)-[a-z]{2}-[a-z0-9-]+) \| ((?:city|sight)-[a-z]{2}-[a-z0-9-]+)',log,re.M)}
+          for a,b in mapping.items():
+              assert not pathlib.Path(a).exists() and pathlib.Path(b).is_file(), 'Unresolved documented migration'
+          for p in pathlib.Path('methodology/reviews').glob('*/*.md'):
+              if not re.fullmatch(r'(cities|sights(?:-[a-z0-9-]+)?)\.md',p.name): continue
+              s=p.read_text(); n=s
+              for a,b in mapping.items(): n=n.replace('../../../'+a,'../../../'+b)
+              if n!=s: p.write_text(n)
+          PY
+              then report 'Migration audit failed; no write'; failed=1; continue; fi
+            fi
+            if [[ "$scope" == registry ]]; then
+              codes=$(comm -13 <(git ls-tree -d --name-only "$common":countries | sort) <(git ls-tree -d --name-only "$head":countries | sort) | grep -E '^[A-Z]{2}$' | paste -sd, -)
+              if [[ $(tr ',' '\n' <<< "$codes" | wc -l) != 53 ]]; then report 'Unexpected territory registry delta'; failed=1; continue; fi
+            elif [[ "$scope" == web ]]; then codes=""; else codes="$scope"; fi
+            # Check current numeric peer links for the documentation being integrated.
+            if ! python - "$codes" "$scope" <<'PY'
+          import pathlib,re,sys,yaml,collections
+          codes,scope=sys.argv[1:]
+          root=pathlib.Path('.')
+          fields=['impact','uniqueness','significance','experience','depth']
+          profiles={}
+          names=collections.defaultdict(list)
+          for path in root.glob('countries/*/*/*.yaml'):
+              d=yaml.safe_load(path.read_text())
+              if not isinstance(d,dict) or 'scores' not in d: continue
+              profiles[path.as_posix()]=d
+              names[(path.parent.name,re.sub(r'\W+','',d['name'].casefold()))].append((path,d))
+          # Cross-code exact-name / close-coordinate candidates; not blindly deleted.
+          candidates=0
+          for group in names.values():
+              for i,(a,x) in enumerate(group):
+                  for b,y in group[i+1:]:
+                      if a.parts[1]==b.parts[1]: continue
+                      u,v=x['location'],y['location']
+                      if abs(u['latitude']-v['latitude'])<.02 and min(abs(u['longitude']-v['longitude']),360-abs(u['longitude']-v['longitude']))<.02: candidates+=1
+          print('Cross-code close exact-name candidate pairs:',candidates)
+          pattern=re.compile(r'(?m)^(- \[[^\n]+?\]\(\.\./\.\./\.\./(countries/[A-Z]{2}/(?:cities|sights)/[^)]+\.yaml)\)\s+—\s+)([0-9.]+(?:/[0-9.]+){4})([^\n]*)')
+          count=0
+          for code in filter(None,codes.split(',')):
+              paths=[p for p in root.glob(f'methodology/reviews/{code}/*.md') if re.fullmatch(r'(cities|sights(?:-[a-z0-9-]+)?)\.md',p.name)]
+              for p in paths:
+                  s=p.read_text()
+                  for m in pattern.finditer(s):
+                      d=profiles.get(m[2]); assert d is not None, 'Missing numeric peer'
+                      actual=[d['scores'].get(k) for k in fields]
+                      assert all(isinstance(v,(int,float)) for v in actual), 'Incomplete numeric peer'
+                      assert [float(v) for v in m[3].split('/')]==actual, 'Stale numeric peer'
+                      count+=1
+                  if scope=='registry' or scope in ('WS','MH','PW','TO'):
+                      for block in re.split(r'(?m)^## (?=(?:city|sight)-)',s)[1:]:
+                          ident=block.split(' ',1)[0]
+                          peers={m[2] for m in pattern.finditer(block)}
+                          assert len(peers)>=4 and len({p.split('/')[1] for p in peers})>=3, 'Insufficient cross-country numerical coverage'
+          print('Checked numerical peer profiles:',count)
+          if scope=='registry':
+              assert len({p.split('/')[1] for p in profiles})==250, 'Incomplete populated registry'
+          PY
+            then report 'Numerical or coverage audit failed; no write'; failed=1; continue; fi
+            ok=true
+            if [[ -n "$codes" ]]; then
+              IFS=, read -ra cc <<< "$codes"
+              for code in "${cc[@]}"; do check python scripts/check_new_country_reviews.py --country "$code" || ok=false; done
+            fi
+            check python scripts/validate.py || ok=false
+            check python scripts/check_city_benchmarks.py || ok=false
+            check python scripts/check_sight_benchmarks.py || ok=false
+            check python scripts/generate_rankings.py || ok=false
+            check python scripts/generate_rankings.py --check || ok=false
+            check python scripts/rank.py --kind cities --limit 60 || ok=false
+            check python scripts/rank.py --kind sights --limit 60 || ok=false
+            if [[ "$scope" == registry || "$scope" == web ]]; then
+              if [[ -f web/package-lock.json ]]; then check npm --prefix web ci || ok=false; else check npm --prefix web install --no-package-lock || ok=false; fi
+              check npm --prefix web test || ok=false
+              check npm --prefix web run build || ok=false
+            fi
+            if [[ "$ok" != true ]]; then report 'Canonical checks failed; no write'; failed=1; continue; fi
+            # Stage only repository source and generated files, not dependency or build outputs.
+            git add -u -- README.md countries methodology
+            if ! git diff --cached --quiet; then git commit -m 'Reconcile documented migrations and regenerate canonical rankings' >/dev/null; fi
+            tested=$(git rev-parse HEAD)
+            live=$(git ls-remote origin refs/heads/main | cut -f1)
+            livehead=$(gh pr view "$pr" --repo "$TARGET_REPO" --json headRefOid --jq .headRefOid)
+            if [[ "$live" != "$base" || "$livehead" != "$head" ]]; then report 'Concurrent update; no push' "$tested"; failed=1; continue; fi
+            if [[ "$tested" != "$head" ]] && ! git push origin "HEAD:refs/heads/$branch" >/dev/null 2>&1; then report 'Branch push failed' "$tested"; failed=1; continue; fi
+            if [[ $(git ls-remote origin refs/heads/main | cut -f1) != "$base" ]]; then report 'Prepared; main advanced before merge' "$tested"; failed=1; continue; fi
+            if [[ $(jq -r .isDraft <<< "$info") == true ]]; then
+              if ! gh pr ready "$pr" --repo "$TARGET_REPO" >/dev/null 2>&1; then report 'Ready transition failed' "$tested"; failed=1; continue; fi
+            fi
+            if gh pr merge "$pr" --repo "$TARGET_REPO" --merge --match-head-commit "$tested" >/dev/null 2>&1 && [[ $(gh pr view "$pr" --repo "$TARGET_REPO" --json state --jq .state) == MERGED ]]; then
+              report 'Merged after checks' "$tested"
+            else
+              report 'Prepared; merge blocked' "$tested"; failed=1
+            fi
+          done
+          exit "$failed"
