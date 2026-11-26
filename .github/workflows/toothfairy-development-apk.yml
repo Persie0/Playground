@@ -1,0 +1,130 @@
+name: Toothfairy private development APK
+on:
+  push:
+    branches: [ci/toothfairy-apk-20261126]
+    paths: [.github/workflows/toothfairy-development-apk.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toothfairy-development-apk
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SOURCE_SHA: 4f00a686400f4ccba6fda3a7d08415c4ad8120c6
+      IMAGE: unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
+    steps:
+      - name: Check Unity license and repository access
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$PRIVATE_TOKEN" ]]; then
+            echo "::error::No private repository token configured."
+            exit 1
+          fi
+          if [[ -n "$UNITY_LICENSE" ]]; then
+            echo "Unity license file configured (activation not yet verified)."
+          elif [[ -n "$UNITY_SERIAL" && -n "$UNITY_EMAIL" && -n "$UNITY_PASSWORD" ]]; then
+            echo "Unity serial credentials configured (activation not yet verified)."
+          else
+            echo "::error::Unity activation missing. Configure UNITY_LICENSE or UNITY_SERIAL + UNITY_EMAIL + UNITY_PASSWORD on Playground. No APK produced."
+            exit 1
+          fi
+      - name: Fetch exact private source
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/toothfairy-src" "$RUNNER_TEMP/toothfairy-private"
+          git -C "$RUNNER_TEMP/toothfairy-src" init -q
+          git -C "$RUNNER_TEMP/toothfairy-src" remote add origin https://github.com/Persie0/Toothfairy.git
+          auth="$(printf 'x-access-token:%s' "$PRIVATE_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          git -C "$RUNNER_TEMP/toothfairy-src" -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --quiet --depth=1 origin "$SOURCE_SHA" >"$RUNNER_TEMP/toothfairy-private/fetch.log" 2>&1
+          git -C "$RUNNER_TEMP/toothfairy-src" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/toothfairy-src" rev-parse HEAD)" = "$SOURCE_SHA"
+          echo "Pinned source fetched."
+      - name: Pull pinned-version Android editor
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE" >/dev/null
+      - name: Activate, prepare, run EditMode tests and build APK
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          log="$RUNNER_TEMP/toothfairy-private/unity.log"
+          docker run --rm --shm-size=2g \
+            -e UNITY_LICENSE -e UNITY_SERIAL -e UNITY_EMAIL -e UNITY_PASSWORD \
+            -v "$RUNNER_TEMP/toothfairy-src:/src" \
+            --entrypoint /bin/bash "$IMAGE" -c '
+              set -euo pipefail
+              export UNITY_EDITOR=/opt/unity/Editor/Unity
+              export HOME=/root
+              mkdir -p /tmp/toothfairy-activation
+              activated=0
+              cleanup() {
+                if [[ "$activated" == 1 && -n "$UNITY_SERIAL" && -n "$UNITY_EMAIL" && -n "$UNITY_PASSWORD" ]]; then
+                  "$UNITY_EDITOR" -batchmode -nographics -quit -returnlicense -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -logFile /tmp/toothfairy-activation/return.log >/dev/null 2>&1 || true
+                fi
+              }
+              trap cleanup EXIT
+              if [[ -n "$UNITY_LICENSE" ]]; then
+                printf "%s" "$UNITY_LICENSE" > /tmp/toothfairy-activation/Unity.ulf
+                if ! grep -q "<" /tmp/toothfairy-activation/Unity.ulf; then
+                  printf "%s" "$UNITY_LICENSE" | base64 -d > /tmp/toothfairy-activation/Unity.ulf
+                fi
+                "$UNITY_EDITOR" -batchmode -nographics -quit -manualLicenseFile /tmp/toothfairy-activation/Unity.ulf -logFile /tmp/toothfairy-activation/activation.log
+              else
+                "$UNITY_EDITOR" -batchmode -nographics -quit -serial "$UNITY_SERIAL" -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -logFile /tmp/toothfairy-activation/activation.log
+              fi
+              activated=1
+              rm -f /tmp/toothfairy-activation/Unity.ulf
+              unset UNITY_LICENSE
+              bash /src/tools/unity_development.sh Android
+              test -s /src/mobile/Builds/Android/Toothfairy-debug.apk
+            ' >"$log" 2>&1 || {
+              echo "::error::Unity activation, import, tests or Android build failed. No APK produced. Private logs not printed."
+              # Print only non-sensitive compiler diagnostic codes, never paths or messages.
+              grep -hEo 'error CS[0-9]{4}' "$RUNNER_TEMP/toothfairy-src/mobile/Logs/"*.log 2>/dev/null | sort | uniq -c || true
+              exit 1
+            }
+          echo "Development APK built; EditMode gate passed."
+      - name: Publish APK to private draft release
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$RUNNER_TEMP/toothfairy-src/mobile/Builds/Android/Toothfairy-debug.apk"
+          test -s "$apk"
+          unzip -tq "$apk" >/dev/null
+          test "$(gh repo view Persie0/Toothfairy --json isPrivate --jq .isPrivate)" = true
+          tag="dev-apk-4f00a68-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          gh release create "$tag" "$apk" --repo Persie0/Toothfairy --target "$SOURCE_SHA" \
+            --draft --prerelease --title "Toothfairy development APK ($SOURCE_SHA)" \
+            --notes "Development-only ARM64 debug APK. Unity EditMode gate passed. Physical-device and release acceptance remain pending." \
+            >"$RUNNER_TEMP/toothfairy-private/release.log" 2>&1
+          echo "APK uploaded to private draft release."
+      - name: Cleanup private build data
+        if: always()
+        shell: bash
+        run: |
+          sudo rm -rf "$RUNNER_TEMP/toothfairy-src" "$RUNNER_TEMP/toothfairy-private"
