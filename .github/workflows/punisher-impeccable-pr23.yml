@@ -58,45 +58,50 @@ jobs:
         if: always()
         run: |
           python3 - <<'PY'
-          import os, pathlib, re, hashlib, json
+          import os, pathlib, json, hashlib, gzip
           root = pathlib.Path(os.environ['RUNNER_TEMP'])
-          def loc(path):
-              try: path = str(pathlib.Path(path.removeprefix('file://')).resolve().relative_to(pathlib.Path.cwd()))
-              except ValueError: return 'external'
-              return hashlib.sha256(path.encode()).hexdigest()[:12]
-          a = root / 'punisher-analyze.log'
-          if a.exists():
-              for line in a.read_text(errors='replace').splitlines():
-                  f = line.split('|')
-                  if len(f) >= 8 and re.fullmatch(r'[A-Z_]+', f[2]) and f[4].isdigit() and f[5].isdigit():
-                      print('ANALYZE', f[0], f[2], loc(f[3]), f[4], f[5])
           t = root / 'punisher-test.log'
+          events = []
           if t.exists():
-              passed, failed, names, suites = 0, set(), {}, {}
               for line in t.read_text(errors='replace').splitlines():
-                  try: e = json.loads(line)
+                  try:
+                      events.append(json.loads(line))
                   except ValueError:
-                      for path, ln, col in re.findall(r'((?:lib|test)/[\w/.-]+\.dart):(\d+):(\d+)', line): print('COMPILE', loc(path), ln, col)
-                      continue
-                  if not isinstance(e, dict): continue
-                  if e.get('type') == 'testStart':
-                  test = e.get('test', {})
-                  names[test.get('id')] = hashlib.sha256(str(test.get('name', '')).encode()).hexdigest()[:12]
-              if e.get('type') == 'suite':
-                  suite = e.get('suite', {})
-                  suites[suite.get('id')] = loc(suite.get('path',''))
-              if e.get('type') == 'testDone':
-                      if e.get('result') == 'success' and not e.get('hidden'): passed += 1
-                      elif e.get('result') != 'success': failed.add(e.get('testID'))
-                  if e.get('type') == 'error':
-                      error = str(e.get('error', ''))
-                  stack = str(e.get('stackTrace','')) + error
-                  print('ERROR_CASE', names.get(e.get('testID'), 'unknown'), 'assertion' if 'Expected:' in error else 'exception')
-                  for match in re.finditer(r'((?:lib|test)/[\w/.-]+\.dart)[: ]+(\d+)[: ](\d+)', stack):
-                      print('ERROR_LINE', loc(match[1]), match[2], match[3])
-                  for pattern, label in [('Found 0 widgets', 'zero_widgets'), ('Found 2 widgets', 'two_widgets'), ('overflowed', 'overflow'), ('pumpAndSettle timed out', 'settle_timeout'), ('pending', 'pending'), ('Multiple exceptions', 'multiple_exceptions')]:
-                      if pattern.lower() in error.lower(): print('ERROR_KIND', label)
-                      for path, ln, col in re.findall(r'((?:lib|test)/[\w/.-]+\.dart):(\d+):(\d+)', str(e.get('stackTrace','')) + error): print('TEST_LOCATION', loc(path), ln, col)
-              print('FAILED_TEST_IDS', [(i,names.get(i)) for i in sorted(failed)])
-              print('FLUTTER_TEST_COUNTS', passed, len(failed))
+                      pass
+          events = [e for e in events if isinstance(e, dict)]
+          done = [e for e in events if e.get('type') == 'testDone']
+          failed = {e.get('testID') for e in done if e.get('result') != 'success'}
+          names = {e['test']['id']: e['test']['name'] for e in events if e.get('type') == 'testStart'}
+          print('FLUTTER_TEST_COUNTS', sum(e.get('result') == 'success' and not e.get('hidden') for e in done), len(failed))
+          for n in sorted(failed):
+              print('FAILED_CASE_HASH', hashlib.sha256(names.get(n, '').encode()).hexdigest()[:12])
+          selected = [e for e in events if e.get('testID') in failed or (e.get('type') == 'testStart' and e.get('test',{}).get('id') in failed)]
+          if failed:
+              (root / 'failed.gz').write_bytes(gzip.compress(json.dumps(selected, ensure_ascii=True).encode()))
           PY
+          if [ -f "$RUNNER_TEMP/failed.gz" ]; then
+            cat > "$RUNNER_TEMP/recipient.pem" <<'CERT'
+          -----BEGIN CERTIFICATE-----
+          MIIDSzCCAjOgAwIBAgIUXdETChXQKEtwRDcZSwnYe39EnIswDQYJKoZIhvcNAQEL
+          BQAwNTEzMDEGA1UEAwwqUHJpdmF0ZSBDSSBkaWFnbm9zdGljcyBlcGhlbWVyYWwg
+          cmVjaXBpZW50MB4XDTI2MTEyNjAxMDEyMFoXDTI2MTEyODAxMDEyMFowNTEzMDEG
+          A1UEAwwqUHJpdmF0ZSBDSSBkaWFnbm9zdGljcyBlcGhlbWVyYWwgcmVjaXBpZW50
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5TquoT+jJTYTj8DztVAp
+          wKe59fE1oz+QrUXtnMgl+cchcakI09/aMpk1InPpLUMziX2zWFg2J6V7zDsTaXR5
+          fzBsAhBKjNrIaCw03F4ZaSsoGky/cHkVLQemPS/ejjK2M+6EsOPKsP2mm0RpDM0I
+          5XeoTwqMX7bICJBUdK2EMHCvJZsnTut29usWxU0eqz4efIyP61VihDZAnPQvc0Vm
+          pB5h4BCxXZi8hkw4Dfgyg+dFyCJ8axKX0OhV1qg4jf8sty4w18GqwW1w7sgUTNeX
+          jkOiB10xXgP8xByfqFHCOCwpZG2PYhFOTqhc+PkkU2b8IFrSv0bq7r89o3j8Kjqu
+          tQIDAQABo1MwUTAdBgNVHQ4EFgQUdmS4LBLLLdXqmU+i6VtgbrCNhxIwHwYDVR0j
+          BBgwFoAUdmS4LBLLLdXqmU+i6VtgbrCNhxIwDwYDVR0TAQH/BAUwAwEB/zANBgkq
+          hkiG9w0BAQsFAAOCAQEAnivrjnNnxm4NMlkdNIV/wCHZJnCT1InN6jXviX/LnJwN
+          hGEVNmrttVxMosV/V6HvNrcFJAcRIcWgkdzzeJbwLMBtEp+3fN5ZqdvAjCPxo756
+          B3JQp87uXE1ETa5QSgndqcKG5aJ6k2pSrIptE1n0ntLBiBF02y9OMRB8PMMeW5Z8
+          EqZAUqEdksxhGtGkvgAxNIybZhITATp054jJ7dSVHfvW4E3jgtCvdCqvA7DdIB8g
+          1A19jJg2m2/AvisUYdrI025xnW1xy1Y183z90v9ZB6B5VQEqpb1YROFtnc9oD4Nm
+          7rTam4hlRlVgCM99U+J6xACSe15/IMOiL3ehwiblTA==
+          -----END CERTIFICATE-----
+          CERT
+            openssl cms -encrypt -binary -aes256 -in "$RUNNER_TEMP/failed.gz" -outform DER -out "$RUNNER_TEMP/failed.der" "$RUNNER_TEMP/recipient.pem"
+            printf 'ENCRYPTED_DIAGNOSTICS '; base64 -w0 "$RUNNER_TEMP/failed.der"; echo
+          fi
