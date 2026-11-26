@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      SOURCE_SHA: b7f77882378457b7b163e90cb522a9394dde0365
+      SOURCE_SHA: ec689a572e2a266f8ce66fdb2bb9af600cee091a
       IMAGE: unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
     steps:
       - name: Check Unity license and repository access
@@ -67,14 +67,14 @@ jobs:
           mkdir -p "$logs/rig/review"
           auth="$(printf 'x-access-token:%s' "$PRIVATE_TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
-          git -C "$src" -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --quiet --depth=2 origin refs/heads/ci/model-review/45825288952-1 >"$logs/rig/review.log" 2>&1
+          git -C "$src" -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --quiet --depth=2 origin refs/heads/ci/model-review/45833287178-1 >"$logs/rig/review.log" 2>&1
           test "$(git -C "$src" rev-parse FETCH_HEAD^)" = "$SOURCE_SHA"
-          for name in Fairy-front Fairy-three-quarter Fairy-face; do
+          for name in Fairy-front Fairy-three-quarter Fairy-face Fairy-profile Fairy-grip Fairy-free-hand Fairy-posed; do
             git -C "$src" show "FETCH_HEAD:.ci/model-review/$name.jpg" >"$logs/rig/review/$name.jpg"
             test -s "$logs/rig/review/$name.jpg"
           done
           test -s "$src/mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx"
-          echo "Using exact verified and visually reviewed FBX; no regeneration."
+          echo "Using exact Blender-verified V14 FBX; no regeneration."
       - name: Provision bundled Android offline speech
         shell: bash
         run: |
