@@ -1,0 +1,67 @@
+name: MicroRWIS revision E.2 corrected export validation
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-reve2-export-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 0b3cd2752eb312514d0c25884d1bba15565f41c1
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Models and reproducibility
+        working-directory: source/road-weather-station
+        run: |
+          node simulation/rev-e-cable.mjs > /tmp/cable-results.json
+          diff -u simulation/rev-e-cable-results.json /tmp/cable-results.json
+          node simulation/rev-d.mjs > /tmp/rev-d.json
+          node simulation/test.mjs > /tmp/rev-a.json
+          diff -u simulation/results.json /tmp/rev-a.json
+          node simulation/rev-b.mjs > /tmp/rev-b.json
+          node simulation/rev-c.mjs > /tmp/rev-c.json
+          g++ -std=c++17 -Wall -Wextra -Werror simulation/rev-e-wet.cpp -o /tmp/rwis-wet
+          /tmp/rwis-wet
+          node simulation/rev-e-protection.mjs > /tmp/protection.json
+          cd hardware/sensor-interface
+          node generate.mjs
+          git diff --exit-code -- sensor-interface.kicad_pcb netlist.json
+          node verify.mjs
+      - name: KiCad install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad
+          kicad-cli version
+      - name: PCB DRC and fabrication export check
+        working-directory: source/road-weather-station/hardware/sensor-interface
+        run: |
+          mkdir -p /tmp/rwis-gerbers
+          kicad-cli pcb drc --exit-code-violations --severity-error --output /tmp/rwis-drc.txt sensor-interface.kicad_pcb || { cat /tmp/rwis-drc.txt; exit 1; }
+          cat /tmp/rwis-drc.txt
+          kicad-cli pcb export gerbers --output /tmp/rwis-gerbers/ sensor-interface.kicad_pcb
+          kicad-cli pcb export drill --output /tmp/rwis-gerbers/ sensor-interface.kicad_pcb
+          find /tmp/rwis-gerbers -type f -printf '%f %s bytes\n'
+          for ext in gtl gbl gts gbs gto gm1 drl; do
+            test "$(find /tmp/rwis-gerbers -name "*.$ext" -size +0c | wc -l)" -ge 1
+          done
+          # No upload: private design files stay private.
+      - uses: arduino/setup-arduino-cli@v2
+        with:
+          version: '1.2.2'
+      - name: Compile native diagnostics
+        working-directory: source/road-weather-station
+        run: |
+          url=https://raw.githubusercontent.com/RAKWireless/RAKwireless-Arduino-BSP-Index/main/package_rakwireless_com_rui_index.json
+          arduino-cli core update-index --additional-urls "$url"
+          arduino-cli core install rak_rui:stm32@4.3.0 --additional-urls "$url"
+          arduino-cli compile --fqbn rak_rui:stm32:WisDuoRAK3172EvaluationBoard firmware/road_weather_rak
