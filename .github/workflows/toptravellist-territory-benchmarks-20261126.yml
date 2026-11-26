@@ -45,20 +45,26 @@ jobs:
         working-directory: target
         run: |
           set +e
+          failed=0
           for script in validate.py check_city_benchmarks.py check_sight_benchmarks.py; do
             python "scripts/$script" > "/tmp/$script.log" 2>&1
             status=$?
             echo "$script exit=$status"
-            if [ "$status" != 0 ]; then tail -n 20 "/tmp/$script.log"; fi
+            if [ "$status" != 0 ]; then tail -n 20 "/tmp/$script.log"; failed=1; fi
           done
           python scripts/generate_rankings.py --check >/tmp/generate-check.log 2>&1
           status=$?
           echo "generate_rankings.py --check exit=$status"
-          if [ "$status" != 0 ]; then tail -n 15 /tmp/generate-check.log; fi
+          if [ "$status" != 0 ]; then tail -n 15 /tmp/generate-check.log; failed=1; fi
           python scripts/rank.py --kind cities --limit 60 >/tmp/top-cities.log 2>&1
-          echo "rank.py cities exit=$?"
+          status=$?
+          echo "rank.py cities exit=$status"
+          if [ "$status" != 0 ]; then failed=1; fi
           python scripts/rank.py --kind sights --limit 60 >/tmp/top-sights.log 2>&1
-          echo "rank.py sights exit=$?"
+          status=$?
+          echo "rank.py sights exit=$status"
+          if [ "$status" != 0 ]; then failed=1; fi
+          exit "$failed"
       - name: Commit reviews and generated rankings, push without force
         working-directory: target
         run: |
@@ -69,3 +75,5 @@ jobs:
           git commit -m 'Verify territory benchmark coverage and refresh canonical ranking pages' >/tmp/territory-audit-commit.log
           git push origin HEAD:feature/worldwide-territories-greenland
           echo "AUDIT_COMMIT=$(git rev-parse HEAD)"
+
+# Recheck after completion of JE, EH, GI and IM inventories.
