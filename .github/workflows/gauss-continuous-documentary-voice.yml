@@ -10,10 +10,10 @@ concurrency:
   group: gauss-continuous-documentary-20261126
   cancel-in-progress: false
 env:
-  SOURCE_SHA: fa51029ca7c3bc3627ca790186db4395e031c473
+  SOURCE_SHA: acbac560bc18c3bb0258e01621b48e872db03eec
   PICTURE_TAG: gauss-circle-continuous-directors-cut-1080p30-20261126
   ORIGINAL_TAG: gauss-circle-complete-1080p30-20261112
-  RELEASE_TAG: gauss-circle-continuous-documentary-v4-1080p30-20261126
+  RELEASE_TAG: gauss-circle-directed-documentary-v10-1080p30-20261126
   GH_TOKEN: ${{ github.token }}
   PYTHONUNBUFFERED: '1'
 jobs:
@@ -39,8 +39,20 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
           python -m pip install 'numpy>=1.26,<3' 'scipy>=1.11,<2' 'opencv-python-headless>=4.9,<5' 'Pillow>=10,<13' 'edge-tts>=7,<9'
+      - name: Verify and render the new visual designs
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m unittest discover -s tests -p test_documentary_visual_direction.py -v
+          python -m production.documentary_visual_direction --preview-only --output-dir ../../visual-previews
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gauss-directed-visual-previews
+          path: visual-previews/*
+          if-no-files-found: error
+          retention-days: 21
       - name: Obtain verified continuous picture and original clean music source
         run: |
           set -euo pipefail
@@ -88,11 +100,17 @@ jobs:
           path: output/*
           if-no-files-found: error
           retention-days: 21
-      - name: Replace only the soundtrack with improved narration and clean original instrumental
+      - name: Direct four mathematical visual sequences using actual word cues
         run: |
           set -euo pipefail
           cd source/gauss-circle-problem
-          python -m production.mix_continuous_documentary --picture ../../input/Gauss_Circle_Continuous_Directors_Cut_1080p30.mp4 --instrumental-source ../../input/Gauss_Circle_Complete_1080p30_NoNarration.mp4 --reference-cues ../../input/Gauss_Circle_Narration_Cues.json --output-dir ../../output
+          python -m production.documentary_visual_direction --picture ../../input/Gauss_Circle_Continuous_Directors_Cut_1080p30.mp4 --cues ../../output/Gauss_Circle_Documentary_Narration_Cues.json --output-dir ../../directed-picture
+          cp ../../directed-picture/*.png ../../directed-picture/*_QA.json ../../output/
+      - name: Mix revised narration and clean original instrumental into directed picture
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m production.mix_continuous_documentary --picture ../../directed-picture/Gauss_Circle_Directed_Picture_1080p30.mp4 --instrumental-source ../../input/Gauss_Circle_Complete_1080p30_NoNarration.mp4 --reference-cues ../../input/Gauss_Circle_Narration_Cues.json --output-dir ../../output
           (cd ../../output && sha256sum -c SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
@@ -110,4 +128,4 @@ jobs:
             echo 'Refusing to overwrite existing release'
             exit 1
           fi
-          gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground --title "Gauss Circle — Evidence-led Documentary Cut v4 (1080p30)" --notes "Original documentary narration revised across all fourteen retained animation beats. One continuous scene, exact unchanged 16,098 picture frames and 536.6-second duration; new authentic TTS word timings, original instrumental-only soundtrack independently reconstructed, dynamically ducked voice mix and verified frame clock. Earlier continuous and director-cut releases remain unchanged. See source PR #266; subjective narration and storytelling quality require final human review."
+          gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground --title "Gauss Circle — Directed Documentary v10 (1080p30)" --notes "Four new cue-directed mathematical sequences, revised v10 narration, measured word timings and reveal pauses, original clean instrumental, exact 16,098-frame 536.6-second clock, and visual and audio QA. The source picture is re-encoded to integrate the four inserts. Earlier releases are unchanged. Source PR #266. Final human viewing remains necessary."
