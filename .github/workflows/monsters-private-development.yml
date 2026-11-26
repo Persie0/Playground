@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/monsters
-          ref: 625f8a5b242342e23c1cb748012b585d80d606a3
+          ref: 544bd16d3c7cfce0253950124412af74fe58f7af
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: true
           path: app
@@ -58,7 +58,7 @@ jobs:
           git add assets-source/generated mobile/Assets/Monsters/Resources/MonsterMeshes mobile/Assets/Monsters/Brand
           if ! git diff --cached --quiet; then
             git commit -qm "Generate Blender review scenes and runtime meshes"
-            git push -q origin HEAD:feature/monster-companions
+            git push -q origin HEAD:main
           fi
           if ! python3 tools/build_neural_voice.py >"$RUNNER_TEMP/monsters-voice.log" 2>&1; then
             grep -E '^MONSTER_BUILD_DIAGNOSTIC [A-Za-z]+ [A-Za-z0-9_:,<>]+$' "$RUNNER_TEMP/monsters-voice.log" || true
@@ -66,7 +66,7 @@ jobs:
             exit 1
           fi
           python3 tools/verify_assets.py
-      - name: Commit verified outputs to the private feature branch
+      - name: Commit verified outputs to private main
         working-directory: app
         run: |
           set -euo pipefail
@@ -75,7 +75,7 @@ jobs:
           git add assets-source/generated assets-source/voice-notices mobile/Assets/Monsters/Resources/MonsterMeshes mobile/Assets/Monsters/Resources/Voice mobile/Assets/Monsters/Brand
           if ! git diff --cached --quiet; then
             git commit -qm "Generate verified monster art, offline neural voices and app icon"
-            git push -q origin HEAD:feature/monster-companions
+            git push -q origin HEAD:main
           fi
           echo "Generated private assets committed successfully."
       - name: Check Unity license configuration
