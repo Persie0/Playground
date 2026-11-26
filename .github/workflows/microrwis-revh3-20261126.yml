@@ -1,0 +1,50 @@
+name: MicroRWIS revision H.3 multilayer carrier routing
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revh3-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 9ff1c3f816ccfc4c579ed31fcfdbcda12a6cef90
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Netlist and regression
+        working-directory: source/road-weather-station
+        run: |
+          node hardware/integrated-carrier/verify.mjs
+          node hardware/integrated-carrier/power-model.mjs > /tmp/power.json
+          node simulation/rev-g-timer.mjs > /tmp/timer.json
+          node simulation/rev-d.mjs > /tmp/revd.json
+          node server/smoke.mjs
+      - name: KiCad install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad kicad-footprints
+          kicad-cli version
+          /usr/bin/python3 -c 'import pcbnew; print(pcbnew.Version())'
+      - name: Generate and validate integrated candidate
+        working-directory: source/road-weather-station/hardware/integrated-carrier
+        run: |
+          /usr/bin/python3 generate.py --placement-only --output /tmp/placement.kicad_pcb
+          bash route-check.sh /tmp/rwis-carrier
+          cp /tmp/rwis-carrier/carrier.kicad_pcb /tmp/carrier.kicad_pcb
+          /usr/bin/python3 extract-power.py /tmp/carrier.kicad_pcb
+          mkdir -p /tmp/carrier-gerbers
+          kicad-cli pcb export gerbers --output /tmp/carrier-gerbers/ /tmp/carrier.kicad_pcb
+          kicad-cli pcb export drill --output /tmp/carrier-gerbers/ /tmp/carrier.kicad_pcb
+          for ext in gtl gbl gts gbs gto gm1 drl; do
+            test "$(find /tmp/carrier-gerbers -name "*.$ext" -size +0c | wc -l)" -ge 1
+          done
+          # Do not publish private CAD artifacts to public CI.
