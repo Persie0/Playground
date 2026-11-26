@@ -1,0 +1,37 @@
+name: MicroRWIS L.2 qualified battery gauge
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revl2-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: cab3c400201d95f13bd3eb2ad959083d72e44a3b
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Gauge and reserve policy tests
+        working-directory: source/road-weather-station/hardware/solar-variant
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined test-gauge.cpp -o /tmp/gauge
+          /tmp/gauge
+          c++ -std=c++17 -Wall -Wextra -Werror test-policy.cpp -o /tmp/solar-policy
+          /tmp/solar-policy
+          node gauge-model.mjs
+          node season.mjs
+      - name: Existing firmware and server host regressions
+        working-directory: source/road-weather-station
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror simulation/rev-c-policy.cpp -o /tmp/policy
+          /tmp/policy
+          node server/smoke.mjs
