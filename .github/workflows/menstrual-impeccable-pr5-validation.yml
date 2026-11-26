@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/menstrual
-          ref: 5df722a8ab3704fa6dff28c2c20f50c7ec2aaf78
+          ref: db75dd473b1a2fc2f84e4257a04c4e237666710d
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - uses: subosito/flutter-action@v2
@@ -36,4 +36,8 @@ jobs:
           flutter test --reporter expanded > "$RUNNER_TEMP/test.log" 2>&1
           status=$?
           echo "Test exit status: $status"
+          if [ "$status" -ne 0 ]; then
+            grep -oE "test/interface_regression_test.dart:[0-9]+:[0-9]+" "$RUNNER_TEMP/test.log" | sort -u || true
+            echo "Overflow reports: $(grep -c 'overflowed by' "$RUNNER_TEMP/test.log" || true)"
+          fi
           exit "$status"
