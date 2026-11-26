@@ -1,7 +1,8 @@
 name: Monsters private development verification
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
       - ".github/workflows/monsters-private-development.yml"
   workflow_dispatch:
@@ -19,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/monsters
-          ref: 924435bc54204978a8ec696d8c09e1b0b1a0b47f
+          ref: 625f8a5b242342e23c1cb748012b585d80d606a3
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: true
           path: app
@@ -47,7 +48,8 @@ jobs:
           set -euo pipefail
           # Do not expose private source or generated assets in public logs.
           if ! blender -b -t 2 --python-exit-code 1 --python assets-source/build_monsters.py -- --render >"$RUNNER_TEMP/monsters-blender.log" 2>&1; then
-            grep -E '^MONSTER_BUILD_DIAGNOSTIC [A-Za-z]+ [A-Za-z0-9_:,<>]+
+            grep -E '^MONSTER_BUILD_DIAGNOSTIC [A-Za-z]+ [A-Za-z0-9_:,<>]+$' "$RUNNER_TEMP/monsters-blender.log" || true
+            echo "::error::Blender generation failed (private logs withheld)"
             exit 1
           fi
           python3 tools/build_brand.py
@@ -59,79 +61,10 @@ jobs:
             git push -q origin HEAD:feature/monster-companions
           fi
           if ! python3 tools/build_neural_voice.py >"$RUNNER_TEMP/monsters-voice.log" 2>&1; then
-            grep -E '^MONSTER_BUILD_DIAGNOSTIC [A-Za-z]+ [A-Za-z0-9_:,<>]+
-            exit 1
-          fi
-          python3 tools/verify_assets.py
-      - name: Commit verified outputs to the private feature branch
-        working-directory: app
-        run: |
-          set -euo pipefail
-          git config user.name "Monster asset builder"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets-source/generated assets-source/voice-notices mobile/Assets/Monsters/Resources/MonsterMeshes mobile/Assets/Monsters/Resources/Voice mobile/Assets/Monsters/Brand
-          if ! git diff --cached --quiet; then
-            git commit -qm "Generate verified monster art, offline neural voices and app icon"
-            git push -q origin HEAD:feature/monster-companions
-          fi
-          echo "Generated private assets committed successfully."
-      - name: Check Unity license configuration
-        id: unity
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-        run: |
-          if [ -n "$UNITY_LICENSE" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Unity build not run: no UNITY_LICENSE secret configured."
-          fi
-      - name: Unity development compilation, tests and Android APK
-        if: steps.unity.outputs.available == 'true'
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          IMAGE=unityci/editor:ubuntu-6000.3.29f1-android-3
-          docker pull "$IMAGE" >/dev/null
-          docker run --rm -e UNITY_LICENSE -v "$GITHUB_WORKSPACE/app/mobile:/project" "$IMAGE" bash -lc '
-            set -euo pipefail
-            mkdir -p "$HOME/.local/share/unity3d/Unity"
-            printf "%s" "$UNITY_LICENSE" > "$HOME/.local/share/unity3d/Unity/Unity_lic.ulf"
-            unity=/opt/unity/Editor/Unity
-            "$unity" -batchmode -nographics -quit -projectPath /project -buildTarget Android -executeMethod Monsters.Editor.DevelopmentBuild.Prepare -logFile /project/Logs/prepare-ci.log
-            "$unity" -batchmode -nographics -projectPath /project -buildTarget Android -runTests -testPlatform EditMode -testResults /project/Logs/test-ci.xml -logFile /project/Logs/tests-ci.log
-            "$unity" -batchmode -nographics -quit -projectPath /project -buildTarget Android -executeMethod Monsters.Editor.DevelopmentBuild.Android -logFile /project/Logs/build-ci.log
-          ' > "$RUNNER_TEMP/monsters-unity.log" 2>&1 || { echo "::error::Unity validation failed (private logs withheld)"; exit 1; }
-          test -s app/mobile/Builds/Android/Monsters-debug.apk
-          python3 - <<'PY'
-          from pathlib import Path
-          import xml.etree.ElementTree as ET
-          p=Path("app/mobile/Logs/test-ci.xml")
-          root=ET.parse(p).getroot()
-          assert int(root.attrib.get("failed","1"))==0
-          assert int(root.attrib.get("total","0"))>0
-          print("Unity EditMode passed:",root.attrib["total"])
-          PY
-      - name: Publish APK only to private repository
-        if: steps.unity.outputs.available == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          SHA=$(git -C app rev-parse HEAD)
-          gh release create "development-${SHA:0:12}" app/mobile/Builds/Android/Monsters-debug.apk --repo Persie0/monsters --target "$SHA" --prerelease --title "Development APK ${SHA:0:12}" --notes "Unity development build and EditMode validation; physical-device and release review still required." >/dev/null
-          echo "Private development APK published."
- "$RUNNER_TEMP/monsters-blender.log" || true
-            echo "::error::Blender generation failed (private logs withheld)"
-            exit 1
-          fi
-          if ! python3 tools/build_neural_voice.py >"$RUNNER_TEMP/monsters-voice.log" 2>&1; then
+            grep -E '^MONSTER_BUILD_DIAGNOSTIC [A-Za-z]+ [A-Za-z0-9_:,<>]+$' "$RUNNER_TEMP/monsters-voice.log" || true
             echo "::error::Neural voice generation failed (private logs withheld)"
             exit 1
           fi
-          python3 tools/build_brand.py
           python3 tools/verify_assets.py
       - name: Commit verified outputs to the private feature branch
         working-directory: app
@@ -169,142 +102,7 @@ jobs:
             set -euo pipefail
             mkdir -p "$HOME/.local/share/unity3d/Unity"
             printf "%s" "$UNITY_LICENSE" > "$HOME/.local/share/unity3d/Unity/Unity_lic.ulf"
-            unity=/opt/unity/Editor/Unity
-            "$unity" -batchmode -nographics -quit -projectPath /project -buildTarget Android -executeMethod Monsters.Editor.DevelopmentBuild.Prepare -logFile /project/Logs/prepare-ci.log
-            "$unity" -batchmode -nographics -projectPath /project -buildTarget Android -runTests -testPlatform EditMode -testResults /project/Logs/test-ci.xml -logFile /project/Logs/tests-ci.log
-            "$unity" -batchmode -nographics -quit -projectPath /project -buildTarget Android -executeMethod Monsters.Editor.DevelopmentBuild.Android -logFile /project/Logs/build-ci.log
-          ' > "$RUNNER_TEMP/monsters-unity.log" 2>&1 || { echo "::error::Unity validation failed (private logs withheld)"; exit 1; }
-          test -s app/mobile/Builds/Android/Monsters-debug.apk
-          python3 - <<'PY'
-          from pathlib import Path
-          import xml.etree.ElementTree as ET
-          p=Path("app/mobile/Logs/test-ci.xml")
-          root=ET.parse(p).getroot()
-          assert int(root.attrib.get("failed","1"))==0
-          assert int(root.attrib.get("total","0"))>0
-          print("Unity EditMode passed:",root.attrib["total"])
-          PY
-      - name: Publish APK only to private repository
-        if: steps.unity.outputs.available == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          SHA=$(git -C app rev-parse HEAD)
-          gh release create "development-${SHA:0:12}" app/mobile/Builds/Android/Monsters-debug.apk --repo Persie0/monsters --target "$SHA" --prerelease --title "Development APK ${SHA:0:12}" --notes "Unity development build and EditMode validation; physical-device and release review still required." >/dev/null
-          echo "Private development APK published."
- "$RUNNER_TEMP/monsters-voice.log" || true
-            echo "::error::Neural voice generation failed (private logs withheld)"
-            exit 1
-          fi
-          python3 tools/build_brand.py
-          python3 tools/verify_assets.py
-      - name: Commit verified outputs to the private feature branch
-        working-directory: app
-        run: |
-          set -euo pipefail
-          git config user.name "Monster asset builder"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets-source/generated assets-source/voice-notices mobile/Assets/Monsters/Resources/MonsterMeshes mobile/Assets/Monsters/Resources/Voice mobile/Assets/Monsters/Brand
-          if ! git diff --cached --quiet; then
-            git commit -qm "Generate verified monster art, offline neural voices and app icon"
-            git push -q origin HEAD:feature/monster-companions
-          fi
-          echo "Generated private assets committed successfully."
-      - name: Check Unity license configuration
-        id: unity
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-        run: |
-          if [ -n "$UNITY_LICENSE" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Unity build not run: no UNITY_LICENSE secret configured."
-          fi
-      - name: Unity development compilation, tests and Android APK
-        if: steps.unity.outputs.available == 'true'
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          IMAGE=unityci/editor:ubuntu-6000.3.29f1-android-3
-          docker pull "$IMAGE" >/dev/null
-          docker run --rm -e UNITY_LICENSE -v "$GITHUB_WORKSPACE/app/mobile:/project" "$IMAGE" bash -lc '
-            set -euo pipefail
-            mkdir -p "$HOME/.local/share/unity3d/Unity"
-            printf "%s" "$UNITY_LICENSE" > "$HOME/.local/share/unity3d/Unity/Unity_lic.ulf"
-            unity=/opt/unity/Editor/Unity
-            "$unity" -batchmode -nographics -quit -projectPath /project -buildTarget Android -executeMethod Monsters.Editor.DevelopmentBuild.Prepare -logFile /project/Logs/prepare-ci.log
-            "$unity" -batchmode -nographics -projectPath /project -buildTarget Android -runTests -testPlatform EditMode -testResults /project/Logs/test-ci.xml -logFile /project/Logs/tests-ci.log
-            "$unity" -batchmode -nographics -quit -projectPath /project -buildTarget Android -executeMethod Monsters.Editor.DevelopmentBuild.Android -logFile /project/Logs/build-ci.log
-          ' > "$RUNNER_TEMP/monsters-unity.log" 2>&1 || { echo "::error::Unity validation failed (private logs withheld)"; exit 1; }
-          test -s app/mobile/Builds/Android/Monsters-debug.apk
-          python3 - <<'PY'
-          from pathlib import Path
-          import xml.etree.ElementTree as ET
-          p=Path("app/mobile/Logs/test-ci.xml")
-          root=ET.parse(p).getroot()
-          assert int(root.attrib.get("failed","1"))==0
-          assert int(root.attrib.get("total","0"))>0
-          print("Unity EditMode passed:",root.attrib["total"])
-          PY
-      - name: Publish APK only to private repository
-        if: steps.unity.outputs.available == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          SHA=$(git -C app rev-parse HEAD)
-          gh release create "development-${SHA:0:12}" app/mobile/Builds/Android/Monsters-debug.apk --repo Persie0/monsters --target "$SHA" --prerelease --title "Development APK ${SHA:0:12}" --notes "Unity development build and EditMode validation; physical-device and release review still required." >/dev/null
-          echo "Private development APK published."
- "$RUNNER_TEMP/monsters-blender.log" || true
-            echo "::error::Blender generation failed (private logs withheld)"
-            exit 1
-          fi
-          if ! python3 tools/build_neural_voice.py >"$RUNNER_TEMP/monsters-voice.log" 2>&1; then
-            echo "::error::Neural voice generation failed (private logs withheld)"
-            exit 1
-          fi
-          python3 tools/build_brand.py
-          python3 tools/verify_assets.py
-      - name: Commit verified outputs to the private feature branch
-        working-directory: app
-        run: |
-          set -euo pipefail
-          git config user.name "Monster asset builder"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets-source/generated assets-source/voice-notices mobile/Assets/Monsters/Resources/MonsterMeshes mobile/Assets/Monsters/Resources/Voice mobile/Assets/Monsters/Brand
-          if ! git diff --cached --quiet; then
-            git commit -qm "Generate verified monster art, offline neural voices and app icon"
-            git push -q origin HEAD:feature/monster-companions
-          fi
-          echo "Generated private assets committed successfully."
-      - name: Check Unity license configuration
-        id: unity
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-        run: |
-          if [ -n "$UNITY_LICENSE" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Unity build not run: no UNITY_LICENSE secret configured."
-          fi
-      - name: Unity development compilation, tests and Android APK
-        if: steps.unity.outputs.available == 'true'
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          IMAGE=unityci/editor:ubuntu-6000.3.29f1-android-3
-          docker pull "$IMAGE" >/dev/null
-          docker run --rm -e UNITY_LICENSE -v "$GITHUB_WORKSPACE/app/mobile:/project" "$IMAGE" bash -lc '
-            set -euo pipefail
-            mkdir -p "$HOME/.local/share/unity3d/Unity"
-            printf "%s" "$UNITY_LICENSE" > "$HOME/.local/share/unity3d/Unity/Unity_lic.ulf"
+            mkdir -p /project/Logs
             unity=/opt/unity/Editor/Unity
             "$unity" -batchmode -nographics -quit -projectPath /project -buildTarget Android -executeMethod Monsters.Editor.DevelopmentBuild.Prepare -logFile /project/Logs/prepare-ci.log
             "$unity" -batchmode -nographics -projectPath /project -buildTarget Android -runTests -testPlatform EditMode -testResults /project/Logs/test-ci.xml -logFile /project/Logs/tests-ci.log
