@@ -257,17 +257,18 @@ for code in CODES:
                 issues.append(f"{code}: review {sid} lacks active YAML"); new.append(section); continue
             stats["records"]+=1;stats[kind]+=1
             stats["ranked" if item["total"] is not None else "unranked"]+=1
-            pm=re.search(r"^#{3,4} Worldwide peer comparisons\s*$",section,re.M)
-            sm=re.search(r"^#{3,4} Scoring decisions\s*$",section,re.M)
+            pm=re.search(r"^(?:#{3,4} Worldwide (?:peer comparisons|peers)[ \t]*$|- Worldwide (?:peer comparisons|peers) \(I/U/S/E/D\):[ \t]*$)",section,re.M)
+            sm=re.search(r"^(?:#{3,4} Scoring decisions[ \t]*$|- Impact(?:\s*:|\s+(?:null|\d)))",section,re.M)
             if not pm or not sm or sm.start()<=pm.end():
                 issues.append(f"{sid}: missing comparison/scoring headings");new.append(section);continue
             block=section[pm.end():sm.start()]
             existing=numeric_links(block)
             existing.pop(item["key"],None)
-            subject=re.search(r"^- Precise subject:\s*(.*)",section,re.M)
+            subject=re.search(r"^- (?:Precise subject|Scope):\s*(.*)",section,re.M)
             label=classify(item,subject[1] if subject else "")
             stats["high"]+=bool(high_note(item,list(existing.values()))) if existing else 0
             om=re.search(r"^- (?:Computed worldwide overall|Overall):\s*(\d+(?:\.\d+)?)(?:/100)?",section,re.M)
+            if not om: om=re.search(r"(?:Computed overall|Overall):\s*(\d+(?:\.\d+)?)/100",section,re.M)
             if om and item["total"] is not None and abs(dec(om[1])-item["total"])>Decimal(".005"):
                 arithmetic.append(f"{sid}: review {om[1]} vs YAML {item['total']:.2f}")
             if covered(existing):
