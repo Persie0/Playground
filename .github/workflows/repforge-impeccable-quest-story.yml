@@ -27,7 +27,7 @@ jobs:
         env:
           REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           SOURCE_BRANCH: fix/impeccable-quest-story-ux
-          SOURCE_SHA: dda72151931e4be4750bd7bb9af53e962732d0f3
+          SOURCE_SHA: e2eb7fdafddf6690aff771d66069c616874757a7
         run: |
           set -euo pipefail
           test -n "$REPO_TOKEN" || { echo 'Repository token missing'; exit 1; }
@@ -53,6 +53,7 @@ jobs:
             tail -n 150 /tmp/quest_story_analyze.log; exit 1;
           }
           flutter test test/forge_quest_board_test.dart test/forge_story_board_screen_test.dart test/forge_quest_story_recovery_test.dart --reporter expanded > /tmp/quest_story_focused.log 2>&1 || {
+            grep -E '\[E\]|Expected:|Actual:|The following assertion|The test description was:' /tmp/quest_story_focused.log | head -n 100 | cut -c 1-300 || true
             tail -n 230 /tmp/quest_story_focused.log | cut -c 1-300; exit 1;
           }
           flutter test --reporter compact > /tmp/quest_story_all.log 2>&1 || {
