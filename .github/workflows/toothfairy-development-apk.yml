@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      SOURCE_SHA: 74416c07084effd17952b0439552e7f1ebf62b0c
+      SOURCE_SHA: 8f0be9314ca59a72e92a53ba8e9f419ffde0df54
       IMAGE: unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
     steps:
       - name: Check Unity license and repository access
@@ -189,9 +189,17 @@ jobs:
           set -euo pipefail
           src="$RUNNER_TEMP/toothfairy-src"
           report="$RUNNER_TEMP/toothfairy-private/compiler-diagnostics.txt"
-          test -d "$src/mobile/Logs" || exit 0
+          test -d "$RUNNER_TEMP/toothfairy-private" || exit 0
           # Retain selected project build diagnostics privately, excluding activation and credentials logs.
           grep -hiE 'error CS[0-9]{4}|BuildFailedException|Exception:|FAILURE: Build failed|Execution failed for task|^[[:space:]]*[*] What went wrong:|^[[:space:]]*> .*failed|Tests failed|Failed: [1-9]|TOOTHFAIRY_PREPARE_OK|TOOTHFAIRY_BUILD_OK|Test run completed' "$src/mobile/Logs/"*.log 2>/dev/null | sort -u | head -n 200 > "$report" || true
+          # Blender output is private; keep the ending context needed to repair generation/roundtrip.
+          for stage in generate verify commit push; do
+            file="$RUNNER_TEMP/toothfairy-private/rig/$stage.log"
+            if [[ -s "$file" ]]; then
+              printf '\n--- Rig %s ---\n' "$stage" >> "$report"
+              tail -n 60 "$file" >> "$report"
+            fi
+          done
           # Append actual NUnit failure names, messages and stack traces privately.
           python3 - "$src/mobile/Logs" >> "$report" <<'PY'
           import sys
