@@ -1,0 +1,47 @@
+name: MicroRWIS M.1 digital-only delineator carrier
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revm1-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: 43c6e7428786805c97b103bc97e53717ce038f0e
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Optical geometry radiance energy and firmware tests
+        working-directory: source/road-weather-station
+        run: |
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined hardware/leitpflock/test.cpp -o /tmp/post-test
+          /tmp/post-test
+          node hardware/leitpflock/model.mjs
+          node hardware/leitpflock/carrier/verify.mjs
+          c++ -O2 -std=c++17 -Wall -Wextra -Werror simulation/rev-c-policy.cpp -o /tmp/policy
+          /tmp/policy
+          node server/smoke.mjs
+      - name: KiCad install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad kicad-footprints
+      - name: Route digital-only carrier
+        working-directory: source/road-weather-station/hardware/leitpflock/carrier
+        run: |
+          for seed in 11 9 0; do
+            p="/tmp/post-${seed}.kicad_pcb"
+            if /usr/bin/python3 ../../integrated-carrier/generate.py --design design.json --layers 4 --grid .125 --seed "$seed" --margin .025 --output "$p" && kicad-cli pcb drc --exit-code-violations --severity-error --output /tmp/post-drc.txt "$p" && /usr/bin/python3 ../../buck-boost/geometry-check.py "$p" --unified; then
+              echo "Accepted seed=$seed"
+              exit 0
+            fi
+          done
+          exit 1
