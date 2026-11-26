@@ -14,17 +14,37 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/punisher
-          ref: 2e610af90b8687c1f81cdc0cece09a0860f5466a
+          ref: d3b667b24e0f00ecf50df73004a6ef5a1b8fd871
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Backend cancellation protocol tests
+        working-directory: server
+        run: |
+          set +e
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/server-install.log" 2>&1
+          install=$?
+          echo "Backend dependency exit: $install"
+          if [ "$install" -ne 0 ]; then exit "$install"; fi
+          npm test > "$RUNNER_TEMP/server-test.log" 2>&1
+          code=$?
+          grep -E '^# (tests|pass|fail|cancelled|skipped) [0-9]+$' "$RUNNER_TEMP/server-test.log" || true
+          grep -oE '^not ok [0-9]+' "$RUNNER_TEMP/server-test.log" || true
+          echo "Backend tests exit: $code"
+          exit "$code"
       - uses: subosito/flutter-action@v2
+        if: always()
         with:
           channel: stable
           flutter-version: '3.50.0'
-      - name: Dependencies
+      - name: Flutter dependencies
+        if: always()
         run: |
-          if flutter pub get --enforce-lockfile > "$RUNNER_TEMP/punisher-pub.log" 2>&1; then echo "Dependency resolution passed"; else echo "Dependency resolution failed"; exit 1; fi
-      - name: Analyze and test
+          flutter pub get --enforce-lockfile > "$RUNNER_TEMP/punisher-pub.log" 2>&1
+      - name: Strict analysis and Flutter regression tests
+        if: always()
         shell: bash
         run: |
           set +e
@@ -34,87 +54,36 @@ jobs:
           tests=$?
           printf 'Analyzer exit: %s\nTests exit: %s\n' "$analyze" "$tests"
           test "$analyze" -eq 0 && test "$tests" -eq 0
-      - name: Encrypt diagnostic summary to ephemeral review key
+      - name: Sanitized diagnostics
         if: always()
-        shell: bash
         run: |
-          cat > "$RUNNER_TEMP/recipient.pem" <<'CERT'
-          -----BEGIN CERTIFICATE-----
-          MIIDSzCCAjOgAwIBAgIUXdETChXQKEtwRDcZSwnYe39EnIswDQYJKoZIhvcNAQEL
-          BQAwNTEzMDEGA1UEAwwqUHJpdmF0ZSBDSSBkaWFnbm9zdGljcyBlcGhlbWVyYWwg
-          cmVjaXBpZW50MB4XDTI2MTEyNjAxMDEyMFoXDTI2MTEyODAxMDEyMFowNTEzMDEG
-          A1UEAwwqUHJpdmF0ZSBDSSBkaWFnbm9zdGljcyBlcGhlbWVyYWwgcmVjaXBpZW50
-          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5TquoT+jJTYTj8DztVAp
-          wKe59fE1oz+QrUXtnMgl+cchcakI09/aMpk1InPpLUMziX2zWFg2J6V7zDsTaXR5
-          fzBsAhBKjNrIaCw03F4ZaSsoGky/cHkVLQemPS/ejjK2M+6EsOPKsP2mm0RpDM0I
-          5XeoTwqMX7bICJBUdK2EMHCvJZsnTut29usWxU0eqz4efIyP61VihDZAnPQvc0Vm
-          pB5h4BCxXZi8hkw4Dfgyg+dFyCJ8axKX0OhV1qg4jf8sty4w18GqwW1w7sgUTNeX
-          jkOiB10xXgP8xByfqFHCOCwpZG2PYhFOTqhc+PkkU2b8IFrSv0bq7r89o3j8Kjqu
-          tQIDAQABo1MwUTAdBgNVHQ4EFgQUdmS4LBLLLdXqmU+i6VtgbrCNhxIwHwYDVR0j
-          BBgwFoAUdmS4LBLLLdXqmU+i6VtgbrCNhxIwDwYDVR0TAQH/BAUwAwEB/zANBgkq
-          hkiG9w0BAQsFAAOCAQEAnivrjnNnxm4NMlkdNIV/wCHZJnCT1InN6jXviX/LnJwN
-          hGEVNmrttVxMosV/V6HvNrcFJAcRIcWgkdzzeJbwLMBtEp+3fN5ZqdvAjCPxo756
-          B3JQp87uXE1ETa5QSgndqcKG5aJ6k2pSrIptE1n0ntLBiBF02y9OMRB8PMMeW5Z8
-          EqZAUqEdksxhGtGkvgAxNIybZhITATp054jJ7dSVHfvW4E3jgtCvdCqvA7DdIB8g
-          1A19jJg2m2/AvisUYdrI025xnW1xy1Y183z90v9ZB6B5VQEqpb1YROFtnc9oD4Nm
-          7rTam4hlRlVgCM99U+J6xACSe15/IMOiL3ehwiblTA==
-          -----END CERTIFICATE-----
-          CERT
           python3 - <<'PY'
-          import json, os, pathlib, gzip, subprocess
+          import os, pathlib, re, hashlib, json
           root = pathlib.Path(os.environ['RUNNER_TEMP'])
-          parts = []
-          for name in ['pub','analyze']:
-              p = root / ('punisher-' + name + '.log')
-              if p.exists(): parts.append(name + '\n' + p.read_text(errors='replace')[-16000:])
-          p = root / 'punisher-test.log'
-          if p.exists():
-              tests, output, failed, other = {}, {}, set(), []
-              passed = 0
-              for line in p.read_text(errors='replace').splitlines():
+          def loc(path):
+              try: path = str(pathlib.Path(path.removeprefix('file://')).resolve().relative_to(pathlib.Path.cwd()))
+              except ValueError: return 'external'
+              return hashlib.sha256(path.encode()).hexdigest()[:12]
+          a = root / 'punisher-analyze.log'
+          if a.exists():
+              for line in a.read_text(errors='replace').splitlines():
+                  f = line.split('|')
+                  if len(f) >= 8 and re.fullmatch(r'[A-Z_]+', f[2]) and f[4].isdigit() and f[5].isdigit():
+                      print('ANALYZE', f[0], f[2], loc(f[3]), f[4], f[5])
+          t = root / 'punisher-test.log'
+          if t.exists():
+              passed, failed = 0, set()
+              for line in t.read_text(errors='replace').splitlines():
                   try: e = json.loads(line)
                   except ValueError:
-                      other.append(line)
+                      for path, ln, col in re.findall(r'((?:lib|test)/[\w/.-]+\.dart):(\d+):(\d+)', line): print('COMPILE', loc(path), ln, col)
                       continue
                   if not isinstance(e, dict): continue
-                  kind = e.get('type')
-                  if kind == 'testStart':
-                      t = e['test']
-                      tests[t['id']] = t.get('name','')
-                  if kind in ('print','error'):
-                      output.setdefault(e.get('testID'), []).append(str(e.get('message', e.get('error',''))))
-                  if kind == 'testDone':
-                      if e.get('result') != 'success': failed.add(e.get('testID'))
-                      elif not e.get('hidden'): passed += 1
-              print('TEST_COUNTS', passed, len(failed))
-              parts.append('non-json test output:\n' + '\n'.join(other)[-6000:])
-              for i in sorted(x for x in failed if x is not None):
-                  parts.append(tests.get(i,'unknown') + '\n' + '\n'.join(output.get(i,[]))[:5000])
-          try:
-              diff = subprocess.check_output(['git','diff','--','pubspec.lock'],text=True)
-              parts.append('LOCK DIFF\n' + diff[:24000])
-          except Exception: pass
-          (root / 'diagnostics.gz').write_bytes(gzip.compress('\n\n'.join(parts).encode()))
+                  if e.get('type') == 'testDone':
+                      if e.get('result') == 'success' and not e.get('hidden'): passed += 1
+                      elif e.get('result') != 'success': failed.add(e.get('testID'))
+                  if e.get('type') == 'error':
+                      error = str(e.get('error', ''))
+                      for path, ln, col in re.findall(r'((?:lib|test)/[\w/.-]+\.dart):(\d+):(\d+)', str(e.get('stackTrace','')) + error): print('TEST_LOCATION', loc(path), ln, col)
+              print('FLUTTER_TEST_COUNTS', passed, len(failed))
           PY
-          openssl cms -encrypt -binary -aes256 -outform DER -in "$RUNNER_TEMP/diagnostics.gz" -out "$RUNNER_TEMP/diagnostics.der" "$RUNNER_TEMP/recipient.pem"
-          printf 'ENCRYPTED_DIAGNOSTICS '
-          base64 -w0 "$RUNNER_TEMP/diagnostics.der"
-          printf '\n'
-      - name: Render private synthetic interface fixtures
-        if: always()
-        shell: bash
-        run: |
-          flutter test --no-pub test/visual_capture.dart > "$RUNNER_TEMP/ui-capture.log" 2>&1 || { echo 'Visual fixture failed'; exit 1; }
-          python3 -m venv "$RUNNER_TEMP/ui-venv"
-          "$RUNNER_TEMP/ui-venv/bin/pip" -q install Pillow==11.3.0
-          for name in dashboard; do
-            input="$RUNNER_TEMP/punisher-ui/$name.png"
-            test -s "$input"
-            # Only ciphertext leaves the runner. Never upload an unencrypted screenshot.
-            "$RUNNER_TEMP/ui-venv/bin/python" -c 'from PIL import Image; import sys; im=Image.open(sys.argv[1]).convert("RGB"); im.thumbnail((240,1000),Image.Resampling.LANCZOS); im.save(sys.argv[2],quality=35,optimize=True)' "$input" "$RUNNER_TEMP/$name.jpg"
-            openssl cms -encrypt -binary -aes256 -outform DER -in "$RUNNER_TEMP/$name.jpg" -out "$RUNNER_TEMP/$name.der" "$RUNNER_TEMP/recipient.pem"
-            printf 'UI_CIPHERTEXT_%s ' "$name"
-            base64 -w0 "$RUNNER_TEMP/$name.der"
-            printf '\n'
-          done
-          echo 'Three synthetic screens rendered; dashboard ciphertext exported'
