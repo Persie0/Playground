@@ -1,0 +1,144 @@
+name: Gauss Circle - Continuous Director Cut (Public)
+on:
+  push:
+    branches: [ci/gauss-continuous-directors-cut-20261126]
+    paths: [.github/workflows/gauss-continuous-directors-cut.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: gauss-continuous-directors-cut-20261126
+  cancel-in-progress: false
+env:
+  SOURCE_SHA: 'c127fbc7e819578ada88758beecdf814a0b9875c'
+  SOURCE_TAG: gauss-circle-directors-cut-eleven-review-fixes-final-1080p30-20261121
+  RELEASE_TAG: gauss-circle-continuous-directors-cut-1080p30-20261126
+  GH_TOKEN: ${{ github.token }}
+  PYTHONUNBUFFERED: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  OMP_NUM_THREADS: '1'
+jobs:
+  continuous:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read pinned private animation source on public runner
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/manimVideos
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install animation, geometry and media dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-lato fonts-dejavu-core
+          python -m pip install 'numpy>=1.26,<3' 'scipy>=1.12,<2' 'opencv-python-headless>=4.9,<5' 'Pillow>=10,<13' 'edge-tts>=7,<9'
+      - name: Download the approved reviewed master and immutable voice/cues
+        run: |
+          set -euo pipefail
+          mkdir -p input
+          gh release download "$SOURCE_TAG" --repo Persie0/Playground --dir input --pattern 'Gauss_Circle_20261121_Reviewed_1080p30.mp4' --pattern 'Gauss_Circle_Narration_Cues.json' --pattern 'Gauss_Circle_English_Subtitles.srt' --pattern 'Gauss_Circle_English_Neural_Voice.wav' --pattern 'SHA256SUMS.txt'
+          (cd input && sha256sum -c --ignore-missing SHA256SUMS.txt)
+      - name: Verify original renderer clock, all 13 transitions and protected narration
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m compileall -q production/continuous_directors_cut.py tests/test_continuous_directors_cut.py
+          GAUSS_REVIEWED_CUES="$GITHUB_WORKSPACE/input/Gauss_Circle_Narration_Cues.json" python -m unittest discover -s tests -p test_continuous_directors_cut.py -v
+      - name: Render all 13 reviewed camera handoffs and keyframes at 360p
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m production.continuous_directors_cut --video ../../input/Gauss_Circle_20261121_Reviewed_1080p30.mp4 --cues ../../input/Gauss_Circle_Narration_Cues.json --subtitles ../../input/Gauss_Circle_English_Subtitles.srt --voice ../../input/Gauss_Circle_English_Neural_Voice.wav --output-dir ../../preview --preview
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gauss-continuous-transition-preview
+          path: preview/*
+          if-no-files-found: error
+      - name: Exercise all 14 original animation classes on the one native frame clock
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import cv2,numpy as np
+          from PIL import Image,ImageDraw
+          from production.continuous_directors_cut import ContinuousDirectorScene,FRAMES
+          cues=json.loads(Path('../../input/Gauss_Circle_Narration_Cues.json').read_text())
+          scene=ContinuousDirectorScene(cues,640,360,True)
+          out=Path('../../native-preview')
+          out.mkdir(exist_ok=True)
+          sheet=Image.new('RGB',(1280,386*7),(20,20,20))
+          draw=ImageDraw.Draw(sheet)
+          for i,b in enumerate(scene.beats):
+              end=scene.beats[i+1].start if i+1<len(scene.beats) else FRAMES
+              f=(b.start+end)//2
+              image=scene.native_frame(f)
+              assert image.shape==(360,640,3) and image.dtype==np.uint8 and image.std()>2
+              panel=Image.fromarray(cv2.cvtColor(image,cv2.COLOR_BGR2RGB))
+              x=(i%2)*640;y=(i//2)*386
+              sheet.paste(panel,(x,y))
+              draw.text((x+6,y+363),f'Native animation beat {b.number}: frame {f}',fill='white')
+          sheet.save(out/'all_native_beats.jpg',quality=92)
+          print('All 14 native original animation renderers exercised on the continuous clock')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gauss-continuous-native-animation-check
+          path: native-preview/*
+          if-no-files-found: error
+      - name: Encode one 1080p30 continuous scene with all reviewed animations and untouched original audio
+        run: |
+          set -euo pipefail
+          cd source/gauss-circle-problem
+          python -m production.continuous_directors_cut --video ../../input/Gauss_Circle_20261121_Reviewed_1080p30.mp4 --cues ../../input/Gauss_Circle_Narration_Cues.json --subtitles ../../input/Gauss_Circle_English_Subtitles.srt --voice ../../input/Gauss_Circle_English_Neural_Voice.wav --output-dir ../../output
+          (cd ../../output && sha256sum -c SHA256SUMS.txt)
+      - name: Verify one continuous picture, exact unchanged 153 captions and original audio
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          o=Path('output')
+          p=o/'Gauss_Circle_Continuous_Directors_Cut_1080p30.mp4'
+          q=json.loads((o/'Gauss_Circle_Continuous_Scene_QA.json').read_text())
+          info=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-show_chapters','-of','json',str(p)]))
+          v=next(s for s in info['streams'] if s['codec_type']=='video')
+          assert (v['width'],v['height'],v['r_frame_rate'],int(v['nb_frames']))==(1920,1080,'30/1',16098)
+          assert abs(float(info['format']['duration'])-536.6)<.05
+          assert not info.get('chapters')
+          assert q['scene_count']==1 and len(q['joins'])==13 and q['audio_packets_unchanged']
+          assert q['animation_beats']==list(range(1,14))+[15]
+          for n in ['Gauss_Circle_English_Subtitles.srt','Gauss_Circle_English_Neural_Voice.wav','Gauss_Circle_Narration_Cues.json']:
+              assert (o/n).read_bytes()==(Path('input')/n).read_bytes()
+          assert (o/'Gauss_Circle_English_Subtitles.srt').read_text().count('-->')==153
+          print('PASS: one scene, all 14 beats, 13 protected transitions, 16098 frames, 536.6s, original audio and subtitles')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gauss-continuous-directors-cut-1080p30
+          path: output/*
+          if-no-files-found: error
+          retention-days: 21
+          compression-level: 0
+      - name: Publish independent new continuous cut without overwriting existing versions
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo Persie0/Playground >/dev/null 2>&1; then
+            echo "Release already exists; refusing to overwrite."
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground --title "Gauss Circle — Continuous Director's Cut (1080p30)" --notes "One continuous picture timeline, 14 retained original animation beats, 13 object-registered camera and graph transitions, no separate chapter videos or metadata cuts, identical approved voice, music and 153 subtitle cues. 8:56.6, exactly 16,098 frames. All original source renderers exercised separately on the same continuous clock. Existing reviewed master is the immutable frame cache for unchanged animation interiors; every new transition is procedurally rendered. Original releases remain intact."
