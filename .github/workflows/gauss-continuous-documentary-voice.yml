@@ -10,10 +10,10 @@ concurrency:
   group: gauss-continuous-documentary-20261126
   cancel-in-progress: false
 env:
-  SOURCE_SHA: 3a8dae54d37a26b172839f6fa4d0f784a0bd9ff2
+  SOURCE_SHA: 69a16187fd77b5fba0b7f69d2f9890e1f82fe82b
   PICTURE_TAG: gauss-circle-continuous-directors-cut-1080p30-20261126
   ORIGINAL_TAG: gauss-circle-complete-1080p30-20261112
-  RELEASE_TAG: gauss-circle-directed-documentary-v21-1080p30-20261126
+  RELEASE_TAG: gauss-circle-directed-documentary-v22-1080p30-20261126
   GH_TOKEN: ${{ github.token }}
   PYTHONUNBUFFERED: '1'
 jobs:
@@ -91,11 +91,13 @@ jobs:
               assert abs(starts[-1]+durations[-1]-beat.speech_end)<.001
           print('PASS: all 14 beats, 67 paragraphs, exact mathematical examples and bounded layout')
           PY
-      - name: Synthesize the rewritten voice and genuine word-timed subtitles
+      - name: Reuse exact V21 voice and measured word cues; improve subtitle wrapping
         run: |
           set -euo pipefail
+          gh run download 45888653746 --repo Persie0/Playground --name gauss-continuous-documentary-voice-qa --dir output
+          (cd output && sha256sum -c SHA256SUMS.txt)
           cd source/gauss-circle-problem
-          python -m production.narrate_continuous_documentary --script planning/narration-continuous-documentary.md --reference-cues ../../input/Gauss_Circle_Narration_Cues.json --output-dir ../../output --voice en-GB-RyanNeural
+          python -m production.reuse_documentary_voice --script planning/narration-continuous-documentary.md --output-dir ../../output
           (cd ../../output && sha256sum -c SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
@@ -137,4 +139,4 @@ jobs:
             echo 'Refusing to overwrite existing release'
             exit 1
           fi
-          gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground --title "Gauss Circle — Directed Documentary v21 (1080p30)" --notes "Seventeen progressively revealed mathematical sequences, continuous shell growth, analytical cancellation, linked-arrivals contrast, optimized word-level captions, measured narration pauses and post-encode synchronization checks, original clean instrumental, exact 16,098-frame 536.6-second clock, and visual and audio QA. The source picture is re-encoded to integrate the directed sequences. Earlier releases are unchanged. Source PR #266. Final human viewing remains necessary."
+          gh release create "$RELEASE_TAG" output/* --repo Persie0/Playground --title "Gauss Circle — Directed Documentary v22 (1080p30)" --notes "Final readability consolidation: seventeen directed sequences, continuous shell growth, analytical cancellation, linked-arrivals contrast, higher-contrast informational dots, larger numeric labels, balanced captions, exact reused V21 narration and post-encode synchronization checks, original clean instrumental, exact 16,098-frame 536.6-second clock, and visual and audio QA. The source picture is re-encoded to integrate the directed sequences. Earlier releases are unchanged. Source PR #266. Final human viewing remains necessary."
