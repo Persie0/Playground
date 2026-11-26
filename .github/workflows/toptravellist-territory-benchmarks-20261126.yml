@@ -35,6 +35,12 @@ jobs:
           python ../scripts/toptravellist-territory-benchmark-audit-20261126.py
           git diff --check
           git diff --name-only | grep -v '^methodology/reviews/' && exit 1 || true
+      - name: Regenerate canonical ranking pages
+        working-directory: target
+        run: |
+          python scripts/generate_rankings.py
+          git diff --check
+          git diff --name-only | grep -Ev '^(methodology/reviews/|countries/[A-Z]{2}/(cities|sights)\.md$|README\.md$)' && exit 1 || true
       - name: Run canonical checks (record exit codes only)
         working-directory: target
         run: |
@@ -53,13 +59,13 @@ jobs:
           echo "rank.py cities exit=$?"
           python scripts/rank.py --kind sights --limit 60 >/tmp/top-sights.log 2>&1
           echo "rank.py sights exit=$?"
-      - name: Commit documentation only and push without force
+      - name: Commit reviews and generated rankings, push without force
         working-directory: target
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add methodology/reviews
+          git add methodology/reviews README.md countries/*/cities.md countries/*/sights.md
           git diff --cached --quiet && exit 0
-          git commit -m 'Verify numerical international benchmark coverage across territory reviews' >/tmp/territory-audit-commit.log
+          git commit -m 'Verify territory benchmark coverage and refresh canonical ranking pages' >/tmp/territory-audit-commit.log
           git push origin HEAD:feature/worldwide-territories-greenland
           echo "AUDIT_COMMIT=$(git rev-parse HEAD)"
