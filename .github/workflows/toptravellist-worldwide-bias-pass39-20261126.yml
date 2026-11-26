@@ -1,0 +1,78 @@
+name: TopTravelList worldwide bias pass 39
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-worldwide-bias-pass39-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/worldwide-bias-audit-20261126
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and regenerate all worldwide rankings
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 69776be8ded6e3dfdd5d55c2a1653addeb29080e
+          pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/audit_worldwide.py
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          rows={r['id']:r for r in csv.DictReader(Path('methodology/worldwide-diagnostics/records.tsv').open(),delimiter='\t')}
+          expected={'city-ng-port-harcourt':'75.10','city-ng-sokoto':'81.75','sight-mr-awleigatt-national-park':'73.70','sight-sj-jan-mayen':'89.75'}
+          assert len(rows)==len(list(Path('countries').glob('*/cities/*.yaml')))+len(list(Path('countries').glob('*/sights/*.yaml')))
+          for k,v in expected.items():
+              assert rows[k]['overall']==v,(k,rows[k]['overall'],v)
+              print('Verified',k,v)
+          PY
+          python - <<'PY'
+          import csv,re,subprocess,io
+          from pathlib import Path
+          root=Path('methodology')
+          files=sorted(root.glob('worldwide-incomplete-batch-100*-2026-11-26.md'))+[root/'worldwide-incomplete-batch-final-90-pass23-2026-11-26.md']
+          assert len(files)==16,files
+          seen=set()
+          for f in files:
+              rows=re.findall(r'\.\./countries/([A-Z]{2}/(?:sights|cities)/[^)]+\.yaml)',f.read_text())
+              expected_count=90 if 'final-90' in f.name else 100
+              assert len(rows)==expected_count and len(set(rows))==expected_count,(f,len(rows))
+              assert not seen.intersection(rows),(f,seen.intersection(rows))
+              seen.update(rows)
+          raw=subprocess.check_output(['git','show','d69bfe1532605e1136ab38f9b268f92809ba0109:methodology/worldwide-diagnostics/records.tsv'],text=True)
+          baseline={r['source'].removeprefix('countries/') for r in csv.DictReader(io.StringIO(raw),delimiter='\t') if 'incomplete-core' in r['flags'].split(';')}
+          assert len(seen)==1590 and seen==baseline,(len(seen),len(baseline),seen-baseline,baseline-seen)
+          current=list(csv.DictReader((root/'worldwide-diagnostics/records.tsv').open(),delimiter='\t'))
+          unresolved={r['source'].removeprefix('countries/') for r in current if 'incomplete-core' in r['flags'].split(';')}
+          assert unresolved<=seen,unresolved-seen
+          assert len(unresolved)==1427,len(unresolved)
+          print('Verified exact original inventory coverage:',len(seen),'unresolved:',len(unresolved))
+          PY
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          git diff --check
+      - name: Commit generated reports
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md 'countries/*/cities.md' 'countries/*/sights.md' methodology/worldwide-diagnostics methodology/worldwide-incomplete-batch-100-pass22-2026-11-26.md methodology/worldwide-incomplete-batch-final-90-pass23-2026-11-26.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Regenerate all-country rankings and diagnostic after deferred reassessment pass 39'
+            git push origin HEAD:refs/heads/data/worldwide-bias-audit-20261126
+          fi
