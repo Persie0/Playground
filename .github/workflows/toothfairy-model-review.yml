@@ -40,16 +40,10 @@ jobs:
           ) >>"$log" 2>&1
           blender="$d/blender/blender-4.2.23-linux-x64/blender"
           # Render the exact checked-in asset (not a new illustration).
-          sed -e 's/samples=24/samples=12/' -e 's/resolution_x=720;scene.render.resolution_y=900/resolution_x=480;scene.render.resolution_y=600/' "$d/src/assets-source/render_fairy_review.py" > "$d/render.py"
+          sed -e 's/samples=24/samples=12/' -e 's/resolution_x=720;scene.render.resolution_y=900/resolution_x=480;scene.render.resolution_y=600/' -e "s/file_format='PNG'/file_format='JPEG';scene.render.image_settings.quality=85/" -e "s/\.png/\.jpg/g" "$d/src/assets-source/render_fairy_review.py" > "$d/render.py"
           "$blender" -b "$d/src/assets-source/Fairy.blend" --python-exit-code 1 -P "$d/render.py" -- "$d/review" >>"$log" 2>&1
           mkdir -p "$d/src/.ci/model-review"
-          python3 - "$d/review" "$d/src/.ci/model-review" <<'PY'
-          import sys
-          from pathlib import Path
-          from PIL import Image
-          for file in Path(sys.argv[1]).glob('*.png'):
-              Image.open(file).convert('RGB').save(Path(sys.argv[2])/(file.stem+'.jpg'),quality=83,optimize=True)
-          PY
+          cp "$d/review/"*.jpg "$d/src/.ci/model-review/"
           test "$(find "$d/src/.ci/model-review" -name '*.jpg' | wc -l)" -eq 3
           git -C "$d/src" add -- .ci/model-review
           git -C "$d/src" -c user.name="Toothfairy CI" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Private visual review of exact fairy rig" >>"$log" 2>&1
