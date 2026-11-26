@@ -1,0 +1,64 @@
+name: Background editor UX native checks
+on:
+  push:
+    branches: [ci/background-editor-ux-20261126]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/BackgroundVideoRemover
+          ref: fix/impeccable-editor-ux
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6'
+          cache-disabled: true
+      - name: Compile and test
+        working-directory: source/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! sdkmanager --list | grep -q 'platforms;android-37 '; then
+            sdkmanager 'platforms;android-36'
+            sed -i 's/compileSdk = 37/compileSdk = 36/;s/targetSdk = 37/targetSdk = 36/;s/2026.09.00/2026.05.00/' app/build.gradle.kts
+          else
+            sdkmanager 'platforms;android-37'
+          fi
+          if gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug > "$RUNNER_TEMP/editor-android.log" 2>&1; then
+            echo 'Android unit tests and debug compilation passed.'
+          else
+            echo '::error::Android unit tests or compilation failed; private build output withheld.'
+            exit 1
+          fi
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/BackgroundVideoRemover
+          ref: fix/impeccable-editor-ux
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - name: Compile for iOS Simulator
+        shell: bash
+        run: |
+          if xcodebuild -project source/ios/BackgroundVideoRemover.xcodeproj -scheme BackgroundVideoRemover -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build > "$RUNNER_TEMP/editor-ios.log" 2>&1; then
+            echo 'iOS Simulator compilation passed.'
+          else
+            echo '::error::iOS compilation failed; private build output withheld.'
+            exit 1
+          fi
