@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/monsters
-          ref: 99d918e725d48bf5e0b05ecd4ce27d4e23773550
+          ref: 4b5451890afc58676a51ac69b98a32ca66a37fbd
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: true
           path: app
@@ -123,12 +123,81 @@ jobs:
             printf "%s" "$UNITY_LICENSE" > "$HOME/.local/share/unity3d/Unity/Unity_lic.ulf"
             mkdir -p /project/Logs
             test -x /opt/unity/Editor/Unity
-            echo "Unity executable found."
+            echo "MONSTERS_CI_STAGE executable-found"
             unity=/opt/unity/Editor/Unity
+            echo "MONSTERS_CI_STAGE prepare-start"
             "$unity" -batchmode -nographics -quit -projectPath /project -buildTarget Android -executeMethod Monsters.Editor.DevelopmentBuild.Prepare -logFile /project/Logs/prepare-ci.log
+            echo "MONSTERS_CI_STAGE prepare-complete"
+            echo "MONSTERS_CI_STAGE editmode-start"
             "$unity" -batchmode -nographics -projectPath /project -buildTarget Android -runTests -testPlatform EditMode -testResults /project/Logs/test-ci.xml -logFile /project/Logs/tests-ci.log
+            echo "MONSTERS_CI_STAGE editmode-complete"
+            echo "MONSTERS_CI_STAGE build-start"
             "$unity" -batchmode -nographics -quit -projectPath /project -buildTarget Android -executeMethod Monsters.Editor.DevelopmentBuild.Android -logFile /project/Logs/build-ci.log
+            echo "MONSTERS_CI_STAGE build-complete"
           ' > "$RUNNER_TEMP/monsters-unity.log" 2>&1 || {
+            grep -E '^MONSTERS_CI_STAGE [a-z-]+
+            # Only compiler code and line/column, not private source text or paths.
+            grep -hEo '\([0-9]+,[0-9]+\): error CS[0-9]+' app/mobile/Logs/*-ci.log 2>/dev/null | sort -u | head -n 40 || true
+            if grep -qiE 'license.*(invalid|failed|not found)|no valid unity editor license' "$RUNNER_TEMP/monsters-unity.log" app/mobile/Logs/*-ci.log 2>/dev/null; then
+              echo "::error::Unity license activation failed"
+            else
+              echo "::error::Unity validation failed (private logs withheld)"
+            fi
+            exit 1
+          }
+          test -s app/mobile/Builds/Android/Monsters-debug.apk
+          echo "Development APK built."
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          p=Path("app/mobile/Logs/test-ci.xml")
+          root=ET.parse(p).getroot()
+          assert int(root.attrib.get("failed","1"))==0
+          assert int(root.attrib.get("total","0"))>0
+          print("Unity EditMode passed:",root.attrib["total"])
+          PY
+      - name: Report sanitized Unity diagnostics in private repository
+        if: failure() && steps.unity.outputs.available == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, re, xml.etree.ElementTree as ET
+          root=pathlib.Path("app/mobile/Logs")
+          report=["Unity validation failed for run "+os.environ["GITHUB_RUN_ID"], "", "Only sanitized stage markers and compiler locations follow."]
+          console=pathlib.Path(os.environ["RUNNER_TEMP"])/"monsters-unity.log"
+          if console.exists():
+              lines=console.read_text(errors="replace").splitlines()
+              report += [line for line in lines if re.fullmatch(r"MONSTERS_CI_STAGE [a-z-]+",line)]
+          for stage in ("prepare","tests","build"):
+              log=root/(stage+"-ci.log")
+              if not log.exists(): continue
+              report.append(stage+": log present")
+              data=log.read_text(errors="replace")
+              errors=sorted(set(re.findall(r"(?m)((?:Assets|Packages)/[A-Za-z0-9_. /-]+\.cs\(\d+,\d+\): error CS\d+)",data)))
+              report.extend(errors[:30])
+              if "MONSTERS_PREPARE_OK" in data: report.append("Prepare success marker present.")
+              if "MONSTERS_BUILD_OK" in data: report.append("Build success marker present.")
+          try:
+              tests=ET.parse(root/"test-ci.xml").getroot()
+              report.append("Test counts: "+", ".join(k+"="+str(tests.get(k,"?")) for k in ("total","passed","failed","skipped")))
+          except (OSError,ET.ParseError): pass
+          pathlib.Path(os.environ["RUNNER_TEMP"],"monsters-private-diagnostics.md").write_text("\n".join(report)+"\n")
+          PY
+          gh api --method POST repos/Persie0/monsters/issues/1/comments -F body=@"$RUNNER_TEMP/monsters-private-diagnostics.md" >/dev/null || echo "Private diagnostic comment unavailable."
+      - name: Publish APK only to private repository
+        if: steps.unity.outputs.available == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          SHA=$(git -C app rev-parse HEAD)
+          gh release create "development-${SHA:0:12}" app/mobile/Builds/Android/Monsters-debug.apk --repo Persie0/monsters --target "$SHA" --prerelease --title "Development APK ${SHA:0:12}" --notes "Unity development build and EditMode validation; physical-device and release review still required." >/dev/null
+          echo "Private development APK published."
+ "$RUNNER_TEMP/monsters-unity.log" || true
+            for stage in prepare tests build; do if [ -s "app/mobile/Logs/$stage-ci.log" ]; then echo "Unity $stage log exists"; fi; done
             # Only compiler code and line/column, not private source text or paths.
             grep -hEo '\([0-9]+,[0-9]+\): error CS[0-9]+' app/mobile/Logs/*-ci.log 2>/dev/null | sort -u | head -n 40 || true
             if grep -qiE 'license.*(invalid|failed|not found)|no valid unity editor license' "$RUNNER_TEMP/monsters-unity.log" app/mobile/Logs/*-ci.log 2>/dev/null; then
