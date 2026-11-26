@@ -1,0 +1,54 @@
+name: TopTravelList worldwide bias pass 11
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-worldwide-bias-pass11-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/worldwide-bias-audit-20261126
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and regenerate all worldwide rankings
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = ee4cc76a5bb79b3a5ef6726f1b3d3b71d7c41147
+          pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/audit_worldwide.py
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          rows={r['id']:r for r in csv.DictReader(Path('methodology/worldwide-diagnostics/records.tsv').open(),delimiter='\t')}
+          expected={'sight-be-belfries':'89.35','sight-be-flemish-beguinages':'88.75','sight-be-horta-town-houses':'89.85','sight-be-wallonia-mining':'87.95','sight-gr-minoan-centres':'92.30','sight-gr-mount-athos':'91.90','sight-tr-arslantepe':'85.65','sight-tr-divrigi':'89.65','sight-tr-selimiye':'90.85'}
+          assert len(rows)==len(list(Path('countries').glob('*/cities/*.yaml')))+len(list(Path('countries').glob('*/sights/*.yaml')))
+          for k,v in expected.items():
+              assert rows[k]['overall']==v,(k,rows[k]['overall'],v)
+              print('Verified',k,v)
+          PY
+          git diff --check
+      - name: Commit generated reports
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md 'countries/*/cities.md' 'countries/*/sights.md' methodology/worldwide-diagnostics
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Regenerate all-country rankings and diagnostic after fourth 100-record incomplete-core triage'
+            git push origin HEAD:refs/heads/data/worldwide-bias-audit-20261126
+          fi
