@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/fruits
-          ref: d186681235260bad6a4944527586049c6c085438
+          ref: 29ec6c79f05710e6f8291c03a9d128a822fbddea
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - uses: subosito/flutter-action@v2
@@ -30,7 +30,7 @@ jobs:
           set +e
           flutter analyze --no-fatal-infos --no-fatal-warnings > /tmp/fruits-analyze.log 2>&1
           a=$?
-          flutter test --reporter expanded > /tmp/fruits-test.log 2>&1
+          flutter test --dart-define=ORCHARD_CAPTURE=true --reporter expanded > /tmp/fruits-test.log 2>&1
           t=$?
           echo "Analyzer exit: $a"
           echo "Test exit: $t"
@@ -51,3 +51,26 @@ jobs:
                   print(re.search(r'orchard_ui_test\.dart:\d+:\d+', line).group())
           PY
           test "$a" = 0 && test "$t" = 0
+
+      - name: Preserve synthetic screen captures in the private repository only
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set +x
+          if [ ! -d qa_captures ]; then
+            echo 'No captures produced.'
+            exit 0
+          fi
+          python3 - <<'PY'
+          import base64, json, os, pathlib, subprocess
+          count = 0
+          for p in sorted(pathlib.Path('qa_captures').glob('*.png')):
+              dest = 'qa_captures/' + os.environ['GITHUB_RUN_ID'] + '/' + p.name
+              body = json.dumps(dict(message='Record synthetic UI capture', branch='qa/orchard-pr4-captures', content=base64.b64encode(p.read_bytes()).decode()))
+              result = subprocess.run(['gh','api','--method','PUT','repos/Persie0/fruits/contents/'+dest,'--input','-'], input=body, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              if result.returncode: raise SystemExit('Private capture upload failed')
+              count += 1
+          print(f'Private captures stored: {count}')
+          PY
