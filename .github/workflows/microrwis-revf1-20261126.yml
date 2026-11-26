@@ -1,0 +1,73 @@
+name: MicroRWIS revision F.1 low-airtime diagnostics
+on:
+  push:
+    branches: [ci/microrwis-prototype-20261126]
+    paths: [.github/workflows/microrwis-revf1-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Hardwares
+          ref: b804fe8a8f5c7718ff1ca3bf9a88b5cbc7f324b7
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Regression and Rev C models
+        working-directory: source/road-weather-station
+        run: |
+          node simulation/test.mjs > /tmp/rwis-model.json
+          diff -u simulation/results.json /tmp/rwis-model.json
+          node simulation/cold-battery.mjs > /tmp/rwis-cold.json
+          diff -u simulation/cold-battery-results.json /tmp/rwis-cold.json
+          node simulation/rev-b.mjs
+          node simulation/rev-c.mjs
+          g++ -std=c++17 -Wall -Wextra -Werror simulation/rev-c-policy.cpp -o /tmp/rwis-policy
+          /tmp/rwis-policy
+          g++ -std=c++17 -Wall -Wextra -Werror simulation/rev-c-season.cpp -o /tmp/rwis-season
+          /tmp/rwis-season
+          node simulation/rev-d.mjs > /tmp/rev-d.json
+          node simulation/rev-e-cable.mjs > /tmp/rev-e.json
+          diff -u simulation/rev-e-cable-results.json /tmp/rev-e.json
+          g++ -std=c++17 -Wall -Wextra -Werror simulation/rev-e-wet.cpp -o /tmp/rwis-wet
+          /tmp/rwis-wet
+          node simulation/rev-e-protection.mjs > /tmp/protection.json
+          node simulation/rev-f-battery.mjs
+          g++ -std=c++17 -Wall -Wextra -Werror simulation/rev-f-battery.cpp -o /tmp/rwis-battery
+          /tmp/rwis-battery
+          node server/smoke.mjs
+      - name: SPICE regression
+        working-directory: source/road-weather-station
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ngspice
+          python3 simulation/spice-check.py
+          python3 simulation/rev-b-spice.py
+          python3 simulation/rev-c-pulse.py
+          python3 simulation/rev-f-battery-spice.py
+      - uses: arduino/setup-arduino-cli@v2
+        with:
+          version: '1.2.2'
+      - name: Compile AVR fallback
+        working-directory: source/road-weather-station
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr@1.8.6
+          arduino-cli compile --fqbn arduino:avr:pro:cpu=8MHzatmega328 firmware/road_weather
+      - name: Compile RAK3172 with vendor BSP
+        working-directory: source/road-weather-station
+        shell: bash
+        run: |
+          set -euo pipefail
+          url=https://raw.githubusercontent.com/RAKWireless/RAKwireless-Arduino-BSP-Index/main/package_rakwireless_com_rui_index.json
+          arduino-cli core update-index --additional-urls "$url"
+          arduino-cli core install rak_rui:stm32@4.3.0 --additional-urls "$url"
+          arduino-cli compile --fqbn rak_rui:stm32:WisDuoRAK3172EvaluationBoard firmware/road_weather_rak
+          arduino-cli compile --fqbn rak_rui:stm32:WisDuoRAK3172EvaluationBoard --build-property compiler.cpp.extra_flags=-DRWIS_BATTERY_BENCH=1 firmware/road_weather_rak
