@@ -1,0 +1,63 @@
+name: TopTravelList worldwide bias correction validation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-worldwide-bias-validate-20261126.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: data/worldwide-bias-audit-20261126
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate global source data and regenerate views
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 2785810aea97e2e4496224b924ab9e73bdc0f778
+          pip install -r requirements.txt
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+          python - <<'PY'
+          from pathlib import Path
+          import yaml, json, sys
+          from decimal import Decimal
+          sys.path.insert(0,'scripts')
+          from rank import overall_score
+          expected = {'KH/cities/siem-reap': '85.80', 'CN/cities/dunhuang':'87.35', 'IN/sights/golden-temple-amritsar':'96.25', 'IN/sights/ranganathaswamy-temple-srirangam':'94.55', 'CN/sights/great-wall-jinshanling':'97.55', 'EG/sights/giza-plateau':'98.35', 'IN/sights/taj-mahal':'98.25', 'US/sights/grand-canyon-national-park':'97.15', 'EC/sights/galapagos-islands-world-heritage-property':'98.00'}
+          weights={k:Decimal(str(v)) for k,v in json.loads(Path('methodology/scoring.json').read_text())['dimensions'].items()}
+          for path, score in expected.items():
+              rec=yaml.safe_load(Path('countries',path+'.yaml').read_text())
+              assert overall_score(rec,weights)==Decimal(score), path
+              c,kind,slug=path.split('/')
+              text=Path('countries',c,kind+'.md').read_text()
+              line=next(l for l in text.splitlines() if f']({kind}/{slug}.yaml)' in l)
+              assert f'**{score}**' in line, path
+              print('Verified',path,score)
+          print('PASS: all nine corrected source records agree with generated views')
+          PY
+          git diff --check
+      - name: Commit generated Markdown only
+        run: |
+          set -euo pipefail
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md 'countries/*/cities.md' 'countries/*/sights.md'
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Regenerate rankings after worldwide bias corrections'
+            git push origin HEAD:refs/heads/data/worldwide-bias-audit-20261126
+          fi
