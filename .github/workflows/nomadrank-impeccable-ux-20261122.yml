@@ -1,5 +1,5 @@
 name: NomadRank Impeccable UX validation (public CI)
-# Round sixteen follow-up: verify actual guest UID, account switching and partial failure.
+# Round seventeen: validate safe import and export operations.
 on:
   push:
     branches: [main]
@@ -69,6 +69,7 @@ jobs:
             test/login_accessibility_test.dart \
             test/friend_qr_scanner_accessibility_test.dart \
             lib/screens/data_portability_screen.dart \
+            lib/services/data_portability_service.dart \
             lib/screens/trip_timeline_screen.dart \
             lib/screens/personal_insights_screen.dart \
             test/full_account_import_confirmation_test.dart \
@@ -125,6 +126,7 @@ jobs:
             test/login_accessibility_test.dart \
             test/friend_qr_scanner_accessibility_test.dart \
             lib/screens/data_portability_screen.dart \
+            lib/services/data_portability_service.dart \
             lib/screens/trip_timeline_screen.dart \
             lib/screens/personal_insights_screen.dart \
             test/full_account_import_confirmation_test.dart \
@@ -164,8 +166,13 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add test/map_visit_sheet_accessibility_test.dart lib/screens/email_verification_screen.dart test/email_verification_accessibility_test.dart lib/screens/friend_qr_scanner_screen.dart test/login_accessibility_test.dart test/friend_qr_scanner_accessibility_test.dart lib/l10n/app_en.arb lib/l10n/app_de.arb lib/l10n/gen_l10n lib/screens/trip_timeline_screen.dart lib/screens/personal_insights_screen.dart lib/screens/login_screen.dart lib/screens/data_portability_screen.dart test/full_account_import_confirmation_test.dart lib/nomadrank_app_impl.dart lib/theme/app_theme.dart lib/widgets/bottom_nav.dart lib/widgets/dashboard_globe_card.dart lib/widgets/stat_card.dart lib/screens/dashboard_screen.dart lib/screens/bucket_list_screen.dart lib/screens/settings_screen.dart lib/screens/scratch_map_screen.dart lib/screens/city_intel_compare_screen.dart lib/screens/travel_circles_screen.dart lib/screens/pin_stay_screen.dart lib/screens/quick_add_wizard_screen.dart lib/screens/onboarding_checklist_screen.dart lib/screens/city_intel_screen.dart lib/screens/city_stats_screen.dart lib/screens/edit_dates_screen.dart lib/screens/seasonal_screen.dart lib/screens/recent_stays_screen.dart test/edit_dates_accessibility_test.dart test/bottom_nav_accessibility_test.dart lib/widgets/ten_point_rating_selector.dart test/ten_point_rating_selector_test.dart lib/widgets/adaptive_rating_page.dart test/adaptive_rating_page_test.dart test/pin_stay_add_rating_test.dart lib/widgets/rating_wizard_header.dart test/rating_wizard_header_accessibility_test.dart lib/widgets/offline_banner.dart lib/widgets/rating_compare_sheet.dart lib/screens/sync_health_screen.dart test/sync_and_comparison_accessibility_test.dart lib/widgets/rating_flow_controls.dart test/rating_flow_controls_test.dart test/quick_add_draft_accessibility_test.dart test/rating_compare_sheet_test.dart lib/screens/currency_settings_screen.dart lib/providers/currency_provider.dart lib/services/currency_service.dart test/currency_settings_accessibility_test.dart test/sync_health_guest_test.dart
+          git add lib/services/data_portability_service.dart test/map_visit_sheet_accessibility_test.dart lib/screens/email_verification_screen.dart test/email_verification_accessibility_test.dart lib/screens/friend_qr_scanner_screen.dart test/login_accessibility_test.dart test/friend_qr_scanner_accessibility_test.dart lib/l10n/app_en.arb lib/l10n/app_de.arb lib/l10n/gen_l10n lib/screens/trip_timeline_screen.dart lib/screens/personal_insights_screen.dart lib/screens/login_screen.dart lib/screens/data_portability_screen.dart test/full_account_import_confirmation_test.dart lib/nomadrank_app_impl.dart lib/theme/app_theme.dart lib/widgets/bottom_nav.dart lib/widgets/dashboard_globe_card.dart lib/widgets/stat_card.dart lib/screens/dashboard_screen.dart lib/screens/bucket_list_screen.dart lib/screens/settings_screen.dart lib/screens/scratch_map_screen.dart lib/screens/city_intel_compare_screen.dart lib/screens/travel_circles_screen.dart lib/screens/pin_stay_screen.dart lib/screens/quick_add_wizard_screen.dart lib/screens/onboarding_checklist_screen.dart lib/screens/city_intel_screen.dart lib/screens/city_stats_screen.dart lib/screens/edit_dates_screen.dart lib/screens/seasonal_screen.dart lib/screens/recent_stays_screen.dart test/edit_dates_accessibility_test.dart test/bottom_nav_accessibility_test.dart lib/widgets/ten_point_rating_selector.dart test/ten_point_rating_selector_test.dart lib/widgets/adaptive_rating_page.dart test/adaptive_rating_page_test.dart test/pin_stay_add_rating_test.dart lib/widgets/rating_wizard_header.dart test/rating_wizard_header_accessibility_test.dart lib/widgets/offline_banner.dart lib/widgets/rating_compare_sheet.dart lib/screens/sync_health_screen.dart test/sync_and_comparison_accessibility_test.dart lib/widgets/rating_flow_controls.dart test/rating_flow_controls_test.dart test/quick_add_draft_accessibility_test.dart test/rating_compare_sheet_test.dart lib/screens/currency_settings_screen.dart lib/providers/currency_provider.dart lib/services/currency_service.dart test/currency_settings_accessibility_test.dart test/sync_health_guest_test.dart
+          git fetch origin ux/impeccable-nomadrank-20261122
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+            echo 'Branch advanced during validation; skip formatting push for this older snapshot.'
+            exit 0
+          fi
           if ! git diff --cached --quiet; then
-            git commit -m 'style(ui): format verified NomadRank round-sixteen UX fixes'
+            git commit -m 'style(ui): format verified NomadRank round-seventeen UX fixes'
             git push origin HEAD:refs/heads/ux/impeccable-nomadrank-20261122
           fi
