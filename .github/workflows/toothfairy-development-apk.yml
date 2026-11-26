@@ -76,13 +76,15 @@ jobs:
             -v "$RUNNER_TEMP/toothfairy-src:/src" \
             --entrypoint /bin/bash "$IMAGE" -c '
               set -euo pipefail
-              export UNITY_EDITOR=/opt/unity/Editor/Unity
+              export UNITY_EDITOR="$(command -v unity-editor)"
+              test -x "$UNITY_EDITOR"
+              mkdir -p /BlankProject/Assets
               export HOME=/root
               mkdir -p /tmp/toothfairy-activation
               activated=0
               cleanup() {
                 if [[ "$activated" == 1 && -n "$UNITY_SERIAL" && -n "$UNITY_EMAIL" && -n "$UNITY_PASSWORD" ]]; then
-                  "$UNITY_EDITOR" -batchmode -nographics -quit -returnlicense -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -logFile /tmp/toothfairy-activation/return.log >/dev/null 2>&1 || true
+                  "$UNITY_EDITOR" -batchmode -nographics -quit -returnlicense -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -projectPath /BlankProject -logFile /tmp/toothfairy-activation/return.log >/dev/null 2>&1 || true
                 fi
               }
               trap cleanup EXIT
@@ -102,18 +104,23 @@ jobs:
                 ln -sf /etc/machine-id /var/lib/dbus/machine-id
               fi
               echo "STAGE_ACTIVATING"
-              for attempt in 1 2 3; do
-                if "$UNITY_EDITOR" -batchmode -nographics -quit -serial "$UNITY_SERIAL" -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -projectPath /BlankProject -logFile /tmp/toothfairy-activation/activation.log; then
+              for attempt in 1 2 3 4 5; do
+                if "$UNITY_EDITOR" -quit -serial "$UNITY_SERIAL" -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -projectPath /BlankProject -logFile /tmp/toothfairy-activation/activation.log; then
                   activated=1
                   break
                 fi
-                if [[ "$attempt" != 3 ]]; then sleep $((attempt*10)); fi
+                if [[ "$attempt" != 5 ]]; then sleep $((15*(2**(attempt-1)))); fi
               done
               if [[ "$activated" != 1 ]]; then
                 echo "STAGE_ACTIVATION_FAILED"
                 if grep -qiE "invalid.*password|authentication failed|invalid credentials" /tmp/toothfairy-activation/activation.log; then echo "CLASS_AUTHENTICATION"; fi
                 if grep -qiE "activation.*limit|maximum.*activations|no seats" /tmp/toothfairy-activation/activation.log; then echo "CLASS_SEAT_LIMIT"; fi
-                if grep -qiE "no valid unity editor license|no license activation|0 entitlement" /tmp/toothfairy-activation/activation.log; then echo "CLASS_NO_ENTITLEMENT"; fi
+                if grep -qiE "no valid unity editor license|no license activation|0 entitlement|failed to activate entitlement" /tmp/toothfairy-activation/activation.log; then echo "CLASS_NO_ENTITLEMENT"; fi
+                if grep -qiE "access token is unavailable|failed to update access token|failed to get access token" /tmp/toothfairy-activation/activation.log; then echo "CLASS_ACCESS_TOKEN"; fi
+                if grep -qiE "project.*(not found|does not exist|invalid)|could not find project" /tmp/toothfairy-activation/activation.log; then echo "CLASS_PROJECT_PATH"; fi
+                if grep -qiE "display.*(failed|unavailable)|cannot open display|xvfb.*error" /tmp/toothfairy-activation/activation.log; then echo "CLASS_DISPLAY"; fi
+                if grep -qiE "connection timed out|could not resolve|network error|TLS handshake" /tmp/toothfairy-activation/activation.log; then echo "CLASS_NETWORK"; fi
+                if [[ ! -s /tmp/toothfairy-activation/activation.log ]]; then echo "CLASS_NO_EDITOR_LOG"; fi
                 exit 1
               fi
               echo "STAGE_ACTIVATED"
@@ -123,7 +130,7 @@ jobs:
             ' >"$log" 2>&1 || {
               echo "::error::Unity activation, import, tests or Android build failed. No APK produced. Private logs not printed."
               # Print only whitelisted stage markers and compiler codes, never raw private logs.
-              grep -xE "STAGE_(LICENSE_FORMAT_INVALID|ACTIVATING|ACTIVATION_FAILED|ACTIVATED|BUILD_START)|CLASS_(AUTHENTICATION|SEAT_LIMIT|NO_ENTITLEMENT)" "$log" || true
+              grep -xE "STAGE_(LICENSE_FORMAT_INVALID|ACTIVATING|ACTIVATION_FAILED|ACTIVATED|BUILD_START)|CLASS_(AUTHENTICATION|SEAT_LIMIT|NO_ENTITLEMENT|ACCESS_TOKEN|PROJECT_PATH|DISPLAY|NETWORK|NO_EDITOR_LOG)" "$log" || true
               grep -hEo 'error CS[0-9]{4}' "$RUNNER_TEMP/toothfairy-src/mobile/Logs/"*.log 2>/dev/null | sort | uniq -c || true
               exit 1
             }
