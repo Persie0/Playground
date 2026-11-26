@@ -65,59 +65,116 @@ jobs:
             fi
           fi
   android-development:
-    if: github.event_name == 'workflow_dispatch' && inputs.build_apk
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk)
     needs: source-and-assets
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 90
+    env:
+      IMAGE: unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
     steps:
       - name: Checkout private source
         uses: actions/checkout@v4
         with:
           repository: Persie0/monsters
-          ref: ${{ inputs.revision }}
+          ref: ${{ inputs.revision || '1f3b76301bc05f9845bd5e0eaea26d75f4177432' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: app
-      - name: Check license and build
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+      - name: Pull pinned-version Android editor
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "$UNITY_LICENSE" ]; then
-            echo "::error::Configure a valid Unity CI license before requesting APK generation."
-            exit 1
-          fi
-          IMAGE=unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android/sdk /opt/hostedtoolcache/CodeQL
           docker pull "$IMAGE" >/dev/null
-          mkdir -p app/mobile/Logs
-          docker run --rm --shm-size=1g --entrypoint bash -e UNITY_LICENSE -v "$GITHUB_WORKSPACE/app:/project" "$IMAGE" -lc '
-            set -euo pipefail
-            umask 077
-            mkdir -p "$HOME/.local/share/unity3d/Unity"
-            printf "%s" "$UNITY_LICENSE" > "$HOME/.local/share/unity3d/Unity/Unity_lic.ulf"
-            unset UNITY_LICENSE
-            export UNITY_EDITOR=/opt/unity/Editor/Unity
-            test -x "$UNITY_EDITOR"
-            echo "MONSTERS_CI_STAGE executable-found"
-            bash /project/tools/unity_development.sh Android
-          ' > "$RUNNER_TEMP/monsters-unity.log" 2>&1 || {
-            grep -E '^MONSTERS_CI_STAGE [a-z-]+$' "$RUNNER_TEMP/monsters-unity.log" || true
-            if grep -qiE 'license.*(invalid|failed|not found)|no valid unity editor license' "$RUNNER_TEMP/monsters-unity.log" app/mobile/Logs/*-ci.log 2>/dev/null; then
-              echo "::error::Unity license activation failed; renew or activate a valid entitlement."
-            else
-              echo "::error::Unity validation failed; private logs withheld."
-            fi
+      - name: Activate, prepare, run EditMode tests and build APK
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ -z "$UNITY_EMAIL" || -z "$UNITY_PASSWORD" || ( -z "$UNITY_LICENSE" && -z "$UNITY_SERIAL" ) ]]; then
+            echo "::error::Unity account or entitlement secrets missing."
             exit 1
-          }
-          test -s app/mobile/Builds/Android/Monsters-debug.apk
-          python3 app/tools/check_unity_results.py app/mobile/Logs/test-ci.xml
+          fi
+          mkdir -p "$RUNNER_TEMP/monsters-private"
+          log="$RUNNER_TEMP/monsters-private/unity.log"
+          docker run --rm --shm-size=2g \
+            -e UNITY_LICENSE -e UNITY_SERIAL -e UNITY_EMAIL -e UNITY_PASSWORD \
+            -v "$GITHUB_WORKSPACE/app:/src" \
+            --entrypoint /bin/bash "$IMAGE" -c '
+              set -euo pipefail
+              export UNITY_EDITOR="$(command -v unity-editor)"
+              test -x "$UNITY_EDITOR"
+              mkdir -p /BlankProject/Assets
+              export HOME=/root
+              mkdir -p /tmp/monsters-activation
+              activated=0
+              cleanup() {
+                if [[ "$activated" == 1 && -n "$UNITY_SERIAL" && -n "$UNITY_EMAIL" && -n "$UNITY_PASSWORD" ]]; then
+                  "$UNITY_EDITOR" -batchmode -nographics -quit -returnlicense -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -projectPath /BlankProject -logFile /tmp/monsters-activation/return.log >/dev/null 2>&1 || true
+                fi
+              }
+              trap cleanup EXIT
+              # GameCI activates a fresh entitlement using the serial embedded in a Personal ULF.
+              # Never copy a workstation-bound ULF into this ephemeral editor.
+              if [[ -n "$UNITY_LICENSE" && -z "$UNITY_SERIAL" ]]; then
+                UNITY_SERIAL="$(python3 -c "import os,base64,xml.etree.ElementTree as E; raw=os.environ[\"UNITY_LICENSE\"].strip(); root=E.fromstring(raw if raw.startswith(\"<\") else base64.b64decode(raw)); data=root.find(\".//DeveloperData\"); assert data is not None; print(base64.b64decode(data.attrib[\"Value\"])[4:].decode(\"ascii\").strip())")"
+              fi
+              if [[ ! "$UNITY_SERIAL" =~ ^[A-Z0-9-]+$ ]]; then
+                echo "STAGE_LICENSE_FORMAT_INVALID"
+                exit 1
+              fi
+              unset UNITY_LICENSE
+              if [[ "$UNITY_SERIAL" == F* ]]; then
+                dbus-uuidgen > /etc/machine-id
+                mkdir -p /var/lib/dbus
+                ln -sf /etc/machine-id /var/lib/dbus/machine-id
+              fi
+              echo "STAGE_ACTIVATING"
+              for attempt in 1 2 3 4 5; do
+                if "$UNITY_EDITOR" -quit -serial "$UNITY_SERIAL" -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -projectPath /BlankProject -logFile /tmp/monsters-activation/activation.log; then
+                  activated=1
+                  break
+                fi
+                if [[ "$attempt" != 5 ]]; then sleep $((15*(2**(attempt-1)))); fi
+              done
+              if [[ "$activated" != 1 ]]; then
+                echo "STAGE_ACTIVATION_FAILED"
+                if grep -qiE "invalid.*password|authentication failed|invalid credentials" /tmp/monsters-activation/activation.log; then echo "CLASS_AUTHENTICATION"; fi
+                if grep -qiE "activation.*limit|maximum.*activations|no seats" /tmp/monsters-activation/activation.log; then echo "CLASS_SEAT_LIMIT"; fi
+                if grep -qiE "no valid unity editor license|no license activation|0 entitlement|failed to activate entitlement" /tmp/monsters-activation/activation.log; then echo "CLASS_NO_ENTITLEMENT"; fi
+                if grep -qiE "access token is unavailable|failed to update access token|failed to get access token" /tmp/monsters-activation/activation.log; then echo "CLASS_ACCESS_TOKEN"; fi
+                if grep -qiE "project.*(not found|does not exist|invalid)|could not find project" /tmp/monsters-activation/activation.log; then echo "CLASS_PROJECT_PATH"; fi
+                if grep -qiE "display.*(failed|unavailable)|cannot open display|xvfb.*error" /tmp/monsters-activation/activation.log; then echo "CLASS_DISPLAY"; fi
+                if grep -qiE "connection timed out|could not resolve|network error|TLS handshake" /tmp/monsters-activation/activation.log; then echo "CLASS_NETWORK"; fi
+                if [[ ! -s /tmp/monsters-activation/activation.log ]]; then echo "CLASS_NO_EDITOR_LOG"; fi
+                exit 1
+              fi
+              echo "STAGE_ACTIVATED"
+              echo "STAGE_BUILD_START"
+              bash /src/tools/unity_development.sh Android
+              test -s /src/mobile/Builds/Android/Monsters-debug.apk
+            ' >"$log" 2>&1 || {
+              echo "::error::Unity activation, import, tests or Android build failed. No APK produced. Private logs not printed."
+              # Print only whitelisted stage markers and compiler codes, never raw private logs.
+              grep -xE "STAGE_(LICENSE_FORMAT_INVALID|ACTIVATING|ACTIVATION_FAILED|ACTIVATED|BUILD_START)|CLASS_(AUTHENTICATION|SEAT_LIMIT|NO_ENTITLEMENT|ACCESS_TOKEN|PROJECT_PATH|DISPLAY|NETWORK|NO_EDITOR_LOG)" "$log" || true
+              grep -hEo 'error CS[0-9]{4}' "$GITHUB_WORKSPACE/app/mobile/Logs/"*.log 2>/dev/null | sort | uniq -c || true
+              exit 1
+            }
+          grep -xE "STAGE_(ACTIVATED|BUILD_START)" "$log" || true
+          echo "Development APK built; EditMode gate passed."
       - name: Publish APK to private repository only
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
           SHA=$(git -C app rev-parse HEAD)
-          gh release create "development-${SHA:0:12}" app/mobile/Builds/Android/Monsters-debug.apk --repo Persie0/monsters --target "$SHA" --prerelease --title "Development APK ${SHA:0:12}" --notes "Unity development build and EditMode validation; device and release review required." >/dev/null
+          test "$(gh repo view Persie0/monsters --json isPrivate --jq .isPrivate)" = true
+          unzip -tq app/mobile/Builds/Android/Monsters-debug.apk >/dev/null
+          python3 app/tools/check_unity_results.py app/mobile/Logs/test-ci.xml
+          gh release create "development-${SHA:0:12}" app/mobile/Builds/Android/Monsters-debug.apk --repo Persie0/monsters --target "$SHA" --draft --prerelease --title "Development APK ${SHA:0:12}" --notes "Unity development build and EditMode validation; device and release review required." >/dev/null
           echo "Private development APK published."
