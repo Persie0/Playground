@@ -1,4 +1,4 @@
-name: Airline simulator demand journey recovery RED batch
+name: Airline simulator humor and commercial scenes RED batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [demand, journey, recovery]
+        task: [humor, visual-slice, management-loop]
     steps:
       - uses: actions/setup-dotnet@v4
         with:
@@ -24,41 +24,54 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: 84930b0256f3b410a85a15d665acd6461a54a43a
+          ref: 46ac5ab8d8cec3309f7133001aa77a8675d9a98d
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
-      - name: Confirm expected missing feature
+      - name: Verify expected missing humor implementation
+        if: matrix.task == 'humor'
+        working-directory: private-source
+        shell: bash
+        run: |
+          set +e
+          dotnet test tests/Simulation.Tests/Simulation.Tests.csproj -c Release --filter FullyQualifiedName~HumorTests > "$RUNNER_TEMP/red.log" 2>&1
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && grep -Eq 'CS0246.*(EventDirector|EventContext)|CS0103.*HumorCatalog' "$RUNNER_TEMP/red.log"; then
+            echo 'Expected humor RED verified'
+          else
+            grep -Eo '(CS|MSB|NU|NETSDK)[0-9]{4}' "$RUNNER_TEMP/red.log" | sort | uniq -c || true
+            exit 1
+          fi
+      - name: Install Godot
+        if: matrix.task != 'humor'
+        shell: bash
+        run: |
+          version=4.7.2-stable
+          curl --fail --location --retry 3 --silent --show-error "https://github.com/godotengine/godot-builds/releases/download/$version/Godot_v${version}_mono_linux_x86_64.zip" -o "$RUNNER_TEMP/godot.zip"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          editor=$(find "$RUNNER_TEMP/godot" -type f -name 'Godot*_mono_linux.x86_64' -print -quit)
+          test -n "$editor"
+          chmod +x "$editor"
+          echo "GODOT_EDITOR=$editor" >> "$GITHUB_ENV"
+      - name: Establish missing commercial smoke marker
+        if: matrix.task != 'humor'
         working-directory: private-source
         shell: bash
         env:
           TASK: ${{ matrix.task }}
         run: |
-          case "$TASK" in
-            demand)
-              rm tests/Simulation.Tests/{JourneyTests,RecoveryTests}.cs
-              filter=DemandTests
-              expected='CS0246.*(DemandService|MarketDeparture|DemandContext)|CS0103.*PassengerCatalog'
-              ;;
-            journey)
-              rm tests/Simulation.Tests/{DemandTests,RecoveryTests}.cs
-              filter=JourneyTests
-              expected='CS0246.*(BoardingService|PassengerJourney|BaggageService|SeatAllocator|CabinService)'
-              ;;
-            recovery)
-              rm tests/Simulation.Tests/{DemandTests,JourneyTests}.cs
-              filter=RecoveryTests
-              expected='CS0246.*(RecoveryService|RecoveryFlight|DisruptionService)'
-              ;;
-          esac
-          set +e
-          dotnet test tests/Simulation.Tests/Simulation.Tests.csproj -c Release --filter "FullyQualifiedName~$filter" > "$RUNNER_TEMP/red.log" 2>&1
-          status=$?
-          set -e
-          if [ "$status" -ne 0 ] && grep -Eq "$expected" "$RUNNER_TEMP/red.log"; then
-            echo "Expected RED verified for $TASK"
+          "$GODOT_EDITOR" --headless --editor --path . --import > "$RUNNER_TEMP/import.log" 2>&1
+          dotnet build AirlineSimulator.csproj -c Debug > "$RUNNER_TEMP/build.log" 2>&1
+          if [ "$TASK" = visual-slice ]; then
+            flag=--visual-slice-smoke
+            marker=AIRLINE_VISUAL_SLICE_OK
           else
-            echo "Expected RED not established for $TASK"
-            grep -Eo '(CS|MSB|NU|NETSDK)[0-9]{4}' "$RUNNER_TEMP/red.log" | sort | uniq -c || true
-            exit 1
+            flag=--management-smoke
+            marker=AIRLINE_MANAGEMENT_OK
           fi
+          timeout 90 "$GODOT_EDITOR" --headless --path . --quit-after 120 -- "$flag" > "$RUNNER_TEMP/boot.log" 2>&1
+          grep -q 'AIRLINE_BOOT_OK:1' "$RUNNER_TEMP/boot.log"
+          ! grep -q "$marker" "$RUNNER_TEMP/boot.log"
+          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|ERROR:' "$RUNNER_TEMP/boot.log"
+          echo 'Expected RED: foundation boots; new scene smoke gate absent'
