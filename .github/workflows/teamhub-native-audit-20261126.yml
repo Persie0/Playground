@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: perzis/teamplus_clone
-          ref: 510e92a3970ff40c6d5cc37334339290bc3d1ce6
+          ref: 4c7e7812c6ed8633d1fe5ff46eb9b11fd1bbd807
           token: ${{ secrets.PERZIS_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: source
@@ -48,9 +48,19 @@ jobs:
           target.mkdir(parents=True, exist_ok=True)
           def adb(*args):
               return subprocess.check_output(["adb", *args])
-          def tree():
-              adb("shell", "uiautomator", "dump", "/sdcard/teamhub-ui.xml")
-              return adb("shell", "cat", "/sdcard/teamhub-ui.xml")
+          def tree(required=True):
+              for attempt in range(5):
+                  try:
+                      adb("shell", "rm", "-f", "/sdcard/teamhub-ui.xml")
+                      adb("shell", "uiautomator", "dump", "/sdcard/teamhub-ui.xml")
+                      data = adb("shell", "cat", "/sdcard/teamhub-ui.xml")
+                      if ET.fromstring(data).find("node") is not None:
+                          return data
+                  except (subprocess.CalledProcessError, ET.ParseError):
+                      time.sleep(3)
+              if required:
+                  raise RuntimeError("Accessibility hierarchy unavailable after retries")
+              return None
           def tap_label(label, attempts=3):
               for _ in range(attempts):
                   root = ET.fromstring(tree())
@@ -69,13 +79,19 @@ jobs:
               data = adb("exec-out", "screencap", "-p")
               if not data.startswith(b"\x89PNG"): raise RuntimeError("Invalid screenshot")
               (target / (name + ".b64.txt")).write_text(base64.b64encode(data).decode())
-              (target / (name + ".xml")).write_bytes(tree())
+              hierarchy = tree(required=False)
+              if hierarchy is not None:
+                  (target / (name + ".xml")).write_bytes(hierarchy)
               print("Captured", name, flush=True)
           adb("shell","wm","size","390x844")
           adb("shell","wm","density","160")
           adb("shell","settings","put","system","font_scale","1.0")
-          adb("shell","am","start","-n","com.example.teamplus_clone/.MainActivity")
-          time.sleep(8)
+          adb("shell","input","keyevent","KEYCODE_WAKEUP")
+          adb("shell","wm","dismiss-keyguard")
+          adb("shell","am","start","-W","-n","com.example.teamplus_clone/.MainActivity")
+          time.sleep(18)
+          (target / "launch-activity.txt").write_bytes(adb("shell","dumpsys","activity","activities"))
+          (target / "launch-log.txt").write_bytes(adb("logcat","-d","-t","300","AndroidRuntime:E","flutter:E","*:S"))
           capture("01-login")
           if not tap_label("App zuerst offline ausprobieren"):
               raise RuntimeError("Could not locate offline demo entry")
@@ -103,12 +119,12 @@ jobs:
             adb install -r source/build/app/outputs/flutter-apk/app-debug.apk
             python3 /tmp/teamhub-audit.py
       - name: Save captures exclusively in the private audit branch
-        if: success()
+        if: always()
         working-directory: source
         env:
           REPO_TOKEN: ${{ secrets.PERZIS_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: |
-          test -d .ux-native/android || exit 1
+          if ! test -d .ux-native/android; then echo 'No captures generated'; exit 0; fi
           git config user.name 'teamhub-visual-audit'
           git config user.email 'actions@users.noreply.github.com'
           git add -f .ux-native/android
