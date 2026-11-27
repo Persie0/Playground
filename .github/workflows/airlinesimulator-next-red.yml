@@ -1,4 +1,4 @@
-name: Airline simulator partner offers and redemption RED batch
+name: Airline simulator brand and strategy RED batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [partner-reservation, partner-settlement, loyalty-redemption]
+        task: [brand-promises, strategy-persistence, annual-strategy]
     steps:
       - uses: actions/setup-dotnet@v4
         with:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: a2d5a0838c23639adbf2a27404790e55dfc92e8f
+          ref: c820dab90907009852c66fb66e5bdf702d38ebee
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -35,17 +35,17 @@ jobs:
           TASK: ${{ matrix.task }}
         run: |
           case "$TASK" in
-            partner-reservation)
-              filter=FullyQualifiedName~PartnerOfferTests.GroundOffersMatchDestinationAndHaveTransparentPrice
-              expected='CS1061.*Partners'
+            brand-promises)
+              filter=FullyQualifiedName~StrategyTests.BrandPromisesAreImmutableForConfirmedTravelAndCommandsAreIdempotent
+              expected='CS1061.*Strategy'
               ;;
-            partner-settlement)
-              filter=FullyQualifiedName~PartnerOfferTests.PaidShuttleRecognizesRevenueAndSupplierCostOnlyAfterDelivery
-              expected='CS(1061|0103).*(Partners|PartnerStatus)'
+            strategy-persistence)
+              filter=FullyQualifiedName~StrategyTests.StrategyPromisesAndReviewHistorySurviveReload
+              expected='CS1061.*Strategy'
               ;;
-            loyalty-redemption)
-              filter=FullyQualifiedName~PartnerOfferTests.PartnerTransitAndRedemptionSurviveSave
-              expected='CS1061.*Partners'
+            annual-strategy)
+              filter=FullyQualifiedName~StrategyTests.OneYearStrategySweepPreservesFinancialAndOperationalInvariants
+              expected='CS1061.*Strategy'
               ;;
           esac
           set +e
