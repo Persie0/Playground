@@ -1,4 +1,4 @@
-name: Worldwide ranking regeneration pass 233
+name: Worldwide ranking regeneration pass 235
 on:
   push:
     branches: [main]
@@ -17,17 +17,36 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/TopTravelList
-          ref: 194e641a020424d3e676b2ed8a4d3e9107244a61
+          ref: bf19fcef12ba90a978f1c40e9d201d8e695f1d13
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Recount, regenerate independently and retain diagnostics
+      - name: Normalize YAML country code and independently generate outputs
         shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
         run: |
           set -euo pipefail
           python -m pip install -r requirements.txt
+          python - <<'PY'
+          import re, yaml
+          from pathlib import Path
+          for p in sorted(Path('countries/NO').glob('*/*.yaml')):
+              if p.parent.name not in {'cities','sights'}:
+                  continue
+              raw = p.read_text()
+              before = yaml.safe_load(raw)
+              if before.get('location', {}).get('country_code') is not False:
+                  continue
+              fixed, n = re.subn(r'(?m)^( +country_code: )NO( *\r?)$', r'\1"NO"\2', raw)
+              assert n == 1, str(p)
+              before['location']['country_code'] = 'NO'
+              assert yaml.safe_load(fixed) == before, str(p)
+              p.write_text(fixed)
+              print('Quoted ambiguous country code:', p)
+          PY
           python scripts/reconcile_worldwide_backlog.py --verify-baseline
           python scripts/reconcile_worldwide_backlog.py --verify-baseline --check
           ranking=PASS
@@ -38,46 +57,64 @@ jobs:
           fi
           if [ "$ranking" = FAIL ]; then
             cat /tmp/rankings.log
-            git restore -- README.md countries
+            git restore -- README.md
+            git ls-files 'countries/*/cities.md' 'countries/*/sights.md' -z | xargs -0 -r git restore --
+            python - <<'PY'
+          import re, subprocess
+          from pathlib import Path
+          for p in subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines():
+              if re.fullmatch(r'countries/[A-Z]{2}/(?:sights|cities)\.md',p):
+                  Path(p).unlink()
+          PY
           fi
           schema=PASS
           python scripts/validate.py >/tmp/schema-validation.log 2>&1 || schema=FAIL
           export RANKING_STATUS="$ranking" SCHEMA_STATUS="$schema"
           python - <<'PY'
-          import os, re, subprocess
+          import os, re, subprocess, yaml
           from pathlib import Path
-          changes = subprocess.check_output(['git','diff','--name-only'], text=True).splitlines()
+          changes = set(subprocess.check_output(['git','diff','--name-only'], text=True).splitlines())
+          changes.update(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
           allowed = lambda p: p == 'README.md' or p in {
               'methodology/worldwide-backlog/README.md',
               'methodology/worldwide-backlog/remaining.tsv',
               'methodology/worldwide-backlog/original-inventory.tsv',
           } or bool(re.fullmatch(r'countries/[A-Z]{2}/(?:sights|cities)\.md',p))
-          assert all(allowed(p) for p in changes), 'Unexpected generated change'
-          assert not subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).strip(), 'Unexpected untracked file'
+          fixed = []
+          for p in sorted(changes):
+              if allowed(p):
+                  continue
+              assert re.fullmatch(r'countries/NO/(?:sights|cities)/[^/]+\.yaml',p), f'Unexpected change: {p}'
+              old = yaml.safe_load(subprocess.check_output(['git','show','HEAD:'+p],text=True))
+              assert old['location']['country_code'] is False
+              old['location']['country_code'] = 'NO'
+              assert yaml.safe_load(Path(p).read_text()) == old
+              fixed.append(p)
           summary = Path('methodology/worldwide-backlog/README.md').read_text().split('## Remaining by area')[0]
-          assert '**20,162**' in summary
+          assert '**20,199**' in summary
           print(summary)
-          note = Path('methodology/reviews/worldwide-consolidation-pass234-regeneration-2026-11-28.md')
+          note = Path('methodology/reviews/worldwide-consolidation-pass235-regeneration-2026-11-28.md')
           assert not note.exists()
           ranking = os.environ['RANKING_STATUS']
           schema = os.environ['SCHEMA_STATUS']
-          note.write_text('# Pass 234 — independent generation and validation\n\n'
-              'Pinned input: 194e641a020424d3e676b2ed8a4d3e9107244a61.\n\n'
+          note.write_text('# Pass 235 — numerical recount and validation\n\n'
+              'Pinned input: bf19fcef12ba90a978f1c40e9d201d8e695f1d13.\n\n'
               + summary + '\n'
-              + f'- Changed generated files: {len(changes)}\n'
+              + f'- Changed generated files: {len(changes)-len(fixed)}\n'
+              + f'- Additional Norway metadata-only corrections: {len(fixed)}\n'
               + '- Historical baseline and backlog consistency checks: PASS\n'
               + f'- Rankings generation and consistency: {ranking}\n- Schema validation: {schema}\n'
-              + '- Partial ranking output reverted if generation failed. No source YAML changes, no merge.\n'
-              + '\n## Ranking diagnostics\n\n```text\n' + Path('/tmp/rankings.log').read_text()[:30000] + '\n```\n'
-              + '\n## Schema diagnostics\n\n```text\n' + Path('/tmp/schema-validation.log').read_text()[:60000] + '\n```\n')
+              + '- No numerical score changes; no merge.\n'
+              + '\n## Ranking diagnostics\n\n```text\n' + Path('/tmp/rankings.log').read_text()[:30000].rstrip() + '\n```\n'
+              + '\n## Schema diagnostics\n\n```text\n' + Path('/tmp/schema-validation.log').read_text()[:60000].rstrip() + '\n```\n')
+          subprocess.run(['git','add','--',*sorted(changes),str(note)],check=True)
           PY
-          git add README.md countries methodology/worldwide-backlog methodology/reviews/worldwide-consolidation-pass234-regeneration-2026-11-28.md
           git diff --cached --check
           git config user.name toptravellist-editorial-bot
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Publish exact worldwide backlog and generation diagnostics (pass 234)'
+          git commit -m 'Publish verified worldwide backlog and ranking diagnostics (pass 235)'
           git fetch origin refs/heads/data/worldwide-bias-audit-pass205
-          test "$(git rev-parse FETCH_HEAD)" = 194e641a020424d3e676b2ed8a4d3e9107244a61 || { echo 'Branch moved; refusing stale push'; exit 1; }
+          test "$(git rev-parse FETCH_HEAD)" = bf19fcef12ba90a978f1c40e9d201d8e695f1d13 || { echo 'Branch moved; refusing stale push'; exit 1; }
           git push origin HEAD:refs/heads/data/worldwide-bias-audit-pass205
           echo "Ranking: $ranking; schema: $schema"
           test "$ranking" = PASS && test "$schema" = PASS
