@@ -1,0 +1,33 @@
+name: Ultrasonic power diagnostic validation
+on:
+  push:
+    branches: [ultrasonic-usb-power-review]
+    paths: ['.github/workflows/ultrasonic-usb-power-review.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Ultrasonic
+          ref: f98322d2bd48b1d8b3b828238cacbf721257284d
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          persist-credentials: false
+      - name: Independently reproduce power model
+        run: python3 designs/esp32-digital/integrated/usb_power_review.py
+      - name: Build disarmed power-only diagnostic
+        run: docker run --rm -v "$PWD:/project" -w /project/designs/esp32-digital/integrated/power-diagnostic espressif/idf:v5.4.2 idf.py build
+      - name: Upload diagnostic and model evidence
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: power-diagnostic-and-simulation
+          path: |
+            designs/esp32-digital/integrated/usb-*-generated.csv
+            designs/esp32-digital/integrated/power-diagnostic/build/ultrasonic_power_diag.bin
+            designs/esp32-digital/integrated/power-diagnostic/build/bootloader/bootloader.bin
+            designs/esp32-digital/integrated/power-diagnostic/build/partition_table/partition-table.bin
+            designs/esp32-digital/integrated/power-diagnostic/build/flasher_args.json
