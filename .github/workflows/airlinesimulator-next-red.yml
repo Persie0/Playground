@@ -1,4 +1,4 @@
-name: Airline simulator connections and loyalty RED batch
+name: Airline simulator partner offers and redemption RED batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [connection-booking, missed-connection, loyalty-replay]
+        task: [partner-reservation, partner-settlement, loyalty-redemption]
     steps:
       - uses: actions/setup-dotnet@v4
         with:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: 0917f24a5ce26510fa56a156e8eb22ed3dd60fc3
+          ref: a2d5a0838c23639adbf2a27404790e55dfc92e8f
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -35,17 +35,17 @@ jobs:
           TASK: ${{ matrix.task }}
         run: |
           case "$TASK" in
-            connection-booking)
-              filter=FullyQualifiedName~ConnectionTests.GroupConnectionUsesRealBookingsAndArrivalDependency
-              expected='CS(1061|0246).*(Connections|ConnectionProposal)'
+            partner-reservation)
+              filter=FullyQualifiedName~PartnerOfferTests.GroundOffersMatchDestinationAndHaveTransparentPrice
+              expected='CS1061.*Partners'
               ;;
-            missed-connection)
-              filter=FullyQualifiedName~ConnectionTests.MissedConnectionRebooksWholeGroupWithoutExtraCharge
-              expected='CS(1061|0246|0103).*(Connections|ConnectionStatus)'
+            partner-settlement)
+              filter=FullyQualifiedName~PartnerOfferTests.PaidShuttleRecognizesRevenueAndSupplierCostOnlyAfterDelivery
+              expected='CS(1061|0103).*(Partners|PartnerStatus)'
               ;;
-            loyalty-replay)
-              filter=FullyQualifiedName~ConnectionTests.ConnectionRecoveryAndLoyaltyReplayAfterReload
-              expected='CS1061.*(Loyalty|Connections)'
+            loyalty-redemption)
+              filter=FullyQualifiedName~PartnerOfferTests.PartnerTransitAndRedemptionSurviveSave
+              expected='CS1061.*Partners'
               ;;
           esac
           set +e
