@@ -38,7 +38,7 @@ jobs:
     steps:
       - name: Validate cross-repository token
         env:
-          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: test -n "$PRIVATE_TOKEN"
 
       - name: Checkout ToiletCompass
@@ -46,7 +46,7 @@ jobs:
         with:
           repository: ${{ env.APP_REPOSITORY }}
           ref: ${{ env.APP_REF }}
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: app
 
@@ -66,8 +66,9 @@ jobs:
           python3 - <<'PY'
           import json
           data = json.load(open('/tmp/toilet-sources.json'))
-          fallbacks = set(data['fallbacks'])
-          assert {'ID', 'IE', 'MY'} <= fallbacks, fallbacks
+          # Source priority may improve over time; coverage, not a fixed
+          # fallback-country list, determines whether discovery is complete.
+          assert data['count'] == 249 and not data['unresolved']
           PY
 
       - uses: subosito/flutter-action@v2
@@ -128,7 +129,7 @@ jobs:
             FULL=true
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_build }}" == "true" ]]; then
             FULL=true
-''          fi
+          fi
           echo "enabled=$FULL" >> "$GITHUB_OUTPUT"
 
       - name: Verify required encryption key
@@ -142,13 +143,13 @@ jobs:
       - name: Verify release token permissions
         if: steps.full.outputs.enabled == 'true'
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         run: test "$(gh api repos/Persie0/toilets --jq '.permissions.push')" = "true"
 
       - name: Choose collision-safe release version
         if: steps.full.outputs.enabled == 'true'
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         shell: bash
         run: |
           BASE="toiletdb-$(date -u +%F)"
@@ -205,7 +206,7 @@ jobs:
         if: steps.full.outputs.enabled == 'true'
         working-directory: app
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         shell: bash
         run: |
           gh release create "$DB_RELEASE_VERSION" \
@@ -222,7 +223,7 @@ jobs:
         if: steps.full.outputs.enabled == 'true'
         working-directory: app
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         shell: bash
         run: |
           gh release view "$DB_RELEASE_VERSION" --repo "$PUBLIC_RELEASE_REPOSITORY" --json assets \
@@ -253,7 +254,7 @@ jobs:
       - name: Publish verified encrypted release
         if: steps.full.outputs.enabled == 'true'
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
         shell: bash
         run: |
           gh release edit "$DB_RELEASE_VERSION" --repo "$PUBLIC_RELEASE_REPOSITORY" --draft=false --latest
