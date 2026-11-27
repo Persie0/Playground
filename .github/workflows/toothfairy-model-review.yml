@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      SOURCE_SHA: 8bbc48682721faae3b17e66c122bac6b5df1f070
+      SOURCE_SHA: b2e2fe4ac4cf11393f7025d60df886db8c6a5d4f
       PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
     steps:
       - name: Render actual Blender rig and save review images privately
@@ -39,26 +39,60 @@ jobs:
             rm "$archive"
           ) >>"$log" 2>&1
           blender="$d/blender/blender-4.2.23-linux-x64/blender"
-          # Regenerate, verify and render the revised source, preserving the full rig.
-          mkdir -p "$d/generated"
-          "$blender" -b --python-exit-code 1 -P "$d/src/assets-source/create_fairy.py" -- "$d/generated/Fairy.blend" >"$d/generate.log" 2>&1 || { echo "::error::Fairy generation failed."; exit 1; }
-          expected="$(sed -nE 's/^Generated optimized fairy rig: [0-9]+ meshes, ([0-9]+) triangles, [0-9]+ bones$/\1/p' "$d/generate.log" | tail -1)"
-          test -n "$expected"
-          "$blender" -b --python-exit-code 1 -P "$d/src/assets-source/verify_fairy.py" -- "$d/generated/Fairy.fbx" "$expected" >"$d/verify.log" 2>&1 || { echo "::error::FBX roundtrip failed."; exit 1; }
-          sed -e 's/samples=24/samples=12/' -e 's/resolution_x=720;scene.render.resolution_y=900/resolution_x=480;scene.render.resolution_y=600/' -e "s/file_format='PNG'/file_format='JPEG';scene.render.image_settings.quality=85/" -e "s/\.png/\.jpg/g" "$d/src/assets-source/render_fairy_review.py" > "$d/render.py"
-          "$blender" -b "$d/generated/Fairy.blend" --python-exit-code 1 -P "$d/render.py" -- "$d/review" >>"$log" 2>&1
-          cp "$d/generated/Fairy.blend" "$d/src/assets-source/Fairy.blend"
-          cp "$d/generated/Fairy.fbx" "$d/src/mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx"
-          git -C "$d/src" add -- assets-source/Fairy.blend mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx
-          git -C "$d/src" -c user.name="Toothfairy CI" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Regenerate V14 painted irises and hand anatomy" >>"$log" 2>&1
-          git -C "$d/src" -c "http.extraheader=AUTHORIZATION: basic $auth" push --quiet origin HEAD:refs/heads/feature/fairy-face-parent-unlock >>"$log" 2>&1
+          # Render committed binary exactly; do not regenerate or modify the feature branch.
+          test "$(git -C "$d/src" rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git -C "$d/src" hash-object assets-source/Fairy.blend)" = b8a7a5ae96657bb3335092e5c67b9d92d69b1abb
+          cat > "$d/render.py" <<'PY'
+          import bpy, sys
+          from pathlib import Path
+          from mathutils import Vector
+          out=Path(sys.argv[sys.argv.index('--')+1]);out.mkdir(parents=True,exist_ok=True)
+          scene=bpy.context.scene
+          for ob in list(scene.objects):
+              if ob.type in ('CAMERA','LIGHT'): bpy.data.objects.remove(ob,do_unlink=True)
+          scene.render.engine='CYCLES'
+          scene.cycles.device='CPU';scene.cycles.samples=20;scene.cycles.use_denoising=True
+          scene.render.resolution_x=720;scene.render.resolution_y=900;scene.render.resolution_percentage=100
+          scene.render.image_settings.file_format='JPEG';scene.render.image_settings.quality=90
+          scene.world=bpy.data.worlds.new('Review studio');scene.world.use_nodes=True
+          scene.world.node_tree.nodes['Background'].inputs[0].default_value=(.095,.075,.13,1)
+          scene.world.node_tree.nodes['Background'].inputs[1].default_value=.35
+          scene.view_settings.view_transform='AgX'
+          def light(name,pos,energy,size,color):
+              d=bpy.data.lights.new(name,'AREA');d.energy=energy;d.shape='DISK';d.size=size;d.color=color
+              o=bpy.data.objects.new(name,d);scene.collection.objects.link(o);o.location=pos
+              o.rotation_euler=(Vector((0,0,1.0))-o.location).to_track_quat('-Z','Y').to_euler()
+          light('Key',(-2,-3,3.8),320,2.0,(1,.91,.83))
+          light('Fill',(2,-2.5,2.6),140,2.8,(.88,.93,1))
+          light('Rim',(0,2,3.2),220,1.6,(1,.83,.69))
+          data=bpy.data.cameras.new('Review camera');cam=bpy.data.objects.new('Review camera',data);scene.collection.objects.link(cam);scene.camera=cam;data.type='ORTHO'
+          bpy.context.view_layer.update()
+          mesh=[o for o in scene.objects if o.type=='MESH' and not o.hide_render]
+          points=[o.matrix_world@Vector(v) for o in mesh for v in o.bound_box]
+          low=Vector(tuple(min(v[i] for v in points) for i in range(3)));high=Vector(tuple(max(v[i] for v in points) for i in range(3)))
+          center=(low+high)/2
+          scale=max((high.z-low.z)*1.16,(high.x-low.x)*1.40)
+          print('Visible bounds',low,high,'meshes',len(mesh))
+          for name,offset,target,ortho in [
+              ('Fairy-front',(0,-5,.12),center,scale),
+              ('Fairy-three-quarter',(2.8,-4.5,.50),center,scale),
+              ('Fairy-back',(0,5,.15),center,scale),
+              ('Fairy-face',(.20,-4,.08),(0,-.05,1.48),.83),
+              ('Fairy-profile',(4,-.4,.06),(0,-.05,1.48),.83),
+              ('Fairy-grip',(.65,-3,.14),(.42,-.05,.67),.55)]:
+              cam.location=Vector(target)+Vector(offset);cam.rotation_euler=(Vector(target)-cam.location).to_track_quat('-Z','Y').to_euler();data.ortho_scale=ortho
+              scene.render.filepath=str(out/(name+'.jpg'));bpy.ops.render.render(write_still=True)
+              assert (out/(name+'.jpg')).stat().st_size>1024
+          print('Six views of committed Blender asset.')
+          PY
+          "$blender" -b "$d/src/assets-source/Fairy.blend" --python-exit-code 1 -P "$d/render.py" -- "$d/review" >"$d/render.log" 2>&1
           mkdir -p "$d/src/.ci/model-review"
           cp "$d/review/"*.jpg "$d/src/.ci/model-review/"
-          test "$(find "$d/src/.ci/model-review" -name '*.jpg' | wc -l)" -eq 7
+          test "$(find "$d/src/.ci/model-review" -name '*.jpg' | wc -l)" -eq 6
           git -C "$d/src" add -- .ci/model-review
           git -C "$d/src" -c user.name="Toothfairy CI" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Private visual review of exact fairy rig" >>"$log" 2>&1
           git -C "$d/src" -c "http.extraheader=AUTHORIZATION: basic $auth" push --quiet origin HEAD:refs/heads/ci/model-review/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT >>"$log" 2>&1
-          echo "Seven review images saved privately."
+          echo "Six review images saved privately."
       - name: Retain generation diagnostics privately
         if: failure()
         shell: bash
@@ -67,7 +101,7 @@ jobs:
           d="$RUNNER_TEMP/toothfairy-review"
           test -d "$d/src/.git" || exit 0
           mkdir -p "$d/src/.ci/model-review"
-          for stage in generate verify; do
+          for stage in render; do
             if [[ -s "$d/$stage.log" ]]; then tail -n 40 "$d/$stage.log" >>"$d/src/.ci/model-review/diagnostics.txt"; fi
           done
           test -s "$d/src/.ci/model-review/diagnostics.txt" || exit 0
