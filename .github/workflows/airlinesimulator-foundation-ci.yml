@@ -1,4 +1,4 @@
-name: Airline simulator foundation parallel verification
+name: Airline simulator graphical startup diagnostic
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -7,14 +7,14 @@ on:
 permissions:
   contents: read
 jobs:
-  checks:
-    name: ${{ matrix.check }}
+  window:
+    name: ${{ matrix.mode }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        check: [unit-and-build, godot-headless, godot-window, linux-export, windows-export]
+        mode: [baseline, dummy-audio, dummy-audio-software-gl]
     steps:
       - uses: actions/setup-dotnet@v4
         with:
@@ -28,99 +28,50 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
-      - name: Build and unit tests (private output suppressed)
-        working-directory: private-source
-        shell: bash
-        run: |
-          if dotnet build AirlineSimulator.sln -c Release > "$RUNNER_TEMP/build.log" 2>&1; then
-            echo 'Release solution build PASS'
-          else
-            echo 'Release solution build FAIL'
-            grep -Eo '(CS|MSB|NU|NETSDK)[0-9]{4}' "$RUNNER_TEMP/build.log" | sort | uniq -c || true
-            exit 1
-          fi
-          if dotnet test tests/Simulation.Tests/Simulation.Tests.csproj -c Release --no-build > "$RUNNER_TEMP/test.log" 2>&1; then
-            echo 'Unit test suite PASS'
-            grep -Eo 'Passed: *[0-9]+|Failed: *[0-9]+|Total: *[0-9]+' "$RUNNER_TEMP/test.log" || true
-          else
-            echo 'Unit test suite FAIL'
-            exit 1
-          fi
-      - name: Install matching Godot .NET editor
-        if: matrix.check != 'unit-and-build'
+      - name: Install Godot .NET
         shell: bash
         run: |
           version=4.7.2-stable
-          base="https://github.com/godotengine/godot-builds/releases/download/$version"
-          curl --fail --location --retry 3 --silent --show-error "$base/Godot_v${version}_mono_linux_x86_64.zip" -o "$RUNNER_TEMP/godot.zip"
+          curl --fail --location --retry 3 --silent --show-error "https://github.com/godotengine/godot-builds/releases/download/$version/Godot_v${version}_mono_linux_x86_64.zip" -o "$RUNNER_TEMP/godot.zip"
           unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
           editor=$(find "$RUNNER_TEMP/godot" -type f -name 'Godot*_mono_linux.x86_64' -print -quit)
           test -n "$editor"
           chmod +x "$editor"
           echo "GODOT_EDITOR=$editor" >> "$GITHUB_ENV"
           "$editor" --version
-      - name: Import project and compile Godot scripts
-        if: matrix.check != 'unit-and-build'
+      - name: Import and build (no private logs)
         working-directory: private-source
         shell: bash
         run: |
           if "$GODOT_EDITOR" --headless --editor --path . --import > "$RUNNER_TEMP/import.log" 2>&1 && dotnet build AirlineSimulator.csproj -c Debug >> "$RUNNER_TEMP/import.log" 2>&1; then
-            echo 'Godot import and Debug build PASS'
+            echo 'Import and Debug build PASS'
           else
-            echo 'Godot import or Debug build FAIL'
+            echo 'Import or Debug build FAIL'
             grep -Eo '(CS|MSB|NU|NETSDK)[0-9]{4}' "$RUNNER_TEMP/import.log" | sort | uniq -c || true
             exit 1
           fi
-      - name: Engine startup smoke
-        if: matrix.check == 'godot-headless' || matrix.check == 'godot-window'
+      - name: Window launch, categorized diagnostics
         working-directory: private-source
         shell: bash
+        env:
+          MODE: ${{ matrix.mode }}
         run: |
-          if [ "${{ matrix.check }}" = godot-window ]; then
-            xvfb-run -a "$GODOT_EDITOR" --path . --rendering-method gl_compatibility --quit-after 120 > "$RUNNER_TEMP/boot.log" 2>&1
-          else
-            "$GODOT_EDITOR" --headless --path . --quit-after 5 > "$RUNNER_TEMP/boot.log" 2>&1
-          fi
-          if grep -q 'AIRLINE_BOOT_OK:1' "$RUNNER_TEMP/boot.log" && ! grep -Eq 'SCRIPT ERROR:|Parse Error:|ERROR:' "$RUNNER_TEMP/boot.log"; then
-            echo 'Godot startup and C# marker PASS'
-          else
-            echo 'Godot startup or C# marker FAIL'
-            exit 1
-          fi
-      - name: Install matching .NET export templates
-        if: matrix.check == 'linux-export' || matrix.check == 'windows-export'
-        shell: bash
-        run: |
-          version=4.7.2-stable
-          curl --fail --location --retry 3 --silent --show-error "https://github.com/godotengine/godot-builds/releases/download/$version/Godot_v${version}_mono_export_templates.tpz" -o "$RUNNER_TEMP/templates.tpz"
-          unzip -q "$RUNNER_TEMP/templates.tpz" -d "$RUNNER_TEMP/templates"
-          dest="$HOME/.local/share/godot/export_templates/4.7.2.stable.mono"
-          mkdir -p "$dest"
-          cp -a "$RUNNER_TEMP/templates/templates/." "$dest/"
-      - name: Export desktop release (no artifact upload)
-        if: matrix.check == 'linux-export' || matrix.check == 'windows-export'
-        working-directory: private-source
-        shell: bash
-        run: |
-          mkdir -p exports/linux exports/windows
-          if [ "${{ matrix.check }}" = linux-export ]; then
-            preset=Linux
-            out=exports/linux/AirlineSimulator.x86_64
-          else
-            preset='Windows Desktop'
-            out=exports/windows/AirlineSimulator.exe
-          fi
-          if "$GODOT_EDITOR" --headless --path . --export-release "$preset" "$out" > "$RUNNER_TEMP/export.log" 2>&1 && test -s "$out" && ! grep -Eq 'SCRIPT ERROR:|ERROR:' "$RUNNER_TEMP/export.log"; then
-            echo 'Desktop release export PASS'
-          else
-            echo 'Desktop release export FAIL'
-            grep -Eo '(CS|MSB|NU|NETSDK)[0-9]{4}' "$RUNNER_TEMP/export.log" | sort | uniq -c || true
-            exit 1
-          fi
-          if [ "${{ matrix.check }}" = linux-export ]; then
-            chmod +x "$out"
-            "$out" --headless --quit-after 5 > "$RUNNER_TEMP/export-boot.log" 2>&1
-            grep -q 'AIRLINE_BOOT_OK:1' "$RUNNER_TEMP/export-boot.log"
-            ! grep -Eq 'SCRIPT ERROR:|ERROR:' "$RUNNER_TEMP/export-boot.log"
-            echo 'Exported Linux game startup PASS'
-          fi
+          args=(--path . --rendering-method gl_compatibility --quit-after 120)
+          if [ "$MODE" != baseline ]; then args+=(--audio-driver Dummy); fi
+          if [ "$MODE" = dummy-audio-software-gl ]; then export LIBGL_ALWAYS_SOFTWARE=1; args+=(--display-driver x11); fi
+          set +e
+          timeout 90 xvfb-run -a -s '-screen 0 1280x720x24' "$GODOT_EDITOR" "${args[@]}" > "$RUNNER_TEMP/boot.log" 2>&1
+          status=$?
+          set -e
+          echo "Exit code: $status"
+          if grep -q 'AIRLINE_BOOT_OK:1' "$RUNNER_TEMP/boot.log"; then echo 'C# startup marker: present'; else echo 'C# startup marker: absent'; fi
+          for kind in 'ALSA|PulseAudio|audio driver|AudioDriver' 'OpenGL|GLX|Vulkan|renderer' 'SCRIPT ERROR:|Parse Error:' 'ERROR:' 'Xvfb|X11|xauth|display'; do
+            count=$(grep -Eic "$kind" "$RUNNER_TEMP/boot.log" || true)
+            echo "Diagnostic category $kind: $count matching lines"
+          done
+          echo 'Error classes (allowlisted tokens only):'
+          grep -Eio 'ALSA|PulseAudio|AudioDriver|OpenGL|GLX|Vulkan|SCRIPT ERROR:|Parse Error:|Xvfb|X11|xauth|Failed to initialize audio|Failed to open audio|Condition.*is true' "$RUNNER_TEMP/boot.log" | cut -c1-80 | sort | uniq -c || true
+          test "$status" -eq 0
+          grep -q 'AIRLINE_BOOT_OK:1' "$RUNNER_TEMP/boot.log"
+          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|ERROR:' "$RUNNER_TEMP/boot.log"
+          echo 'Graphical startup PASS'
