@@ -1,4 +1,4 @@
-name: Airline simulator fleet depth RED batch
+name: Airline simulator network depth RED batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [staff-training, timed-maintenance, recurrence-distress]
+        task: [operating-bases, live-reputation, network-persistence]
     steps:
       - uses: actions/setup-dotnet@v4
         with:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: 473b9d249c6f35ccdded1f20c22e0f62f66087cb
+          ref: 4121579a1b7126b7cd630bb589d55894568f3862
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -35,17 +35,17 @@ jobs:
           TASK: ${{ matrix.task }}
         run: |
           case "$TASK" in
-            staff-training)
-              filter=FullyQualifiedName~FleetDepthTests.PaidDutyAndTrainingCannotOverlapAndChargeOnce
-              expected='CS1061.*(BeginTraining|IsTrainingComplete)'
+            operating-bases)
+              filter=FullyQualifiedName~NetworkDepthTests.OpeningBaseChargesOnceAndRejectsRemoteAirport
+              expected='CS1061.*Network'
               ;;
-            timed-maintenance)
-              filter=FullyQualifiedName~FleetDepthTests.TimedMaintenancePreventsEarlyReleaseAndDispatch
-              expected='CS1061.*BeginInspection'
+            live-reputation)
+              filter=FullyQualifiedName~NetworkDepthTests.ActualFlightOutcomesAffectReputation
+              expected='CS(1061|0246).*(Reputation|ServiceOutcome)'
               ;;
-            recurrence-distress)
-              filter=FullyQualifiedName~FleetDepthTests.RestructureKeepsCustomerLiabilitiesAndOutstandingPrincipal
-              expected='CS1061.*(FinancialDistress|RestructureCredit|RequestSandboxRescue|SetFleetRecurrence)'
+            network-persistence)
+              filter=FullyQualifiedName~NetworkDepthTests.BaseAndReputationReplayAcrossReload
+              expected='CS1061.*(Network|Reputation)'
               ;;
           esac
           set +e
