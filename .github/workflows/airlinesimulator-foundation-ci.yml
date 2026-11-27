@@ -1,0 +1,39 @@
+name: Airline simulator foundation red gate
+on:
+  push:
+    branches: [airlinesimulator-foundation-ci]
+    paths: [.github/workflows/airlinesimulator-foundation-ci.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/airlinesimulator
+          ref: 11f1114a597285f44b98c8d4113a999966ce4e36
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: private-source
+      - name: Observe expected red without exposing source or compiler output
+        working-directory: private-source
+        shell: bash
+        run: |
+          set +e
+          dotnet test tests/Simulation.Tests/Simulation.Tests.csproj -c Release --filter FullyQualifiedName~CanReferenceSimulation > "$RUNNER_TEMP/airline-red.log" 2>&1
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && grep -q 'CS0103.*SmokeMarker' "$RUNNER_TEMP/airline-red.log"; then
+            echo 'Expected RED observed: missing simulation smoke marker.'
+          else
+            echo 'RED not established (restore, toolchain, or unexpected result).'
+            exit 1
+          fi
