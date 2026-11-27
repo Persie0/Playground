@@ -1,4 +1,4 @@
-name: Airline simulator graphical startup diagnostic
+name: Airline simulator clock RED gate
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -7,14 +7,14 @@ on:
 permissions:
   contents: read
 jobs:
-  window:
-    name: ${{ matrix.mode }}
+  red:
+    name: ${{ matrix.framework }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        mode: [baseline, dummy-audio, dummy-audio-software-gl]
+        framework: [clock-tests, solution-build]
     steps:
       - uses: actions/setup-dotnet@v4
         with:
@@ -24,54 +24,28 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: eab3060bfd91f04b17859f4e8d756a93fcedf811
+          ref: ba842a1841e5d9a779057af92f546e5111e4eb49
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
-      - name: Install Godot .NET
-        shell: bash
-        run: |
-          version=4.7.2-stable
-          curl --fail --location --retry 3 --silent --show-error "https://github.com/godotengine/godot-builds/releases/download/$version/Godot_v${version}_mono_linux_x86_64.zip" -o "$RUNNER_TEMP/godot.zip"
-          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
-          editor=$(find "$RUNNER_TEMP/godot" -type f -name 'Godot*_mono_linux.x86_64' -print -quit)
-          test -n "$editor"
-          chmod +x "$editor"
-          echo "GODOT_EDITOR=$editor" >> "$GITHUB_ENV"
-          "$editor" --version
-      - name: Import and build (no private logs)
-        working-directory: private-source
-        shell: bash
-        run: |
-          if "$GODOT_EDITOR" --headless --editor --path . --import > "$RUNNER_TEMP/import.log" 2>&1 && dotnet build AirlineSimulator.csproj -c Debug >> "$RUNNER_TEMP/import.log" 2>&1; then
-            echo 'Import and Debug build PASS'
-          else
-            echo 'Import or Debug build FAIL'
-            grep -Eo '(CS|MSB|NU|NETSDK)[0-9]{4}' "$RUNNER_TEMP/import.log" | sort | uniq -c || true
-            exit 1
-          fi
-      - name: Window launch, categorized diagnostics
+      - name: Verify expected missing clock type without exposing private logs
         working-directory: private-source
         shell: bash
         env:
-          MODE: ${{ matrix.mode }}
+          MODE: ${{ matrix.framework }}
         run: |
-          args=(--path . --rendering-method gl_compatibility --quit-after 120)
-          if [ "$MODE" != baseline ]; then args+=(--audio-driver Dummy); fi
-          if [ "$MODE" = dummy-audio-software-gl ]; then export LIBGL_ALWAYS_SOFTWARE=1; args+=(--display-driver x11); fi
           set +e
-          timeout 90 xvfb-run -a -s '-screen 0 1280x720x24' "$GODOT_EDITOR" "${args[@]}" > "$RUNNER_TEMP/boot.log" 2>&1
+          if [ "$MODE" = clock-tests ]; then
+            dotnet test tests/Simulation.Tests/Simulation.Tests.csproj -c Release --filter FullyQualifiedName~ClockTests > "$RUNNER_TEMP/red.log" 2>&1
+          else
+            dotnet build AirlineSimulator.sln -c Release > "$RUNNER_TEMP/red.log" 2>&1
+          fi
           status=$?
           set -e
-          echo "Exit code: $status"
-          if grep -q 'AIRLINE_BOOT_OK:1' "$RUNNER_TEMP/boot.log"; then echo 'C# startup marker: present'; else echo 'C# startup marker: absent'; fi
-          for kind in 'ALSA|PulseAudio|audio driver|AudioDriver' 'OpenGL|GLX|Vulkan|renderer' 'SCRIPT ERROR:|Parse Error:' 'ERROR:' 'Xvfb|X11|xauth|display'; do
-            count=$(grep -Eic "$kind" "$RUNNER_TEMP/boot.log" || true)
-            echo "Diagnostic category $kind: $count matching lines"
-          done
-          echo 'Error classes (allowlisted tokens only):'
-          grep -Eio 'ALSA|PulseAudio|AudioDriver|OpenGL|GLX|Vulkan|SCRIPT ERROR:|Parse Error:|Xvfb|X11|xauth|Failed to initialize audio|Failed to open audio|Condition.*is true' "$RUNNER_TEMP/boot.log" | cut -c1-80 | sort | uniq -c || true
-          test "$status" -eq 0
-          grep -q 'AIRLINE_BOOT_OK:1' "$RUNNER_TEMP/boot.log"
-          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|ERROR:' "$RUNNER_TEMP/boot.log"
-          echo 'Graphical startup PASS'
+          if [ "$status" -ne 0 ] && grep -Eq 'CS0246.*SimulationClock' "$RUNNER_TEMP/red.log"; then
+            echo 'Expected RED: SimulationClock is not implemented.'
+          else
+            echo 'Expected RED was not established.'
+            grep -Eo '(CS|MSB|NU|NETSDK)[0-9]{4}' "$RUNNER_TEMP/red.log" | sort | uniq -c || true
+            exit 1
+          fi
