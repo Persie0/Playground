@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: perzis/teamplus_clone
-          ref: 691a38c62d6d6b0ec9115f978fb223cf3eb83890
+          ref: e9d179406f8e4370540a5a0f6b1fc6aef7de1e1c
           token: ${{ secrets.PERZIS_TOKEN || secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: source
@@ -81,6 +81,21 @@ jobs:
                   adb("shell", "input", "swipe", "200", "700", "200", "250", "400")
                   time.sleep(1)
               return False
+          def select_tab(label, index):
+              for _ in range(5):
+                  root = ET.fromstring(tree())
+                  for node in root.iter("node"):
+                      desc = node.get("content-desc", "").splitlines()
+                      if label in desc and f"Tab {index} of 4" in desc:
+                          bounds = [int(x) for x in re.findall(r"\d+", node.get("bounds", ""))]
+                          if len(bounds) != 4:
+                              continue
+                          if node.get("selected") == "true":
+                              return
+                          adb("shell", "input", "tap", str((bounds[0]+bounds[2])//2), str((bounds[1]+bounds[3])//2))
+                          break
+                  time.sleep(3)
+              raise RuntimeError("Could not verify selected tab: " + label)
           def capture(name):
               data = adb("exec-out", "screencap", "-p")
               if not data.startswith(b"\x89PNG"): raise RuntimeError("Invalid screenshot")
@@ -101,15 +116,15 @@ jobs:
           capture("01-login")
           if not tap_label("App zuerst offline ausprobieren"):
               raise RuntimeError("Could not locate offline demo entry")
+          select_tab("Übersicht", 1)
           capture("02-overview")
-          for label, name in [("Termine","03-events"),("Team","04-members"),("News","05-feed")]:
-              if tap_label(label, 1):
-                  capture(name)
-              else:
-                  print("Could not locate tab:", label)
+          for label, index, name in [("Termine",2,"03-events"),("Team",3,"04-members"),("News",4,"05-feed")]:
+              select_tab(label, index)
+              capture(name)
           adb("shell","settings","put","system","font_scale","1.8")
-          time.sleep(4)
-          capture("06-large-text-current")
+          time.sleep(5)
+          select_tab("Termine", 2)
+          capture("06-large-text-events")
           adb("shell","settings","put","system","font_scale","1.0")
           PY
       - name: Capture Android screens with synthetic demo data
