@@ -1,0 +1,64 @@
+name: Airline simulator demand journey recovery RED batch
+on:
+  push:
+    branches: [airlinesimulator-foundation-ci]
+    paths: [.github/workflows/airlinesimulator-next-red.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  red:
+    name: ${{ matrix.task }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [demand, journey, recovery]
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/airlinesimulator
+          ref: 84930b0256f3b410a85a15d665acd6461a54a43a
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: private-source
+      - name: Confirm expected missing feature
+        working-directory: private-source
+        shell: bash
+        env:
+          TASK: ${{ matrix.task }}
+        run: |
+          case "$TASK" in
+            demand)
+              rm tests/Simulation.Tests/{JourneyTests,RecoveryTests}.cs
+              filter=DemandTests
+              expected='CS0246.*(DemandService|MarketDeparture|DemandContext)|CS0103.*PassengerCatalog'
+              ;;
+            journey)
+              rm tests/Simulation.Tests/{DemandTests,RecoveryTests}.cs
+              filter=JourneyTests
+              expected='CS0246.*(BoardingService|PassengerJourney|BaggageService|SeatAllocator|CabinService)'
+              ;;
+            recovery)
+              rm tests/Simulation.Tests/{DemandTests,JourneyTests}.cs
+              filter=RecoveryTests
+              expected='CS0246.*(RecoveryService|RecoveryFlight|DisruptionService)'
+              ;;
+          esac
+          set +e
+          dotnet test tests/Simulation.Tests/Simulation.Tests.csproj -c Release --filter "FullyQualifiedName~$filter" > "$RUNNER_TEMP/red.log" 2>&1
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && grep -Eq "$expected" "$RUNNER_TEMP/red.log"; then
+            echo "Expected RED verified for $TASK"
+          else
+            echo "Expected RED not established for $TASK"
+            grep -Eo '(CS|MSB|NU|NETSDK)[0-9]{4}' "$RUNNER_TEMP/red.log" | sort | uniq -c || true
+            exit 1
+          fi
