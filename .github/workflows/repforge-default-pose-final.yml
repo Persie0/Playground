@@ -1,0 +1,84 @@
+name: RepForge default learned pose final review
+on:
+  push:
+    paths:
+      - '.github/workflows/repforge-default-pose-final.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  repforge_android:
+    name: gameexercise Android tests and APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+          cache: true
+      - name: Read private feature branch
+        env:
+          REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$REPO_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            clone --depth 1 --branch feature/learned-pose-default \
+            https://github.com/Persie0/gameexercise.git source
+          test "$(git -C source rev-parse HEAD)" = 4e9821952501e5356c4cda8867fa92a95813a408
+          git -C source rev-parse HEAD
+      - name: Resolve dependencies and generate source
+        working-directory: source
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+      - name: Validate model holdout and app behavior
+        working-directory: source
+        run: |
+          flutter analyze --no-fatal-infos
+          flutter test test/google_fitness_pose_knn_test.dart --reporter expanded
+          flutter test
+      - name: Compile debug APK
+        working-directory: source
+        run: |
+          set -euo pipefail
+          built=false
+          for attempt in 1 2 3 4; do
+            if flutter build apk --debug > /tmp/pose-android-build.log 2>&1; then
+              built=true
+              tail -n 12 /tmp/pose-android-build.log
+              break
+            fi
+            if ! grep -Eq 'status code 429|Too Many Requests|HTTP 429' /tmp/pose-android-build.log; then
+              tail -n 100 /tmp/pose-android-build.log
+              exit 1
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              tail -n 80 /tmp/pose-android-build.log
+              exit 1
+            fi
+            sleep $((attempt * 25))
+          done
+          test "$built" = true
+          test -s build/app/outputs/flutter-apk/app-debug.apk
+          git rev-parse HEAD > build/app/outputs/flutter-apk/SOURCE_COMMIT.txt
+          sha256sum build/app/outputs/flutter-apk/app-debug.apk > build/app/outputs/flutter-apk/SHA256SUMS.txt
+      - name: Upload APK and resolution
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gameexercise-default-learned-pose-debug-apk
+          path: |
+            source/build/app/outputs/flutter-apk/app-debug.apk
+            source/build/app/outputs/flutter-apk/*.txt
+            source/pubspec.lock
+          if-no-files-found: warn
+          retention-days: 7
+
