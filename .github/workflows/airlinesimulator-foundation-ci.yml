@@ -1,4 +1,4 @@
-name: Airline simulator fleet depth GREEN batch
+name: Airline simulator network depth GREEN batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -31,6 +31,8 @@ jobs:
             os: ubuntu-latest
           - check: fleet-depth
             os: ubuntu-latest
+          - check: network-depth
+            os: ubuntu-latest
           - check: godot-career-save
             os: ubuntu-latest
           - check: full-release
@@ -58,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: b07cce9fc818dd1bcb09258ab16883b410387162
+          ref: 9c3c08d1aaa780afa7e9e2355bb966a29f1e5e0f
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -71,7 +73,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=143
+          expected=148
           case "$CHECK" in
             career-save) args+=(--filter FullyQualifiedName~CareerSaveTests); expected=5 ;;
             thirty-one-day-career) args+=(--filter FullyQualifiedName~VerticalSliceTests); expected=1 ;;
@@ -81,6 +83,7 @@ jobs:
             live-recovery) args+=(--filter FullyQualifiedName~LiveRecoveryTests); expected=7 ;;
             fleet-economy) args+=(--filter FullyQualifiedName~FleetEconomyTests); expected=5 ;;
             fleet-depth) args+=(--filter FullyQualifiedName~FleetDepthTests); expected=6 ;;
+            network-depth) args+=(--filter FullyQualifiedName~NetworkDepthTests); expected=5 ;;
             *)
               if dotnet build AirlineSimulator.sln -c "$config" > "$RUNNER_TEMP/build.log" 2>&1; then
                 echo 'Solution build PASS'
