@@ -1,0 +1,80 @@
+name: Ultrasonic local ground copper candidate
+on:
+  push:
+    branches: [ultrasonic-power-copper-review]
+    paths: ['.github/workflows/ultrasonic-power-copper-review.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/Ultrasonic
+          ref: e7de9c56d06c1ef8455d272bb2a9174c9182847e
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          persist-credentials: false
+      - name: Generate independent candidate and check baseline invariant
+        run: |
+          src=designs/esp32-digital/integrated
+          mkdir -p reports candidate
+          cp -a "$src/." candidate/
+          rm candidate/integrated.kicad_pcb
+          python3 "$src/generate_power_copper.py" --output candidate/integrated.kicad_pcb
+          python3 - <<'PY'
+          import pathlib,sys
+          sys.path.insert(0,"designs/esp32-digital/integrated")
+          from generate_power_copper import candidate,ZONES
+          p=pathlib.Path("designs/esp32-digital/integrated/integrated.kicad_pcb")
+          s=p.read_text()
+          a=pathlib.Path("candidate/integrated.kicad_pcb").read_text()
+          assert a == candidate(s)
+          assert a.replace("\n"+ZONES+"\n","",1).rstrip()==s.rstrip()
+          try:
+              candidate(a)
+          except ValueError:
+              pass
+          else:
+              raise AssertionError("existing zones accepted")
+          print("Baseline geometry preserved; candidate generation deterministic")
+          PY
+      - name: Install KiCad 9
+        run: |
+          sudo add-apt-repository -y ppa:kicad/kicad-9.0-releases
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends kicad kicad-symbols kicad-footprints xvfb xauth
+          kicad-cli version
+      - name: Fill candidate zones with KiCad
+        run: |
+          xvfb-run -a /usr/bin/python3 - <<'PY'
+          import pcbnew
+          from pathlib import Path
+          p=Path("candidate/integrated.kicad_pcb").resolve()
+          board=pcbnew.LoadBoard(str(p))
+          assert len(list(board.Zones()))==2
+          assert all(z.GetNetname()=="GND" for z in board.Zones())
+          filler=pcbnew.ZONE_FILLER(board)
+          filler.Fill(board.Zones())
+          assert all(z.IsFilled() for z in board.Zones()), "zone fill incomplete"
+          pcbnew.SaveBoard(str(p),board)
+          print("Native copper fill completed, both GND zones filled")
+          PY
+      - name: Native ERC, DRC and schematic parity
+        run: |
+          mkdir -p "$HOME/.config/kicad/9.0"
+          sed "s|\${KIPRJMOD}|$PWD/candidate|g" candidate/sym-lib-table > "$HOME/.config/kicad/9.0/sym-lib-table"
+          sed "s|\${KIPRJMOD}|$PWD/candidate|g" candidate/fp-lib-table > "$HOME/.config/kicad/9.0/fp-lib-table"
+          status=0
+          kicad-cli sch erc --exit-code-violations -o reports/erc.txt candidate/integrated.kicad_sch || status=1
+          kicad-cli pcb drc --schematic-parity --exit-code-violations -o reports/drc.txt candidate/integrated.kicad_pcb || status=1
+          for f in reports/*.txt; do cat "$f"; done
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: power-copper-candidate-not-for-fabrication
+          path: |
+            candidate/integrated.kicad_pcb
+            reports/
