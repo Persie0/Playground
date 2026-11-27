@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/monsters
-          ref: ${{ inputs.revision || '1f3b76301bc05f9845bd5e0eaea26d75f4177432' }}
+          ref: ${{ inputs.revision || '4642b65a0231f304994076510af94fcde139eff1' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: app
@@ -76,10 +76,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/monsters
-          ref: ${{ inputs.revision || '1f3b76301bc05f9845bd5e0eaea26d75f4177432' }}
+          ref: ${{ inputs.revision || '4642b65a0231f304994076510af94fcde139eff1' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: app
+      - name: Provision bundled offline Android recognition
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash app/tools/fetch_offline_speech.sh >"$RUNNER_TEMP/monsters-speech-provision.log" 2>&1 || { echo "::error::Offline speech dependencies unavailable"; exit 1; }
+          echo "Pinned offline speech dependencies and model archives verified."
       - name: Pull pinned-version Android editor
         shell: bash
         run: |
@@ -175,6 +181,7 @@ jobs:
           SHA=$(git -C app rev-parse HEAD)
           test "$(gh repo view Persie0/monsters --json isPrivate --jq .isPrivate)" = true
           unzip -tq app/mobile/Builds/Android/Monsters-debug.apk >/dev/null
+          python3 app/tools/check_android_speech_package.py app/mobile/Builds/Android/Monsters-debug.apk
           python3 app/tools/check_unity_results.py app/mobile/Logs/test-ci.xml
           gh release create "development-${SHA:0:12}" app/mobile/Builds/Android/Monsters-debug.apk --repo Persie0/monsters --target "$SHA" --draft --prerelease --title "Development APK ${SHA:0:12}" --notes "Unity development build and EditMode validation; device and release review required." >/dev/null
           echo "Private development APK published."
