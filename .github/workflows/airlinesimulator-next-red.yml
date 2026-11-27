@@ -1,4 +1,4 @@
-name: Airline simulator live cabin seat and baggage RED batch
+name: Airline simulator live extras and rival operations RED batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [cabin-stock, group-seats, baggage]
+        task: [automatic-extras, rival-rotation, rival-persistence]
     steps:
       - uses: actions/setup-dotnet@v4
         with:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: b781a7f5279ebfef4a63e46cf3c267b2dc69c72f
+          ref: f338259e54346bede6426993ba9b19b38d429f3f
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -35,17 +35,17 @@ jobs:
           TASK: ${{ matrix.task }}
         run: |
           case "$TASK" in
-            cabin-stock)
-              filter=FullyQualifiedName~LiveServiceTests.CabinStockShortageRefundsUndeliveredCoffee
-              expected='CS1061.*(ConfigureCabinStock|RemainingCabinStock)'
+            automatic-extras)
+              filter=FullyQualifiedName~LiveCompetitionTests.OptionalPurchasesUseRealQuotesAndStock
+              expected='CS1061.*SetAutomaticExtras'
               ;;
-            group-seats)
-              filter=FullyQualifiedName~LiveServiceTests.GroupSeatsAreAssignedAndNeverOverlap
-              expected='CS1061.*GetAssignedSeats'
+            rival-rotation)
+              filter=FullyQualifiedName~LiveCompetitionTests.RivalOperatesRealReservedRotation
+              expected='CS1061.*(RivalFlights|IsRival)'
               ;;
-            baggage)
-              filter=FullyQualifiedName~LiveServiceTests.BaggageDisputeAndRepackAffectActualDelivery
-              expected='CS1061.*(GetBags|SetBagSize|RepackBag)'
+            rival-persistence)
+              filter=FullyQualifiedName~LiveCompetitionTests.RivalAndOptionalPurchasesPersistAndReplay
+              expected='CS1061.*(AutomaticExtrasEnabled|RivalFlights)'
               ;;
           esac
           set +e
