@@ -183,6 +183,31 @@ jobs:
             --notes "Development-only ARM64 debug APK. Unity EditMode and speech-package gates passed. Blender review renders attached; physical-device acceptance remains pending." \
             >"$RUNNER_TEMP/toothfairy-private/release.log" 2>&1
           echo "APK uploaded to private draft release."
+      - name: Merge exactly the reviewed PR after successful build and package checks
+        if: success() && env.SOURCE_SHA == '20f3d9fef56c4d5f78b8ea38f66b69ee7d8f42dc'
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/toothfairy-private/merge.log"
+          {
+            test "$(gh repo view Persie0/Toothfairy --json isPrivate --jq .isPrivate)" = true
+            pr="$(gh api repos/Persie0/Toothfairy/pulls/2)"
+            if [[ "$(jq -r .merged <<< "$pr")" == true ]]; then
+              test "$(jq -r .head.sha <<< "$pr")" = "$SOURCE_SHA"
+            else
+              test "$(jq -r .state <<< "$pr")" = open
+              test "$(jq -r .head.sha <<< "$pr")" = "$SOURCE_SHA"
+              test "$(jq -r .base.ref <<< "$pr")" = main
+              test "$(jq -r .base.sha <<< "$pr")" = 97cd27159c80c9fd2723aad84b61539261e90d51
+              if [[ "$(jq -r .draft <<< "$pr")" == true ]]; then
+                gh pr ready 2 --repo Persie0/Toothfairy
+              fi
+              gh api --method PUT repos/Persie0/Toothfairy/pulls/2/merge -f sha="$SOURCE_SHA" -f merge_method=merge -f commit_title="Merge reviewed Toothfairy development improvements" | jq -e '.merged == true'
+            fi
+          } >"$log" 2>&1 || { echo "Merge gate blocked; no unverified revision was merged."; exit 1; }
+          echo "Reviewed PR merged after successful validation."
       - name: Retain compiler diagnostics in private source repository
         if: failure()
         env:
