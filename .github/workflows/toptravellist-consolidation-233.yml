@@ -23,23 +23,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Recount and regenerate
+      - name: Recount, regenerate independently and retain diagnostics
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install -r requirements.txt >/tmp/deps.log 2>&1 || { echo 'Dependency installation failed'; exit 1; }
-          python scripts/reconcile_worldwide_backlog.py --verify-baseline >/tmp/backlog.log 2>&1 || { echo 'Backlog generation failed'; exit 1; }
-          python scripts/generate_rankings.py >/tmp/rankings.log 2>&1 || { echo 'Ranking generation failed'; exit 1; }
-          python scripts/reconcile_worldwide_backlog.py --verify-baseline --check >/tmp/backlog-check.log 2>&1 || { echo 'Backlog consistency check failed'; exit 1; }
-          python scripts/generate_rankings.py --check >/tmp/rankings-check.log 2>&1 || { echo 'Ranking consistency check failed'; exit 1; }
-          echo 'Generated output consistency checks passed'
-      - name: Validate and commit derived files only
-        shell: bash
-        run: |
-          set -euo pipefail
-          status=PASS
-          python scripts/validate.py >/tmp/schema-validation.log 2>&1 || status=FAIL
-          export VALIDATION_STATUS="$status"
+          python -m pip install -r requirements.txt
+          python scripts/reconcile_worldwide_backlog.py --verify-baseline
+          python scripts/reconcile_worldwide_backlog.py --verify-baseline --check
+          ranking=PASS
+          if ! python scripts/generate_rankings.py >/tmp/rankings.log 2>&1; then
+            ranking=FAIL
+          elif ! python scripts/generate_rankings.py --check >>/tmp/rankings.log 2>&1; then
+            ranking=FAIL
+          fi
+          if [ "$ranking" = FAIL ]; then
+            cat /tmp/rankings.log
+            git restore -- README.md countries
+          fi
+          schema=PASS
+          python scripts/validate.py >/tmp/schema-validation.log 2>&1 || schema=FAIL
+          export RANKING_STATUS="$ranking" SCHEMA_STATUS="$schema"
           python - <<'PY'
           import os, re, subprocess
           from pathlib import Path
@@ -51,28 +54,30 @@ jobs:
           } or bool(re.fullmatch(r'countries/[A-Z]{2}/(?:sights|cities)\.md',p))
           assert all(allowed(p) for p in changes), 'Unexpected generated change'
           assert not subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).strip(), 'Unexpected untracked file'
-          backlog = Path('methodology/worldwide-backlog/README.md').read_text()
-          summary = backlog.split('## Remaining by area')[0]
-          assert '**20,162**' in summary, 'Unexpected inventory count'
-          note = Path('methodology/reviews/worldwide-consolidation-pass233-regeneration-2026-11-28.md')
+          summary = Path('methodology/worldwide-backlog/README.md').read_text().split('## Remaining by area')[0]
+          assert '**20,162**' in summary
+          print(summary)
+          note = Path('methodology/reviews/worldwide-consolidation-pass234-regeneration-2026-11-28.md')
           assert not note.exists()
-          status = os.environ['VALIDATION_STATUS']
-          note.write_text('# Pass 233 — generated outputs and numerical recount\n\n'
+          ranking = os.environ['RANKING_STATUS']
+          schema = os.environ['SCHEMA_STATUS']
+          note.write_text('# Pass 234 — independent generation and validation\n\n'
               'Pinned input: 194e641a020424d3e676b2ed8a4d3e9107244a61.\n\n'
               + summary + '\n'
               + f'- Changed generated files: {len(changes)}\n'
-              + '- Historical baseline check: PASS\n- Backlog consistency: PASS\n- Ranking consistency: PASS\n'
-              + f'- Schema validation: {status}\n'
-              + '- No source YAML changes; no independent factual or peer verification; no merge.\n'
-              + ('\n## Schema validation diagnostics\n\n```text\n' + Path('/tmp/schema-validation.log').read_text()[:30000] + '\n```\n' if status == 'FAIL' else ''))
+              + '- Historical baseline and backlog consistency checks: PASS\n'
+              + f'- Rankings generation and consistency: {ranking}\n- Schema validation: {schema}\n'
+              + '- Partial ranking output reverted if generation failed. No source YAML changes, no merge.\n'
+              + '\n## Ranking diagnostics\n\n```text\n' + Path('/tmp/rankings.log').read_text()[:30000] + '\n```\n'
+              + '\n## Schema diagnostics\n\n```text\n' + Path('/tmp/schema-validation.log').read_text()[:60000] + '\n```\n')
           PY
-          git add README.md countries methodology/worldwide-backlog methodology/reviews/worldwide-consolidation-pass233-regeneration-2026-11-28.md
-          git diff --cached --check >/tmp/diff-check.log 2>&1 || { echo 'Diff check failed'; exit 1; }
+          git add README.md countries methodology/worldwide-backlog methodology/reviews/worldwide-consolidation-pass234-regeneration-2026-11-28.md
+          git diff --cached --check
           git config user.name toptravellist-editorial-bot
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Regenerate consolidated rankings and exact numerical backlog (pass 233)' >/tmp/commit.log 2>&1
-          git fetch origin refs/heads/data/worldwide-bias-audit-pass205 >/tmp/fetch.log 2>&1
-          test "$(git rev-parse FETCH_HEAD)" = 194e641a020424d3e676b2ed8a4d3e9107244a61 || { echo 'Consolidation branch moved; refusing to push stale outputs'; exit 1; }
-          git push origin HEAD:refs/heads/data/worldwide-bias-audit-pass205 >/tmp/push.log 2>&1 || { echo 'Push failed'; exit 1; }
-          echo "Derived files committed; schema validation: $status"
-          test "$status" = PASS
+          git commit -m 'Publish exact worldwide backlog and generation diagnostics (pass 234)'
+          git fetch origin refs/heads/data/worldwide-bias-audit-pass205
+          test "$(git rev-parse FETCH_HEAD)" = 194e641a020424d3e676b2ed8a4d3e9107244a61 || { echo 'Branch moved; refusing stale push'; exit 1; }
+          git push origin HEAD:refs/heads/data/worldwide-bias-audit-pass205
+          echo "Ranking: $ranking; schema: $schema"
+          test "$ranking" = PASS && test "$schema" = PASS
