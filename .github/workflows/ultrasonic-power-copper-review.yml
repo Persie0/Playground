@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/Ultrasonic
-          ref: e7de9c56d06c1ef8455d272bb2a9174c9182847e
+          ref: 940ed7643246321277fe7abedf3b721f00c993b0
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
           persist-credentials: false
       - name: Generate independent candidate and check baseline invariant
@@ -46,6 +46,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends kicad kicad-symbols kicad-footprints xvfb xauth
           kicad-cli version
+      - name: Export schematic and normalize candidate net identities
+        run: |
+          kicad-cli sch export netlist --format kicadxml -o reports/schematic.xml candidate/integrated.kicad_sch
+          python3 designs/esp32-digital/integrated/normalize_candidate_nets.py candidate/integrated.kicad_pcb reports/schematic.xml
       - name: Fill candidate zones with KiCad
         run: |
           xvfb-run -a /usr/bin/python3 - <<'PY'
@@ -54,7 +58,7 @@ jobs:
           p=Path("candidate/integrated.kicad_pcb").resolve()
           board=pcbnew.LoadBoard(str(p))
           assert len(list(board.Zones()))==2
-          assert all(z.GetNetname()=="GND" for z in board.Zones())
+          assert all(z.GetNetname()=="/GND" for z in board.Zones())
           filler=pcbnew.ZONE_FILLER(board)
           filler.Fill(board.Zones())
           assert all(z.IsFilled() for z in board.Zones()), "zone fill incomplete"
