@@ -1,5 +1,5 @@
 name: NomadRank Impeccable UX validation (public CI)
-# Round thirty-six: validate narrow viewport and rating label contrast.
+# Round thirty-seven: validate two-digit score layout and real-font previews.
 on:
   push:
     branches: [main]
@@ -168,8 +168,15 @@ jobs:
         run: |
           flutter test --no-pub test/trips_queue_recovery_test.dart test/settings_provider_test.dart test/pin_stay_preferences_test.dart test/sync_health_guest_test.dart test/currency_settings_accessibility_test.dart test/quick_add_draft_accessibility_test.dart test/rating_compare_sheet_test.dart test/rating_flow_controls_test.dart test/sync_and_comparison_accessibility_test.dart test/rating_wizard_header_accessibility_test.dart test/adaptive_rating_page_test.dart test/ten_point_rating_selector_test.dart test/map_visit_sheet_accessibility_test.dart test/email_verification_accessibility_test.dart test/login_accessibility_test.dart test/friend_qr_scanner_accessibility_test.dart test/full_account_import_confirmation_test.dart test/edit_dates_accessibility_test.dart test/bottom_nav_accessibility_test.dart test/stat_card_world_coverage_test.dart test/city_choice_sheet_test.dart test/pin_stay_add_rating_test.dart test/travel_circles_invite_test.dart test/rating_compare_sheet_test.dart
 
-      - name: Capture synthetic rating previews
-        run: flutter test --no-pub --dart-define=UX_CAPTURE=true --update-goldens test/rating_flow_controls_test.dart
+      - name: Capture rating previews with Roboto
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y fonts-roboto
+          export UX_PREVIEW_FONT_REGULAR="$(fc-match -f '%{file}' 'Roboto:style=Regular')"
+          export UX_PREVIEW_FONT_BOLD="$(fc-match -f '%{file}' 'Roboto:style=Bold')"
+          test -f "$UX_PREVIEW_FONT_REGULAR"
+          test -f "$UX_PREVIEW_FONT_BOLD"
+          flutter test --no-pub --dart-define=UX_CAPTURE=true --update-goldens test/rating_flow_controls_test.dart
 
       - name: Upload synthetic visual previews
         uses: actions/upload-artifact@v4
@@ -194,6 +201,6 @@ jobs:
             exit 0
           fi
           if ! git diff --cached --quiet; then
-            git commit -m 'style(ui): format verified NomadRank round-thirty-six UX fixes'
+            git commit -m 'style(ui): format verified NomadRank round-thirty-seven UX fixes'
             git push origin HEAD:refs/heads/ux/impeccable-nomadrank-20261122
           fi
