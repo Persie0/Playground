@@ -1,5 +1,5 @@
 name: NomadRank Impeccable UX validation (public CI)
-# Round forty: validate bounded tablet spacing and actual Pin Stay screenshots.
+# Merge review: validate the integrated master revision before merging PR 112.
 on:
   push:
     branches: [main]
@@ -27,6 +27,15 @@ jobs:
           ref: ux/impeccable-nomadrank-20261122
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: true
+
+      - name: Identify authorized merge candidate
+        id: merge_candidate
+        run: |
+          if [ "$(git rev-parse HEAD)" = '821b58dd1ee9eb24e53693f2247ec0305de3ce9a' ]; then
+            echo 'authorized=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'authorized=false' >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -201,6 +210,25 @@ jobs:
             exit 0
           fi
           if ! git diff --cached --quiet; then
-            git commit -m 'style(ui): format verified NomadRank round-forty UX fixes'
+            git commit -m 'style(ui): format verified NomadRank merge review fixes'
             git push origin HEAD:refs/heads/ux/impeccable-nomadrank-20261122
           fi
+
+      - name: Merge reviewed PR 112 only after successful validation
+        if: success() && steps.merge_candidate.outputs.authorized == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          tested_head="$(git rev-parse HEAD)"
+          expected_base='343dd0ea543e0bc92b22e3e532aa673cf16f32d7'
+          pr="$(gh api repos/Persie0/skratch_clone/pulls/112)"
+          test "$(jq -r '.state' <<< "$pr")" = open
+          test "$(jq -r '.head.sha' <<< "$pr")" = "$tested_head"
+          test "$(jq -r '.head.ref' <<< "$pr")" = ux/impeccable-nomadrank-20261122
+          test "$(jq -r '.base.ref' <<< "$pr")" = master
+          test "$(jq -r '.base.sha' <<< "$pr")" = "$expected_base"
+          test "$(gh api repos/Persie0/skratch_clone/git/ref/heads/master --jq '.object.sha')" = "$expected_base"
+          result="$(gh api --method PUT repos/Persie0/skratch_clone/pulls/112/merge -f sha="$tested_head" -f merge_method=squash -f commit_title='feat(ux): improve NomadRank interface and reliability [skip ci]')"
+          jq -e '.merged == true' <<< "$result"
+          jq -r '.sha' <<< "$result"
