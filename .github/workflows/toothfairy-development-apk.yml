@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      SOURCE_SHA: a9539aa1286027a8806195aa519dd3695833c72f
+      SOURCE_SHA: 9c94028d559741d21542d2e5d9fa9723ddae7c36
       IMAGE: unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
     steps:
       - name: Check Unity license and repository access
@@ -175,6 +175,7 @@ jobs:
           test -s "$apk"
           unzip -tq "$apk" >/dev/null
           python3 "$RUNNER_TEMP/toothfairy-src/tools/check_android_speech_package.py" "$apk"
+          python3 "$RUNNER_TEMP/toothfairy-src/tools/check_android_gpu_package.py" "$apk"
           test "$(gh repo view Persie0/Toothfairy --json isPrivate --jq .isPrivate)" = true
           tag="dev-apk-${SOURCE_SHA:0:7}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           gh release create "$tag" "$apk" "$RUNNER_TEMP/toothfairy-private/rig/review/"*.jpg --repo Persie0/Toothfairy --target "$SOURCE_SHA" \
