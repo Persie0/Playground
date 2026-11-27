@@ -1,4 +1,4 @@
-name: Airline simulator tasks 11–13 GREEN batch
+name: Airline simulator tasks 14–16 GREEN batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -15,11 +15,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - check: ledger
+          - check: demand
             os: ubuntu-latest
-          - check: quotes
+          - check: journey
             os: ubuntu-latest
-          - check: booking
+          - check: recovery
             os: ubuntu-latest
           - check: full-release
             os: ubuntu-latest
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: fce363f7fe0dba52c625525c8be3bc1e338a464e
+          ref: 848faaae23abb5509926cfdbb113afc03366c0f1
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -49,11 +49,11 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=83
+          expected=99
           case "$CHECK" in
-            ledger) args+=(--filter FullyQualifiedName~LedgerTests); expected=8 ;;
-            quotes) args+=(--filter FullyQualifiedName~QuoteTests); expected=9 ;;
-            booking) args+=(--filter FullyQualifiedName~BookingTests); expected=7 ;;
+            demand) args+=(--filter FullyQualifiedName~DemandTests); expected=6 ;;
+            journey) args+=(--filter FullyQualifiedName~JourneyTests); expected=6 ;;
+            recovery) args+=(--filter FullyQualifiedName~RecoveryTests); expected=4 ;;
             *)
               if dotnet build AirlineSimulator.sln -c "$config" > "$RUNNER_TEMP/build.log" 2>&1; then
                 echo 'Solution build PASS'
