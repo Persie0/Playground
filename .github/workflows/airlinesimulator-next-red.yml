@@ -1,4 +1,4 @@
-name: Airline simulator fleet economy RED batch
+name: Airline simulator fleet depth RED batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [fleet-lease, duty-maintenance, credit-persistence]
+        task: [staff-training, timed-maintenance, recurrence-distress]
     steps:
       - uses: actions/setup-dotnet@v4
         with:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: 24e897f75549bd77169c2530c7f248013c536a55
+          ref: 473b9d249c6f35ccdded1f20c22e0f62f66087cb
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -35,17 +35,17 @@ jobs:
           TASK: ${{ matrix.task }}
         run: |
           case "$TASK" in
-            fleet-lease)
-              filter=FullyQualifiedName~FleetEconomyTests.LeaseDepositAndDuplicateCommand
-              expected='CS(1061|0246).* (.*Fleet|.*LeaseProposal)'
+            staff-training)
+              filter=FullyQualifiedName~FleetDepthTests.PaidDutyAndTrainingCannotOverlapAndChargeOnce
+              expected='CS1061.*(BeginTraining|IsTrainingComplete)'
               ;;
-            duty-maintenance)
-              filter=FullyQualifiedName~FleetEconomyTests.StaffDutyAndMaintenancePreventDispatch
-              expected='CS(1061|0246).* (.*Staff|.*Maintenance|.*ShiftProposal)'
+            timed-maintenance)
+              filter=FullyQualifiedName~FleetDepthTests.TimedMaintenancePreventsEarlyReleaseAndDispatch
+              expected='CS1061.*BeginInspection'
               ;;
-            credit-persistence)
-              filter=FullyQualifiedName~FleetEconomyTests.FleetCreditAndDutyPersist
-              expected='CS(1061|0246).* (.*Credit|.*Fleet|.*ScheduleFleetRoute)'
+            recurrence-distress)
+              filter=FullyQualifiedName~FleetDepthTests.RestructureKeepsCustomerLiabilitiesAndOutstandingPrincipal
+              expected='CS1061.*(FinancialDistress|RestructureCredit|RequestSandboxRescue|SetFleetRecurrence)'
               ;;
           esac
           set +e
