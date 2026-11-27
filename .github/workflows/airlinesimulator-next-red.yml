@@ -1,4 +1,4 @@
-name: Airline simulator live economy and demand RED batch
+name: Airline simulator live cabin seat and baggage RED batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [operating-costs, automatic-demand]
+        task: [cabin-stock, group-seats, baggage]
     steps:
       - uses: actions/setup-dotnet@v4
         with:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: ad6094d2cdc086ad64b3b648347c0aa2a209b794
+          ref: b781a7f5279ebfef4a63e46cf3c267b2dc69c72f
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -34,13 +34,20 @@ jobs:
         env:
           TASK: ${{ matrix.task }}
         run: |
-          if [ "$TASK" = operating-costs ]; then
-            filter=FullyQualifiedName~CommercialIntegrationTests.OperatingCostsArePostedExactlyOnce
-            expected='CS1061.*EstimateOperatingCost'
-          else
-            filter=FullyQualifiedName~CommercialIntegrationTests.AutomaticMarketUsesSharedPoolAndActualBookings
-            expected='CS1061.*(EnableAutomaticDemand|MarketResults)'
-          fi
+          case "$TASK" in
+            cabin-stock)
+              filter=FullyQualifiedName~LiveServiceTests.CabinStockShortageRefundsUndeliveredCoffee
+              expected='CS1061.*(ConfigureCabinStock|RemainingCabinStock)'
+              ;;
+            group-seats)
+              filter=FullyQualifiedName~LiveServiceTests.GroupSeatsAreAssignedAndNeverOverlap
+              expected='CS1061.*GetAssignedSeats'
+              ;;
+            baggage)
+              filter=FullyQualifiedName~LiveServiceTests.BaggageDisputeAndRepackAffectActualDelivery
+              expected='CS1061.*(GetBags|SetBagSize|RepackBag)'
+              ;;
+          esac
           set +e
           dotnet test tests/Simulation.Tests/Simulation.Tests.csproj -c Release --filter "$filter" > "$RUNNER_TEMP/red.log" 2>&1
           status=$?
