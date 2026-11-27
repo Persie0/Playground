@@ -1,4 +1,4 @@
-name: Airline simulator live extras and rival operations RED batch
+name: Airline simulator live disruption recovery RED batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [automatic-extras, rival-rotation, rival-persistence]
+        task: [timeline-recovery, spare-and-gate, service-disruptions]
     steps:
       - uses: actions/setup-dotnet@v4
         with:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: f338259e54346bede6426993ba9b19b38d429f3f
+          ref: cde328ba72ab9c91e4b19b8536fd85f63af43906
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -35,17 +35,17 @@ jobs:
           TASK: ${{ matrix.task }}
         run: |
           case "$TASK" in
-            automatic-extras)
-              filter=FullyQualifiedName~LiveCompetitionTests.OptionalPurchasesUseRealQuotesAndStock
-              expected='CS1061.*SetAutomaticExtras'
+            timeline-recovery)
+              filter=FullyQualifiedName~LiveRecoveryTests.WeatherMovesAuthoritativeTimelineAndReservations
+              expected='CS1061.*ApplyDisruption'
               ;;
-            rival-rotation)
-              filter=FullyQualifiedName~LiveCompetitionTests.RivalOperatesRealReservedRotation
-              expected='CS1061.*(RivalFlights|IsRival)'
+            spare-and-gate)
+              filter=FullyQualifiedName~LiveRecoveryTests.SparePreviewIsReadOnlyAndSwapChargesOnce
+              expected='CS1061.*(PreviewRecovery|ExecuteRecovery|ChangeGate)'
               ;;
-            rival-persistence)
-              filter=FullyQualifiedName~LiveCompetitionTests.RivalAndOptionalPurchasesPersistAndReplay
-              expected='CS1061.*(AutomaticExtrasEnabled|RivalFlights)'
+            service-disruptions)
+              filter=FullyQualifiedName~LiveRecoveryTests.StockAndLostBagDisruptionsChangeSettlement
+              expected='CS1061.*ApplyDisruption'
               ;;
           esac
           set +e
