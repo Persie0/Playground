@@ -1,4 +1,4 @@
-name: Toothfairy private development APK
+name: Toothfairy lightweight development APK
 on:
   push:
     branches: [ci/toothfairy-apk-20261126]
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      SOURCE_SHA: 4c38f1d6388f196f088f9b10d31393f2149cac8f
+      SOURCE_SHA: f1a37f4be21d9b269b8da8a41d2ae105dfc73b64
       IMAGE: unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
     steps:
       - name: Check Unity license and repository access
@@ -78,16 +78,6 @@ jobs:
           done
           test -s "$src/mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx"
           echo "Using exact Blender-verified V14 FBX; no regeneration."
-      - name: Provision bundled Android offline speech
-        shell: bash
-        run: |
-          set -euo pipefail
-          for attempt in 1 2 3; do
-            if bash "$RUNNER_TEMP/toothfairy-src/tools/fetch_offline_speech.sh" >>"$RUNNER_TEMP/toothfairy-private/speech.log" 2>&1; then break; fi
-            if [[ "$attempt" == 3 ]]; then echo "::error::Offline speech dependencies unavailable."; exit 1; fi
-            sleep $((30*attempt))
-          done
-          echo "Pinned offline speech dependencies and five language archives verified."
       - name: Pull pinned-version Android editor
         shell: bash
         run: |
@@ -163,7 +153,7 @@ jobs:
               fi
               echo "STAGE_ACTIVATED"
               echo "STAGE_BUILD_START"
-              TF_LOCAL_AI=1 bash /src/tools/unity_development.sh Android
+              bash /src/tools/unity_development.sh Android
               test -s /src/mobile/Builds/Android/Toothfairy-debug.apk
             ' >"$log" 2>&1 || {
               echo "::error::Unity activation, import, tests or Android build failed. No APK produced. Private logs not printed."
@@ -181,9 +171,8 @@ jobs:
           apk="$RUNNER_TEMP/toothfairy-src/mobile/Builds/Android/Toothfairy-debug.apk"
           test -s "$apk"
           unzip -tq "$apk" >/dev/null
-          python3 "$RUNNER_TEMP/toothfairy-src/tools/check_android_speech_package.py" "$apk"
+          python3 "$RUNNER_TEMP/toothfairy-src/tools/check_no_local_ai_package.py" "$apk"
           python3 "$RUNNER_TEMP/toothfairy-src/tools/check_android_gpu_package.py" "$apk"
-          python3 "$RUNNER_TEMP/toothfairy-src/tools/check_local_conversation_package.py" "$apk"
           mkdir -p "$RUNNER_TEMP/toothfairy-apk-artifact"
           sudo install -m 0644 "$apk" "$RUNNER_TEMP/toothfairy-apk-artifact/Toothfairy-debug.apk"
       - name: Upload APK to this Actions run
@@ -214,8 +203,6 @@ jobs:
               tail -n 60 "$file" >> "$report"
             fi
           done
-          if [[ -s "$RUNNER_TEMP/toothfairy-private/speech.log" ]]; then tail -n 30 "$RUNNER_TEMP/toothfairy-private/speech.log" >> "$report"; fi
-          if [[ -s "$src/mobile/Logs/local-ai.log" ]]; then tail -n 70 "$src/mobile/Logs/local-ai.log" >> "$report"; fi
           # Append actual NUnit failure names, messages and stack traces privately.
           python3 - "$src/mobile/Logs" >> "$report" <<'PY'
           import sys
