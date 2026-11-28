@@ -1,4 +1,4 @@
-name: Airline simulator fact indexes and extended fleet benchmarks GREEN batch
+name: Airline simulator compressed saves and annual 200 aircraft GREEN batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -65,6 +65,10 @@ jobs:
             os: ubuntu-latest
           - check: benchmark-fifty-year
             os: ubuntu-latest
+          - check: benchmark-fifty-year-compressed
+            os: ubuntu-latest
+          - check: benchmark-two-hundred-year-compressed
+            os: ubuntu-latest
           - check: benchmark-one-decade
             os: ubuntu-latest
           - check: godot-career-save
@@ -98,7 +102,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: d409543c400670ca5843754f2c88b4ff5629a4dd
+          ref: 647fb35782e375051517ebf0624f84d8ced56bdb
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -112,7 +116,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=202
+          expected=205
           case "$CHECK" in
             career-save) args+=(--filter FullyQualifiedName~CareerSaveTests); expected=5 ;;
             thirty-one-day-career) args+=(--filter FullyQualifiedName~VerticalSliceTests); expected=1 ;;
@@ -130,7 +134,7 @@ jobs:
             seasonal-market) args+=(--filter FullyQualifiedName~MarketEvolutionTests); expected=6 ;;
             procedural-contracts) args+=(--filter FullyQualifiedName~ContractTests); expected=6 ;;
             manager-automation) args+=(--filter FullyQualifiedName~AutomationTests); expected=6 ;;
-            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=9 ;;
+            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=12 ;;
             *)
               if dotnet build AirlineSimulator.sln -c "$config" > "$RUNNER_TEMP/build.log" 2>&1; then
                 echo 'Solution build PASS'
@@ -244,11 +248,14 @@ jobs:
         run: |
           fleet=1
           days=30
+          compressed=false
           if [[ "$CHECK" == benchmark-ten* ]]; then fleet=10; fi
-          if [[ "$CHECK" == *-year ]]; then days=365; fi
+          if [[ "$CHECK" == *-year* ]]; then days=365; fi
+          if [[ "$CHECK" == *-compressed ]]; then compressed=true; fi
           if [[ "$CHECK" == benchmark-fifty* ]]; then fleet=50; fi
           if [ "$CHECK" = benchmark-two-hundred-week ]; then fleet=200; days=7; fi
           if [ "$CHECK" = benchmark-two-hundred-month ]; then fleet=200; days=30; fi
+          if [ "$CHECK" = benchmark-two-hundred-year-compressed ]; then fleet=200; days=365; fi
           if [ "$CHECK" = benchmark-one-decade ]; then days=3650; fi
           if ! dotnet build tools/SimulationBench/SimulationBench.csproj -c Release > "$RUNNER_TEMP/bench-build.log" 2>&1; then
             echo 'Benchmark build FAIL'
@@ -256,7 +263,7 @@ jobs:
             exit 1
           fi
           for trial in 1 2; do
-            if ! timeout 480 dotnet run --no-build -c Release --project tools/SimulationBench -- --seed 7 --fleet "$fleet" --days "$days" --csv "$RUNNER_TEMP/bench-$trial.csv" > "$RUNNER_TEMP/bench-$trial.log" 2>&1; then
+            if ! timeout 480 dotnet run --no-build -c Release --project tools/SimulationBench -- --seed 7 --fleet "$fleet" --days "$days" --compressed "$compressed" --csv "$RUNNER_TEMP/bench-$trial.csv" > "$RUNNER_TEMP/bench-$trial.log" 2>&1; then
               echo "Benchmark trial $trial FAIL"
               grep -Eo '^BENCH_FAILURE phase=(setup|simulation|persistence) code=(command-rejected|route-plan-capacity|planned-schedule-rejected|fleet-setup-incomplete|active-fleet-mismatch|reservation-conflict|outstanding-liability|completion-mismatch|rotation-count-mismatch|restore-mismatch) day=[0-9]+$' "$RUNNER_TEMP/bench-$trial.log" | head -1 || true
               exit 1
