@@ -1,0 +1,71 @@
+name: TopTravelList completeness audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-completeness-20261128.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-completeness-20261128
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: 108ccbfc4bf0eed7a3fd1602d6de5f447c5f13fe
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Regenerate, inventory and validate
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          python -m pip install -q -r requirements.txt
+          python scripts/reconcile_worldwide_backlog.py --verify-baseline > /tmp/backlog.txt 2>&1
+          python scripts/reconcile_worldwide_backlog.py --verify-baseline --check > /tmp/backlog-check.txt 2>&1
+          python scripts/generate_rankings.py > /tmp/rankings.txt 2>&1
+          python scripts/generate_rankings.py --check > /tmp/ranking-check.txt 2>&1
+          python scripts/validate.py > /tmp/validate.txt 2>&1
+          python scripts/audit_worldwide.py > /tmp/diagnostic.txt 2>&1
+          python scripts/audit_rating_completeness.py
+          python scripts/audit_rating_completeness.py --check
+          git diff --check
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          with Path('methodology/rating-completeness/incomplete-core.tsv').open() as f:
+              assert not list(csv.DictReader(f, delimiter='\t')), 'Incomplete core ratings remain'
+          with Path('methodology/worldwide-backlog/remaining.tsv').open() as f:
+              assert not list(csv.DictReader(f, delimiter='\t')), 'Incomplete historical backlog remains'
+          print('Zero incomplete core ratings confirmed.')
+          PY
+      - name: Publish generated reports to private source branch
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess, re
+          paths=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          paths.update(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          def allowed(p):
+              return p=='README.md' or bool(re.fullmatch(r'countries/[A-Z]{2}/(?:cities|sights)\.md',p)) or p.startswith(('methodology/worldwide-backlog/','methodology/worldwide-diagnostics/','methodology/rating-completeness/'))
+          assert all(allowed(p) for p in paths), 'Unexpected generated changes'
+          if paths:
+              subprocess.run(['git','add','--',*sorted(paths)],check=True)
+          PY
+          git diff --cached --check
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git diff --cached --quiet; then
+            git commit -m 'Regenerate rankings and worldwide numerical completeness inventories' > /tmp/commit.txt
+            git fetch origin refs/heads/data/post-merge-editorial-review-01
+            test "$(git rev-parse FETCH_HEAD)" = 108ccbfc4bf0eed7a3fd1602d6de5f447c5f13fe
+            git push origin HEAD:refs/heads/data/post-merge-editorial-review-01
+          fi
