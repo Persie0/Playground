@@ -1,4 +1,4 @@
-name: Airline simulator shared stock layouts and two-year fleet GREEN batch
+name: Airline simulator historical service snapshots and two-year fleet GREEN batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -106,7 +106,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: a3ea18971302ac9562b336b69aace4d691bcc4eb
+          ref: 6c38f28fc48bacf320fc157d995daf2b662fe0a3
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -120,7 +120,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=209
+          expected=211
           case "$CHECK" in
             career-save) args+=(--filter FullyQualifiedName~CareerSaveTests); expected=5 ;;
             thirty-one-day-career) args+=(--filter FullyQualifiedName~VerticalSliceTests); expected=1 ;;
@@ -138,7 +138,7 @@ jobs:
             seasonal-market) args+=(--filter FullyQualifiedName~MarketEvolutionTests); expected=6 ;;
             procedural-contracts) args+=(--filter FullyQualifiedName~ContractTests); expected=6 ;;
             manager-automation) args+=(--filter FullyQualifiedName~AutomationTests); expected=6 ;;
-            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=16 ;;
+            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=18 ;;
             *)
               if dotnet build AirlineSimulator.sln -c "$config" > "$RUNNER_TEMP/build.log" 2>&1; then
                 echo 'Solution build PASS'
