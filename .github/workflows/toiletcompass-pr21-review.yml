@@ -29,7 +29,6 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          test "$(gh pr view 21 --repo "$APP_REPO" --json headRefOid,state --jq '.headRefOid + " " + .state')" = "$EXPECTED_HEAD OPEN"
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -44,17 +43,16 @@ jobs:
         run: |
           flutter analyze --no-fatal-infos --no-fatal-warnings
           flutter test
-      - name: Commit validated dependency and generated file changes, then merge
+      - name: Commit validated dependency and generated file changes
         working-directory: app
         run: |
           set -euo pipefail
-          test "$(gh pr view 21 --repo "$APP_REPO" --json headRefOid,state --jq '.headRefOid + " " + .state')" = "$EXPECTED_HEAD OPEN"
-          git add pubspec.lock
-          git add -u -- lib/l10n/gen_l10n ios macos android linux windows
+          test "$(git ls-remote origin refs/heads/$APP_BRANCH | cut -f1)" = "$EXPECTED_HEAD"
+          git add pubspec.lock missingLocal.txt
+          git add -u -- lib/l10n/gen_l10n ios macos android linux windows web
           if ! git diff --cached --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git commit -m "Synchronize verified Flutter dependencies and generated files"
             git push origin "HEAD:refs/heads/$APP_BRANCH"
           fi
-          gh pr merge 21 --repo "$APP_REPO" --merge --match-head-commit "$(git rev-parse HEAD)"
