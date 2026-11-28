@@ -253,29 +253,7 @@ jobs:
           for trial in 1 2; do
             if ! timeout 480 dotnet run --no-build -c Release --project tools/SimulationBench -- --seed 7 --fleet "$fleet" --days "$days" --csv "$RUNNER_TEMP/bench-$trial.csv" > "$RUNNER_TEMP/bench-$trial.log" 2>&1; then
               echo "Benchmark trial $trial FAIL"
-              grep -Eo '^BENCH_FAILURE phase=(setup|simulation|persistence) code=(command-rejected|route-plan-capacity|planned-schedule-rejected|fleet-setup-incomplete|active-fleet-mismatch|reservation-conflict|outstanding-liability|completion-mismatch|rotation-count-mismatch|restore-mismatch) day=[0-9]+
-            fi
-          done
-          python - <<'PY'
-          import csv, os, re
-          rows = []
-          for trial in (1, 2):
-              with open(os.path.join(os.environ['RUNNER_TEMP'], f'bench-{trial}.csv')) as f:
-                  row = next(csv.DictReader(f))
-              assert re.fullmatch('[A-F0-9]{64}', row['canonical_sha256'])
-              assert int(row['completed']) == int(row['fleet']) * int(row['days'])
-              assert int(row['deferred_cents']) == 0
-              rows.append(row)
-          assert rows[0]['canonical_sha256'] == rows[1]['canonical_sha256']
-          for i, row in enumerate(rows, 1):
-              print(f'Trial {i}')
-              for key in ('fleet','days','completed','elapsed_ms','setup_ms','p50_day_ms','p95_day_ms','managed_bytes','working_set_bytes','save_bytes','save_ms','load_ms','cash_cents','profit_cents','deferred_cents','handlers','summary_buckets'):
-                  value = row[key]
-                  assert re.fullmatch(r'-?[0-9]+(?:\.[0-9]+)?', value)
-                  print(f'{key}={value}')
-          print('Canonical replay PASS')
-          PY
- "$RUNNER_TEMP/bench-$trial.log" | head -1 || true
+              grep -Eo '^BENCH_FAILURE phase=(setup|simulation|persistence) code=(command-rejected|route-plan-capacity|planned-schedule-rejected|fleet-setup-incomplete|active-fleet-mismatch|reservation-conflict|outstanding-liability|completion-mismatch|rotation-count-mismatch|restore-mismatch) day=[0-9]+$' "$RUNNER_TEMP/bench-$trial.log" | head -1 || true
               exit 1
             fi
           done
