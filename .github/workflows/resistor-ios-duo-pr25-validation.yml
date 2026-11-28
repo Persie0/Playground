@@ -1,0 +1,45 @@
+name: Resistor iOS Duo PR25 validation
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resistor-ios-duo-pr25-validation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - name: Checkout private iOS source
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/resistor-scanner-ios
+          ref: e58c876f1599e4da902a4db2d129759b890d2ae2
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: source
+      - name: Core tests and native syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          if ! swift test > "$RUNNER_TEMP/core.log" 2>&1; then
+            echo 'Core tests failed'
+            exit 1
+          fi
+          grep -E 'Executed [0-9]+ tests|Test run with [0-9]+ tests' "$RUNNER_TEMP/core.log" | tail -5 || true
+          find ResistorScanner ResistorScannerUITests -name '*.swift' -print0 | xargs -0 swiftc -frontend -parse
+          echo 'Swift syntax passed'
+      - name: Build native app and UI tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          if ! xcodebuild -project ResistorScanner.xcodeproj -scheme ResistorScanner -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/DerivedData" CODE_SIGNING_ALLOWED=NO build-for-testing > "$RUNNER_TEMP/build.log" 2>&1; then
+            grep -E '^.*\.swift:[0-9]+:[0-9]+: error:' "$RUNNER_TEMP/build.log" | sed -E 's@^.*source/@source/@' | tail -40 || true
+            echo 'Native build failed'
+            exit 1
+          fi
+          echo 'Native simulator app and UI tests compiled successfully'
