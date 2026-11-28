@@ -1,4 +1,4 @@
-name: Airline simulator streamed restore and peak memory GREEN batch
+name: Airline simulator shared stock layouts and two-year fleet GREEN batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -71,6 +71,8 @@ jobs:
             os: ubuntu-latest
           - check: benchmark-two-hundred-year-compressed
             os: ubuntu-latest
+          - check: benchmark-two-hundred-two-years-compressed
+            os: ubuntu-latest
           - check: benchmark-one-decade
             os: ubuntu-latest
           - check: godot-career-save
@@ -104,7 +106,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: 055eef068aef4b1392e3dfe75fcb910efcf6b6bb
+          ref: a3ea18971302ac9562b336b69aace4d691bcc4eb
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -118,7 +120,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=208
+          expected=209
           case "$CHECK" in
             career-save) args+=(--filter FullyQualifiedName~CareerSaveTests); expected=5 ;;
             thirty-one-day-career) args+=(--filter FullyQualifiedName~VerticalSliceTests); expected=1 ;;
@@ -136,7 +138,7 @@ jobs:
             seasonal-market) args+=(--filter FullyQualifiedName~MarketEvolutionTests); expected=6 ;;
             procedural-contracts) args+=(--filter FullyQualifiedName~ContractTests); expected=6 ;;
             manager-automation) args+=(--filter FullyQualifiedName~AutomationTests); expected=6 ;;
-            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=15 ;;
+            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=16 ;;
             *)
               if dotnet build AirlineSimulator.sln -c "$config" > "$RUNNER_TEMP/build.log" 2>&1; then
                 echo 'Solution build PASS'
@@ -259,6 +261,7 @@ jobs:
           if [ "$CHECK" = benchmark-two-hundred-month ]; then fleet=200; days=30; fi
           if [ "$CHECK" = benchmark-two-hundred-quarter-compressed ]; then fleet=200; days=90; fi
           if [ "$CHECK" = benchmark-two-hundred-year-compressed ]; then fleet=200; days=365; fi
+          if [ "$CHECK" = benchmark-two-hundred-two-years-compressed ]; then fleet=200; days=730; fi
           if [ "$CHECK" = benchmark-one-decade ]; then days=3650; fi
           if ! dotnet build tools/SimulationBench/SimulationBench.csproj -c Release > "$RUNNER_TEMP/bench-build.log" 2>&1; then
             echo 'Benchmark build FAIL'
