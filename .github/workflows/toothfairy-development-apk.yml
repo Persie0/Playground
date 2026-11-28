@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      SOURCE_SHA: e9189de967410cf807b94cb32300b94eeea9b260
+      SOURCE_SHA: fb6eadba937a179d5ea2ab362a7d3bc869fb5e63
       IMAGE: unityci/editor:ubuntu-6000.3.29f1-android-4.0.0
     steps:
       - name: Check Unity license and repository access
@@ -55,29 +55,27 @@ jobs:
           git -C "$RUNNER_TEMP/toothfairy-src" checkout -q --detach FETCH_HEAD
           test "$(git -C "$RUNNER_TEMP/toothfairy-src" rev-parse HEAD)" = "$SOURCE_SHA"
           echo "Pinned source fetched."
-      - name: Retrieve review images of exact verified fairy asset
-        env:
-          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - name: Validate updated fairy asset with pinned Blender
         shell: bash
         run: |
           set -euo pipefail
-          umask 077
           src="$RUNNER_TEMP/toothfairy-src"
           logs="$RUNNER_TEMP/toothfairy-private"
-          mkdir -p "$logs/rig/review"
-          auth="$(printf 'x-access-token:%s' "$PRIVATE_TOKEN" | base64 -w0)"
-          echo "::add-mask::$auth"
-          git -C "$src" -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --quiet --depth=2 origin refs/heads/ci/model-review/45833287178-1 >"$logs/rig/review.log" 2>&1
-          # App-only changes are allowed; verify that both asset blobs match the reviewed rig exactly.
-          for asset in assets-source/Fairy.blend mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx; do
-            test "$(git -C "$src" rev-parse "HEAD:$asset")" = "$(git -C "$src" rev-parse "FETCH_HEAD^:$asset")"
-          done
-          for name in Fairy-front Fairy-three-quarter Fairy-face Fairy-profile Fairy-grip Fairy-free-hand Fairy-posed; do
-            git -C "$src" show "FETCH_HEAD:.ci/model-review/$name.jpg" >"$logs/rig/review/$name.jpg"
-            test -s "$logs/rig/review/$name.jpg"
-          done
-          test -s "$src/mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx"
-          echo "Using exact Blender-verified V14 FBX; no regeneration."
+          mkdir -p "$logs/rig" "$logs/blender"
+          cd "$logs/blender"
+          version=4.2.23
+          archive="blender-$version-linux-x64.tar.xz"
+          url="https://download.blender.org/release/Blender4.2"
+          curl -fsSL --retry 3 "$url/$archive" -o "$archive"
+          curl -fsSL --retry 3 "$url/blender-$version.sha256" -o checksums
+          grep -E "[[:space:]]\\*?$archive$" checksums | sha256sum -c -
+          tar -xf "$archive"
+          blender="$logs/blender/blender-$version-linux-x64/blender"
+          "$blender" -b --python-exit-code 1 -P "$src/assets-source/verify_fairy.py" -- "$src/mobile/Assets/Toothfairy/Resources/Fairy/Fairy.fbx" >"$logs/rig/verify.log" 2>&1 || { echo "::error::Updated fairy asset roundtrip failed; private diagnostics retained."; exit 1; }
+          python3 "$src/tools/validate_generated.py" >"$logs/rig/generate.log" 2>&1
+          cd "$src"
+          python3 -m unittest discover -s tools -p test_visit_sound.py >>"$logs/rig/generate.log" 2>&1
+          echo "Updated rig and generated assets validated."
       - name: Pull pinned-version Android editor
         shell: bash
         run: |
