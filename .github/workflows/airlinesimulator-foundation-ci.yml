@@ -1,4 +1,4 @@
-name: Airline simulator manual retail unloading and pallet mover validation
+name: Airline simulator interactive checkout and dock regression validation
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: 3e400474f08a1b013d74ea8d901f1bf645c0ead3
+          ref: 7038bcc8745c1c48a788543412c63128d4445264
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -60,7 +60,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=253
+          expected=254
           case "$CHECK" in
             booking) args+=(--filter FullyQualifiedName~BookingTests); expected=9 ;;
             ledger) args+=(--filter FullyQualifiedName~LedgerTests); expected=9 ;;
@@ -71,7 +71,7 @@ jobs:
             live-competition) args+=(--filter FullyQualifiedName~LiveCompetitionTests); expected=6 ;;
             live-recovery) args+=(--filter FullyQualifiedName~LiveRecoveryTests); expected=15 ;;
             fleet-economy) args+=(--filter FullyQualifiedName~FleetEconomyTests); expected=5 ;;
-            fleet-depth) args+=(--filter FullyQualifiedName~FleetDepthTests); expected=22 ;;
+            fleet-depth) args+=(--filter FullyQualifiedName~FleetDepthTests); expected=23 ;;
             network-depth) args+=(--filter FullyQualifiedName~NetworkDepthTests); expected=5 ;;
             connections-loyalty) args+=(--filter FullyQualifiedName~ConnectionTests); expected=6 ;;
             partner-offers) args+=(--filter FullyQualifiedName~PartnerOfferTests); expected=5 ;;
