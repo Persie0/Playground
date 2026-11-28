@@ -1,4 +1,4 @@
-name: Airline simulator 200 aircraft ten-year benchmark gate
+name: Airline simulator cold restart benchmark and warm-cold parity
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -15,7 +15,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - check: benchmark-two-hundred-ten-years-compressed
+          - check: benchmark-warm-cold-parity
+            os: ubuntu-latest
+          - check: benchmark-two-hundred-ten-years-cold-compressed
             os: ubuntu-latest
     steps:
       - uses: actions/setup-dotnet@v4
@@ -26,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: 35e4b9250de4622aa2031d20a35de45096a3de2b
+          ref: a9ebdcc0472e4bf20640869810c9780dfbe130db
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -187,6 +189,7 @@ jobs:
           if [ "$CHECK" = benchmark-two-hundred-two-years-compressed ]; then fleet=200; days=730; fi
           if [ "$CHECK" = benchmark-two-hundred-five-years-compressed ]; then fleet=200; days=1825; trial_timeout=1500; fi
           if [ "$CHECK" = benchmark-two-hundred-ten-years-compressed ]; then fleet=200; days=3650; trial_timeout=1500; fi
+          if [ "$CHECK" = benchmark-two-hundred-ten-years-cold-compressed ]; then fleet=200; days=3650; trial_timeout=1500; fi
           if [ "$CHECK" = benchmark-one-decade ]; then days=3650; fi
           if ! dotnet build tools/SimulationBench/SimulationBench.csproj -c Release > "$RUNNER_TEMP/bench-build.log" 2>&1; then
             echo 'Benchmark build FAIL'
@@ -194,7 +197,9 @@ jobs:
             exit 1
           fi
           for trial in 1 2; do
-            if ! timeout "$trial_timeout" dotnet run --no-build -c Release --project tools/SimulationBench -- --seed 7 --fleet "$fleet" --days "$days" --compressed "$compressed" --csv "$RUNNER_TEMP/bench-$trial.csv" > "$RUNNER_TEMP/bench-$trial.log" 2>&1; then
+            cold=false
+            if [[ "$CHECK" == *-cold-compressed ]] || [[ "$CHECK" == benchmark-warm-cold-parity && "$trial" == 2 ]]; then cold=true; fi
+            if ! timeout "$trial_timeout" dotnet run --no-build -c Release --project tools/SimulationBench -- --seed 7 --fleet "$fleet" --days "$days" --compressed "$compressed" --cold-restore "$cold" --csv "$RUNNER_TEMP/bench-$trial.csv" > "$RUNNER_TEMP/bench-$trial.log" 2>&1; then
               echo "Benchmark trial $trial FAIL"
               grep -Eo '^BENCH_FAILURE phase=(setup|simulation|persistence) code=(command-rejected|route-plan-capacity|planned-schedule-rejected|fleet-setup-incomplete|active-fleet-mismatch|reservation-conflict|outstanding-liability|completion-mismatch|rotation-count-mismatch|restore-mismatch) day=[0-9]+$' "$RUNNER_TEMP/bench-$trial.log" | head -1 || true
               exit 1
@@ -209,11 +214,14 @@ jobs:
               assert re.fullmatch('[A-F0-9]{64}', row['canonical_sha256'])
               assert int(row['completed']) == int(row['fleet']) * int(row['days'])
               assert int(row['deferred_cents']) == 0
+              expected_mode = 'cold' if os.environ['CHECK'].endswith('-cold-compressed') or (os.environ['CHECK'] == 'benchmark-warm-cold-parity' and trial == 2) else 'warm'
+              assert row['restore_mode'] == expected_mode
               rows.append(row)
           assert rows[0]['canonical_sha256'] == rows[1]['canonical_sha256']
           for i, row in enumerate(rows, 1):
               print(f'Trial {i}')
-              for key in ('fleet','days','completed','elapsed_ms','setup_ms','p50_day_ms','p95_day_ms','managed_bytes','working_set_bytes','peak_working_set_bytes','save_bytes','save_ms','load_ms','cash_cents','profit_cents','deferred_cents','handlers','summary_buckets'):
+              print('restore_mode='+row['restore_mode'])
+              for key in ('fleet','days','completed','elapsed_ms','setup_ms','p50_day_ms','p95_day_ms','managed_bytes','working_set_bytes','peak_working_set_bytes','save_bytes','save_ms','load_ms','cash_cents','profit_cents','deferred_cents','handlers','summary_buckets','preload_managed_bytes'):
                   value = row[key]
                   assert re.fullmatch(r'-?[0-9]+(?:\.[0-9]+)?', value)
                   print(f'{key}={value}')
