@@ -1,4 +1,4 @@
-name: Airline simulator procedural contracts GREEN batch
+name: Airline simulator manager automation GREEN batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -45,6 +45,8 @@ jobs:
             os: ubuntu-latest
           - check: procedural-contracts
             os: ubuntu-latest
+          - check: manager-automation
+            os: ubuntu-latest
           - check: godot-career-save
             os: ubuntu-latest
           - check: godot-ceo-headless
@@ -76,7 +78,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: d9a87a19f01aee6f16296b64e8fbf608166c5637
+          ref: 5d16fe343ba038cd182f407590188b389398c47c
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -89,7 +91,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=187
+          expected=193
           case "$CHECK" in
             career-save) args+=(--filter FullyQualifiedName~CareerSaveTests); expected=5 ;;
             thirty-one-day-career) args+=(--filter FullyQualifiedName~VerticalSliceTests); expected=1 ;;
@@ -106,6 +108,7 @@ jobs:
             ceo-work) args+=(--filter FullyQualifiedName~WorkTaskTests); expected=6 ;;
             seasonal-market) args+=(--filter FullyQualifiedName~MarketEvolutionTests); expected=6 ;;
             procedural-contracts) args+=(--filter FullyQualifiedName~ContractTests); expected=6 ;;
+            manager-automation) args+=(--filter FullyQualifiedName~AutomationTests); expected=6 ;;
             *)
               if dotnet build AirlineSimulator.sln -c "$config" > "$RUNNER_TEMP/build.log" 2>&1; then
                 echo 'Solution build PASS'
