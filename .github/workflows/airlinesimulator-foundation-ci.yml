@@ -1,4 +1,4 @@
-name: Airline simulator rotation insertion and bidirectional fleet benchmarks GREEN batch
+name: Airline simulator fact indexes and extended fleet benchmarks GREEN batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -61,6 +61,10 @@ jobs:
             os: ubuntu-latest
           - check: benchmark-two-hundred-week
             os: ubuntu-latest
+          - check: benchmark-two-hundred-month
+            os: ubuntu-latest
+          - check: benchmark-fifty-year
+            os: ubuntu-latest
           - check: benchmark-one-decade
             os: ubuntu-latest
           - check: godot-career-save
@@ -94,7 +98,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: b1b281fc03e2a761b92290a70037a4bdb957e586
+          ref: d409543c400670ca5843754f2c88b4ff5629a4dd
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -108,7 +112,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=201
+          expected=202
           case "$CHECK" in
             career-save) args+=(--filter FullyQualifiedName~CareerSaveTests); expected=5 ;;
             thirty-one-day-career) args+=(--filter FullyQualifiedName~VerticalSliceTests); expected=1 ;;
@@ -126,7 +130,7 @@ jobs:
             seasonal-market) args+=(--filter FullyQualifiedName~MarketEvolutionTests); expected=6 ;;
             procedural-contracts) args+=(--filter FullyQualifiedName~ContractTests); expected=6 ;;
             manager-automation) args+=(--filter FullyQualifiedName~AutomationTests); expected=6 ;;
-            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=8 ;;
+            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=9 ;;
             *)
               if dotnet build AirlineSimulator.sln -c "$config" > "$RUNNER_TEMP/build.log" 2>&1; then
                 echo 'Solution build PASS'
@@ -242,8 +246,9 @@ jobs:
           days=30
           if [[ "$CHECK" == benchmark-ten* ]]; then fleet=10; fi
           if [[ "$CHECK" == *-year ]]; then days=365; fi
-          if [ "$CHECK" = benchmark-fifty ]; then fleet=50; fi
+          if [[ "$CHECK" == benchmark-fifty* ]]; then fleet=50; fi
           if [ "$CHECK" = benchmark-two-hundred-week ]; then fleet=200; days=7; fi
+          if [ "$CHECK" = benchmark-two-hundred-month ]; then fleet=200; days=30; fi
           if [ "$CHECK" = benchmark-one-decade ]; then days=3650; fi
           if ! dotnet build tools/SimulationBench/SimulationBench.csproj -c Release > "$RUNNER_TEMP/bench-build.log" 2>&1; then
             echo 'Benchmark build FAIL'
