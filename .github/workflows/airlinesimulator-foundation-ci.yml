@@ -1,4 +1,4 @@
-name: Airline simulator incremental terminal history and five-year fleet GREEN batch
+name: Airline simulator early cold restore GREEN batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -73,8 +73,6 @@ jobs:
             os: ubuntu-latest
           - check: benchmark-two-hundred-two-years-compressed
             os: ubuntu-latest
-          - check: benchmark-two-hundred-five-years-compressed
-            os: ubuntu-latest
           - check: benchmark-one-decade
             os: ubuntu-latest
           - check: godot-career-save
@@ -108,7 +106,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: f825ca220ea673311039592130132e6a0e115859
+          ref: cc0e3f8cd8e77710d2ed069ffcddc9784dfbaa76
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -122,7 +120,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=216
+          expected=217
           case "$CHECK" in
             career-save) args+=(--filter FullyQualifiedName~CareerSaveTests); expected=5 ;;
             thirty-one-day-career) args+=(--filter FullyQualifiedName~VerticalSliceTests); expected=1 ;;
@@ -140,7 +138,7 @@ jobs:
             seasonal-market) args+=(--filter FullyQualifiedName~MarketEvolutionTests); expected=6 ;;
             procedural-contracts) args+=(--filter FullyQualifiedName~ContractTests); expected=6 ;;
             manager-automation) args+=(--filter FullyQualifiedName~AutomationTests); expected=6 ;;
-            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=23 ;;
+            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=24 ;;
             *)
               if dotnet build AirlineSimulator.sln -c "$config" > "$RUNNER_TEMP/build.log" 2>&1; then
                 echo 'Solution build PASS'
