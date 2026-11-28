@@ -1,4 +1,4 @@
-name: Airline simulator cabin cleaning and interior model validation
+name: Airline simulator playable weather treatment and vehicle model validation
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: 0e9862674b3dac3fb0f42b3dfeb484851b2ad29f
+          ref: dfa0bed55b5f7d6c69d23199f21062a4d326e5c8
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -60,7 +60,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=238
+          expected=239
           case "$CHECK" in
             booking) args+=(--filter FullyQualifiedName~BookingTests); expected=9 ;;
             ledger) args+=(--filter FullyQualifiedName~LedgerTests); expected=9 ;;
@@ -69,7 +69,7 @@ jobs:
             economy-market) args+=(--filter FullyQualifiedName~CommercialIntegrationTests); expected=5 ;;
             live-services) args+=(--filter FullyQualifiedName~LiveServiceTests); expected=5 ;;
             live-competition) args+=(--filter FullyQualifiedName~LiveCompetitionTests); expected=6 ;;
-            live-recovery) args+=(--filter FullyQualifiedName~LiveRecoveryTests); expected=10 ;;
+            live-recovery) args+=(--filter FullyQualifiedName~LiveRecoveryTests); expected=11 ;;
             fleet-economy) args+=(--filter FullyQualifiedName~FleetEconomyTests); expected=5 ;;
             fleet-depth) args+=(--filter FullyQualifiedName~FleetDepthTests); expected=12 ;;
             network-depth) args+=(--filter FullyQualifiedName~NetworkDepthTests); expected=5 ;;
