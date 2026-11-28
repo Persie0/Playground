@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/mac-backgrounds
-          ref: d59c5c41f4b1804550fd481d96953e51bab2466e
+          ref: adf7100c99323a7ac1229f446970395cf9b6fdf3
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Install XcodeGen
@@ -73,91 +73,6 @@ jobs:
           ARCHS="$(lipo -archs "$APP/Contents/MacOS/Living Desktop")"
           echo "Release architectures: $ARCHS"
           [[ " $ARCHS " == *" arm64 "* ]] && [[ " $ARCHS " == *" x86_64 "* ]]
-      - name: Checkout original eight-scene implementation for comparison
-        uses: actions/checkout@v4
-        with:
-          repository: Persie0/mac-backgrounds
-          ref: 59222e9bc39ac63ec947d092803a68ef7ef3e1b2
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-          persist-credentials: false
-          path: benchmark-baseline
-      - name: Compare new scene CPU costs and render times in Release
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/living-desktop-new-scene-performance
-          touch /tmp/living-desktop-run-benchmark
-          TEST=Tests/LivingDesktopTests/RendererPerformanceTests.swift
-          cp "$TEST" /tmp/living-desktop-benchmark-original.swift
-          trap 'rm -f /tmp/living-desktop-run-benchmark; cp /tmp/living-desktop-benchmark-original.swift "$TEST"' EXIT
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("Tests/LivingDesktopTests/RendererPerformanceTests.swift")
-          s = p.read_text()
-          replacements = {
-              "for mode in EffectMode.allCases {": 'for mode in EffectMode.allCases.filter({ ["snowfall", "butterflies", "fireflies", "starfield", "oceanWaves", "cityTraffic", "paperPlanes", "autumnLeaves"].contains($0.rawValue) }) {',
-              "for (name, placement, size, base, scale) in [": "for (name, placement, requestedSize, base, scale) in [",
-              "let width = Int(size.width * scale)": "let size = placement == .desktop && !mode.hasFullDesktopAtmosphere ? CGSize(width: requestedSize.width, height: min(130, requestedSize.height)) : requestedSize\n                let width = Int(size.width * scale)",
-              "audioLevel: 0.35, simulation: simulation)": "audioLevel: 0.35, simulation: simulation, drawBackdropPatch: false)",
-              "EffectMode.allCases.count * 4": "8 * 4",
-          }
-          for a, b in replacements.items():
-              assert s.count(a) == 1, a
-              s = s.replace(a, b)
-          p.write_text(s)
-          Path("benchmark-baseline/Tests/LivingDesktopTests/RendererPerformanceTests.swift").write_text(s)
-          PY
-          (cd benchmark-baseline && xcodegen generate --spec project.yml)
-          build_tests() {
-            (cd "$1" && xcodebuild -project LivingDesktop.xcodeproj -scheme LivingDesktop -configuration Release -destination 'platform=macOS' -derivedDataPath BenchmarkDerivedData CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES ONLY_ACTIVE_ARCH=YES -parallel-testing-enabled NO -only-testing:LivingDesktopTests/RendererPerformanceTests build-for-testing)
-          }
-          build_tests benchmark-baseline
-          build_tests .
-          run_test() {
-            local source="$1" label="$2"
-            (cd "$source" && xcodebuild -project LivingDesktop.xcodeproj -scheme LivingDesktop -configuration Release -destination 'platform=macOS' -derivedDataPath BenchmarkDerivedData CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES ONLY_ACTIVE_ARCH=YES -parallel-testing-enabled NO -only-testing:LivingDesktopTests/RendererPerformanceTests test-without-building)
-            mv /tmp/living-desktop-render-benchmark.json "/tmp/living-desktop-new-scene-performance/$label.json"
-            rm -rf /tmp/living-desktop-render-captures
-          }
-          run_test benchmark-baseline baseline-a
-          run_test . refined-a
-          run_test . refined-b
-          run_test benchmark-baseline baseline-b
-          python3 - <<'PY'
-          from pathlib import Path
-          from statistics import median
-          import json
-          p = Path("/tmp/living-desktop-new-scene-performance")
-          def load(name):
-              return {(x["scene"], x["surface"]): x for x in json.loads((p / (name+".json")).read_text())}
-          a, b, c, d = map(load, ("baseline-a", "refined-a", "refined-b", "baseline-b"))
-          assert a.keys() == b.keys() == c.keys() == d.keys()
-          assert len(a) == 32
-          rows = []
-          for k in a:
-              old, new = [a[k], d[k]], [b[k], c[k]]
-              r = dict(scene=k[0], surface=k[1], baseline_deterministic=old[0]["digest"]==old[1]["digest"],
-                       refined_deterministic=new[0]["digest"]==new[1]["digest"])
-              for field,key in [("medianCPUMilliseconds","cpu_ms"),("p95CPUMilliseconds","p95_cpu_ms"),
-                                ("medianMilliseconds","wall_ms"),("p95Milliseconds","p95_wall_ms")]:
-                  r["before_"+key]=median(x[field] for x in old)
-                  r["after_"+key]=median(x[field] for x in new)
-              r["cpu_speedup"]=r["before_cpu_ms"]/max(r["after_cpu_ms"],1e-9)
-              rows.append(r)
-          result=dict(rows=rows, median_cpu_speedup=median(r["cpu_speedup"] for r in rows),
-                      deterministic_cases=sum(r["baseline_deterministic"] and r["refined_deterministic"] for r in rows),
-                      note="ABBA process CPU and elapsed rendering time. Uses live CPU overlay dimensions, no GPU backdrop. Artwork intentionally changed; this does not measure physical power or presented FPS.")
-          (p/"comparison.json").write_text(json.dumps(result,indent=2))
-          print(json.dumps(result,indent=2))
-          assert result["deterministic_cases"] == 32
-          PY
-      - name: Upload eight-scene performance comparison
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Living-Desktop-New-Scene-Performance
-          path: /tmp/living-desktop-new-scene-performance/*.json
-          retention-days: 7
-          if-no-files-found: warn
       - name: Package unsigned test app for macOS
         run: |
           mkdir -p dist
