@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: ad3772fcd2a966834fc373c465ba936bdd2a80e6
+          ref: bd9da413e37243c0f46933709cf7bca38f2018cb
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -144,6 +144,7 @@ jobs:
           status=$?
           set -e
           echo "Exit status: $status"
+          grep -Eo "AIRLINE_SMOKE_ASSERTION:[0-9]+" "$RUNNER_TEMP/boot.log" || true
           for marker in AIRLINE_BOOT_OK:1 "$expected_marker"; do
             if grep -q "$marker" "$RUNNER_TEMP/boot.log"; then echo "$marker present"; else echo "$marker missing"; fi
           done
