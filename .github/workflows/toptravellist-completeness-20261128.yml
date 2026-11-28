@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/TopTravelList
-          ref: 108ccbfc4bf0eed7a3fd1602d6de5f447c5f13fe
+          ref: a85dc772110c6d161ae1a0a9dae0d15e3b178941
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           fetch-depth: 0
       - uses: actions/setup-python@v5
@@ -45,7 +45,9 @@ jobs:
               assert not list(csv.DictReader(f, delimiter='\t')), 'Incomplete core ratings remain'
           with Path('methodology/worldwide-backlog/remaining.tsv').open() as f:
               assert not list(csv.DictReader(f, delimiter='\t')), 'Incomplete historical backlog remains'
-          print('Zero incomplete core ratings confirmed.')
+          with Path('methodology/rating-completeness/unassessed-categories.tsv').open() as f:
+              assert not list(csv.DictReader(f, delimiter='\t')), 'Explicit unassessed category fields remain'
+          print('Zero incomplete core ratings and zero explicit unassessed categories confirmed.')
           PY
       - name: Publish generated reports to private source branch
         run: |
@@ -66,6 +68,6 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m 'Regenerate rankings and worldwide numerical completeness inventories' > /tmp/commit.txt
             git fetch origin refs/heads/data/post-merge-editorial-review-01
-            test "$(git rev-parse FETCH_HEAD)" = 108ccbfc4bf0eed7a3fd1602d6de5f447c5f13fe
+            test "$(git rev-parse FETCH_HEAD)" = a85dc772110c6d161ae1a0a9dae0d15e3b178941
             git push origin HEAD:refs/heads/data/post-merge-editorial-review-01
           fi
