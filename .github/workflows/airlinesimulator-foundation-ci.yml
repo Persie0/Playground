@@ -1,4 +1,4 @@
-name: Airline simulator copy-on-write fee stock validation
+name: Airline simulator shared historical seat pattern validation
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: e75d54b8d9e6bfd1b85390e791dfde9b1d3b6e6e
+          ref: 54174a8165780d9758e40e3e5a8c8cf279704b55
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -54,7 +54,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=226
+          expected=227
           case "$CHECK" in
             booking) args+=(--filter FullyQualifiedName~BookingTests); expected=8 ;;
             ledger) args+=(--filter FullyQualifiedName~LedgerTests); expected=9 ;;
@@ -74,7 +74,7 @@ jobs:
             seasonal-market) args+=(--filter FullyQualifiedName~MarketEvolutionTests); expected=6 ;;
             procedural-contracts) args+=(--filter FullyQualifiedName~ContractTests); expected=6 ;;
             manager-automation) args+=(--filter FullyQualifiedName~AutomationTests); expected=6 ;;
-            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=30 ;;
+            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=31 ;;
             *)
               if dotnet build AirlineSimulator.sln -c "$config" > "$RUNNER_TEMP/build.log" 2>&1; then
                 echo 'Solution build PASS'
