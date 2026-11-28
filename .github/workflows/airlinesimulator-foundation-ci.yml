@@ -1,4 +1,4 @@
-name: Airline simulator indexed rival restore targeted validation
+name: Airline simulator terminal lifecycle restore targeted validation
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: 7cd1de7b527092765bc10c9309a1979c675a6d5e
+          ref: 9ecb328d2896c814fec30199a883804d91433e00
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -50,7 +50,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=219
+          expected=220
           case "$CHECK" in
             career-save) args+=(--filter FullyQualifiedName~CareerSaveTests); expected=5 ;;
             thirty-one-day-career) args+=(--filter FullyQualifiedName~VerticalSliceTests); expected=1 ;;
@@ -68,7 +68,7 @@ jobs:
             seasonal-market) args+=(--filter FullyQualifiedName~MarketEvolutionTests); expected=6 ;;
             procedural-contracts) args+=(--filter FullyQualifiedName~ContractTests); expected=6 ;;
             manager-automation) args+=(--filter FullyQualifiedName~AutomationTests); expected=6 ;;
-            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=25 ;;
+            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=26 ;;
             *)
               if dotnet build AirlineSimulator.sln -c "$config" > "$RUNNER_TEMP/build.log" 2>&1; then
                 echo 'Solution build PASS'
