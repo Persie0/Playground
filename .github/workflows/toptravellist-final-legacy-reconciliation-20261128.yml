@@ -1,0 +1,238 @@
+name: TopTravelList final legacy reconciliation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-final-legacy-reconciliation-20261128.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt
+      - name: Resolve legacy paths and record decisions
+        shell: bash
+        run: |
+          python - <<'PY'
+          import subprocess, json, re, pathlib, collections, yaml, functools
+          def git(*a):
+              return subprocess.check_output(['git',*a])
+          def t(*a):
+              return git(*a).decode().strip()
+          def run(*a, **kw):
+              subprocess.run(a,check=True,**kw)
+          def tree(ref):
+              return {p.decode():h.decode().split()[2] for h,p in (x.split(b'\t',1) for x in git('ls-tree','-rz',ref).split(b'\0') if x)}
+          def changed(a,b):
+              return set(x.decode() for x in git('diff','--name-only','--no-renames','-z',a,b).split(b'\0') if x)
+          main=t('rev-parse','HEAD')
+          assert main=='bd541445578be1ed83ce9610f23ef100a19af721', main
+          mt=tree(main)
+          refs=[l.split(' ',1) for l in t('for-each-ref','--format=%(objectname) %(refname:strip=3)','refs/remotes/origin').splitlines()]
+          refs=[(s,b) for s,b in refs if b not in ('HEAD','main')]
+          reachable=set(t('rev-list',main).splitlines())
+          pending=[(s,b) for s,b in refs if s not in reachable]
+          assert len(refs)==417 and len(pending)==182,(len(refs),len(pending))
+          by_path=collections.defaultdict(dict)
+          counts=collections.Counter()
+          bases={}
+          def data(p): return bool(re.fullmatch(r'countries/[A-Z]{2}/(?:sights|cities)/[^/]+\.yaml',p))
+          def generated(p): return bool(re.fullmatch(r'countries/[A-Z]{2}/(?:cities|sights)\.md',p))
+          for sha,branch in pending:
+              st=tree(sha)
+              mb=t('merge-base',main,sha)
+              if mb not in bases: bases[mb]=tree(mb)
+              bt=bases[mb]
+              for p in changed(mb,sha):
+                  if st.get(p)==mt.get(p):
+                      counts['exact']+=1;continue
+                  if generated(p):
+                      counts['generated']+=1;continue
+                  h=st.get(p)
+                  assert h is not None, (branch,p,'source deletion')
+                  if p in mt and data(p):
+                      assert bt.get(p)!=mt[p], (branch,p,'nonconflicting data change')
+                  v=by_path[p].setdefault(h,{'source_blob':h,'sources':[]})
+                  v['sources'].append({'branch':branch,'commit':sha,'merge_base':mb,'base_blob':bt.get(p)})
+          def country_path(code,kind,slug): return f'countries/{code}/{kind}/{slug}.yaml'
+          aliases={}
+          def alias(code,kind,old,new, dest=None):
+              aliases[country_path(code,kind,old)]=country_path(dest or code,kind,new)
+          for a,b in [('casa-dareny-plandolit-museum','casa-d-areny-plandolit-museum'),('comapedrosa-summit','coma-pedrosa-summit'),('coronallacs-hiking-route','coronallacs-hiking-circuit'),('farga-rossell','farga-rossell-iron-interpretation-centre'),('grandvalira-ski-area','grandvalira-ski-resort'),('juclar-lakes','estanys-de-jucla'),('lake-engolasters','engolasters-lake'),('ordino-arcalis-ski-area','ordino-arcalis-ski-resort'),('pal-arinsal-ski-area','pal-arinsal-ski-resort'),('sanctuary-of-meritxell','meritxell-sanctuary'),('santa-eulalia-dencamp-church','santa-eulalia-church-encamp'),('sorteny-valley-nature-park','sorteny-nature-park')]:
+              alias('AD','sights',a,b)
+          for a,b in [('casino-de-monte-carlo-architectural-visit','monte-carlo-casino-heritage-visit'),('condamine-market','condamine-market-place-d-armes'),('fontvieille-harbour','fontvieille-marina'),('fort-antoine-theatre','fort-antoine'),('japanese-garden-monaco','japanese-garden-of-monaco'),('louis-ii-stadium-public-visitor-scope','stade-louis-ii-exterior-and-authorized-visits'),('monaco-ville-historic-centre','monaco-ville-historic-quarter'),('princes-car-collection','prince-s-cars-collection'),('princes-palace-of-monaco','prince-s-palace-state-apartments'),('princess-grace-rose-garden','princess-grace-rose-garden-and-fontvieille-park'),('stamps-and-coins-museum','museum-of-stamps-and-coins')]:
+              alias('MC','sights',a,b)
+          for s in 'dragons-back-trail hong-kong-palace-museum lamma-island lantau-island man-mo-temple-hong-kong ngong-ping-360 po-lin-monastery sai-kung-geopark star-ferry tai-o-fishing-village temple-street-night-market tian-tan-buddha victoria-harbour victoria-peak west-kowloon-cultural-district wong-tai-sin-temple'.split():
+              alias('CN','sights',s,s,'HK')
+          for s in 'a-ma-temple historic-centre-macau macau-tower monte-fort-macau ruins-of-st-pauls senado-square taipa-village'.split():
+              alias('CN','sights',s,s,'MO')
+          alias('CN','cities','hong-kong','hong-kong','HK')
+          alias('CN','cities','macau','macau','MO')
+          alias('FI','cities','mariehamn','mariehamn','AX')
+          for s in ['bomarsund','kastelholm']: alias('FI','sights',s,s,'AX')
+          alias('US','sights','san-juan-national-historic-site','san-juan-national-historic-site','PR')
+          recovery={country_path('AD','cities',s) for s in 'el-serrat llorts sispony'.split()}
+          recovery|={country_path('AD','sights',s) for s in 'andorra-la-vella-old-town bici-lab-andorra estany-de-les-truites iron-route-llorts-to-la-cortinada la-margineda-bridge llorts-mine museum-of-miniatures naturland-adventure-park sant-corneli-i-sant-cebria-church'.split()}
+          recovery.add(country_path('MC','sights','casino-square'))
+          # La Margineda Bridge is also absent and distinct: this is 13 restored, 52 aliases.
+          archive={f'methodology/reviews/{c}/quality-audit-2026.md' for c in ('AD','MC')}
+          absent=set(by_path)-set(mt)
+          assert absent==set(aliases)|recovery|archive, sorted(absent^(set(aliases)|recovery|archive))
+          assert not (set(aliases)&recovery)
+          assert all(p in mt for p in aliases.values())
+          @functools.lru_cache(None)
+          def blob(h): return git('cat-file','blob',h)
+          @functools.lru_cache(None)
+          def record(h): return yaml.safe_load(blob(h))
+          dims=('impact','uniqueness','significance','experience','depth')
+          def core_full(r): return all(isinstance(r.get('scores',{}).get(k),(int,float)) and not isinstance(r['scores'][k],bool) for k in dims)
+          def flatten(r):
+              sc=r.get('scores',{})
+              return {**{k:r.get(k) for k in ('id','name','location')},**{k:sc.get(k) for k in dims},**{'category:'+k:v for k,v in sc.get('categories',{}).items()}}
+          report=pathlib.Path('methodology/reviews/legacy-branch-reconciliation-2026-11-28')
+          report.mkdir(exist_ok=False)
+          decisions=collections.Counter()
+          restored=[]
+          append=collections.defaultdict(list)
+          for p, variants in sorted(by_path.items()):
+              target=aliases.get(p,p)
+              current=mt.get(target)
+              if p in recovery:
+                  assert len(variants)==1, (p,'competing missing versions')
+                  h=next(iter(variants))
+                  r=record(h);assert core_full(r),p
+                  dest=pathlib.Path(p);dest.write_bytes(blob(h))
+                  c,kind=dest.parts[1:3]
+                  review=f'methodology/reviews/{c}/{kind}.md'
+                  sha=variants[h]['sources'][0]['commit']
+                  raw=git('show',f'{sha}:{review}').decode()
+                  sections=re.split(r'(?m)(?=^## )',raw)
+                  sec=[s for s in sections if s.startswith('## '+r['id']+' ')]
+                  assert len(sec)==1,(p,'missing individual historical review')
+                  original=sec[0].strip()
+                  assert r['id'] not in pathlib.Path(review).read_text(),(p,'review already exists')
+                  append[review].append(original)
+                  restored.append({'path':p,'id':r['id'],'name':r['name'],'score_fields':r['scores'],'evidence':'source-linked-unverified' if 'source-linked-unverified' in original else 'editorial-only','source_commit':sha})
+                  action='restore_distinct_record'
+              elif p in archive:
+                  assert len(variants)==1
+                  h=next(iter(variants));sha=variants[h]['sources'][0]['commit']
+                  dest=pathlib.Path(p)
+                  dest.write_text('> Historical branch audit (2026-11-25). Counts, access claims and assessments describe the source snapshot, not current main. Source commit: '+sha+'.\n\n'+blob(h).decode())
+                  action='restore_historical_document'
+              elif p in aliases:
+                  action='canonical_replacement'
+              elif p=='README.md':
+                  action='keep_current_readme_regenerate_rankings'
+              elif data(p):
+                  action='retain_current_competing_rating'
+              else:
+                  action='retain_current_document_or_implementation'
+              decisions[action]+=1
+              for h,v in variants.items():
+                  v['decision']=action
+                  if current and data(p):
+                      a=record(current);b=record(h)
+                      assert isinstance(a,dict) and isinstance(b,dict)
+                      # Do not silently discard a complete older assessment if main is incomplete.
+                      if core_full(b) and not core_full(a):
+                          raise RuntimeError('Complete historical assessment vs incomplete current record: '+p)
+                      aa,bb=flatten(a),flatten(b)
+                      v['field_differences']={k:{'main':aa.get(k),'source':bb.get(k)} for k in sorted(aa.keys()|bb.keys()) if aa.get(k)!=bb.get(k)}
+              item={'path':p,'canonical_path':target,'main_blob':current,'decision':action,'variants':list(variants.values())}
+              with (report/'decisions.jsonl').open('a') as f: f.write(json.dumps(item,ensure_ascii=False,separators=(',',':'))+'\n')
+          for p,sections in append.items():
+              with open(p,'a') as f:
+                  f.write('\n\n<!-- Recovered from legacy source branch, 2026-11-28; original evidence status and peer snapshots retained. -->\n\n'+'\n\n'.join(sections)+'\n')
+          summary={'starting_main':main,'non_main_refs':len(refs),'already_ancestor':len(refs)-len(pending),'reconciled_branches':len(pending),'counts':dict(counts),'decisions':dict(decisions),'restored':restored,'branch_heads':[{'branch':b,'commit':s} for s,b in pending]}
+          (report/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
+          (report/'README.md').write_text(
+              '# Legacy branch reconciliation — 2026-11-28\n\n'
+              'Full tree comparison of every remaining ahead branch against '+main+'. '
+              'The authoritative main tree was kept when both sides changed; no competing historical score was silently applied. '
+              'Historical alternatives, source commits, merge bases, blob IDs, and differing score/identity fields are recorded in decisions.jsonl. '
+              'This is a merge-resolution audit, not independent fact verification of each historical rating. '
+              'Current code and methodology supersede older competing implementations; original versions remain reachable through merge parents.\n\n'
+              '## Distinct recoveries\n\n'+
+              '\n'.join('- '+r['path']+' — original assessment and review restored; '+r['evidence'] for r in restored)+
+              '\n\n## Resolution policy\n\n'
+              '- Canonical aliases avoid duplicate sights and incorrect jurisdiction placement (Hong Kong, Macau, Åland and Puerto Rico). '
+              'Distinct old-town, museum, trail, mine, bridge, park, church, settlement and public-square scopes are restored separately. '
+              'Existing city/park/attraction scores remain unchanged. Casino Square is an outdoor public-space scope separate from the architectural casino visit. '
+              'Original approximate coordinates and source limitations remain; no new independent field verification is claimed.\n'
+              '- Historical quality-audit documents are restored with snapshot warnings. Other competing docs and source implementations remain in history. '
+              'Generated ranking markdown is regenerated rather than merged by hand.\n'
+              '- All original source refs are retained; merge ancestry records the resolutions, not an assertion that every original proposal was accepted verbatim.\n'
+          )
+          print('RECONCILIATION='+json.dumps({k:v for k,v in summary.items() if k not in ('restored','branch_heads')}),flush=True)
+          print('RESTORED='+json.dumps([{'path':r['path'],'evidence':r['evidence']} for r in restored]),flush=True)
+          
+          PY
+      - name: Validate worldwide data and regenerate rankings
+        run: |
+          python scripts/validate.py
+          python scripts/check_city_benchmarks.py
+          python scripts/check_sight_benchmarks.py
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/rank.py --kind cities --limit 60
+          python scripts/rank.py --kind sights --limit 60
+      - name: Validate current web implementation
+        working-directory: web
+        run: |
+          npm ci
+          npm test
+          npm run build
+      - name: Commit resolved content and merge all reviewed histories
+        shell: bash
+        run: |
+          git config user.name 'TopTravelList consolidation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python - <<'PY'
+          import subprocess,json,pathlib
+          def g(*args): return subprocess.check_output(['git',*args]).decode().strip()
+          def run(*args): subprocess.run(['git',*args],check=True)
+          p=pathlib.Path('methodology/reviews/legacy-branch-reconciliation-2026-11-28')
+          s=json.loads((p/'summary.json').read_text())
+          base=g('rev-parse','HEAD')
+          assert base==s['starting_main']
+          run('add','countries','methodology/reviews','README.md')
+          run('diff','--cached','--check')
+          run('commit','-m','Reconcile remaining legacy branch content and recover missing destinations')
+          current=g('rev-parse','HEAD')
+          tree=g('rev-parse','HEAD^{tree}')
+          for start in range(0,len(s['branch_heads']),20):
+              group=s['branch_heads'][start:start+20]
+              args=['commit-tree',tree,'-p',current]
+              for b in group:
+                  args+=['-p',b['commit']]
+              args+=['-m','Record reviewed legacy merge resolutions '+str(start+1)+'–'+str(start+len(group))]
+              current=g(*args)
+          for b in s['branch_heads']:
+              run('merge-base','--is-ancestor',b['commit'],current)
+          run('merge-base','--is-ancestor',base,current)
+          run('push','origin',current+':refs/heads/main')
+          run('fetch','origin','--prune')
+          latest=g('rev-parse','origin/main')
+          assert latest==current
+          refs=[l.split(' ',1) for l in g('for-each-ref','--format=%(objectname) %(refname:strip=3)','refs/remotes/origin').splitlines()]
+          reachable=set(g('rev-list',latest).splitlines())
+          ahead=[b for h,b in refs if b not in ('HEAD','main') and h not in reachable]
+          print('FINAL_MAIN='+latest,flush=True)
+          print('FINAL_AHEAD='+json.dumps(ahead),flush=True)
+          assert not ahead,ahead
+          PY
