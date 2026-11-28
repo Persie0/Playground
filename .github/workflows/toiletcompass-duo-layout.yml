@@ -1,0 +1,37 @@
+name: Toilet Compass Duo layout validation
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/toiletcompass-duo-layout.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ci/toiletcompass-duo-layout'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/toiletcompass
+          ref: 5aa18b4e2ff49d53cfd2c9e76565b717840bfdb0
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: app
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Analyze app
+        working-directory: app
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
+      - name: Test Duo geometry
+        working-directory: app
+        run: flutter test test/duo_safe_layout_test.dart --reporter expanded
+      - name: Full regression suite
+        working-directory: app
+        run: flutter test --reporter expanded
