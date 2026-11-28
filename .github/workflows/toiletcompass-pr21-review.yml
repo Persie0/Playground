@@ -1,0 +1,58 @@
+name: ToiletCompass PR 21 review
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/toiletcompass-pr21-review.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ci/toiletcompass-pr21-review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      APP_REPO: Persie0/toiletcompass
+      APP_BRANCH: fix/compact-preferences-onboarding
+      EXPECTED_HEAD: 596203fbab4dd56d24739eb856b3c8a2c2d16a4a
+    steps:
+      - name: Checkout exact app review revision
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/toiletcompass
+          ref: fix/compact-preferences-onboarding
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          path: app
+      - name: Verify revision and PR state
+        working-directory: app
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies and generate localization
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter gen-l10n
+      - name: Analyze and test
+        working-directory: app
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test
+      - name: Commit validated dependency and generated file changes
+        working-directory: app
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$APP_BRANCH | cut -f1)" = "$EXPECTED_HEAD"
+          git add pubspec.lock missingLocal.txt
+          git add -u -- lib/l10n/gen_l10n ios macos android linux windows web
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Synchronize verified Flutter dependencies and generated files"
+            git push origin "HEAD:refs/heads/$APP_BRANCH"
+          fi
