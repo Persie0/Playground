@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/TopTravelList
-          ref: a85dc772110c6d161ae1a0a9dae0d15e3b178941
+          ref: 416d98d97d01d9aa944f1fb63a388781c94317bd
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           fetch-depth: 0
       - uses: actions/setup-python@v5
@@ -29,6 +29,8 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install -q -r requirements.txt
+          python scripts/apply_empty_category_decisions.py
+          python scripts/apply_empty_category_decisions.py --apply
           python scripts/reconcile_worldwide_backlog.py --verify-baseline > /tmp/backlog.txt 2>&1
           python scripts/reconcile_worldwide_backlog.py --verify-baseline --check > /tmp/backlog-check.txt 2>&1
           python scripts/generate_rankings.py > /tmp/rankings.txt 2>&1
@@ -47,17 +49,27 @@ jobs:
               assert not list(csv.DictReader(f, delimiter='\t')), 'Incomplete historical backlog remains'
           with Path('methodology/rating-completeness/unassessed-categories.tsv').open() as f:
               assert not list(csv.DictReader(f, delimiter='\t')), 'Explicit unassessed category fields remain'
-          print('Zero incomplete core ratings and zero explicit unassessed categories confirmed.')
+          with Path('methodology/rating-completeness/empty-category-profiles.tsv').open() as f:
+              assert not list(csv.DictReader(f, delimiter='\t')), 'Empty category profiles remain'
+          print('Zero incomplete core ratings, explicit unassessed categories and empty category profiles confirmed.')
           PY
       - name: Publish generated reports to private source branch
         run: |
           set -euo pipefail
           python - <<'PY'
-          import subprocess, re
+          import subprocess, re, json
+          from pathlib import Path
+          decisions=[]
+          for name in ('empty-city-category-decisions-2026-11-28.json','empty-sight-category-decisions-2026-11-28.json'):
+              decisions.extend(json.loads((Path('methodology/reviews')/name).read_text()))
+          expected_yaml={r['source'] for r in decisions}
+          expected_reviews={f"methodology/reviews/{Path(p).parts[1]}/{Path(p).parts[2]}.md" for p in expected_yaml}
           paths=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
           paths.update(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          assert {p for p in paths if p.endswith('.yaml')} == expected_yaml, 'Unexpected YAML changes'
+          assert expected_reviews <= paths, 'Missing review documentation'
           def allowed(p):
-              return p=='README.md' or bool(re.fullmatch(r'countries/[A-Z]{2}/(?:cities|sights)\.md',p)) or p.startswith(('methodology/worldwide-backlog/','methodology/worldwide-diagnostics/','methodology/rating-completeness/'))
+              return p in expected_yaml or p in expected_reviews or p=='README.md' or bool(re.fullmatch(r'countries/[A-Z]{2}/(?:cities|sights)\.md',p)) or p.startswith(('methodology/worldwide-backlog/','methodology/worldwide-diagnostics/','methodology/rating-completeness/'))
           assert all(allowed(p) for p in paths), 'Unexpected generated changes'
           if paths:
               subprocess.run(['git','add','--',*sorted(paths)],check=True)
@@ -66,8 +78,8 @@ jobs:
           git config user.name toptravellist-editorial-bot
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           if ! git diff --cached --quiet; then
-            git commit -m 'Regenerate rankings and worldwide numerical completeness inventories' > /tmp/commit.txt
+            git commit -m 'Complete all 161 category profiles and regenerate validated worldwide rankings' > /tmp/commit.txt
             git fetch origin refs/heads/data/post-merge-editorial-review-01
-            test "$(git rev-parse FETCH_HEAD)" = a85dc772110c6d161ae1a0a9dae0d15e3b178941
+            test "$(git rev-parse FETCH_HEAD)" = 416d98d97d01d9aa944f1fb63a388781c94317bd
             git push origin HEAD:refs/heads/data/post-merge-editorial-review-01
           fi
