@@ -1,4 +1,4 @@
-name: Airline simulator streamed journal and two-year fleet GREEN batch
+name: Airline simulator incremental terminal history and five-year fleet GREEN batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -10,7 +10,7 @@ jobs:
   verify:
     name: ${{ matrix.check }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
@@ -73,6 +73,8 @@ jobs:
             os: ubuntu-latest
           - check: benchmark-two-hundred-two-years-compressed
             os: ubuntu-latest
+          - check: benchmark-two-hundred-five-years-compressed
+            os: ubuntu-latest
           - check: benchmark-one-decade
             os: ubuntu-latest
           - check: godot-career-save
@@ -106,7 +108,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: 9e0995d1432db78825fd7601d53f582487f0f78a
+          ref: f825ca220ea673311039592130132e6a0e115859
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -120,7 +122,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=215
+          expected=216
           case "$CHECK" in
             career-save) args+=(--filter FullyQualifiedName~CareerSaveTests); expected=5 ;;
             thirty-one-day-career) args+=(--filter FullyQualifiedName~VerticalSliceTests); expected=1 ;;
@@ -138,7 +140,7 @@ jobs:
             seasonal-market) args+=(--filter FullyQualifiedName~MarketEvolutionTests); expected=6 ;;
             procedural-contracts) args+=(--filter FullyQualifiedName~ContractTests); expected=6 ;;
             manager-automation) args+=(--filter FullyQualifiedName~AutomationTests); expected=6 ;;
-            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=22 ;;
+            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=23 ;;
             *)
               if dotnet build AirlineSimulator.sln -c "$config" > "$RUNNER_TEMP/build.log" 2>&1; then
                 echo 'Solution build PASS'
@@ -252,6 +254,7 @@ jobs:
         run: |
           fleet=1
           days=30
+          trial_timeout=480
           compressed=false
           if [[ "$CHECK" == benchmark-ten* ]]; then fleet=10; fi
           if [[ "$CHECK" == *-year* ]]; then days=365; fi
@@ -262,6 +265,7 @@ jobs:
           if [ "$CHECK" = benchmark-two-hundred-quarter-compressed ]; then fleet=200; days=90; fi
           if [ "$CHECK" = benchmark-two-hundred-year-compressed ]; then fleet=200; days=365; fi
           if [ "$CHECK" = benchmark-two-hundred-two-years-compressed ]; then fleet=200; days=730; fi
+          if [ "$CHECK" = benchmark-two-hundred-five-years-compressed ]; then fleet=200; days=1825; trial_timeout=1500; fi
           if [ "$CHECK" = benchmark-one-decade ]; then days=3650; fi
           if ! dotnet build tools/SimulationBench/SimulationBench.csproj -c Release > "$RUNNER_TEMP/bench-build.log" 2>&1; then
             echo 'Benchmark build FAIL'
@@ -269,7 +273,7 @@ jobs:
             exit 1
           fi
           for trial in 1 2; do
-            if ! timeout 480 dotnet run --no-build -c Release --project tools/SimulationBench -- --seed 7 --fleet "$fleet" --days "$days" --compressed "$compressed" --csv "$RUNNER_TEMP/bench-$trial.csv" > "$RUNNER_TEMP/bench-$trial.log" 2>&1; then
+            if ! timeout "$trial_timeout" dotnet run --no-build -c Release --project tools/SimulationBench -- --seed 7 --fleet "$fleet" --days "$days" --compressed "$compressed" --csv "$RUNNER_TEMP/bench-$trial.csv" > "$RUNNER_TEMP/bench-$trial.log" 2>&1; then
               echo "Benchmark trial $trial FAIL"
               grep -Eo '^BENCH_FAILURE phase=(setup|simulation|persistence) code=(command-rejected|route-plan-capacity|planned-schedule-rejected|fleet-setup-incomplete|active-fleet-mismatch|reservation-conflict|outstanding-liability|completion-mismatch|rotation-count-mismatch|restore-mismatch) day=[0-9]+$' "$RUNNER_TEMP/bench-$trial.log" | head -1 || true
               exit 1
