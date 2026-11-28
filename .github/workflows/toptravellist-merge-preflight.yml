@@ -1,0 +1,109 @@
+name: TopTravelList merge preflight
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-merge-preflight.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toptravellist-merge-preflight
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: 7cf045f998ee59b5b00927b5897f7a42e22316f3
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Regenerate and validate authoritative dataset
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          python scripts/reconcile_worldwide_backlog.py --verify-baseline
+          python scripts/reconcile_worldwide_backlog.py --verify-baseline --check
+          python scripts/generate_rankings.py
+          python scripts/generate_rankings.py --check
+          python scripts/validate.py
+          git diff --check
+      - name: Verify source PR coverage
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/pull/328/head:refs/audit-pr/328 +refs/pull/330/head:refs/audit-pr/330 +refs/pull/331/head:refs/audit-pr/331 +refs/pull/332/head:refs/audit-pr/332 +refs/pull/333/head:refs/audit-pr/333 +refs/pull/334/head:refs/audit-pr/334 +refs/pull/335/head:refs/audit-pr/335 +refs/pull/336/head:refs/audit-pr/336 +refs/pull/337/head:refs/audit-pr/337 +refs/pull/338/head:refs/audit-pr/338 +refs/pull/339/head:refs/audit-pr/339 +refs/pull/340/head:refs/audit-pr/340 +refs/pull/341/head:refs/audit-pr/341 +refs/pull/342/head:refs/audit-pr/342 +refs/pull/343/head:refs/audit-pr/343 +refs/pull/344/head:refs/audit-pr/344 +refs/pull/345/head:refs/audit-pr/345 +refs/pull/346/head:refs/audit-pr/346 +refs/pull/347/head:refs/audit-pr/347 +refs/pull/348/head:refs/audit-pr/348 +refs/pull/349/head:refs/audit-pr/349 +refs/pull/350/head:refs/audit-pr/350 +refs/pull/351/head:refs/audit-pr/351 +refs/pull/352/head:refs/audit-pr/352 +refs/pull/353/head:refs/audit-pr/353 +refs/pull/354/head:refs/audit-pr/354 +refs/pull/355/head:refs/audit-pr/355 +refs/pull/356/head:refs/audit-pr/356 +refs/pull/357/head:refs/audit-pr/357 +refs/pull/358/head:refs/audit-pr/358 +refs/pull/359/head:refs/audit-pr/359 +refs/pull/360/head:refs/audit-pr/360 +refs/pull/361/head:refs/audit-pr/361 +refs/pull/362/head:refs/audit-pr/362 +refs/pull/363/head:refs/audit-pr/363 +refs/pull/364/head:refs/audit-pr/364 +refs/pull/365/head:refs/audit-pr/365 +refs/pull/366/head:refs/audit-pr/366 +refs/pull/367/head:refs/audit-pr/367 +refs/pull/368/head:refs/audit-pr/368 +refs/pull/369/head:refs/audit-pr/369 +refs/pull/370/head:refs/audit-pr/370 +refs/pull/371/head:refs/audit-pr/371 +refs/pull/372/head:refs/audit-pr/372 +refs/pull/373/head:refs/audit-pr/373 +refs/pull/374/head:refs/audit-pr/374 +refs/pull/375/head:refs/audit-pr/375 +refs/pull/376/head:refs/audit-pr/376 +refs/pull/377/head:refs/audit-pr/377 +refs/pull/378/head:refs/audit-pr/378 +refs/pull/379/head:refs/audit-pr/379 +refs/pull/380/head:refs/audit-pr/380 +refs/pull/381/head:refs/audit-pr/381 +refs/pull/382/head:refs/audit-pr/382 +refs/pull/383/head:refs/audit-pr/383 +refs/pull/385/head:refs/audit-pr/385 +refs/pull/249/head:refs/audit-pr/249
+          python - <<'PY'
+          import subprocess, re, yaml, json
+          from pathlib import Path
+          def git(*args): return subprocess.check_output(['git', *args], text=True)
+          def tree(ref):
+              return {line.split('\t',1)[1]:line.split()[2] for line in git('ls-tree','-r',ref).splitlines()}
+          def yaml_at(ref,p): return yaml.safe_load(git('show',f'{ref}:{p}'))
+          head='7cf045f998ee59b5b00927b5897f7a42e22316f3'
+          target=tree(head)
+          ids=[328,330,331,332,333,334,335,336,337,338,339,340,341,342,343,344,345,346,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,366,367,368,369,370,371,372,373,374,375,376,377,378,379,380,381,382,383,385,249]
+          results=[]
+          for n in ids:
+              ref=f'refs/audit-pr/{n}'
+              source=git('rev-parse',ref).strip()
+              base=git('merge-base',head,source).strip()
+              src=tree(source); baseline=tree(base)
+              changes=[p for p in sorted(set(src)|set(baseline)) if src.get(p)!=baseline.get(p)]
+              exact=[]; alternative=[]; missing=[]; regenerated=[]; docs=[]; deletions=[]
+              for p in changes:
+                  if src.get(p)==target.get(p):
+                      exact.append(p); continue
+                  if p not in src:
+                      deletions.append(p); continue
+                  if p=='README.md' or re.fullmatch(r'countries/[A-Z]{2}/(?:cities|sights)\.md',p) or p.startswith('methodology/worldwide-backlog/'):
+                      regenerated.append(p); continue
+                  if p not in target:
+                      missing.append(p); continue
+                  if re.fullmatch(r'countries/[A-Z]{2}/(?:cities|sights)/[^/]+\.yaml',p):
+                      a=yaml_at(source,p); b=yaml_at(head,p)
+                      differing=[]
+                      for k,v in a.get('scores',{}).items():
+                          if k=='categories':
+                              for ck,cv in (v or {}).items():
+                                  if cv is not None and b.get('scores',{}).get('categories',{}).get(ck)!=cv:
+                                      differing.append([f'categories.{ck}',cv,b.get('scores',{}).get('categories',{}).get(ck)])
+                          elif v is not None and b.get('scores',{}).get(k)!=v:
+                              differing.append([k,v,b.get('scores',{}).get(k)])
+                      metadata=[k for k in a if k!='scores' and a[k]!=b.get(k)]
+                      alternative.append({'path':p,'score_differences':differing,'metadata_differences':metadata})
+                  else: docs.append(p)
+              results.append({'pr':n,'head':source,'base':base,'changed':len(changes),'exact':len(exact),'regenerated':len(regenerated),'alternative':alternative,'other_changed_docs':docs,'missing':missing,'source_deletions_not_exact':deletions})
+          report=Path('methodology/reviews/worldwide-merge-preflight-2026-11-28.json')
+          assert not report.exists()
+          report.write_text(json.dumps({'head':head,'source_prs':results},indent=2,ensure_ascii=False)+'\n')
+          print(json.dumps([{k:(len(v) if isinstance(v,list) else v) for k,v in row.items()} for row in results],indent=2))
+          print('Missing source paths:',[(r['pr'],p) for r in results for p in r['missing']])
+          PY
+      - name: Publish validated generated outputs and source coverage report
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess,re
+          from pathlib import Path
+          paths=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          paths.update(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          allowed=lambda p:p=='README.md' or bool(re.fullmatch(r'countries/[A-Z]{2}/(?:cities|sights)\.md',p)) or p.startswith('methodology/worldwide-backlog/') or p=='methodology/reviews/worldwide-merge-preflight-2026-11-28.json'
+          assert all(allowed(p) for p in paths), sorted(p for p in paths if not allowed(p))
+          subprocess.run(['git','add','--',*sorted(paths)],check=True)
+          PY
+          git diff --cached --check
+          git config user.name toptravellist-editorial-bot
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Regenerate validated worldwide rankings and audit source PR coverage'
+          git fetch origin refs/heads/data/worldwide-bias-audit-pass205
+          test "$(git rev-parse FETCH_HEAD)" = 7cf045f998ee59b5b00927b5897f7a42e22316f3
+          git push origin HEAD:refs/heads/data/worldwide-bias-audit-pass205
