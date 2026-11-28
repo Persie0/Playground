@@ -1,0 +1,39 @@
+name: Validate simulator integration
+on:
+  push:
+    branches: [validate-airline-foundation-18b6979]
+    paths: [.github/workflows/validate-airline-foundation-18b6979.yml]
+permissions:
+  contents: read
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/airlinesimulator
+          ref: 18b69797a233cb30eff916f5d3f85c51268005ed
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Simulation tests (private source output suppressed)
+        run: |
+          if dotnet test tests/Simulation.Tests/Simulation.Tests.csproj -c Release > "$RUNNER_TEMP/sim.log" 2>&1; then
+            echo "Simulation tests passed"
+          else
+            echo "::error::Simulation tests failed"
+            exit 1
+          fi
+      - name: Game build (private source output suppressed)
+        run: |
+          if dotnet build AirlineSimulator.csproj -c Release > "$RUNNER_TEMP/build.log" 2>&1; then
+            echo "Game build passed"
+          else
+            echo "::error::Game build failed"
+            exit 1
+          fi
