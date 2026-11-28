@@ -1,0 +1,92 @@
+name: Capture actual simulator preview
+on:
+  push:
+    branches: [validate-airline-foundation-18b6979]
+    paths: [.github/workflows/airline-real-preview.yml]
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/airlinesimulator
+          ref: c5a7e56474eef6d67a1d69e3c7dfb4075b1c65aa
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Install renderer and build
+        shell: bash
+        run: |
+          sudo apt-get update -qq > "$RUNNER_TEMP/apt.log" 2>&1
+          sudo apt-get install -y xvfb xdotool imagemagick >> "$RUNNER_TEMP/apt.log" 2>&1
+          version=4.7.2-stable
+          curl -fsSL --retry 3 "https://github.com/godotengine/godot-builds/releases/download/$version/Godot_v${version}_mono_linux_x86_64.zip" -o "$RUNNER_TEMP/godot.zip"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          editor=$(find "$RUNNER_TEMP/godot" -type f -name 'Godot*_mono_linux.x86_64' -print -quit)
+          test -n "$editor"
+          chmod +x "$editor"
+          echo "GODOT_EDITOR=$editor" >> "$GITHUB_ENV"
+          "$editor" --headless --editor --path . --import > "$RUNNER_TEMP/import.log" 2>&1
+          dotnet build AirlineSimulator.csproj -c Debug > "$RUNNER_TEMP/build.log" 2>&1
+      - name: Capture actual game window
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/previews"
+          export DISPLAY=:99 LIBGL_ALWAYS_SOFTWARE=1
+          Xvfb :99 -screen 0 1280x720x24 -nolisten tcp > "$RUNNER_TEMP/xvfb.log" 2>&1 &
+          sleep 2
+          "$GODOT_EDITOR" --path . --audio-driver Dummy --resolution 1280x720 --position 0,0 > "$RUNNER_TEMP/game.log" 2>&1 &
+          game=$!
+          trap 'kill "$game" 2>/dev/null || true' EXIT
+          for i in $(seq 1 90); do
+            if grep -q AIRLINE_BOOT_OK "$RUNNER_TEMP/game.log"; then break; fi
+            kill -0 "$game" || exit 1
+            sleep 1
+          done
+          grep -q AIRLINE_BOOT_OK "$RUNNER_TEMP/game.log"
+          wid=$(xdotool search --onlyvisible --name 'Budget Airline Simulator' | tail -1)
+          test -n "$wid"
+          xdotool windowfocus "$wid"
+          capture() {
+            sleep 3
+            kill -0 "$game"
+            import -window "$wid" "$RUNNER_TEMP/previews/$1.png"
+            test -s "$RUNNER_TEMP/previews/$1.png"
+          }
+          capture 01-terminal
+          xdotool key --repeat 18 --delay 150 n
+          capture 02-terminal-active
+          xdotool key 5
+          capture 03-apron
+          xdotool key 2
+          capture 04-cabin
+          xdotool key 6
+          capture 05-hangar
+          xdotool key 9
+          capture 06-development
+          xdotool key 3
+          capture 07-globe
+          echo "Captured $(find "$RUNNER_TEMP/previews" -name '*.png' | wc -l) actual rendered images"
+      - name: Publish screenshots exclusively to private source repository
+        env:
+          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          test -n "$PRIVATE_TOKEN"
+          mkdir -p previews/c5a7e56
+          cp "$RUNNER_TEMP/previews/"*.png previews/c5a7e56/
+          git config user.name "Preview capture"
+          git config user.email "preview@users.noreply.github.com"
+          git add -f previews/c5a7e56/*.png
+          git commit -m "Capture real Godot screenshots of c5a7e56" > "$RUNNER_TEMP/commit.log" 2>&1
+          auth=$(printf 'x-access-token:%s' "$PRIVATE_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" push https://github.com/Persie0/airlinesimulator.git HEAD:refs/heads/preview-c5a7e56 > "$RUNNER_TEMP/push.log" 2>&1 || { echo "::error::Private screenshot push failed"; exit 1; }
+          echo "Private screenshot branch published"
