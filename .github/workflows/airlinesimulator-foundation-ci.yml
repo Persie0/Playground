@@ -1,4 +1,4 @@
-name: Airline simulator compressed saves and annual 200 aircraft GREEN batch
+name: Airline simulator streamed restore and peak memory GREEN batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -63,6 +63,8 @@ jobs:
             os: ubuntu-latest
           - check: benchmark-two-hundred-month
             os: ubuntu-latest
+          - check: benchmark-two-hundred-quarter-compressed
+            os: ubuntu-latest
           - check: benchmark-fifty-year
             os: ubuntu-latest
           - check: benchmark-fifty-year-compressed
@@ -102,7 +104,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: 647fb35782e375051517ebf0624f84d8ced56bdb
+          ref: 4be35b1023ed3d257a34b8493178d86960d5e87a
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -116,7 +118,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=205
+          expected=208
           case "$CHECK" in
             career-save) args+=(--filter FullyQualifiedName~CareerSaveTests); expected=5 ;;
             thirty-one-day-career) args+=(--filter FullyQualifiedName~VerticalSliceTests); expected=1 ;;
@@ -134,7 +136,7 @@ jobs:
             seasonal-market) args+=(--filter FullyQualifiedName~MarketEvolutionTests); expected=6 ;;
             procedural-contracts) args+=(--filter FullyQualifiedName~ContractTests); expected=6 ;;
             manager-automation) args+=(--filter FullyQualifiedName~AutomationTests); expected=6 ;;
-            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=12 ;;
+            endless-history) args+=(--filter FullyQualifiedName~EndlessTests); expected=15 ;;
             *)
               if dotnet build AirlineSimulator.sln -c "$config" > "$RUNNER_TEMP/build.log" 2>&1; then
                 echo 'Solution build PASS'
@@ -255,6 +257,7 @@ jobs:
           if [[ "$CHECK" == benchmark-fifty* ]]; then fleet=50; fi
           if [ "$CHECK" = benchmark-two-hundred-week ]; then fleet=200; days=7; fi
           if [ "$CHECK" = benchmark-two-hundred-month ]; then fleet=200; days=30; fi
+          if [ "$CHECK" = benchmark-two-hundred-quarter-compressed ]; then fleet=200; days=90; fi
           if [ "$CHECK" = benchmark-two-hundred-year-compressed ]; then fleet=200; days=365; fi
           if [ "$CHECK" = benchmark-one-decade ]; then days=3650; fi
           if ! dotnet build tools/SimulationBench/SimulationBench.csproj -c Release > "$RUNNER_TEMP/bench-build.log" 2>&1; then
@@ -282,7 +285,7 @@ jobs:
           assert rows[0]['canonical_sha256'] == rows[1]['canonical_sha256']
           for i, row in enumerate(rows, 1):
               print(f'Trial {i}')
-              for key in ('fleet','days','completed','elapsed_ms','setup_ms','p50_day_ms','p95_day_ms','managed_bytes','working_set_bytes','save_bytes','save_ms','load_ms','cash_cents','profit_cents','deferred_cents','handlers','summary_buckets'):
+              for key in ('fleet','days','completed','elapsed_ms','setup_ms','p50_day_ms','p95_day_ms','managed_bytes','working_set_bytes','peak_working_set_bytes','save_bytes','save_ms','load_ms','cash_cents','profit_cents','deferred_cents','handlers','summary_buckets'):
                   value = row[key]
                   assert re.fullmatch(r'-?[0-9]+(?:\.[0-9]+)?', value)
                   print(f'{key}={value}')
