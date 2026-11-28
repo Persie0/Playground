@@ -1,0 +1,59 @@
+name: TopTravelList Costa Rica audit 372
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-costa-rica-audit-372.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: '409d0b0a32e88aadd303504e2b24ac53e274623d'
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: repo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate exact snapshot without publishing private data
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '409d0b0a32e88aadd303504e2b24ac53e274623d'
+          python -m pip install -r requirements.txt --quiet
+          failures=0
+          for check in schema costa_rica_rankings worldwide_rankings; do
+            case "$check" in
+              schema) cmd=(python scripts/validate.py);;
+              costa_rica_rankings) cmd=(python scripts/generate_rankings.py --country CR --check);;
+              worldwide_rankings) cmd=(python scripts/generate_rankings.py --check);;
+            esac
+            if "${cmd[@]}" >"/tmp/$check.log" 2>&1; then
+              echo "$check: PASS"
+            else
+              echo "$check: FAIL"
+              failures=$((failures+1))
+            fi
+          done
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          from decimal import Decimal
+          paths = list(Path('countries/CR/sights').glob('*.yaml'))
+          records = [yaml.safe_load(p.read_text()) for p in paths]
+          assert len(records) == 135
+          dimensions = ('impact','uniqueness','significance','experience','depth')
+          weights = (30,25,20,15,10)
+          vals = [sum(Decimal(str(r['scores'][d]))*w for d,w in zip(dimensions,weights))/10 for r in records]
+          assert len(set(r['id'] for r in records)) == 135
+          assert sum(v >= 90 for v in vals) == 22
+          print('Costa Rica source inventory: 135 ranked, 22 at least 90')
+          PY
+          test "$failures" -eq 0
