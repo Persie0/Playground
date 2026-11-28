@@ -1,0 +1,118 @@
+name: TopTravelList main consolidation and branch audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toptravellist-main-consolidation-20261128.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Inventory and reconcile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          git config user.name 'TopTravelList audit'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python - <<'PY'
+          import subprocess, re, json, pathlib
+          def g(*a):
+              return subprocess.check_output(['git',*a])
+          def t(*a):
+              return g(*a).decode().strip()
+          def run(*a):
+              subprocess.run(a,check=True)
+          base=t('rev-parse','HEAD')
+          expected='62bdcb8bbe09e161a077cfc83df7afe9ccf2da12'
+          if base!=expected:
+              raise SystemExit(f'Main changed: {base}')
+          sources={
+              'audit/nicaragua-375':'54251828dbd4522956f885a8de1229d83fc6b99f',
+              'audit/honduras-380':'4444390b039f998ad0b4667af59c3b033d5b5360',
+              'audit/el-salvador-386':'66b5fc8d9c5e1bc0c331add2e4de7776af9c3a42',
+          }
+          changed=set()
+          def generated(p):
+              return bool(re.fullmatch(r'countries/[A-Z]{2}/(?:cities|sights)\.md',p))
+          def paths(a,b):
+              return [p.decode() for p in g('diff','--name-only','-z',a,b).split(b'\0') if p]
+          def ancestor(a,b):
+              return subprocess.run(['git','merge-base','--is-ancestor',a,b]).returncode==0
+          def equal(a,b,p):
+              return subprocess.run(['git','diff','--quiet',a,b,'--',p]).returncode==0
+          for branch,sha in sources.items():
+              if t('rev-parse','origin/'+branch)!=sha:
+                  raise SystemExit(f'Source moved: {branch}')
+              mb=t('merge-base',base,sha)
+              for p in paths(mb,sha):
+                  if p=='README.md' or generated(p):
+                      continue
+                  if not re.fullmatch(r'countries/(NI|HN|SV)/sights/[^/]+\.yaml|methodology/reviews/(nicaragua|honduras|el-salvador)-expansion-pass-[0-9]+\.md',p):
+                      raise SystemExit(f'Unexpected source path {p}')
+                  if p in changed or not equal(mb,base,p):
+                      raise SystemExit(f'Overlapping change {p}')
+                  run('git','restore','--source='+sha,'--staged','--worktree','--',p)
+                  changed.add(p)
+          run('python','scripts/validate.py')
+          run('python','scripts/generate_rankings.py')
+          run('python','scripts/generate_rankings.py','--check')
+          run('git','add','README.md','countries')
+          tree=t('write-tree')
+          merged=t('commit-tree',tree,'-p',base,*[arg for sha in sources.values() for arg in ('-p',sha)],'-m','Consolidate Nicaragua, Honduras and El Salvador audits into main')
+          run('git','reset','--hard',merged)
+          refs=[line.split(' ',1) for line in t('for-each-ref','--format=%(objectname) %(refname:strip=3)','refs/remotes/origin').splitlines()]
+          exact=[]
+          pending=[]
+          already=0
+          def readme_non_generated(sha):
+              try:
+                  s=g('show',sha+':README.md').decode()
+              except subprocess.CalledProcessError:
+                  return None
+              return re.sub(r'(?s)<!-- COUNTRY_DIRECTORY_START -->.*?<!-- COUNTRY_DIRECTORY_END -->','<generated index>',s)
+          current_readme=readme_non_generated(merged)
+          for sha,branch in refs:
+              if branch in ('HEAD','main'):
+                  continue
+              if ancestor(sha,merged):
+                  already+=1
+                  continue
+              mb=t('merge-base',merged,sha)
+              ps=paths(mb,sha)
+              # Only record ancestry if all authoritative changes already exist exactly.
+              # Generated country rankings and README's generated index are derived data.
+              diff=[p for p in ps if not generated(p) and not (p=='README.md' and readme_non_generated(sha)==current_readme) and not equal(merged,sha,p)]
+              if not diff:
+                  exact.append((sha,branch))
+              else:
+                  pending.append({'branch':branch,'sha':sha,'ahead':int(t('rev-list','--count',merged+'..'+sha)),'paths':len(diff),'sample':diff[:12]})
+          # Record only exact-equivalent source trees, using non-destructive merge ancestry.
+          for i in range(0,len(exact),20):
+              batch=[sha for sha,_ in exact[i:i+20] if not ancestor(sha,merged)]
+              batch=list(dict.fromkeys(batch))
+              if batch:
+                  merged=t('commit-tree',tree,'-p',merged,*[a for sha in batch for a in ('-p',sha)],'-m','Record ancestry of already-integrated branch changes')
+          run('git','reset','--hard',merged)
+          run('git','diff','--check',base,merged)
+          report={'baseline':base,'commit':merged,'source_paths':len(changed),'refs':len([b for _,b in refs if b not in ('HEAD','main')]),'already_ancestor':already,'exact_equivalent':len(exact),'pending':pending}
+          print('BRANCH_AUDIT_JSON='+json.dumps(report,ensure_ascii=False),flush=True)
+          # Fast-forward only, never force. Concurrent main changes cause a safe failure.
+          run('git','push','origin',merged+':refs/heads/main')
+          print('PUBLISHED_MAIN='+merged,flush=True)
+          PY
