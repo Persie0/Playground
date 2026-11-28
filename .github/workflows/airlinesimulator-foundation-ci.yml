@@ -1,4 +1,4 @@
-name: Airline simulator playable airside service jobs validation
+name: Airline simulator persisted fleet livery and branding validation
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -15,6 +15,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - check: brand-strategy
+            os: ubuntu-latest
           - check: full-release
             os: ubuntu-latest
           - check: windows-release
@@ -42,7 +44,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: 533e4d3747681ea3cd5fb8ccb695b1e60cfc8fbd
+          ref: ad3772fcd2a966834fc373c465ba936bdd2a80e6
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -56,7 +58,7 @@ jobs:
           config=Release
           if [ "$CHECK" = full-debug ]; then config=Debug; fi
           args=(tests/Simulation.Tests/Simulation.Tests.csproj -c "$config")
-          expected=228
+          expected=229
           case "$CHECK" in
             booking) args+=(--filter FullyQualifiedName~BookingTests); expected=9 ;;
             ledger) args+=(--filter FullyQualifiedName~LedgerTests); expected=9 ;;
@@ -71,7 +73,7 @@ jobs:
             network-depth) args+=(--filter FullyQualifiedName~NetworkDepthTests); expected=5 ;;
             connections-loyalty) args+=(--filter FullyQualifiedName~ConnectionTests); expected=6 ;;
             partner-offers) args+=(--filter FullyQualifiedName~PartnerOfferTests); expected=5 ;;
-            brand-strategy) args+=(--filter FullyQualifiedName~StrategyTests); expected=10 ;;
+            brand-strategy) args+=(--filter FullyQualifiedName~StrategyTests); expected=11 ;;
             ceo-work) args+=(--filter FullyQualifiedName~WorkTaskTests); expected=6 ;;
             seasonal-market) args+=(--filter FullyQualifiedName~MarketEvolutionTests); expected=6 ;;
             procedural-contracts) args+=(--filter FullyQualifiedName~ContractTests); expected=6 ;;
