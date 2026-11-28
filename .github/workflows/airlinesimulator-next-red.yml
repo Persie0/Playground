@@ -1,4 +1,4 @@
-name: Airline simulator procedural contracts RED batch
+name: Airline simulator manager automation RED batch
 on:
   push:
     branches: [airlinesimulator-foundation-ci]
@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [contract-feasibility, contract-rewards, contract-persistence]
+        task: [automation-dry-run, automation-budget, automation-replay]
     steps:
       - uses: actions/setup-dotnet@v4
         with:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Persie0/airlinesimulator
-          ref: 1f83d776e8fc6afe66b4a1449ab7bb6837481a2c
+          ref: b6c27a73d01300d4b93687d030470d34e50b7d6a
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
           path: private-source
@@ -35,17 +35,17 @@ jobs:
           TASK: ${{ matrix.task }}
         run: |
           case "$TASK" in
-            contract-feasibility)
-              filter=FullyQualifiedName~ContractTests.RejectImpossibleContracts
-              expected='CS(1061|0246).*(Contracts|ContractOffer)'
+            automation-dry-run)
+              filter=FullyQualifiedName~AutomationTests.DryRunAndConflict
+              expected='CS(1061|0246|0103).*(Automation|AutomationRule|AutomationCondition|AutomationAction)'
               ;;
-            contract-rewards)
-              filter=FullyQualifiedName~ContractTests.CompletingAndClaimingTwicePaysOnlyOnce
-              expected='CS(1061|0103|0246).*(Contracts|Milestones|ContractStatus|ContractOffer)'
+            automation-budget)
+              filter=FullyQualifiedName~AutomationTests.DailyBudgetIncludesEarlierSuccessfulActions
+              expected='CS(1061|0246|0103).*(Automation|AutomationRule|AutomationCondition|AutomationAction)'
               ;;
-            contract-persistence)
-              filter=FullyQualifiedName~ContractTests.ContractProgressAndClaimIdempotencySurviveReload
-              expected='CS(1061|0246).*(Contracts|Milestones|ContractOffer)'
+            automation-replay)
+              filter=FullyQualifiedName~AutomationTests.RulesCooldownAndDecisionsSurviveReload
+              expected='CS(1061|0246|0103).*(Automation|AutomationRule|Managers)'
               ;;
           esac
           set +e
