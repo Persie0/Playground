@@ -1,0 +1,98 @@
+name: TopTravelList legacy branch reconciliation inventory
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/toptravellist-legacy-branch-review-20261128.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Persie0/TopTravelList
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pyyaml
+      - name: Compare every remaining source path
+        shell: bash
+        run: |
+          python - <<'PY'
+          import subprocess, json, re, pathlib, collections, yaml
+          def git(*a):
+              return subprocess.check_output(['git',*a])
+          def t(*a):
+              return git(*a).decode().strip()
+          def tree(ref):
+              return {p.decode():h.decode().split()[2] for h,p in (x.split(b'\t',1) for x in git('ls-tree','-rz',ref).split(b'\0') if x)}
+          def changed(a,b):
+              return set(x.decode() for x in git('diff','--name-only','--no-renames','-z',a,b).split(b'\0') if x)
+          main=t('rev-parse','HEAD')
+          mt=tree(main)
+          refs=[l.split(' ',1) for l in t('for-each-ref','--format=%(objectname) %(refname:strip=3)','refs/remotes/origin').splitlines()]
+          reachable=set(t('rev-list',main).splitlines())
+          pending=[(sha,b) for sha,b in refs if b not in ('HEAD','main') and sha not in reachable]
+          typ=collections.Counter()
+          missing=collections.defaultdict(list)
+          nonconflicting=collections.defaultdict(list)
+          nondata=collections.defaultdict(list)
+          deletions=collections.defaultdict(list)
+          records=collections.defaultdict(list)
+          trees={}
+          bases={}
+          def data(p):
+              return re.fullmatch(r'countries/[A-Z]{2}/(?:sights|cities)/[^/]+\.yaml',p)
+          def generated(p):
+              return re.fullmatch(r'countries/[A-Z]{2}/(?:cities|sights)\.md',p)
+          for sha,branch in pending:
+              st=trees.get(sha)
+              if st is None:
+                  st=tree(sha)
+              mb=t('merge-base',main,sha)
+              bt=bases.get(mb)
+              if bt is None:
+                  bt=tree(mb); bases[mb]=bt
+              for p in changed(mb,sha):
+                  if st.get(p)==mt.get(p):
+                      typ['exact']+=1;continue
+                  if generated(p):
+                      typ['generated']+=1;continue
+                  v={'branch':branch,'sha':sha,'source_blob':st.get(p),'base_blob':bt.get(p),'main_blob':mt.get(p)}
+                  if not st.get(p):
+                      deletions[p].append(v);typ['source_deleted']+=1;continue
+                  if not mt.get(p):
+                      missing[p].append(v);typ['absent_main']+=1;continue
+                  if data(p):
+                      if bt.get(p)==mt.get(p):
+                          nonconflicting[p].append(v);typ['data_nonconflicting']+=1
+                      else:
+                          records[p].append(v);typ['data_competing']+=1
+                  else:
+                      nondata[p].append(v);typ['nondata']+=1
+          print('REVIEW_SUMMARY='+json.dumps({'main':main,'refs':len(refs)-2,'ahead':len(pending),'categories':dict(typ),'unique_absent':len(missing),'unique_nonconflicting_data':len(nonconflicting),'unique_nondata':len(nondata),'unique_deletions':len(deletions),'unique_competing_data':len(records)}),flush=True)
+          def short(v):
+              return {'branch':v['branch'],'sha':v['sha'],'blob':v['source_blob'],'existed_base':bool(v['base_blob'])}
+          for name,m in [('ABSENT',missing),('NONCONFLICT_DATA',nonconflicting),('SOURCE_DELETE',deletions)]:
+              for p,vs in sorted(m.items()):
+                  unique={v['source_blob']:v for v in vs}
+                  out={'path':p,'variants':[short(v) for v in unique.values()]}
+                  if data(p):
+                      vals=[]
+                      for h,v in unique.items():
+                          if h:
+                              try:
+                                  z=yaml.safe_load(git('cat-file','blob',h)); vals.append({'branch':v['branch'],'name':z.get('name'),'location':z.get('location'),'scores':z.get('scores')})
+                              except Exception as e: vals.append({'error':str(e)})
+                      out['values']=vals
+                  print(name+'='+json.dumps(out,ensure_ascii=False))
+          for p,vs in sorted(nondata.items()):
+              print('NONDATA='+json.dumps({'path':p,'branches':[v['branch'] for v in vs],'variants':len(set(v['source_blob'] for v in vs)),'unchanged_on_main':any(v['base_blob']==v['main_blob'] for v in vs)}))
+          PY
